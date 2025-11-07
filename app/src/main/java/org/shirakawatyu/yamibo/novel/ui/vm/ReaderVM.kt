@@ -715,7 +715,10 @@ class ReaderVM : ViewModel() {
 
     // 切换夜间模式
     fun toggleNightMode(isNight: Boolean) {
-        _uiState.value = _uiState.value.copy(nightMode = isNight)
+        _uiState.value = _uiState.value.copy(
+            nightMode = isNight,
+            backgroundColor = null
+        )
         saveCurrentSettings()
     }
 
