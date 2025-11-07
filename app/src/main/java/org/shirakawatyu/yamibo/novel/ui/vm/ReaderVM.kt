@@ -91,7 +91,7 @@ class ReaderVM : ViewModel() {
             maxHeight = initHeight
 
             val applySettingsAndLoad = { settings: ReaderSettings? ->
-                // v-- 新增背景颜色加载逻辑 --v
+                // 背景颜色加载
                 val bgColor = settings?.backgroundColor?.let {
                     try {
                         Color(android.graphics.Color.parseColor(it))
@@ -105,7 +105,8 @@ class ReaderVM : ViewModel() {
                     lineHeight = settings?.lineHeightPx?.let { ValueUtil.pxToSp(it) } ?: 43.sp,
                     padding = (settings?.paddingDp ?: 16f).dp,
                     nightMode = settings?.nightMode ?: false,
-                    backgroundColor = bgColor // <-- 新增
+                    backgroundColor = bgColor,
+                    loadImages = settings?.loadImages ?: false
                 )
                 loadWithSettings()
             }
@@ -132,12 +133,16 @@ class ReaderVM : ViewModel() {
                 currentAuthorId = favorite?.authorId
                 // 从缓存中获取页面数据
                 CacheUtil.getCache(url, targetView) { cacheData ->
-                    if (cacheData != null &&
-                        cacheData.authorId == currentAuthorId
-                    ) {
+                    if (cacheData != null) {
                         // 缓存命中：使用缓存数据更新UI状态并完成加载
                         Log.i(logTag, "Cache hit for page $targetView")
-
+                        if (currentAuthorId == null && cacheData.authorId != null) {
+                            Log.i(
+                                logTag,
+                                "Updating local authorId from cache: ${cacheData.authorId}"
+                            )
+                            currentAuthorId = cacheData.authorId
+                        }
                         _uiState.value = _uiState.value.copy(
                             currentView = targetView,
                             initPage = targetPage,
@@ -559,7 +564,8 @@ class ReaderVM : ViewModel() {
             ValueUtil.spToPx(state.lineHeight),
             state.padding.value,
             state.nightMode,
-            backgroundColorString
+            backgroundColorString,
+            state.loadImages
         )
         SettingsUtil.saveSettings(settings)
     }
@@ -725,6 +731,7 @@ class ReaderVM : ViewModel() {
     // 切换图片加载
     fun toggleLoadImages(load: Boolean) {
         _uiState.value = _uiState.value.copy(loadImages = load)
+        saveCurrentSettings()
         val currentPage = latestPage
         _uiState.value = _uiState.value.copy(initPage = currentPage)
         onSetView(uiState.value.currentView, forceReload = true)

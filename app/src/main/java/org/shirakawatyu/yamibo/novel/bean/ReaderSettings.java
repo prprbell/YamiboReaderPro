@@ -6,13 +6,17 @@ public class ReaderSettings {
     private Float paddingDp;// 改为了Float
 
     private Boolean nightMode;
+    private Boolean loadImages;
     private String backgroundColor;
-    public ReaderSettings(Float fontSizePx, Float lineHeightPx, Float padding, Boolean nightMode, String backgroundColor) { // <-- 修改此构造函数
+
+
+    public ReaderSettings(Float fontSizePx, Float lineHeightPx, Float padding, Boolean nightMode, String backgroundColor, Boolean loadImages) {
         this.fontSizePx = fontSizePx;
         this.lineHeightPx = lineHeightPx;
         this.paddingDp = padding;
         this.nightMode = nightMode;
         this.backgroundColor = backgroundColor;
+        this.loadImages = loadImages;
     }
 
     public ReaderSettings() {
@@ -56,5 +60,13 @@ public class ReaderSettings {
 
     public void setBackgroundColor(String backgroundColor) {
         this.backgroundColor = backgroundColor;
+    }
+
+    public Boolean getLoadImages() {
+        return loadImages;
+    }
+
+    public void setLoadImages(Boolean loadImages) {
+        this.loadImages = loadImages;
     }
 }

@@ -116,6 +116,8 @@ fun App() {
                             webChromeClient = GlobalData.webChromeClient
                         }
                     }
+                    val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
+                    val selectedItemIndex = pageList.indexOf(currentRoute).coerceAtLeast(0)
                     Column(verticalArrangement = Arrangement.SpaceBetween) {
                         NavHost(
                             modifier = Modifier.weight(1f),
@@ -131,14 +133,14 @@ fun App() {
                             composable("BBSPage") {
                                 BBSPage(
                                     bbsWebView,
-                                    isSelected = bottomNavBarVM.selectedItem == 1,
+                                    isSelected = selectedItemIndex == 1,
                                     cookieFlow = GlobalData.cookieFlow,
                                     navController = navController
                                 )
                             }
                             composable("MinePage") {
                                 MinePage(
-                                    isSelected = bottomNavBarVM.selectedItem == 2
+                                    isSelected = selectedItemIndex == 2
                                 )
                             }
 

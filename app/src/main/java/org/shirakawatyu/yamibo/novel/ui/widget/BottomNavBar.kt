@@ -25,7 +25,7 @@ fun BottomNavBar(
     NavigationBar(Modifier.height(50.dp), containerColor = YamiboColors.onSurface) {
         uiState.icons.forEachIndexed { index, item ->
             val targetRoute = pageList[index]
-            val isSelected = navBarVM.selectedItem == index
+            val isSelected = currentRoute == targetRoute
             NavigationBarItem(
                 icon = { Icon(item, contentDescription = "") },
                 selected = isSelected,

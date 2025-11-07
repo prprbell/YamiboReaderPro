@@ -79,7 +79,7 @@ class TextUtil {
             val avgCharsPerLine = (targetPixelWidth / fullWidthPx).toInt().coerceAtLeast(1)
             val estimatedTotalLines = (text.length / avgCharsPerLine).coerceAtLeast(1)
             val resultLines = ArrayList<String>(estimatedTotalLines)
-
+            var isStartOfParagraph = true // 标记是否为段落首行
             // 1. 将源文本拆分为 "内容行" 和 "段落标记行" ("")
             text.lineSequence()
                 .forEach { line ->
@@ -88,10 +88,21 @@ class TextUtil {
                         if (resultLines.isNotEmpty() && resultLines.last().isNotEmpty()) {
                             resultLines.add("") // 添加标记行
                         }
+                        isStartOfParagraph = true
                     } else {
                         // 这是一个内容行，对其进行分行
+                        val lineToChunk: String
+                        if (isStartOfParagraph) {
+                            // 1. 移除所有行首的空白符 (包括全角和半角)
+                            val trimmedLine = line.trimStart(' ', '　')
+                            // 2. 统一添加两个全角空格
+                            lineToChunk = "　　$trimmedLine"
+                            isStartOfParagraph = false // 重置标记
+                        } else {
+                            lineToChunk = line // 不是段落首行，保持原样
+                        }
                         chunkLineOptimized(
-                            line = line,
+                            line = lineToChunk,
                             targetPixelWidth = targetPixelWidth,
                             halfWidthPx = halfWidthPx,
                             fullWidthPx = fullWidthPx,

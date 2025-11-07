@@ -86,13 +86,5 @@ class CacheUtil {
             inMemoryCache.put(key, data)
         }
 
-        /**
-         * 清除特定页面的缓存 (如果是最后一页，不缓存)
-         */
-        fun clearCacheForPage(novelUrl: String, pageNum: Int) {
-            val key = generateKey(novelUrl, pageNum)
-            Log.i(logTag, "Clearing cache for page: $key")
-            inMemoryCache.remove(key)
-        }
     }
 }
