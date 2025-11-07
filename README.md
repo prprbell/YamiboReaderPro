@@ -18,7 +18,7 @@
 
 ## 软件下载
 
-
+[Github Release](https://github.com/34256346/YamiboReaderPro/releases)
 
 ## 软件截图
 
