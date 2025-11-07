@@ -1,8 +1,18 @@
 # 300文学阅读器
 
-为百合会论坛小说提供更好的阅读体验
+为百合会论坛小说提供更好的阅读体验，支持常见小说阅读器的功能。
 
-系统要求: Android 7.0及以上
+
+
+最好用来看小说，如果你主要用百合会看漫画或浏览论坛帖子，浏览器直接启动网页比app流畅。
+
+
+
+系统要求: Android 7.0（may be higher）及以上
+
+
+
+做完这个要准备上班了，大概只会修修bug，不太会有功能更新，而且感觉把点子全用上了，因为在仙台告白之前几乎没用过百合会，现在用也几乎只用来看周次，所以想不到其他的扩展功能了。
 
 ## 内容列表
 
@@ -14,23 +24,64 @@
 
 ## 已知问题
 
-1. 我没有多个账号，目测换账号登录肯定会出问题，要换的话一定要把数据清除。
+1. 我没有多个账号，目测换账号登录可能会出问题，要换的话最好先把软件数据清除。
+1. 首次加载可能卡顿，如果你觉得卡住了，建议重进一次页面或重启软件。
 
 ## 软件下载
 
 [Github Release](https://github.com/34256346/YamiboReaderPro/releases)
 
+
+
+[度盘](https://pan.baidu.com/s/15EZiwp0Z5z8qrg1Gd4IIlA?pwd=yuri)
+
+
+
 ## 软件截图
 
-<div style="display: flex">
-  <img src="screenshots/1.jpg" width="15%"/>
-  <img src="screenshots/2.jpg" width="15%"/>
-  <img src="screenshots/3.jpg" width="15%"/>
-  <img src="screenshots/4.jpg" width="15%"/>
-  <img src="screenshots/5.jpg" width="15%"/>
-  <img src="screenshots/6.jpg" width="15%"/>
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 600px;">
+  <img src="screenshots/1.jpg" style="width: 100%; height: auto;"/>
+  <img src="screenshots/2.jpg" style="width: 100%; height: auto;"/>
+  <img src="screenshots/3.jpg" style="width: 100%; height: auto;"/>
+  <img src="screenshots/4.jpg" style="width: 100%; height: auto;"/>
+  <img src="screenshots/5.jpg" style="width: 100%; height: auto;"/>
+  <img src="screenshots/6.jpg" style="width: 100%; height: auto;"/>
 </div>
 
+
+
+## 相比原项目的重大升级
+
+本项目在原 [flben233/YamiboReader](https://github.com/flben233/YamiboReader) 的基础上进行了重构与功能增强，旨在提供更流畅、方便的百合会小说阅读体验。主要升级包括：
+
+1. 阅读体验与性能优化
+
+- 预加载：快读完当前页面时（还差50页时）自动后台加载下一页内容。
+- 缓存：基于 `LruCache` 实现已读页面在内存中缓存（最多缓存20mb，周次一页1mb左右，只缓存在内存中是为了应对可能存在的页面更新，关闭软件会清除）。
+
+2. 全新阅读器界面与个性化设置
+
+- 现代化 UI：弹窗设置升级工具栏，操作更现代。
+- 夜间模式：支持深色主题。
+- 图片加载开关：可选是否加载帖子图片，提升加载速度。
+
+3. 章节导航功能
+
+- 自动提取章节目录：识别章节标题（每楼第一行）构建目录。
+- 章节列表：打开章节列表，快速跳转。
+
+4. “只看楼主”功能自动化
+
+- 自动启用楼主过滤：首次进入某部小说，阅读器加载时间会较长，会先会进入所有人页面，自动模拟点击“只看楼主”。后续会提取并保存作者id，自动拼接 URL，确保始终只看该作者内容。
+
+5. 收藏夹功能强化
+
+- 拖拽排序：长按收藏项即可自由调整顺序。
+- 自动刷新：每次进入收藏夹页面会进行刷新。
+
+6. 算法与稳定性提升
+
+- 分页算法和两端对齐算法：正确处理段落换行，两端对齐，排版更自然。（**Thank you, Gemini!**）
 
 ## 开源许可
 
@@ -47,6 +98,8 @@ JSON解析: [FastJSON2](https://github.com/alibaba/fastjson2)
 图片显示: [coil](https://github.com/coil-kt/coil)
 
 拖拽排序: [Reorderable](https://github.com/Calvin-LL/Reorderable)
+
+缓存：[LRUCache](https://github.com/nicklockwood/LRUCache)
 
 ## 维护者
 
