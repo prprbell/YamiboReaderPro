@@ -22,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,7 +46,8 @@ fun ContentViewer(
     letterSpacing: TextUnit = 2.sp,
     currentPage: Int,
     pageCount: Int,
-    nightMode: Boolean
+    nightMode: Boolean,
+    backgroundColor: Color
 ) {
     // 定义上下边距
     val topPadding = 16.dp
@@ -54,7 +56,7 @@ fun ContentViewer(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(backgroundColor)
             .padding(horizontal = padding)
     ) {
         if (data.type == ContentType.IMG) {

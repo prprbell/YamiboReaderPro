@@ -1,6 +1,7 @@
 package org.shirakawatyu.yamibo.novel.ui.state
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -37,6 +38,7 @@ data class ChapterInfo(
  * @property loadImages 是否加载图片，默认为false
  * @property nightMode 是否为夜间模式，默认为false
  * @property isError 是否发生错误，默认为false
+ * @property backgroundColor 自定义背景颜色，null表示使用主题默认
  */
 data class ReaderState(
     val htmlList: List<Content> = listOf(),
@@ -55,5 +57,6 @@ data class ReaderState(
     val urlToLoad: String = "",
     val loadImages: Boolean = false,
     val nightMode: Boolean = false,
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    val backgroundColor: Color? = null
 )

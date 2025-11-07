@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -89,11 +91,21 @@ class ReaderVM : ViewModel() {
             maxHeight = initHeight
 
             val applySettingsAndLoad = { settings: ReaderSettings? ->
+                // v-- 新增背景颜色加载逻辑 --v
+                val bgColor = settings?.backgroundColor?.let {
+                    try {
+                        Color(android.graphics.Color.parseColor(it))
+                    } catch (e: Exception) {
+                        null // 解析失败则使用默认
+                    }
+                }
+
                 _uiState.value = _uiState.value.copy(
                     fontSize = settings?.fontSizePx?.let { ValueUtil.pxToSp(it) } ?: 24.sp,
                     lineHeight = settings?.lineHeightPx?.let { ValueUtil.pxToSp(it) } ?: 43.sp,
                     padding = (settings?.paddingDp ?: 16f).dp,
-                    nightMode = settings?.nightMode ?: false
+                    nightMode = settings?.nightMode ?: false,
+                    backgroundColor = bgColor // <-- 新增
                 )
                 loadWithSettings()
             }
@@ -234,20 +246,14 @@ class ReaderVM : ViewModel() {
                 isPreloading = false
 
                 val pageNumToCache = viewBeingPreloaded
-                // 若当前预加载页不是最后一页，则将其缓存；否则清除该页缓存
-                if (pageNumToCache < maxPage) {
-                    Log.i(logTag, "Caching page $pageNumToCache for $url")
-                    val dataToCache = CacheData(
-                        cachedPageNum = pageNumToCache,
-                        htmlContent = html,
-                        maxPageNum = maxPage,
-                        authorId = currentAuthorId
-                    )
-                    CacheUtil.saveCache(url, dataToCache)
-                } else {
-                    Log.i(logTag, "Not caching last page $pageNumToCache")
-                    CacheUtil.clearCacheForPage(url, pageNumToCache)
-                }
+                Log.i(logTag, "Caching page $pageNumToCache for $url")
+                val dataToCache = CacheData(
+                    cachedPageNum = pageNumToCache,
+                    htmlContent = html,
+                    maxPageNum = maxPage,
+                    authorId = currentAuthorId
+                )
+                CacheUtil.saveCache(url, dataToCache)
                 // 更新下一页的数据列表
                 nextHtmlList = passages
                 nextChapterList = chapters
@@ -260,22 +266,17 @@ class ReaderVM : ViewModel() {
                 }
 
             } else {
-                // 非预加载状态下，如果不是从缓存读取，则将当前页缓存，如果是最后一页则清理缓存
+                // 非预加载状态下，如果不是从缓存读取，则将当前页缓存
                 if (!isFromCache) {
                     val pageNumToCache = _uiState.value.currentView
-                    if (pageNumToCache < maxPage) {
-                        Log.i(logTag, "Caching current page $pageNumToCache for ${url}")
-                        val dataToCache = CacheData(
-                            cachedPageNum = pageNumToCache,
-                            htmlContent = html,
-                            maxPageNum = maxPage,
-                            authorId = currentAuthorId
-                        )
-                        CacheUtil.saveCache(url, dataToCache)
-                    } else {
-                        Log.i(logTag, "Not caching last current page $pageNumToCache")
-                        CacheUtil.clearCacheForPage(url, pageNumToCache)
-                    }
+                    Log.i(logTag, "Caching current page $pageNumToCache for ${url}")
+                    val dataToCache = CacheData(
+                        cachedPageNum = pageNumToCache,
+                        htmlContent = html,
+                        maxPageNum = maxPage,
+                        authorId = currentAuthorId
+                    )
+                    CacheUtil.saveCache(url, dataToCache)
                 }
                 // 计算初始展示页码
                 val newInitPage = if (isFromCache) {
@@ -550,11 +551,15 @@ class ReaderVM : ViewModel() {
 
     private fun saveCurrentSettings() {
         val state = _uiState.value
+        val backgroundColorString = state.backgroundColor?.let {
+            String.format("#%08X", it.toArgb())
+        }
         val settings = ReaderSettings(
             ValueUtil.spToPx(state.fontSize),
             ValueUtil.spToPx(state.lineHeight),
             state.padding.value,
-            state.nightMode
+            state.nightMode,
+            backgroundColorString
         )
         SettingsUtil.saveSettings(settings)
     }
@@ -721,7 +726,10 @@ class ReaderVM : ViewModel() {
         _uiState.value = _uiState.value.copy(initPage = currentPage)
         onSetView(uiState.value.currentView)
     }
-
+    // 设置背景颜色
+    fun onSetBackgroundColor(color: Color?) {
+        _uiState.value = _uiState.value.copy(backgroundColor = color)
+    }
     // 退出时，保存当前页面的历史记录，清理预加载相关的数据列表
     override fun onCleared() {
         saveHistory(latestPage)

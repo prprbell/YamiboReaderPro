@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +26,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -84,6 +87,13 @@ import org.shirakawatyu.yamibo.novel.ui.widget.PassageWebView
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import kotlin.math.roundToInt
 
+private val backgroundColors = listOf(
+    null, // 代表 "原背景"
+    Color(0xFFf5f1e8),
+    Color(0xFFf5f5dc),
+    Color(0xFFd9e0e8),
+    Color(0xFFdddddd)
+)
 /**
  * 阅读器页面，用于格式化显示原论坛内容
  *
@@ -99,6 +109,8 @@ fun ReaderPage(
     navController: NavController
 ) {
     val uiState by readerVM.uiState.collectAsState()
+    val themeBackground = MaterialTheme.colorScheme.background
+    val finalBackground = uiState.backgroundColor ?: themeBackground
 
     // 将所有内容包裹在 ReaderTheme 中
     ReaderTheme(nightMode = uiState.nightMode) {
@@ -131,7 +143,7 @@ fun ReaderPage(
                 null
             }
         // 存储fontSize,lineHeight,padding
-        var settingsOnOpen by remember { mutableStateOf<Triple<TextUnit, TextUnit, Dp>?>(null) }
+        var settingsOnOpen by remember { mutableStateOf<Pair<Triple<TextUnit, TextUnit, Dp>, Color?>?>(null) }
         // 是否显示加载遮罩
         val isLoading = readerVM.showLoadingScrim
         // 是否显示图片加载警告对话框
@@ -160,7 +172,7 @@ fun ReaderPage(
         val statusBarColor = if (showSettings) {
             Color.Black
         } else {
-            MaterialTheme.colorScheme.background
+            finalBackground
         }
         SetStatusBarColor(statusBarColor)
         // 在首次加载时调用readerVM的firstLoad方法
@@ -180,14 +192,17 @@ fun ReaderPage(
         LaunchedEffect(showSettings) {
             // 保存打开时的设置页面参数作为是否改变的判断基准
             if (showSettings) {
-                settingsOnOpen = Triple(uiState.fontSize, uiState.lineHeight, uiState.padding)
+                settingsOnOpen = Pair(
+                    Triple(uiState.fontSize, uiState.lineHeight, uiState.padding),
+                    uiState.backgroundColor
+                )
             }
         }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+                .background(finalBackground)
         ) {
             PassageWebView(
                 url = uiState.urlToLoad,
@@ -215,7 +230,7 @@ fun ReaderPage(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
+                        .background(finalBackground)
                 ) {
                     if (uiState.isError) {
                         // 显示错误和重试界面
@@ -273,7 +288,8 @@ fun ReaderPage(
                                 fontSize = uiState.fontSize,
                                 currentPage = pagerState.currentPage + 1,
                                 pageCount = pagerState.pageCount,
-                                nightMode = uiState.nightMode
+                                nightMode = uiState.nightMode,
+                                backgroundColor = finalBackground
                             )
 
                             SideEffect {
@@ -290,10 +306,13 @@ fun ReaderPage(
                                         indication = null,
                                         interactionSource = remember { MutableInteractionSource() },
                                         onClick = {
-                                            val settingsNow = Triple(
-                                                uiState.fontSize,
-                                                uiState.lineHeight,
-                                                uiState.padding
+                                            val settingsNow = Pair(
+                                                Triple(
+                                                    uiState.fontSize,
+                                                    uiState.lineHeight,
+                                                    uiState.padding
+                                                ),
+                                                uiState.backgroundColor
                                             )
                                             if (settingsOnOpen != settingsNow) {
                                                 val currentPage = pagerState.currentPage
@@ -381,7 +400,8 @@ fun ReaderPage(
                                 onSetFontSize = { readerVM.onSetFontSize(it) },
                                 onSetLineHeight = { readerVM.onSetLineHeight(it) },
                                 onSetPadding = { readerVM.onSetPadding(it) },
-                                onShowChapters = { readerVM.toggleChapterDrawer(true) }
+                                onShowChapters = { readerVM.toggleChapterDrawer(true) },
+                                onSetBackgroundColor = { readerVM.onSetBackgroundColor(it) }
                             )
                         }
                     }
@@ -418,7 +438,8 @@ fun ReaderSettingsBar(
     onSetFontSize: (fontSize: TextUnit) -> Unit,
     onSetLineHeight: (lineHeight: TextUnit) -> Unit,
     onSetPadding: (padding: Dp) -> Unit,
-    onShowChapters: () -> Unit
+    onShowChapters: () -> Unit,
+    onSetBackgroundColor: (color: Color?) -> Unit
 ) {
     // 状态：用于控制显示主菜单还是二级“间距”菜单
     var showSpacingMenu by remember { mutableStateOf(false) }
@@ -449,7 +470,8 @@ fun ReaderSettingsBar(
                 onSetPage = onSetPage,
                 onSetFontSize = onSetFontSize,
                 onShowSpacingMenu = { showSpacingMenu = true },
-                onShowChapters = onShowChapters
+                onShowChapters = onShowChapters,
+                onSetBackgroundColor = onSetBackgroundColor
             )
         }
     }
@@ -524,13 +546,14 @@ fun ChapterDrawerContent(
 @Composable
 private fun MainSettingsMenu(
     uiState: ReaderState,
-    pageCount: Int, // <-- 这个 pageCount 现在会接收到正确的值 (e.g., 245)
+    pageCount: Int,
     currentPage: Int,
     onSetView: (view: Int) -> Unit,
     onSetPage: (page: Int) -> Unit,
     onSetFontSize: (fontSize: TextUnit) -> Unit,
     onShowSpacingMenu: () -> Unit,
-    onShowChapters: () -> Unit
+    onShowChapters: () -> Unit,
+    onSetBackgroundColor: (color: Color?) -> Unit
 ) {
     // 用于平滑拖动 Slider，仅在拖动结束后才触发翻页
     var sliderPage by remember(currentPage) {
@@ -656,6 +679,12 @@ private fun MainSettingsMenu(
             }
             Spacer(modifier = Modifier.weight(0.06f))
         }
+        // 背景颜色选择
+        Spacer(modifier = Modifier.height(8.dp))
+        ColorSwatchRow(
+            selectedColor = uiState.backgroundColor,
+            onColorSelected = onSetBackgroundColor
+        )
         // 网页跳转页面
         if (showWebViewPageSelector) {
 
@@ -730,7 +759,92 @@ private fun MainSettingsMenu(
         }
     }
 }
+/**
+ * 用于显示背景颜色选项的行
+ */
+@Composable
+private fun ColorSwatchRow(
+    selectedColor: Color?,
+    onColorSelected: (Color?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceAround,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 遍历所有背景颜色选项
+        backgroundColors.forEach { color ->
+            ColorSwatch(
+                color = color,
+                isSelected = selectedColor == color,
+                onClick = { onColorSelected(color) }
+            )
+        }
+    }
+}
 
+/**
+ * 单个颜色样本 Composable
+ */
+@Composable
+private fun RowScope.ColorSwatch(
+    color: Color?,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    // null 代表"原背景"，我们用主题的背景色来显示它
+    val displayColor = color ?: MaterialTheme.colorScheme.background
+    // 边框颜色
+    val borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .height(32.dp)
+            .padding(horizontal = 4.dp)
+            // 使用 graphicsLayer 来裁剪为圆形
+            .graphicsLayer {
+                shape = CircleShape
+                clip = true
+            }
+            .background(displayColor)
+            // 默认的细边框
+            .border(
+                width = 1.dp,
+                color = borderColor,
+                shape = CircleShape
+            )
+            .clickable(onClick = onClick)
+    ) {
+        if (isSelected) {
+            // 选中状态：显示一个更粗的、高亮的边框
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(
+                        width = 2.5.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = CircleShape
+                    )
+            )
+        }
+        if (color == null) {
+            // "原背景" 选项的特殊标记 (使用你添加的 drawable)
+            Icon(
+                painter = painterResource(id = R.drawable.ic_original_background),
+                contentDescription = "原背景",
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(16.dp),
+                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
 /**
  * 二级菜单 - 间距调节 (行高, 页距)
  */
