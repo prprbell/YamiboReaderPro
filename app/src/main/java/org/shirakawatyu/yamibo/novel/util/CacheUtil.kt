@@ -77,7 +77,7 @@ class CacheUtil {
             }
 
             // 检查 2: 是否过短 (例如，"<html></html>" 长度很短)
-            if (htmlContent.length < 100) {
+            if (htmlContent.length < 300) {
                 Log.w(
                     logTag,
                     "Validation FAILED: HTML content is too short (${htmlContent.length} chars)."

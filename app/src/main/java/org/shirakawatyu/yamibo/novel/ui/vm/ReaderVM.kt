@@ -206,14 +206,14 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     }
 
     /**
-     * 验证用于磁盘缓存的 HTML 内容。
+     * 验证用于磁盘缓存的HTML内容。
      */
     private fun isDiskCacheHtmlValid(htmlContent: String?): Boolean {
         if (htmlContent.isNullOrBlank()) {
             Log.w(logTag, "DiskCache Validation FAILED: HTML content is null or blank.")
             return false
         }
-        if (htmlContent.length < 100) {
+        if (htmlContent.length < 300) {
             Log.w(
                 logTag,
                 "DiskCache Validation FAILED: HTML content is too short (${htmlContent.length} chars)."
