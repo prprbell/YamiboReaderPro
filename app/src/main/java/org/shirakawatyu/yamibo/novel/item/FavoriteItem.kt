@@ -7,10 +7,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -18,11 +23,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 
 /**
  * 收藏项组件，用于展示收藏的小说条目信息。
@@ -48,8 +56,17 @@ fun FavoriteItem(
     dragHandle: @Composable (() -> Unit) = {},
     isManageMode: Boolean = false,
     isSelected: Boolean = false,
-    isHidden: Boolean = false
+    isHidden: Boolean = false,
+    cacheInfo: FavoriteVM.CacheInfo? = null
 ) {
+    // 格式化文件大小的辅助函数
+    fun formatFileSize(bytes: Long): String {
+        return when {
+            bytes < 1024 -> "$bytes B"
+            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+            else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
+        }
+    }
     // 拖拽动画：根据是否处于拖拽状态动态调整卡片的阴影、缩放和颜色
     val elevation by animateDpAsState(
         targetValue = if (isDragging) 12.dp else 1.dp,
@@ -108,14 +125,33 @@ fun FavoriteItem(
                     fontSize = 12.sp,
                     text = "上次读到第${lastPage + 1}页, 对应网页第${lastView}页"
                 )
+                if (cacheInfo != null && cacheInfo.totalPages > 0) {
+                    Row(
+                        modifier = Modifier.padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_cache),
+                            contentDescription = "已缓存",
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp,
+                            text = "已缓存 ${cacheInfo.totalPages} 页 (${formatFileSize(cacheInfo.totalSize)})"
+                        )
+                    }
+                }
                 if (isManageMode && isHidden) {
-                Text(
-                    modifier = Modifier.padding(top = 2.dp),
-                    color = Color.Gray,
-                    fontSize = 12.sp,
-                    text = "[已隐藏]"
-                )
-            }
+                    Text(
+                        modifier = Modifier.padding(top = 2.dp),
+                        color = Color.Gray,
+                        fontSize = 12.sp,
+                        text = "[已隐藏]"
+                    )
+                }
             }
             // 拖拽手柄
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -133,7 +169,13 @@ fun FavoriteItemPreview() {
         lastView = 1,
         lastPage = 2,
         lastChapter = "episode 397 宫城志绪理",
-        onClick = {}
+        onClick = {},
+        cacheInfo = FavoriteVM.CacheInfo(
+            url = "test",
+            totalPages = 15,
+            totalSize = 2048000, // 2MB
+            pagesWithImages = 5
+        )
     )
 }
 

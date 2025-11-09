@@ -41,6 +41,7 @@ data class ChapterInfo(
  * @property backgroundColor 自定义背景颜色，null表示使用主题默认
  * @property isVerticalMode 是否为竖屏滚动模式，默认为false
  * @property currentPercentage 当前阅读百分比（竖直模式），默认为0f
+ * @property isFavorited 是否已收藏，默认为false
  */
 data class ReaderState(
     val htmlList: List<Content> = listOf(),
@@ -63,4 +64,5 @@ data class ReaderState(
     val backgroundColor: Color? = null,
     val isVerticalMode: Boolean = false,
     val currentPercentage: Float = 0f,
+    val isFavorited: Boolean = false,
 )

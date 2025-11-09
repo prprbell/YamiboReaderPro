@@ -1,7 +1,8 @@
-// novel/ui/vm/FavoriteVM.kt
+// novel/ui/vm/FavoriteVM.kt - 完整版本
 
 package org.shirakawatyu.yamibo.novel.ui.vm
 
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -10,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.ResponseBody
 import org.jsoup.Jsoup
 import org.shirakawatyu.yamibo.novel.bean.Favorite
@@ -18,28 +20,28 @@ import org.shirakawatyu.yamibo.novel.network.FavoriteApi
 import org.shirakawatyu.yamibo.novel.ui.state.FavoriteState
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
+import org.shirakawatyu.yamibo.novel.util.LocalCacheUtil
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import java.net.URLEncoder
 
-class FavoriteVM : ViewModel() {
+class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private val _uiState = MutableStateFlow(FavoriteState())
     val uiState = _uiState.asStateFlow()
 
     private val logTag = "FavoriteVM"
     private var allFavorites: List<Favorite> = listOf()
 
+    // 本地缓存工具
+    private val localCache by lazy { LocalCacheUtil.getInstance(applicationContext) }
+
     init {
         Log.i(logTag, "VM创建")
-        // [MODIFIED]
-        // 启动一个协程来收集来自 DataStore 的收藏列表 Flow。
-        // 这将自动处理来自 DataStore 的所有更新（包括来自 ReaderVM 的保存）。
         viewModelScope.launch {
             FavoriteUtil.getFavoriteFlow().collect { fullList ->
                 allFavorites = fullList
                 val currentUiState = _uiState.value
-                // 根据新列表和当前的管理模式更新UI状态
                 _uiState.value = currentUiState.copy(
                     favoriteList = if (currentUiState.isInManageMode) {
                         allFavorites
@@ -47,27 +49,22 @@ class FavoriteVM : ViewModel() {
                         allFavorites.filter { !it.isHidden }
                     }
                 )
+                // 当收藏列表变化时，也刷新缓存信息
+                refreshCacheInfo(localCache.index.value)
             }
         }
-    }
 
-    // [REMOVED]
-    // 此函数不再需要，因为 init 中的 Flow collector 会自动处理
-    // 本地数据的加载和更新。
-    /*
-    fun loadFavorites() {
+        // 监听缓存版本变化
         viewModelScope.launch {
-            FavoriteUtil.getFavorite {
-                allFavorites = it
-                val currentUiState = _uiState.value
-                // 根据当前是否在管理模式，刷新UI列表
-                _uiState.value = currentUiState.copy(
-                    favoriteList = if (currentUiState.isInManageMode) allFavorites else allFavorites.filter { !it.isHidden }
-                )
+            localCache.index.collect { index ->
+                // 每当内存索引变化时，都重新计算统计信息
+                if (allFavorites.isNotEmpty()) {
+                    Log.i(logTag, "缓存索引已更新, 正在刷新统计信息...")
+                    refreshCacheInfo(index)
+                }
             }
         }
     }
-    */
 
     fun refreshList(showLoading: Boolean = true) {
         if (showLoading) {
@@ -87,33 +84,21 @@ class FavoriteVM : ViewModel() {
                             val parse = Jsoup.parse(respHTML)
                             val favList = parse.getElementsByClass("sclist")
                             val objList = ArrayList<Favorite>()
-                            // 遍历解析出的收藏条目，提取标题和链接构造Favorite对象
                             favList.forEach { li ->
                                 val title = li.text()
                                 val url = li.child(1).attribute("href").value
                                 Log.i(logTag, url)
                                 objList.add(Favorite(title, url))
                             }
-                            // [MODIFIED]
-                            // 将新的收藏列表保存至本地。
-                            // UI 将通过 init 中的 Flow collector 自动更新。
                             FavoriteUtil.addFavorite(objList) { filteredList ->
-                                // [MODIFIED]
-                                // 我们不再需要在这里手动更新 allFavorites 和 uiState，
-                                // 因为 Flow collector 会处理。
-                                // 我们只需要确保在主线程上关闭刷新指示器。
-                                // allFavorites = filteredList (由 flow 处理)
-                                // val currentUiState = _uiState.value (由 flow 处理)
                                 viewModelScope.launch(Dispatchers.Main) {
                                     _uiState.value =
                                         _uiState.value.copy(
-                                            // favoriteList = ... (由 flow 处理)
                                             isRefreshing = false
                                         )
                                 }
                             }
                         } else {
-                            // 出错时停止加载
                             viewModelScope.launch(Dispatchers.Main) {
                                 _uiState.value = _uiState.value.copy(isRefreshing = false)
                             }
@@ -132,69 +117,49 @@ class FavoriteVM : ViewModel() {
     }
 
     fun clickHandler(url: String, navController: NavController) {
-        // ... (此函数保持不变)
         val urlEncoded = URLEncoder.encode(url, "utf-8")
         navController.navigate("ReaderPage/$urlEncoded")
     }
 
-    //拖拽排序功能
     fun moveFavorite(from: Int, to: Int) {
-        // ... (此函数保持不变)
-        // [修改] 拖拽只应在非管理模式下工作
-        if (_uiState.value.isInManageMode) return // 管理模式下禁用拖拽
+        if (_uiState.value.isInManageMode) return
 
         val currentUiList = _uiState.value.favoriteList.toMutableList()
         if (from < 0 || from >= currentUiList.size || to < 0 || to >= currentUiList.size || from == to) {
-            return // 无效的移动
+            return
         }
-        // 移动项目
+
         val item = currentUiList.removeAt(from)
         currentUiList.add(to, item)
 
-        // 立即更新UI状态
         _uiState.value = _uiState.value.copy(favoriteList = currentUiList.toList())
 
-        // [修改] 在后台更新 allFavorites 的顺序并保存
         viewModelScope.launch(Dispatchers.IO) {
-            // 我们需要重建 allFavorites 的顺序
-            // 1. 获取所有已排序的 UI (非隐藏) 项目
             val newOrderedUiUrls = currentUiList.map { it.url }.toSet()
             val newOrderedUiList = currentUiList.toList()
-
-            // 2. 获取所有隐藏的项目
             val hiddenItems = allFavorites.filter { it.isHidden }
-
-            // 3. 组合成新的完整列表 (已排序的 + 隐藏的)
-            // 注意：这会把所有隐藏的项目放到列表末尾
             val newListToSave = newOrderedUiList + hiddenItems
 
-            // 4. 更新VM的内部状态
             allFavorites = newListToSave
-
-            // 5. 保存这个新顺序
             FavoriteUtil.saveFavoriteOrder(newListToSave)
         }
     }
 
-    // 切换管理模式
     fun toggleManageMode() {
-        // ... (此函数保持不变)
         val newState = !_uiState.value.isInManageMode
         val newList = if (newState) {
-            allFavorites // 进入管理模式，显示所有
+            allFavorites
         } else {
-            allFavorites.filter { !it.isHidden } // 退出管理模式，只显示未隐藏的
+            allFavorites.filter { !it.isHidden }
         }
         _uiState.value = _uiState.value.copy(
             isInManageMode = newState,
             favoriteList = newList,
-            selectedItems = emptySet() // 切换模式时清空选项
+            selectedItems = emptySet()
         )
     }
 
-    // 在管理模式下切换项目选中状态
     fun toggleItemSelection(url: String) {
-        // ... (此函数保持不变)
         if (!_uiState.value.isInManageMode) return
 
         val newSelections = _uiState.value.selectedItems.toMutableSet()
@@ -206,63 +171,101 @@ class FavoriteVM : ViewModel() {
         _uiState.value = _uiState.value.copy(selectedItems = newSelections)
     }
 
-    // 隐藏选中的项目
     fun hideSelectedItems() {
-        // ... (此函数保持不变)
         val itemsToHide = _uiState.value.selectedItems
         if (itemsToHide.isEmpty()) return
 
         viewModelScope.launch {
             FavoriteUtil.updateHiddenStatus(itemsToHide, true) {
-                // 操作完成后（在IO线程回调）
                 viewModelScope.launch(Dispatchers.Main) {
-                    // [MODIFIED]
-                    // 我们不再需要手动更新 allFavorites 和 uiState，
-                    // Flow collector 会自动处理。
-                    // 只需要清空选中项。
-                    /*
-                    // 更新 allFavorites 内存
-                    allFavorites = allFavorites.map {
-                        if (itemsToHide.contains(it.url)) it.copy(isHidden = true) else it
-                    }
-                    // 更新UI (仍在管理模式，favoriteList 保持为 allFavorites)
-                    _uiState.value = _uiState.value.copy(
-                        favoriteList = allFavorites,
-                        selectedItems = emptySet()
-                    )
-                    */
                     _uiState.value = _uiState.value.copy(selectedItems = emptySet())
                 }
             }
         }
     }
 
-    // 取消隐藏选中的项目
     fun unhideSelectedItems() {
-        // ... (此函数保持不变)
         val itemsToUnhide = _uiState.value.selectedItems
         if (itemsToUnhide.isEmpty()) return
 
         viewModelScope.launch {
             FavoriteUtil.updateHiddenStatus(itemsToUnhide, false) {
-                // 操作完成后（在IO线程回调）
                 viewModelScope.launch(Dispatchers.Main) {
-                    // [MODIFIED]
-                    // 同上，Flow collector 会自动处理。
-                    // 只需要清空选中项。
-                    /*
-                    // 更新allFavorites内存
-                    allFavorites = allFavorites.map {
-                        if (itemsToUnhide.contains(it.url)) it.copy(isHidden = false) else it
-                    }
-                    // 更新UI (仍在管理模式，favoriteList保持为allFavorites)
-                    _uiState.value = _uiState.value.copy(
-                        favoriteList = allFavorites,
-                        selectedItems = emptySet()
-                    )
-                    */
                     _uiState.value = _uiState.value.copy(selectedItems = emptySet())
                 }
+            }
+        }
+    }
+
+    private fun refreshCacheInfo(index: Map<String, LocalCacheUtil.CacheIndex>) {
+        try {
+            val cacheInfoMap = mutableMapOf<String, CacheInfo>()
+            // 遍历缓存索引
+            index.forEach { (url, novelCache) ->
+                // 如果在索引中，并且有缓存页面
+                if (novelCache.pages.isNotEmpty()) {
+                    val totalPages = novelCache.pages.size
+                    // 直接从内存中的CachePageInfo对象求和
+                    val totalSize = novelCache.pages.values.sumOf { it.fileSize }
+                    val pagesWithImages = novelCache.pages.values.count { it.hasImages }
+
+                    cacheInfoMap[url] = CacheInfo(
+                        url = url,
+                        totalPages = totalPages,
+                        totalSize = totalSize,
+                        pagesWithImages = pagesWithImages
+                    )
+                }
+            }
+
+            // 更新UI状态
+            _uiState.value = _uiState.value.copy(cacheInfoMap = cacheInfoMap)
+
+        } catch (e: Exception) {
+            Log.e(logTag, "从内存索引刷新缓存信息失败", e)
+            _uiState.value = _uiState.value.copy(cacheInfoMap = emptyMap())
+        }
+    }
+    // ==================== 缓存管理功能 ====================
+
+    // 缓存统计信息
+    data class CacheInfo(
+        val url: String,
+        val totalPages: Int,
+        val totalSize: Long,
+        val pagesWithImages: Int
+    )
+
+    // 刷新缓存信息的复用函数
+    fun refreshCacheInfo() {
+        refreshCacheInfo(localCache.index.value)
+    }
+
+    // 获取所有收藏的缓存信息
+    fun getCacheInfo(callback: (Map<String, FavoriteVM.CacheInfo>) -> Unit) {
+        refreshCacheInfo(localCache.index.value)
+        callback(_uiState.value.cacheInfoMap)
+    }
+
+    // 删除指定收藏的所有缓存
+    fun deleteFavoriteCache(url: String) {
+        viewModelScope.launch {
+            try {
+                localCache.deleteNovel(url)
+                // 不需要回调，localCache.index.collect 会自动触发刷新
+            } catch (e: Exception) {
+                Log.e(logTag, "删除 $url 的缓存失败", e)
+            }
+        }
+    }
+
+    // 清理所有缓存
+    fun clearAllCache() {
+        viewModelScope.launch {
+            try {
+                localCache.clearAllCache()
+            } catch (e: Exception) {
+                Log.e(logTag, "清除所有缓存失败", e)
             }
         }
     }

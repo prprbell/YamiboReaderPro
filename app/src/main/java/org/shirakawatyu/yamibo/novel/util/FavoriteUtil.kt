@@ -15,7 +15,6 @@ class FavoriteUtil {
         private val key = stringPreferencesKey("yamibo_favorite")
 
         /**
-         * [NEW]
          * 提供一个 Flow，用于实时监听收藏列表的变化。
          */
         fun getFavoriteFlow(): Flow<List<Favorite>> {
@@ -26,11 +25,8 @@ class FavoriteUtil {
                     val jsonString = preferences[key]
                     if (jsonString != null) {
                         try {
-                            // 确保 jsonToHashMap 在这里是线程安全的
-                            // (JSON.parseObject 是线程安全的)
                             jsonToHashMap(jsonString).values.toList()
                         } catch (e: Exception) {
-                            // 处理可能的数据损坏
                             emptyList()
                         }
                     } else {
@@ -40,7 +36,7 @@ class FavoriteUtil {
         }
 
         /**
-         * 合并网络收藏和本地收藏。
+         * (不是给论坛账号添加新的收藏）合并网络收藏和本地收藏。
          * 1. 将网络上新增的收藏项放在顶部。
          * 2. 保留本地已有的收藏项的顺序（包括用户手动排序后的顺序）。
          * 3. 移除在网络上已被删除的收藏项。

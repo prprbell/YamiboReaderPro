@@ -49,6 +49,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
 import java.net.URLDecoder
 import androidx.core.graphics.drawable.toDrawable
+import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cookies")
@@ -126,7 +127,7 @@ fun App() {
                         ) {
                             composable("FavoritePage") {
                                 FavoritePage(
-                                    viewModel(stateOwner),
+                                    viewModel(stateOwner, factory = ViewModelFactory(context.applicationContext)),
                                     navController
                                 )
                             }
@@ -150,13 +151,12 @@ fun App() {
                                     type = NavType.StringType
                                 })
                             ) {
-                                it.arguments?.getString("passageUrl")
-                                    ?.let { it1 ->
-                                        ReaderPage(
-                                            url = URLDecoder.decode(it1, "utf-8"),
-                                            navController = navController
-                                        )
-                                    }
+                                it.arguments?.getString("passageUrl")?.let { url ->
+                                    ReaderPage(
+                                        url = URLDecoder.decode(url, "utf-8"),
+                                        navController = navController
+                                    )
+                                }
                             }
                         }
                         if (currentRoute != "ReaderPage/{passageUrl}") {

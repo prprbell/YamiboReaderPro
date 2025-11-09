@@ -1,8 +1,10 @@
-// novel/ui/page/ReaderPage.kt
+// novel/ui/page/ReaderPage.kt (已修改)
 
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -74,6 +77,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,6 +94,9 @@ import org.shirakawatyu.yamibo.novel.ui.state.ChapterInfo
 import org.shirakawatyu.yamibo.novel.ui.state.ReaderState
 import org.shirakawatyu.yamibo.novel.ui.theme.ReaderTheme
 import org.shirakawatyu.yamibo.novel.ui.vm.ReaderVM
+import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
+import org.shirakawatyu.yamibo.novel.ui.widget.CacheDialog
+import org.shirakawatyu.yamibo.novel.ui.widget.CacheProgressDialog
 import org.shirakawatyu.yamibo.novel.ui.widget.ContentViewer
 import org.shirakawatyu.yamibo.novel.ui.widget.PassageWebView
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
@@ -111,14 +118,23 @@ private val backgroundColors = listOf(
  * @param url 要显示的网页的 URL
  * @param navController 用于顶部栏的返回按钮的导航
  */
+@RequiresApi(Build.VERSION_CODES.O)
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 fun ReaderPage(
-    readerVM: ReaderVM = viewModel(),
+    readerVM: ReaderVM = viewModel(
+        factory = ViewModelFactory(LocalContext.current.applicationContext)
+    ),
     url: String = "",
     navController: NavController
 ) {
     val uiState by readerVM.uiState.collectAsState()
+
+    // 缓存相关状态
+    val cachedPages by readerVM.cachedPages.collectAsState()
+    val cacheProgress by readerVM.cacheProgress.collectAsState()
+    val isDiskCaching by readerVM.isDiskCaching.collectAsState() // [NEW]
+    var showCacheDialog by remember { mutableStateOf(false) }
 
     // 将所有内容包裹在 ReaderTheme 中
     ReaderTheme(nightMode = uiState.nightMode) {
@@ -214,9 +230,6 @@ fun ReaderPage(
         }
         SetStatusBarColor(statusBarColor)
 
-        // [REMOVED] 移除上一版错误的 LaunchedEffect
-        // ...
-
         // 监听设置页面显示状态变化
         LaunchedEffect(showSettings) {
             // 保存打开时的设置页面参数作为是否改变的判断基准
@@ -265,17 +278,16 @@ fun ReaderPage(
                         drawerState = drawerState,
                         chapterList = uiState.chapterList,
                         currentChapterTitle = currentChapterTitle,
-                        // [修改] 传递 pageCount 和 isVerticalMode
+                        // 传递 pageCount 和 isVerticalMode
                         pageCount = uiState.htmlList.size,
                         isVerticalMode = uiState.isVerticalMode,
                         onChapterClick = { index ->
                             scope.launch {
-                                // --- 修改这里的逻辑 ---
                                 if (uiState.isVerticalMode) {
                                     // 如果是竖屏模式，滚动 LazyList
                                     lazyListState.scrollToItem(index)
                                 } else {
-                                    // 否则，滚动 Pager
+                                    // 否则，滚动Pager
                                     pagerState.animateScrollToPage(index)
                                 }
                             }
@@ -326,19 +338,16 @@ fun ReaderPage(
                         }
                     } else if (hasLoaded) {
 
-                        // [MODIFIED]
-                        // 1. 定义一个key，当数据(列表)和目标页(initPage)都准备好时，这个key会更新
+                        // 定义一个key，当数据(列表)和目标页(initPage)都准备好时，这个key会更新
                         val dataKey =
                             "${uiState.htmlList.hashCode()}_${uiState.initPage}_${uiState.isVerticalMode}"
-                        // 2. `remember(dataKey)`: 当key变化时，此状态会重置为false
+                        // remember(dataKey): 当key变化时，此状态会重置为false
                         var isInitialScrollDone by remember(dataKey) { mutableStateOf(false) }
 
-                        // [MODIFIED]
-                        // 仅在 hasLoaded 且 htmlList *非空* 时才渲染内容
+                        // 仅在hasLoaded且htmlList非空时才渲染内容
                         if (uiState.htmlList.isNotEmpty()) {
 
-                            // [MODIFIED]
-                            // 3. 此 LaunchedEffect 仅在 dataKey 变化时运行一次
+                            // 此LaunchedEffect仅在dataKey变化时运行一次
                             LaunchedEffect(dataKey) {
                                 if (uiState.isVerticalMode) {
                                     if (lazyListState.firstVisibleItemIndex != uiState.initPage) {
@@ -351,13 +360,10 @@ fun ReaderPage(
                                         pagerState.scrollToPage(uiState.initPage)
                                     }
                                 }
-                                // 4. 滚动完成后，标记为完成
+                                // 滚动完成后，标记为完成
                                 isInitialScrollDone = true
                             }
 
-                            // [MODIFIED]
-                            // 5. 使用 Box 和 graphicsLayer 将内容隐藏 (alpha=0f)
-                            //    直到 isInitialScrollDone 变为 true
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -439,14 +445,13 @@ fun ReaderPage(
                                         }
                                     }
                                 }
-                            } // [MODIFIED] 结束 `Box(alpha = ...)`
-                        } // [MODIFIED] 结束 `if (uiState.htmlList.isNotEmpty())`
+                            }
+                        }
 
-                        // --- 添加固定的顶部栏 ---
+                        // 添加固定的顶部栏
                         if (uiState.isVerticalMode && !showSettings && uiState.htmlList.isNotEmpty()) {
                             VerticalModeHeader(
                                 chapterTitle = currentChapterTitle,
-                                // [修改] currentPageIndex 是 0-based
                                 currentPage = currentPageIndex + 1,
                                 pageCount = uiState.htmlList.size,
                                 backgroundColor = finalBackground,
@@ -537,6 +542,19 @@ fun ReaderPage(
                                                 }
                                             )
                                         }
+
+                                        Spacer(Modifier.width(16.dp))
+                                        // 刷新按钮
+                                        IconButton(onClick = {
+                                            readerVM.forceRefreshCurrentPage()
+                                            // 立即隐藏设置菜单，以显示加载动画
+                                            showSettings = false
+                                        }) {
+                                            Icon(
+                                                Icons.Default.Refresh,
+                                                contentDescription = "刷新页面"
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -567,12 +585,19 @@ fun ReaderPage(
                                 onSetBackgroundColor = { readerVM.onSetBackgroundColor(it) },
                                 onSetReadingMode = { isVertical ->
                                     readerVM.setReadingMode(isVertical, currentPageIndex)
+                                },
+                                onShowCacheDialog = {
+                                    if (isDiskCaching) {
+                                        // 如果正在缓存（即使在后台），直接显示进度
+                                        readerVM.showCacheProgress()
+                                    } else {
+                                        // 否则，显示缓存选择页
+                                        showCacheDialog = true
+                                    }
                                 }
                             )
                         }
                     }
-                    // [修改] 如果 !hasLoaded，则此处为空白，等待 isLoading 遮罩
-                    // [修改] 如果 hasLoaded 但 htmlList 为空，也显示空白，等待数据
                 }
             }
         }
@@ -592,10 +617,40 @@ fun ReaderPage(
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
+        if (showCacheDialog) {
+            CacheDialog(
+                maxWebView = uiState.maxWebView,
+                cachedPages = cachedPages,
+                onDismiss = { showCacheDialog = false },
+                onStartCache = { pages, includeImages ->
+                    readerVM.startCaching(pages, includeImages)
+                    showCacheDialog = false
+                },
+                onDeleteCache = { pages ->
+                    readerVM.deleteCachedPages(pages)
+                },
+                onUpdateCache = { pages, includeImages ->
+                    readerVM.updateCachedPages(pages, includeImages)
+                    showCacheDialog = false
+                }
+            )
+        }
+        // 缓存进度对话框
+        cacheProgress?.let { progress ->
+            CacheProgressDialog(
+                totalPages = progress.totalPages,
+                currentPage = progress.currentPage,
+                currentPageNum = progress.currentPageNum,
+                onDismiss = {
+                    readerVM.resetCacheProgress()
+                },
+                onStopCache = { // [MODIFIED] 修正：传递终止回调
+                    readerVM.stopCaching()
+                }
+            )
+        }
     }
 }
-
-// ... [ ReaderSettingsBar, ChapterDrawerContent, 和所有其他 Composable 保持不变 ] ...
 
 @Composable
 fun ReaderSettingsBar(
@@ -610,9 +665,9 @@ fun ReaderSettingsBar(
     onSetPadding: (padding: Dp) -> Unit,
     onShowChapters: () -> Unit,
     onSetBackgroundColor: (color: Color?) -> Unit,
-    onSetReadingMode: (isVertical: Boolean) -> Unit
+    onSetReadingMode: (isVertical: Boolean) -> Unit,
+    onShowCacheDialog: () -> Unit
 ) {
-    // 状态：用于控制显示主菜单还是二级“间距”菜单
     var showSpacingMenu by remember { mutableStateOf(false) }
 
     Surface(
@@ -624,7 +679,6 @@ fun ReaderSettingsBar(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shadowElevation = 8.dp
     ) {
-        // 根据状态显示不同的菜单
         if (showSpacingMenu) {
             SpacingSettingsMenu(
                 uiState = uiState,
@@ -632,7 +686,8 @@ fun ReaderSettingsBar(
                 onSetLineHeight = onSetLineHeight,
                 onSetPadding = onSetPadding,
                 onBack = { showSpacingMenu = false },
-                onSetReadingMode = onSetReadingMode
+                onSetReadingMode = onSetReadingMode,
+                onSetBackgroundColor = onSetBackgroundColor
             )
         } else {
             MainSettingsMenu(
@@ -643,7 +698,8 @@ fun ReaderSettingsBar(
                 onSetPage = onSetPage,
                 onShowSpacingMenu = { showSpacingMenu = true },
                 onShowChapters = onShowChapters,
-                onSetBackgroundColor = onSetBackgroundColor
+                onSetBackgroundColor = onSetBackgroundColor,
+                onShowCacheDialog = onShowCacheDialog
             )
         }
     }
@@ -654,14 +710,14 @@ fun ChapterDrawerContent(
     drawerState: DrawerState,
     chapterList: List<ChapterInfo>,
     currentChapterTitle: String?,
-    pageCount: Int, // [新增]
-    isVerticalMode: Boolean, // [新增]
+    pageCount: Int,
+    isVerticalMode: Boolean,
     onChapterClick: (index: Int) -> Unit
 ) {
     val lazyListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // [修改] pageCount (总行/页数)
+    // pageCount (总行/页数)
     val totalItems = pageCount.coerceAtLeast(1)
 
     val currentChapterIndex = remember(currentChapterTitle, chapterList) {
@@ -696,7 +752,7 @@ fun ChapterDrawerContent(
             ) { index, chapter ->
                 val isSelected = index == currentChapterIndex
 
-                // [新增] 计算百分比或页码
+                // 计算百分比或页码
                 val percent = (chapter.startIndex.toFloat() / totalItems) * 100f
                 val pageLabel = if (isVerticalMode) {
                     "${percent.roundToInt()}%"
@@ -732,36 +788,32 @@ fun ChapterDrawerContent(
 @Composable
 private fun MainSettingsMenu(
     uiState: ReaderState,
-    pageCount: Int, // [修改] 这是总行数或总页数
-    currentPage: Int, // [修改] 这是当前行索引或页索引 (0-based)
+    pageCount: Int,
+    currentPage: Int,
     onSetView: (view: Int) -> Unit,
     onSetPage: (page: Int) -> Unit,
     onShowSpacingMenu: () -> Unit,
     onShowChapters: () -> Unit,
-    onSetBackgroundColor: (color: Color?) -> Unit
+    onSetBackgroundColor: (color: Color?) -> Unit,
+    onShowCacheDialog: () -> Unit
 ) {
-    // [修改] 模式判断
+    // 模式判断
     val isVerticalMode = uiState.isVerticalMode
 
-    // [修改] 滑块逻辑
-    // 1. 确定滑块的 "值" (百分比或页索引)
+    // 滑块逻辑
     val sliderValue = if (isVerticalMode) uiState.currentPercentage else currentPage.toFloat()
-    // 2. 确定滑块的 "范围"
     val sliderRange =
         if (isVerticalMode) 0f..100f else 0f..(pageCount - 1).toFloat().coerceAtLeast(0f)
-    // 3. 确定滑块的 "步数" (100% / 100 步, N 页 / (N-1) 步)
     val sliderSteps =
-        if (isVerticalMode) 98 else (pageCount - 2).coerceAtLeast(0) // 98 steps = 99 intervals
+        if (isVerticalMode) 98 else (pageCount - 2).coerceAtLeast(0)
 
-    // 4. 滑块的瞬时状态
-    var sliderPos by remember(sliderValue) { // [修改] Keyed on sliderValue
+    var sliderPos by remember(sliderValue) {
         mutableFloatStateOf(sliderValue)
     }
 
-    // 控制网页跳转弹窗的显示
     var showWebViewPageSelector by remember { mutableStateOf(false) }
-    // 协程作用域
     val scope = rememberCoroutineScope()
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -793,7 +845,6 @@ private fun MainSettingsMenu(
                 modifier = Modifier
                     .weight(1.5f)
                     .clickable(
-                        // 只有大于1页时才允许点击
                         enabled = uiState.maxWebView > 1,
                         onClick = { showWebViewPageSelector = true }
                     )
@@ -805,14 +856,12 @@ private fun MainSettingsMenu(
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "上一页(网页)")
                 }
                 Text(
-                    // 显示最大页数
                     text = "网页: ${uiState.currentView} / ${uiState.maxWebView}",
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
                 IconButton(
                     onClick = { onSetView(uiState.currentView + 1) },
-                    // 最后一页时禁用
                     enabled = uiState.currentView < uiState.maxWebView
                 ) {
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "下一页(网页)")
@@ -820,9 +869,8 @@ private fun MainSettingsMenu(
             }
         }
 
-        // [修改] 统一的阅读器进度Slider
+        // 统一的阅读器进度Slider
         Column(modifier = Modifier.fillMaxWidth()) {
-            // 5. 确定滑块 "显示的文本"
             val displayText = if (isVerticalMode) {
                 "${sliderPos.roundToInt()}%"
             } else {
@@ -830,7 +878,7 @@ private fun MainSettingsMenu(
             }
 
             Text(
-                text = displayText, // [修改]
+                text = displayText,
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
@@ -839,10 +887,9 @@ private fun MainSettingsMenu(
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
                     .align(Alignment.CenterHorizontally),
-                value = sliderPos, // [修改]
-                onValueChange = { sliderPos = it }, // [修改]
+                value = sliderPos,
+                onValueChange = { sliderPos = it },
                 onValueChangeFinished = {
-                    // [修改] 6. 结束拖动时，计算目标 *索引*
                     val targetIndex = if (isVerticalMode) {
                         (sliderPos / 100f * pageCount.coerceAtLeast(1).toFloat())
                             .toInt().coerceIn(0, (pageCount - 1).coerceAtLeast(0))
@@ -851,13 +898,12 @@ private fun MainSettingsMenu(
                     }
                     onSetPage(targetIndex)
                 },
-                valueRange = sliderRange, // [修改]
-                steps = sliderSteps // [修改]
+                valueRange = sliderRange,
+                steps = sliderSteps
             )
         }
 
-
-        // 缓存和间距
+        // [修改] 缓存和页面设置按钮（移除了背景色选择）
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -868,9 +914,12 @@ private fun MainSettingsMenu(
         ) {
             // 左侧：缓存按钮
             Button(
-                onClick = { /* TODO: 占位，实现缓存逻辑 */ },
+                onClick = onShowCacheDialog,
+                enabled = uiState.isFavorited,
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .size(40.dp),
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_cache),
@@ -887,21 +936,15 @@ private fun MainSettingsMenu(
             Button(
                 onClick = onShowSpacingMenu,
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .size(40.dp),
             ) {
                 Text("页面设置")
             }
         }
-
-        // 背景颜色选择
-        Spacer(modifier = Modifier.height(8.dp))
-        ColorSwatchRow(
-            selectedColor = uiState.backgroundColor,
-            onColorSelected = onSetBackgroundColor
-        )
         // 网页跳转页面
         if (showWebViewPageSelector) {
-
             val lazyListState = rememberLazyListState()
             val currentPageIndex = (uiState.currentView - 1).coerceAtLeast(0)
 
@@ -942,9 +985,9 @@ private fun MainSettingsMenu(
                                         "第 $page 页",
                                         fontSize = 18.sp,
                                         color = if (page == uiState.currentView)
-                                            MaterialTheme.colorScheme.primary // 选中
+                                            MaterialTheme.colorScheme.primary
                                         else
-                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f) // 未选中
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                                     )
                                 }
                                 if (page < uiState.maxWebView) {
@@ -953,7 +996,7 @@ private fun MainSettingsMenu(
                                             .fillMaxWidth()
                                             .padding(horizontal = 16.dp),
                                         thickness = 0.5.dp,
-                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f) // 分割线
+                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
                                     )
                                 }
                             }
@@ -962,11 +1005,7 @@ private fun MainSettingsMenu(
                 },
                 confirmButton = {
                     TextButton(onClick = { showWebViewPageSelector = false }) {
-                        Text(
-                            "取消",
-                            fontSize = 22.sp
-                        )
-
+                        Text("取消", fontSize = 22.sp)
                     }
                 }
             )
@@ -1072,7 +1111,8 @@ private fun SpacingSettingsMenu(
     onSetLineHeight: (lineHeight: TextUnit) -> Unit,
     onSetPadding: (padding: Dp) -> Unit,
     onBack: () -> Unit,
-    onSetReadingMode: (isVertical: Boolean) -> Unit
+    onSetReadingMode: (isVertical: Boolean) -> Unit,
+    onSetBackgroundColor: (color: Color?) -> Unit // [新增参数]
 ) {
     Column(
         modifier = Modifier
@@ -1113,12 +1153,12 @@ private fun SpacingSettingsMenu(
                     val newSize = (uiState.fontSize.value + 1f).coerceAtMost(40f)
                     onSetFontSize(newSize.sp)
                 },
-                modifier = Modifier.weight(1f) // 占据左侧空间
+                modifier = Modifier.weight(1f)
             )
 
             // 右侧：阅读模式选项
             Text(
-                text = "模式",
+                text = "阅读模式",
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.align(Alignment.CenterVertically)
             )
@@ -1127,14 +1167,12 @@ private fun SpacingSettingsMenu(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End
             ) {
-                // 占位符状态，默认为竖屏 (false)
                 val isVerticalMode = uiState.isVerticalMode
                 // 横屏按钮
                 IconToggleButton(
                     checked = !isVerticalMode,
                     onCheckedChange = { onSetReadingMode(false) },
                     colors = IconButtonDefaults.iconToggleButtonColors(
-                        // 选中时的颜色
                         checkedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(
                             alpha = 0.5f
                         ),
@@ -1152,7 +1190,6 @@ private fun SpacingSettingsMenu(
                     checked = isVerticalMode,
                     onCheckedChange = { onSetReadingMode(true) },
                     colors = IconButtonDefaults.iconToggleButtonColors(
-                        // 选中时的颜色
                         checkedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(
                             alpha = 0.5f
                         ),
@@ -1167,7 +1204,7 @@ private fun SpacingSettingsMenu(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp)) // 保留原有的间距
+        Spacer(modifier = Modifier.height(8.dp))
 
         val minLineHeight = (uiState.fontSize.value * 1.5f).coerceAtLeast(18f)
         val maxLineHeight = 100f
@@ -1187,12 +1224,24 @@ private fun SpacingSettingsMenu(
         SettingsSlider(
             label = "页距",
             value = uiState.padding.value,
-            valueRange = 15f..65f, // 15dp 到 65dp
-            steps = 9, // 10个档位
+            valueRange = 15f..65f,
+            steps = 9,
             onValueChange = { onSetPadding(it.dp) },
             showValue = false,
             startLabel = "窄",
             endLabel = "宽"
+        )
+
+        // 背景颜色选择
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "背景颜色",
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        ColorSwatchRow(
+            selectedColor = uiState.backgroundColor,
+            onColorSelected = onSetBackgroundColor
         )
     }
 }

@@ -1,8 +1,11 @@
-// novel/ui/vm/ReaderVM.kt
+// novel/ui/vm/ReaderVM.kt - 完整版本 (已暴露 caching 状态)
 
 package org.shirakawatyu.yamibo.novel.ui.vm
 
+import android.annotation.SuppressLint
+import android.content.Context
 import android.util.Log
+import android.webkit.WebView
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,7 +21,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -27,18 +32,22 @@ import org.shirakawatyu.yamibo.novel.bean.Content
 import org.shirakawatyu.yamibo.novel.bean.ContentType
 import org.shirakawatyu.yamibo.novel.bean.ReaderSettings
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
+import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.module.PassageWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.state.ChapterInfo
 import org.shirakawatyu.yamibo.novel.ui.state.ReaderState
 import org.shirakawatyu.yamibo.novel.util.CacheData
 import org.shirakawatyu.yamibo.novel.util.CacheUtil
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.HTMLUtil
+import org.shirakawatyu.yamibo.novel.util.LocalCacheUtil
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.TextUtil
 import org.shirakawatyu.yamibo.novel.util.ValueUtil
-import kotlin.math.floor
+import androidx.core.graphics.toColorInt
 
-class ReaderVM : ViewModel() {
+@SuppressLint("SetJavaScriptEnabled")
+class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private val _uiState = MutableStateFlow(ReaderState())
     val uiState = _uiState.asStateFlow()
 
@@ -51,43 +60,470 @@ class ReaderVM : ViewModel() {
     var url by mutableStateOf("")
         private set
 
-    // 转场动画状态，标识是否正在进行页面转场
     var isTransitioning by mutableStateOf(false)
-
-    // 加载遮罩显示状态，控制是否显示加载提示
     var showLoadingScrim by mutableStateOf(false)
         private set
 
-    // 存储未分页的原始数据
     private val rawContentList = ArrayList<Content>()
-
-    // 最新的页面索引
     private var latestPage: Int = 0
-
-    // 当前作者ID
     private var currentAuthorId: String? = null
-
-    // 预加载状态标记，标识是否正在进行预加载操作
     private var isPreloading = false
-
-    // 预加载阈值，当距离页面底部还有多少距离时触发预加载
-    // [修改] 竖屏用 1000 (行), 横屏用 100 (页)
     private val PRELOAD_THRESHOLD_VERTICAL = 1000
     private val PRELOAD_THRESHOLD_HORIZONTAL = 100
-
-
-    // 正在预加载的视图索引
     private var viewBeingPreloaded = 0
-
-    // 下一页的HTML数据
     private var nextHtmlList: List<Content>? = null
-
-    // 下一章的章节信息
     private var nextChapterList: List<ChapterInfo>? = null
+
+    // ==================== 缓存相关 ====================
+    // 缓存重试机制
+    private val diskCacheRetries = mutableMapOf<Int, Int>() // 跟踪 <PageNum, RetryCount>
+    private val MAX_CACHE_RETRIES = 2 // 每次加载允许失败2次（总共尝试3次）
+    private val CACHE_RETRY_DELAY_MS = 5000L // 失败后等待5秒重试
+
+    // 本地缓存工具
+    private val localCache by lazy { LocalCacheUtil.getInstance(applicationContext) }
+
+    // 缓存状态
+    private val _cachedPages = MutableStateFlow<Set<Int>>(emptySet())
+    val cachedPages: StateFlow<Set<Int>> = _cachedPages
+
+    // 缓存进度
+    private val _cacheProgress = MutableStateFlow<CacheProgress?>(null)
+    val cacheProgress: StateFlow<CacheProgress?> = _cacheProgress
+
+    // 专用于缓存的后台WebView
+    @SuppressLint("StaticFieldLeak")
+    private var cacheWebView: WebView? = null
+    private var cacheWebViewClient: PassageWebViewClient? = null
+
+    // 暴露isDiskCaching状态
+    private val _isDiskCaching = MutableStateFlow(false)
+    val isDiskCaching: StateFlow<Boolean> = _isDiskCaching.asStateFlow()
+
+    private var diskCacheQueue: MutableSet<Int> = mutableSetOf()
+    private var diskCacheIncludeImages: Boolean = false
+
+    // 进度条总数
+    private var diskCacheTotalPages: Int = 0
+
+    // 进度条当前
+    private var diskCacheCurrentPage: Int = 0
+
+    // 跟踪当前缓存会话是否应显示进度对话框
+    private var currentCacheSessionShowsProgress: Boolean = true
+
+    data class CacheProgress(
+        val totalPages: Int,
+        val currentPage: Int, // 1-based index of processing (e.g., 1/20)
+        val currentPageNum: Int, // The actual page number being cached (e.g., Page 5)
+        val isComplete: Boolean = false
+    )
 
     init {
         Log.i(logTag, "VM created.")
+        // 在ViewModel创建时立即开始监听缓存索引变化
+        viewModelScope.launch {
+            localCache.index.collect { index ->
+                // 当缓存索引更新时，如果已经有URL，则更新缓存状态
+                if (url.isNotEmpty()) {
+                    updateCachedPagesFromIndex(index)
+                }
+            }
+        }
     }
+
+    // 从索引更新缓存页面状态的方法
+    private fun updateCachedPagesFromIndex(index: Map<String, LocalCacheUtil.CacheIndex>) {
+        val novelCache = index[url]
+        if (novelCache != null && novelCache.pages.isNotEmpty()) {
+            _cachedPages.value = novelCache.pages.keys
+            Log.i(logTag, "缓存状态已更新: $url - ${_cachedPages.value.size} 页")
+        } else {
+            _cachedPages.value = emptySet()
+            Log.i(logTag, "缓存状态已清空: $url - 无缓存")
+        }
+    }
+
+    // 启动磁盘缓存
+    fun startCaching(
+        pagesToCache: Set<Int>,
+        includeImages: Boolean = false,
+        showProgressDialog: Boolean = true
+    ) {
+        if (_isDiskCaching.value) {
+            Log.w(logTag, "Already caching. New request ignored.")
+            return
+        }
+        if (pagesToCache.isEmpty()) return
+
+        Log.i(
+            logTag,
+            "Starting disk cache for ${pagesToCache.size} pages, includeImages=$includeImages"
+        )
+
+        _isDiskCaching.value = true // [MODIFIED]
+        diskCacheQueue = pagesToCache.toMutableSet()
+        diskCacheIncludeImages = false // includeImages
+        diskCacheTotalPages = pagesToCache.size
+        diskCacheCurrentPage = 0 // 尚未开始处理
+        diskCacheRetries.clear() // 开始新任务时，清空重试计数器
+        // 记录这个缓存会话是否应该显示进度条
+        currentCacheSessionShowsProgress = showProgressDialog
+        // 初始化后台 WebView
+        viewModelScope.launch(Dispatchers.Main) {
+            // WebView 必须在主线程创建
+            if (cacheWebView == null) {
+                Log.i(logTag, "Creating background cache WebView...")
+                cacheWebView = WebView(applicationContext).apply {
+                    // 基本设置
+                    settings.javaScriptEnabled = true
+                    settings.useWideViewPort = true
+                    // 应用缓存时选择的图片设置
+//                    if (includeImages) {
+//                        settings.loadsImagesAutomatically = true
+//                        settings.blockNetworkImage = false
+//                    } else {
+                    settings.loadsImagesAutomatically = false
+                    settings.blockNetworkImage = true
+//                    }
+                    webChromeClient = GlobalData.webChromeClient
+                }
+                // 设置专用的 Client 和回调
+                cacheWebViewClient = PassageWebViewClient(::handleCacheLoadFinished)
+                cacheWebView?.webViewClient = cacheWebViewClient!!
+            }
+            // 启动缓存队列
+            loadNextPageForDiskCache(showProgressDialog)
+        }
+    }
+
+    /**
+     * 验证用于磁盘缓存的 HTML 内容。
+     */
+    private fun isDiskCacheHtmlValid(htmlContent: String?): Boolean {
+        if (htmlContent.isNullOrBlank()) {
+            Log.w(logTag, "DiskCache Validation FAILED: HTML content is null or blank.")
+            return false
+        }
+        if (htmlContent.length < 100) {
+            Log.w(
+                logTag,
+                "DiskCache Validation FAILED: HTML content is too short (${htmlContent.length} chars)."
+            )
+            return false
+        }
+        if (htmlContent.contains("[Error] Content element not found") ||
+            htmlContent.contains("[Error] 页面加载失败")
+        ) {
+            Log.w(logTag, "DiskCache Validation FAILED: HTML content contains known error string.")
+            return false
+        }
+        if (!htmlContent.contains("class=\"message\"") && !htmlContent.contains("class='message'")) {
+            Log.w(logTag, "DiskCache Validation FAILED: HTML content missing 'message' class.")
+            return false
+        }
+        return true
+    }
+
+    // 后台 WebView 加载完成的回调 (不变)
+    private fun handleCacheLoadFinished(
+        success: Boolean,
+        html: String,
+        loadedUrl: String?,
+        maxPage: Int
+    ) {
+        // 从URL中解析出我们刚刚加载的页码
+        val pageNum = extractPageNumFromLoadedUrl(loadedUrl)
+
+        // 检查这个页码是否在我们期望的队列中
+        if (pageNum == null || !diskCacheQueue.contains(pageNum)) {
+            Log.w(
+                logTag,
+                "DiskCache: WebView loaded $loadedUrl (page $pageNum), which is not the expected page in queue. Ignoring."
+            )
+
+            // 检查这是否是一个我们正在等待的重试页面的（可能已超时的）失败回调
+            if (diskCacheQueue.isNotEmpty() && pageNum == diskCacheQueue.first()) {
+                Log.w(
+                    logTag,
+                    "DiskCache: ...but it *is* the current page. We must process this failure."
+                )
+                // 允许失败逻辑继续
+            } else {
+                return // 否则，安全地忽略
+            }
+        }
+
+        // 检查并存储AuthorId
+        checkAndStoreAuthorId(loadedUrl)
+
+        val isContentValid = success && isDiskCacheHtmlValid(html)
+
+        // 检查加载是否成功
+        if (isContentValid) {
+            Log.i(
+                logTag,
+                "DiskCache: Successfully fetched page $pageNum. Saving to disk & memory..."
+            )
+            diskCacheRetries.remove(pageNum)
+            // 启动一个IO协程来保存
+            viewModelScope.launch(Dispatchers.IO) {
+                // 准备数据
+                val cacheData = CacheData(
+                    cachedPageNum = pageNum,
+                    htmlContent = html,
+                    maxPageNum = maxPage,
+                    authorId = currentAuthorId
+                )
+                // 保存到磁盘
+                localCache.savePage(url, pageNum, cacheData, diskCacheIncludeImages)
+                // 同时保存到内存 (以便下次读取时更快)
+                CacheUtil.saveCache(url, cacheData)
+
+                // 回到主线程更新状态
+                withContext(Dispatchers.Main) {
+                    _cachedPages.value += pageNum // 更新UI状态
+                    diskCacheQueue.remove(pageNum) // 从队列中移除
+                    loadNextPageForDiskCache(false) // 触发下一页缓存
+                }
+            }
+        } else {
+            // 加载失败
+            val currentRetries = diskCacheRetries.getOrDefault(pageNum, 0)
+            if (currentRetries < MAX_CACHE_RETRIES) {
+                // 还可以重试
+                diskCacheRetries[pageNum] = currentRetries + 1
+                Log.w(
+                    logTag,
+                    "DiskCache: Failed to fetch page $pageNum. Retrying in ${CACHE_RETRY_DELAY_MS}ms... (Attempt ${currentRetries + 1}/${MAX_CACHE_RETRIES + 1})"
+                )
+
+                // 重新构建失败的 URL
+                var urlToReload = loadedUrl
+                if (urlToReload == null || !urlToReload.contains("page=")) {
+                    // 如果 URL 损坏或丢失，从队列重建
+                    urlToReload = "${RequestConfig.BASE_URL}/${this.url}&page=$pageNum"
+                    if (currentAuthorId != null) {
+                        urlToReload += "&authorid=$currentAuthorId"
+                    }
+                }
+                // 启动一个带延迟的新协程来触发 WebView 重新加载
+                viewModelScope.launch(Dispatchers.Main) {
+                    delay(CACHE_RETRY_DELAY_MS)
+                    // 检查在延迟期间缓存任务是否已被用户取消
+                    if (_isDiskCaching.value && diskCacheQueue.contains(pageNum)) {
+                        Log.i(logTag, "DiskCache: Retrying load for $urlToReload")
+                        cacheWebView?.loadUrl(urlToReload)
+                    } else {
+                        Log.i(
+                            logTag,
+                            "DiskCache: Retry for page $pageNum aborted (caching stopped or page removed)."
+                        )
+                    }
+                }
+            } else {
+                // 达到最大重试次数
+                Log.e(
+                    logTag,
+                    "DiskCache: Failed to fetch page $pageNum after ${MAX_CACHE_RETRIES + 1} attempts. Giving up on this page."
+                )
+
+                // 清理状态
+                diskCacheRetries.remove(pageNum)
+                _cachedPages.value -= pageNum // 确保UI上不显示为已缓存
+                diskCacheQueue.remove(pageNum) // 从队列中移除
+
+                // 触发下一页缓存 (跳过失败的)
+                loadNextPageForDiskCache(false)
+            }
+        }
+    }
+
+    // 缓存队列状态机
+    private fun loadNextPageForDiskCache(showInitialProgress: Boolean = true) {
+        if (!_isDiskCaching.value || diskCacheQueue.isEmpty()) {
+            _isDiskCaching.value = false
+            // 标记进度为完成 (如果进度条还显示的话)
+            if (currentCacheSessionShowsProgress && _cacheProgress.value != null && _cacheProgress.value?.isComplete == false) {
+                _cacheProgress.value = _cacheProgress.value?.copy(
+                    // 确保进度条显示 100%
+                    currentPage = _cacheProgress.value?.totalPages ?: diskCacheTotalPages,
+                    isComplete = true
+                )
+            } else if (!currentCacheSessionShowsProgress) {
+                // 如果是静默会话，就在日志中记录完成
+                Log.i(logTag, "Silent disk caching complete.")
+            } else {
+                Log.i(logTag, "Disk caching complete.")
+            }
+            // 此时可以考虑销毁 cacheWebView 以释放资源，或者保留它以便下次使用
+            // 暂时保留
+            return
+        }
+
+        val pageNum = diskCacheQueue.first() // 获取下一个要缓存的页码
+        diskCacheCurrentPage++ // 标记我们开始处理这一页
+
+        // 更新进度条
+        if (currentCacheSessionShowsProgress) {
+            // 检查是否应该显示
+            val shouldShowDialogNow = if (diskCacheCurrentPage == 1) {
+                showInitialProgress
+            } else {
+                true
+            }
+            if (shouldShowDialogNow) {
+                _cacheProgress.value = CacheProgress(
+                    totalPages = diskCacheTotalPages,
+                    currentPage = diskCacheCurrentPage,
+                    currentPageNum = pageNum
+                )
+            }
+        }
+
+        // 检查内存缓存
+        CacheUtil.getCache(url, pageNum) { memoryCacheData ->
+            if (memoryCacheData != null) {
+                // 内存缓存命中：直接保存到磁盘
+                Log.i(logTag, "Page $pageNum found in memory. Saving to disk.")
+                viewModelScope.launch(Dispatchers.IO) {
+                    localCache.savePage(url, pageNum, memoryCacheData, diskCacheIncludeImages)
+                    withContext(Dispatchers.Main) {
+                        _cachedPages.value += pageNum
+                        diskCacheQueue.remove(pageNum) // 从队列中移除
+                        loadNextPageForDiskCache(false) // 递归处理下一页
+                    }
+                }
+            } else {
+                // 内存缓存未命中：触发 [cacheWebView] 加载
+                Log.i(logTag, "Page $pageNum not in memory. Triggering background WebView load.")
+                var urlToLoad = "${RequestConfig.BASE_URL}/${this.url}&page=${pageNum}"
+                if (currentAuthorId != null) {
+                    urlToLoad += "&authorid=$currentAuthorId"
+                }
+                // 命令后台WebView加载
+                viewModelScope.launch(Dispatchers.Main) {
+                    cacheWebView?.loadUrl(urlToLoad)
+                }
+            }
+        }
+    }
+
+    // 辅助函数：从URL中提取页码
+    private fun extractPageNumFromLoadedUrl(url: String?): Int? {
+        if (url == null) return null
+        return try {
+            url.substringAfter("page=", "").substringBefore("&").toIntOrNull()
+        } catch (e: Exception) {
+            Log.e(logTag, "Could not extract page number from URL: $url", e)
+            null
+        }
+    }
+
+    // 从HTML中提取最大页码
+    private fun extractMaxPageFromHtml(html: String): Int {
+        return try {
+            val doc = Jsoup.parse(html)
+            val selectors = listOf(
+                "select#dumppage option:last-child",
+                "select[id=dumppage] option:last-child",
+                ".pg a:last-child"
+            )
+            for (selector in selectors) {
+                val element = doc.select(selector).firstOrNull()
+                if (element != null) {
+                    val value = element.attr("value").ifEmpty { element.text() }
+                    val pageNum = value.toIntOrNull()
+                    if (pageNum != null && pageNum > 0) {
+                        Log.i(logTag, "Extracted maxPage=$pageNum using selector: $selector")
+                        return pageNum
+                    }
+                }
+            }
+            Log.w(logTag, "Could not extract maxPage from HTML, defaulting to 1")
+            1
+        } catch (e: Exception) {
+            Log.e(logTag, "Failed to extract maxPage from HTML", e)
+            1
+        }
+    }
+
+    // 删除缓存页面
+    fun deleteCachedPages(pagesToDelete: Set<Int>) {
+        viewModelScope.launch {
+            try {
+                Log.i(logTag, "Deleting ${pagesToDelete.size} cached pages")
+                pagesToDelete.forEach { pageNum ->
+                    localCache.deletePage(url, pageNum)
+                }
+                _cachedPages.value -= pagesToDelete
+                Log.i(logTag, "Successfully deleted ${pagesToDelete.size} cached pages")
+            } catch (e: Exception) {
+                Log.e(logTag, "Failed to delete cached pages", e)
+            }
+        }
+    }
+
+    // 更新缓存页面
+    fun updateCachedPages(
+        pagesToUpdate: Set<Int>,
+        includeImages: Boolean,
+        showProgressDialog: Boolean = true
+    ) {
+        viewModelScope.launch {
+            try {
+                Log.i(logTag, "Updating ${pagesToUpdate.size} cached pages")
+                // 先删除旧缓存
+                pagesToUpdate.forEach { pageNum ->
+                    localCache.deletePage(url, pageNum)
+                }
+                _cachedPages.value -= pagesToUpdate
+                // 重新缓存
+                startCaching(pagesToUpdate, includeImages, showProgressDialog)
+            } catch (e: Exception) {
+                Log.e(logTag, "Failed to update cached pages", e)
+            }
+        }
+    }
+
+    // 重置缓存进度
+    fun resetCacheProgress() {
+        // 任何时候调用都隐藏对话框
+        _cacheProgress.value = null
+    }
+
+    // 重新显示缓存进度
+    fun showCacheProgress() {
+        // 仅当缓存正在运行且进度条被隐藏时
+        if (_isDiskCaching.value && _cacheProgress.value == null) {
+            // 重新构建进度条状态
+            _cacheProgress.value = CacheProgress(
+                totalPages = diskCacheTotalPages,
+                currentPage = diskCacheCurrentPage,
+                currentPageNum = diskCacheQueue.firstOrNull() ?: 0, // 显示当前页或0
+                isComplete = false
+            )
+        }
+    }
+
+    // 终止缓存
+    fun stopCaching() {
+        if (!_isDiskCaching.value) return // [MODIFIED]
+        Log.i(logTag, "User requested to stop caching.")
+        _isDiskCaching.value = false // [MODIFIED]
+        diskCacheQueue.clear()
+        // 停止后台 WebView
+        viewModelScope.launch(Dispatchers.Main) {
+            cacheWebView?.stopLoading()
+        }
+        // 隐藏进度对话框
+        _cacheProgress.value = null
+        // 重置进度计数器
+        diskCacheTotalPages = 0
+        diskCacheCurrentPage = 0
+    }
+
+    // ====================上方为缓存功能====================
 
     fun firstLoad(initUrl: String, initHeight: Dp, initWidth: Dp) {
         viewModelScope.launch {
@@ -95,13 +531,15 @@ class ReaderVM : ViewModel() {
             maxWidth = initWidth
             maxHeight = initHeight
 
+            // 加载缓存状态
+            updateCachedPagesFromIndex(localCache.index.value)
+
             val applySettingsAndLoad = { settings: ReaderSettings? ->
-                // 背景颜色加载
                 val bgColor = settings?.backgroundColor?.let {
                     try {
-                        Color(android.graphics.Color.parseColor(it))
-                    } catch (e: Exception) {
-                        null // 解析失败则使用默认
+                        Color(it.toColorInt())
+                    } catch (_: Exception) {
+                        null
                     }
                 }
 
@@ -125,10 +563,196 @@ class ReaderVM : ViewModel() {
                     applySettingsAndLoad(null)
                 }
             )
+            // 监听收藏变化，并在URL变化时检查
+            viewModelScope.launch {
+                FavoriteUtil.getFavoriteFlow().collect { favorites ->
+                    val isFavorited = favorites.any { it.url == url }  // 检查URL是否在收藏列表中
+                    _uiState.value = _uiState.value.copy(isFavorited = isFavorited)
+                    Log.i(logTag, "当前页面 $url 是否收藏: $isFavorited")
+                }
+            }
         }
     }
 
-    // [修改] 增加一个辅助函数来计算横屏页的平均行数
+    // 修改 loadWithSettings，优先使用本地缓存 (不变)
+    private fun loadWithSettings() {
+        viewModelScope.launch {
+            FavoriteUtil.getFavoriteMap { favMap ->
+                val favorite = favMap[url]
+                val targetView = favorite?.lastView ?: 1
+                val targetPageNum = favorite?.lastPage ?: 0
+                currentAuthorId = favorite?.authorId
+
+                val targetIndex: Int
+                if (_uiState.value.isVerticalMode) {
+                    val avgItemsPerPage = getAvgItemsPerHorizontalPage()
+                    targetIndex = (targetPageNum * avgItemsPerPage)
+                } else {
+                    targetIndex = targetPageNum
+                }
+
+                // 优先检查本地缓存
+                viewModelScope.launch {
+                    val localCacheData = localCache.loadPage(url, targetView)
+
+                    if (localCacheData != null) {
+                        // 本地缓存命中
+                        Log.i(logTag, "Local cache hit for page $targetView")
+
+                        if (currentAuthorId == null && localCacheData.authorId != null) {
+                            currentAuthorId = localCacheData.authorId
+                        }
+
+                        _uiState.value = _uiState.value.copy(
+                            currentView = targetView,
+                            maxWebView = localCacheData.maxPageNum
+                        )
+
+                        loadFinished(
+                            success = true,
+                            localCacheData.htmlContent,
+                            null,
+                            localCacheData.maxPageNum,
+                            isFromCache = true,
+                            cacheTargetIndex = targetIndex
+                        )
+                        return@launch
+                    }
+
+                    // 本地缓存未命中，检查内存缓存
+                    CacheUtil.getCache(url, targetView) { cacheData ->
+                        if (cacheData != null) {
+                            Log.i(logTag, "Memory cache hit for page $targetView")
+
+                            if (currentAuthorId == null && cacheData.authorId != null) {
+                                currentAuthorId = cacheData.authorId
+                            }
+
+                            _uiState.value = _uiState.value.copy(
+                                currentView = targetView,
+                                maxWebView = cacheData.maxPageNum
+                            )
+
+                            loadFinished(
+                                success = true,
+                                cacheData.htmlContent,
+                                null,
+                                cacheData.maxPageNum,
+                                isFromCache = true,
+                                cacheTargetIndex = targetIndex
+                            )
+                        } else {
+                            // 内存缓存也未命中，从网络加载
+                            Log.i(logTag, "Cache miss. Loading page $targetView from network.")
+
+                            _uiState.value = _uiState.value.copy(
+                                currentView = targetView,
+                                initPage = targetIndex
+                            )
+
+                            loadFromNetwork(targetView)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 修改 onSetView，优先检查本地缓存 (不变)
+    fun onSetView(view: Int, forceReload: Boolean = false) {
+        if (view == _uiState.value.currentView && !isTransitioning && !forceReload) {
+            Log.i(logTag, "Already on view $view. Ignoring.")
+            return
+        }
+
+        if (view == _uiState.value.currentView + 1 && nextHtmlList != null) {
+            Log.i(logTag, "Using preloaded content for view $view")
+            isTransitioning = true
+
+            _uiState.value = _uiState.value.copy(
+                htmlList = nextHtmlList!!,
+                chapterList = nextChapterList ?: listOf(),
+                initPage = 0,
+                currentPercentage = 0f,
+                currentView = view
+            )
+
+            nextHtmlList = null
+            nextChapterList = null
+            latestPage = 0
+
+        } else {
+            Log.i(logTag, "Page $view not preloaded. Checking cache...")
+            nextHtmlList = null
+            nextChapterList = null
+            isPreloading = false
+
+            viewModelScope.launch {
+                // 先检查本地缓存
+                val localCacheData = localCache.loadPage(url, view)
+
+                if (localCacheData != null && localCacheData.authorId == currentAuthorId) {
+                    // 本地缓存命中
+                    Log.i(logTag, "Local cache hit for page $view. Loading from local cache.")
+                    isTransitioning = true
+
+                    _uiState.value = _uiState.value.copy(
+                        currentView = view,
+                        initPage = 0,
+                        currentPercentage = 0f,
+                        maxWebView = localCacheData.maxPageNum
+                    )
+
+                    loadFinished(
+                        success = true,
+                        localCacheData.htmlContent,
+                        null,
+                        localCacheData.maxPageNum,
+                        isFromCache = true,
+                        cacheTargetIndex = 0
+                    )
+                } else {
+                    // 本地缓存未命中，检查内存缓存
+                    CacheUtil.getCache(url, view) { cacheData ->
+                        viewModelScope.launch {
+                            if (cacheData != null && cacheData.authorId == currentAuthorId) {
+                                // 内存缓存命中
+                                Log.i(
+                                    logTag,
+                                    "Memory cache hit for page $view. Loading from memory cache."
+                                )
+                                isTransitioning = true
+
+                                _uiState.value = _uiState.value.copy(
+                                    currentView = view,
+                                    initPage = 0,
+                                    currentPercentage = 0f,
+                                    maxWebView = cacheData.maxPageNum
+                                )
+
+                                loadFinished(
+                                    success = true,
+                                    cacheData.htmlContent,
+                                    null,
+                                    cacheData.maxPageNum,
+                                    isFromCache = true,
+                                    cacheTargetIndex = 0
+                                )
+                            } else {
+                                // 缓存未命中
+                                Log.i(logTag, "Cache miss for page $view. Loading from network.")
+                                loadFromNetwork(view)
+                                isTransitioning = true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ==================== 以下是原有的其他方法 ====================
+
     private fun getAvgItemsPerHorizontalPage(): Int {
         val state = _uiState.value
         val topPadding = 24.dp
@@ -139,163 +763,90 @@ class ReaderVM : ViewModel() {
         return (pageContentHeightPx / lineHeightPx).toInt().coerceAtLeast(1)
     }
 
-    // 加载页面数据
-    private fun loadWithSettings() {
-        viewModelScope.launch {
-            // 获取收藏栏保存的数据
-            FavoriteUtil.getFavoriteMap { favMap ->
-                val favorite = favMap[url]
-                val targetView = favorite?.lastView ?: 1
-                // [MODIFICATION] This is now a "page number", not necessarily an index
-                val targetPageNum = favorite?.lastPage ?: 0
-                currentAuthorId = favorite?.authorId
-
-                // [MODIFICATION] Calculate the target *index* based on the loaded mode
-                val targetIndex: Int
-                if (_uiState.value.isVerticalMode) {
-                    // Convert page number back to an estimated row index
-                    val avgItemsPerPage = getAvgItemsPerHorizontalPage()
-                    targetIndex = (targetPageNum * avgItemsPerPage)
-                } else {
-                    // In horizontal mode, page number *is* the index
-                    targetIndex = targetPageNum
-                }
-
-                // 从缓存中获取页面数据
-                CacheUtil.getCache(url, targetView) { cacheData ->
-                    if (cacheData != null) {
-                        // 缓存命中：使用缓存数据更新UI状态并完成加载
-                        Log.i(logTag, "Cache hit for page $targetView")
-                        if (currentAuthorId == null && cacheData.authorId != null) {
-                            Log.i(
-                                logTag,
-                                "Updating local authorId from cache: ${cacheData.authorId}"
-                            )
-                            currentAuthorId = cacheData.authorId
-                        }
-                        // [MODIFICATION] 从这里移除 initPage 的设置
-                        _uiState.value = _uiState.value.copy(
-                            currentView = targetView,
-                            // initPage = targetIndex, // <-- [REMOVED]
-                            maxWebView = cacheData.maxPageNum
-                        )
-                        currentAuthorId = cacheData.authorId
-
-                        // [MODIFICATION] 将 targetIndex 传递给 loadFinished
-                        loadFinished(
-                            success = true,
-                            cacheData.htmlContent,
-                            null,
-                            cacheData.maxPageNum,
-                            isFromCache = true,
-                            cacheTargetIndex = targetIndex // <-- [ADDED]
-                        )
-                    } else {
-                        // 缓存未命中：从网络加载数据并更新UI状态
-                        Log.i(logTag, "Cache miss. Loading page $targetView from network.")
-
-                        // [MODIFICATION] 缓存未命中时，initPage 保持在这里设置
-                        _uiState.value = _uiState.value.copy(
-                            currentView = targetView,
-                            initPage = targetIndex // [MODIFIED] Use targetIndex
-                        )
-
-                        loadFromNetwork(targetView)
-                    }
-                }
-            }
-        }
-    }
-
-    // 从网络加载数据
+    // loadFromNetwork (只用于UI加载)
     private fun loadFromNetwork(view: Int) {
         var urlToLoad = "${RequestConfig.BASE_URL}/${this.url}&page=${view}"
-        // 如果本地有保存数据，则会获取到作者ID，添加到URL中，直接加载“只看楼主”界面
         if (currentAuthorId != null) {
             urlToLoad += "&authorid=$currentAuthorId"
         }
 
         _uiState.value = _uiState.value.copy(
             currentView = view,
-            urlToLoad = urlToLoad
+            urlToLoad = urlToLoad // [重要] 这个现在只驱动 UI WebView
         )
         showLoadingScrim = true
         isTransitioning = true
     }
 
-    // 触发预加载
+    // triggerPreload (只用于UI预加载)
     private fun triggerPreload(targetView: Int, maxView: Int) {
-        // 检查是否正在预加载或目标页码超过最大页码
         if (isPreloading) return
         if (targetView > maxView) return
-        // 设置预加载状态和预加载的页码
+
+        // 如果正在磁盘缓存，则不要进行UI预加载
+        if (_isDiskCaching.value) return // [MODIFIED]
+
         isPreloading = true
         viewBeingPreloaded = targetView
-        // 构建预加载的URL
+
         var urlToLoad = "${RequestConfig.BASE_URL}/${this.url}&page=${targetView}"
         if (currentAuthorId != null) {
             urlToLoad += "&authorid=$currentAuthorId"
         }
 
-        Log.i(logTag, "Triggering preload for page $targetView")
+        Log.i(logTag, "Triggering UI preload for page $targetView")
 
         _uiState.value = _uiState.value.copy(
-            urlToLoad = urlToLoad
+            urlToLoad = urlToLoad // [重要] 这个也只驱动 UI WebView
         )
     }
 
-    /**
-     * 处理网页加载完成后的逻辑，包括
-     * 解析HTML内容
-     * 分页处理
-     * 缓存管理
-     * UI状态更新
-     * [MODIFICATION] 增加 cacheTargetIndex 参数
-     */
+    // loadFinished (移除了 isDiskCaching 拦截块)
     fun loadFinished(
         success: Boolean,
         html: String,
         loadedUrl: String?,
         maxPage: Int,
         isFromCache: Boolean = false,
-        cacheTargetIndex: Int = 0 // <-- [ADDED]
+        cacheTargetIndex: Int = 0
     ) {
         viewModelScope.launch {
-            // 如果加载失败
             if (!success) {
                 _uiState.value = _uiState.value.copy(
                     isError = true,
                     htmlList = emptyList(),
                     maxWebView = maxPage
                 )
-                showLoadingScrim = false // 隐藏加载圈
-                isTransitioning = false // 确保停止转场
+                showLoadingScrim = false
+                isTransitioning = false
                 return@launch
             }
-            // 如果不是从缓存加载的内容，更新最大页面数到UI状态中
+
             if (!isFromCache) {
                 checkAndStoreAuthorId(loadedUrl)
                 _uiState.value = _uiState.value.copy(maxWebView = maxPage)
             }
-            // 解析HTML并进行分页处理
+
             val (passages, chapters) = withContext(Dispatchers.Default) {
                 parseHtmlToContent(html)
                 paginateContent(isFromCache)
             }
-            // 判断是否处于预加载状态
+
+            // [isPreloading] 逻辑 (内存缓存/预加载)
             if (isPreloading) {
                 isPreloading = false
 
                 val pageNumToCache = viewBeingPreloaded
-                Log.i(logTag, "Caching page $pageNumToCache for $url")
+                Log.i(logTag, "Caching page $pageNumToCache to *memory* for $url")
                 val dataToCache = CacheData(
                     cachedPageNum = pageNumToCache,
                     htmlContent = html,
                     maxPageNum = maxPage,
                     authorId = currentAuthorId
                 )
+                // 只保存到内存
                 CacheUtil.saveCache(url, dataToCache)
-                // 更新下一页的数据列表
+
                 nextHtmlList = passages
                 nextChapterList = chapters
 
@@ -307,45 +858,41 @@ class ReaderVM : ViewModel() {
                 }
 
             } else {
-                // 非预加载状态下，如果不是从缓存读取，则将当前页缓存
+                // [正常加载] 逻辑 (非预加载，非磁盘缓存)
                 if (!isFromCache) {
                     val pageNumToCache = _uiState.value.currentView
-                    Log.i(logTag, "Caching current page $pageNumToCache for ${url}")
+                    Log.i(logTag, "Caching current page $pageNumToCache to *memory* for ${url}")
                     val dataToCache = CacheData(
                         cachedPageNum = pageNumToCache,
                         htmlContent = html,
                         maxPageNum = maxPage,
                         authorId = currentAuthorId
                     )
+                    // 只保存到内存
                     CacheUtil.saveCache(url, dataToCache)
                 }
 
-                // [修改] 计算初始展示页码(索引)和百分比
                 val newInitPage = if (isFromCache) {
-                    // _uiState.value.initPage // <-- [OLD]
-                    cacheTargetIndex // <-- [NEW] 使用传递过来的 cacheTargetIndex
+                    cacheTargetIndex
                 } else if (initialized) {
-                    0 // 已初始化 (例如换页)，从 0 开始
+                    0
                 } else {
-                    _uiState.value.initPage // 首次加载，使用 vm 已有的 targetIndex
+                    _uiState.value.initPage
                 }
 
                 val totalItems = passages.size.coerceAtLeast(1)
-                // [修改] 确保 newInitPage 在范围内
                 val safeInitPage = newInitPage.coerceIn(0, (totalItems - 1).coerceAtLeast(0))
-
                 val newPercent = (safeInitPage.toFloat() / totalItems) * 100f
 
-                // [MODIFICATION] 这是关键：htmlList 和 initPage 在同一次更新中被设置
                 _uiState.value = _uiState.value.copy(
                     htmlList = passages,
                     chapterList = chapters,
                     initPage = safeInitPage,
-                    currentPercentage = newPercent, // [新增]
+                    currentPercentage = newPercent,
                     maxWebView = maxPage,
                     isError = false
                 )
-                // 标记已初始化并记录最新页面
+
                 if (!initialized) {
                     initialized = true
                 }
@@ -357,13 +904,10 @@ class ReaderVM : ViewModel() {
         }
     }
 
-    // 用于重试的方法
     fun retryLoad() {
         Log.i(logTag, "Retrying load for view ${uiState.value.currentView}")
-        // 重置错误状态并从网络重新加载
         viewModelScope.launch {
             showLoadingScrim = true
-            // 设置URL为about:blank，确保重新加载，因为相同时会触发保护
             _uiState.value = _uiState.value.copy(
                 isError = false,
                 urlToLoad = "about:blank"
@@ -373,7 +917,6 @@ class ReaderVM : ViewModel() {
         }
     }
 
-    // 该函数从加载的URL中提取作者ID，如果本地当前没有储存则储存
     private fun checkAndStoreAuthorId(loadedUrl: String?) {
         if (loadedUrl == null) return
         if (currentAuthorId != null) return
@@ -397,7 +940,6 @@ class ReaderVM : ViewModel() {
         }
     }
 
-    // 解析HTML字符串并将其转换为内容列表
     private fun parseHtmlToContent(html: String) {
         rawContentList.clear()
         val doc = Jsoup.parse(html)
@@ -405,7 +947,6 @@ class ReaderVM : ViewModel() {
 
         for (node in doc.getElementsByClass("message")) {
             val rawText = HTMLUtil.toText(node.html())
-            // 提取章节标题，取第一行非空文本的前30个字符
             val chapterTitle: String? = rawText.lines()
                 .firstOrNull { it.isNotBlank() }
                 ?.trim()
@@ -414,11 +955,11 @@ class ReaderVM : ViewModel() {
             if (rawText.isNotBlank()) {
                 rawContentList.add(Content(rawText, ContentType.TEXT, chapterTitle))
             }
-            // 如果需要加载图片，则处理图片元素
+
             if (_uiState.value.loadImages) {
                 for (element in node.getElementsByTag("img")) {
                     val src = element.attribute("src").value
-                    if (!src.startsWith("http://") && !src.startsWith("https")) {
+                    if (!src.startsWith("http://") && !src.startsWith("httpsH")) {
                         rawContentList.add(
                             Content(
                                 "${RequestConfig.BASE_URL}/${src}",
@@ -434,29 +975,21 @@ class ReaderVM : ViewModel() {
         }
     }
 
-    // 对原始内容列表进行分页处理，生成可用于页面显示的内容列表和章节信息。
     private fun paginateContent(isFromCache: Boolean = false): Pair<List<Content>, List<ChapterInfo>> {
-        // rawContentList的快照
         val contentSnapshot = rawContentList.toList()
         val state = _uiState.value
 
         val passages: List<Content>
 
-        // [修改] 根据模式选择分页算法
         if (state.isVerticalMode) {
-            // --- 竖屏滚动模式 ---
-            // 1. 计算可用宽度
             val pageContentWidth = maxWidth - (state.padding + state.padding)
-
-            // 2. 调用新的分行算法
             val lines = TextUtil.pagingTextVertical(
                 rawContentList = contentSnapshot,
                 width = pageContentWidth,
                 fontSize = state.fontSize,
                 letterSpacing = state.letterSpacing
-            ).toMutableList() // 转换为 MutableList 以添加页脚
+            ).toMutableList()
 
-            // 3. 添加页脚
             if (isTransitioning) {
                 // 正在转场中
             } else if (isFromCache) {
@@ -471,14 +1004,12 @@ class ReaderVM : ViewModel() {
             passages = lines
 
         } else {
-            // --- 横屏翻页模式 (旧逻辑) ---
             val passagesList = ArrayList<Content>()
-            // [修改] 使用 getAvgItemsPerHorizontalPage 内部的逻辑来计算
             val topPadding = 24.dp
             val footerHeight = 50.dp
             val pageContentHeight = maxHeight - topPadding - footerHeight
             val pageContentWidth = maxWidth - (state.padding + state.padding)
-            // 遍历原始内容列表，对文本内容进行分页处理，图片内容直接添加
+
             for (content in contentSnapshot) {
                 if (content.type == ContentType.TEXT) {
                     val pagedText = TextUtil.pagingText(
@@ -497,7 +1028,6 @@ class ReaderVM : ViewModel() {
                 }
             }
 
-            // [修改] 根据当前状态显示不同的提示信息
             if (isTransitioning) {
                 // 正在转场中
             } else if (isFromCache) {
@@ -512,12 +1042,9 @@ class ReaderVM : ViewModel() {
             passages = passagesList
         }
 
-        // --- 章节列表构建 (通用逻辑) ---
-        // 构建章节信息列表，记录每个章节标题在内容列表中的起始索引
         val chapterList = mutableListOf<ChapterInfo>()
         var lastTitle: String? = null
         passages.forEachIndexed { index, content ->
-            // [修改] 章节索引现在指向 *行索引* (竖屏) 或 *页索引* (横屏)
             if (content.chapterTitle != null && content.chapterTitle != lastTitle && content.chapterTitle != "footer") {
                 chapterList.add(ChapterInfo(title = content.chapterTitle, startIndex = index))
                 lastTitle = content.chapterTitle
@@ -527,25 +1054,18 @@ class ReaderVM : ViewModel() {
         return Pair(passages, chapterList)
     }
 
-    /**
-     * 处理页面变化的共享逻辑（保存历史、预加载、切换到预加载的页面）
-     */
     private fun processPageChange(newPage: Int) {
         val oldPage = latestPage
         val state = _uiState.value
         val list = state.htmlList
 
-        // 保存历史
         if (list.isNotEmpty() && newPage < list.size && oldPage >= 0 && oldPage < list.size) {
             val oldChapter = list[oldPage].chapterTitle
             val newChapter = list[newPage].chapterTitle
 
-            // [修改] 仅在章节变化时保存 (竖屏模式下)
-            // (横屏模式下，每次翻页都会保存)
             if (newChapter != null && newChapter != oldChapter) {
                 saveHistory(newPage)
             } else if (!state.isVerticalMode) {
-                // 如果是横屏，且不在转场中，每次都保存
                 if (!isTransitioning) {
                     saveHistory(newPage)
                 }
@@ -553,36 +1073,33 @@ class ReaderVM : ViewModel() {
         }
 
         val listSize = list.size
-        // 检查是否需要切换到已预加载的下一页
+
         if (listSize > 0 &&
-            newPage == listSize - 1 && // (检查是否是最后 [加载更多] 页面)
+            newPage == listSize - 1 &&
             nextHtmlList != null &&
-            !isTransitioning // 再次检查
+            !isTransitioning
         ) {
             isTransitioning = true
             val newCurrentView = state.currentView + 1
 
             Log.i(logTag, "Switching to preloaded page $newCurrentView")
 
-            // [修改] 切换时重置百分比
             _uiState.value = state.copy(
                 htmlList = nextHtmlList!!,
                 chapterList = nextChapterList ?: listOf(),
                 initPage = 0,
-                currentPercentage = 0f, // [新增]
+                currentPercentage = 0f,
                 currentView = newCurrentView
             )
 
             nextHtmlList = null
             nextChapterList = null
-            latestPage = 0 // 重置
+            latestPage = 0
 
-            return // 完成切换，不需要执行后续逻辑
+            return
         }
 
-        // 检查是否需要触发预加载
         val lastContentPageIndex = (listSize - 2).coerceAtLeast(0)
-        // [修改] 竖屏模式下，阈值应该基于行数，横屏模式下基于页数
         val threshold =
             if (state.isVerticalMode) PRELOAD_THRESHOLD_VERTICAL else PRELOAD_THRESHOLD_HORIZONTAL
         val triggerPageIndex = (lastContentPageIndex - threshold).coerceAtLeast(0)
@@ -591,8 +1108,8 @@ class ReaderVM : ViewModel() {
             !isPreloading &&
             nextHtmlList == null &&
             state.currentView < state.maxWebView &&
-            !isTransitioning && // 再次检查
-            newPage >= triggerPageIndex // 关键：当滚动到触发点
+            !isTransitioning &&
+            newPage >= triggerPageIndex
         ) {
             val viewToPreload = state.currentView + 1
             Log.i(logTag, "newPage $newPage triggerPageIndex $triggerPageIndex")
@@ -600,17 +1117,9 @@ class ReaderVM : ViewModel() {
             triggerPreload(viewToPreload, state.maxWebView)
         }
 
-        // 更新最新页面
         latestPage = newPage
     }
 
-    /**
-     * 当页面发生改变时调用，用于处理
-     * 页面切换逻辑
-     * 章节保存
-     * 预加载
-     * 页面过渡状态管理
-     * */
     fun onPageChange(curPagerState: PagerState, scope: CoroutineScope) {
         if (pagerState == null) {
             pagerState = curPagerState
@@ -620,7 +1129,7 @@ class ReaderVM : ViewModel() {
         }
 
         val newPage = curPagerState.targetPage
-        // 如果正处于页面转场状态，判断是否已经到达目标页面
+
         if (isTransitioning) {
             if (curPagerState.settledPage == _uiState.value.initPage && newPage == _uiState.value.initPage) {
                 Log.i(logTag, "Transition complete. Settled at page ${_uiState.value.initPage}")
@@ -631,20 +1140,15 @@ class ReaderVM : ViewModel() {
             }
         }
 
-        // 检查
         val list = _uiState.value.htmlList
-        // 如果页面没变 (latestPage)，或者列表无效，则不处理
+
         if (newPage == latestPage || list.isEmpty() || newPage >= list.size) {
-            // 但要处理缩放重置
             if (curPagerState.settledPage != curPagerState.targetPage && _uiState.value.scale != 1f) {
                 _uiState.value = _uiState.value.copy(scale = 1f, offset = Offset(0f, 0f))
             }
             return
         }
 
-        // --- 页面已变化，且不在转场中 ---
-
-        // [新增] 更新百分比
         val totalPages = curPagerState.pageCount.coerceAtLeast(1)
         val percent = (newPage.toFloat() / totalPages) * 100f
         _uiState.value = _uiState.value.copy(currentPercentage = percent)
@@ -656,13 +1160,8 @@ class ReaderVM : ViewModel() {
         }
     }
 
-    /**
-     * (新函数) 当竖屏滚动时调用
-     * 仅当页面 *稳定* 在新索引时才应调用
-     */
     fun onVerticalPageSettled(newPage: Int) {
         if (isTransitioning) {
-            // 如果是转场到新网页，我们只关心转场是否在 initPage 结束
             if (newPage == _uiState.value.initPage) {
                 Log.i(
                     logTag,
@@ -671,12 +1170,11 @@ class ReaderVM : ViewModel() {
                 isTransitioning = false
                 latestPage = _uiState.value.initPage
             }
-            return // 在转场期间，忽略其他页面变化
+            return
         }
 
-        if (newPage == latestPage) return // 索引未变化
+        if (newPage == latestPage) return
 
-        // [新增] 更新百分比
         val totalRows = _uiState.value.htmlList.size.coerceAtLeast(1)
         val percent = (newPage.toFloat() / totalRows) * 100f
         _uiState.value = _uiState.value.copy(currentPercentage = percent)
@@ -684,34 +1182,54 @@ class ReaderVM : ViewModel() {
         processPageChange(newPage)
     }
 
-    // 保存阅读历史记录
-    private fun saveHistory(pageToSave: Int) { // pageToSave is the index (row/page)
+    /**
+     * 强制刷新当前正在查看的网页页面。
+     * 清除内存缓存，触发UI刷新，并启动后台任务以替换磁盘缓存。
+     */
+    fun forceRefreshCurrentPage() {
+        val pageToRefresh = _uiState.value.currentView
+        val novelUrl = this.url
+
+        if (novelUrl.isBlank()) {
+            Log.w(logTag, "Cannot refresh, URL is blank.")
+            return
+        }
+
+        Log.i(logTag, "Force refreshing... URL: $novelUrl, Page: $pageToRefresh")
+
+        // 清除内存缓存
+        CacheUtil.clearCacheEntry(novelUrl, pageToRefresh)
+
+        // 触发UI重载
+        onSetView(pageToRefresh, forceReload = true)
+
+        // 触发磁盘缓存的“更新”
+        updateCachedPages(setOf(pageToRefresh), false, showProgressDialog = false)
+    }
+
+    private fun saveHistory(pageToSave: Int) {
         val currentList = _uiState.value.htmlList
         var currentChapter: String? = null
-        // 获取当前页面的章节标题
+
         if (pageToSave >= 0 && pageToSave < currentList.size) {
             currentChapter = currentList[pageToSave].chapterTitle
         }
 
-        // [MODIFICATION] Calculate the value to save based on mode
         val state = _uiState.value
         val valueToSave: Int
 
         if (state.isVerticalMode) {
-            // In vertical mode, convert row index to an equivalent page number
             val avgItemsPerPage = getAvgItemsPerHorizontalPage()
             valueToSave = (pageToSave.toFloat() / avgItemsPerPage.toFloat()).toInt()
         } else {
-            // In horizontal mode, the index *is* the page number
             valueToSave = pageToSave
         }
 
-        // 更新收藏夹中的历史记录信息
         FavoriteUtil.getFavoriteMap {
             it[url]?.let { it1 ->
                 FavoriteUtil.updateFavorite(
                     it1.copy(
-                        lastPage = valueToSave, // [MODIFIED] Save the calculated value
+                        lastPage = valueToSave,
                         lastView = uiState.value.currentView,
                         lastChapter = currentChapter,
                         authorId = this.currentAuthorId
@@ -733,23 +1251,20 @@ class ReaderVM : ViewModel() {
             state.nightMode,
             backgroundColorString,
             state.loadImages,
-            state.isVerticalMode // [重要] 保存当前模式
+            state.isVerticalMode
         )
         SettingsUtil.saveSettings(settings)
     }
 
-    // 保存阅读器设置并重新分页内容
     fun saveSettings(currentPage: Int) {
         saveCurrentSettings()
 
         viewModelScope.launch {
             showLoadingScrim = true
 
-            // [修改] 计算旧的百分比，用于模式切换
             val oldPageCount = _uiState.value.htmlList.size.coerceAtLeast(1)
             val oldPercent = currentPage.toFloat() / oldPageCount
 
-            // [修改] 查找旧章节信息 (基于索引，依然有效)
             val (oldChapterTitle, oldItemInChapter) = if (currentPage >= 0 && currentPage < oldPageCount) {
                 val oldChapterTitle = _uiState.value.htmlList[currentPage].chapterTitle
                 val oldChapterStartIndex =
@@ -760,36 +1275,29 @@ class ReaderVM : ViewModel() {
                 Pair(null, 0)
             }
 
-            // 在后台线程中重新分页内容 (将使用 state 中 *新* 的 isVerticalMode)
             val (newPages, newChapters) = withContext(Dispatchers.Default) {
                 paginateContent()
             }
 
             val newPageCount = newPages.size.coerceAtLeast(1)
 
-            // [修改] 计算新的滚动位置
             val pageToScrollTo = if (oldChapterTitle != null) {
-                // 1. 尝试找到新章节列表中的同一个章节
                 val newChapterStartIndex =
                     newChapters.find { it.title == oldChapterTitle }?.startIndex ?: 0
 
-                // 2. 滚动到该章节的开头 + 旧的章内页码 (或行号)
                 (newChapterStartIndex + oldItemInChapter).coerceIn(
                     0,
                     (newPageCount - 1).coerceAtLeast(0)
                 )
             } else {
-                // 如果找不到旧章节（例如列表为空），回退到百分比逻辑
                 (oldPercent * newPageCount).toInt().coerceIn(
                     0,
                     (newPageCount - 1).coerceAtLeast(0)
                 )
             }
 
-            // [新增] 计算新的百分比
             val newPercent = (pageToScrollTo.toFloat() / newPageCount) * 100f
 
-            // 确保在滚动回第一页时也清空偏移
             if (pageToScrollTo == 0) {
                 _uiState.value = _uiState.value.copy(scale = 1f, offset = Offset(0f, 0f))
             }
@@ -797,8 +1305,8 @@ class ReaderVM : ViewModel() {
             _uiState.value = _uiState.value.copy(
                 htmlList = newPages,
                 chapterList = newChapters,
-                initPage = pageToScrollTo, // 使用新计算出的页面索引
-                currentPercentage = newPercent, // [新增]
+                initPage = pageToScrollTo,
+                currentPercentage = newPercent,
                 isError = false
             )
             showLoadingScrim = false
@@ -809,10 +1317,8 @@ class ReaderVM : ViewModel() {
         if (isVertical == _uiState.value.isVerticalMode) return
         _uiState.value = _uiState.value.copy(
             isVerticalMode = isVertical,
-            initPage = currentPage // [修改] 暂存 currentPage (旧索引)
+            initPage = currentPage
         )
-        // [修改] saveSettings 会使用新的 isVerticalMode 重新分页
-        // 并使用 currentPage (old 索引) 来计算新的 initPage (new 索引)
         saveSettings(currentPage)
     }
 
@@ -822,79 +1328,10 @@ class ReaderVM : ViewModel() {
         _uiState.value = _uiState.value.copy(scale = scale, offset = offset)
     }
 
-    fun onSetView(view: Int, forceReload: Boolean = false) {
-        // 检查是否是当前页，如果是，则不执行任何操作
-        if (view == _uiState.value.currentView && !isTransitioning && !forceReload) {
-            Log.i(logTag, "Already on view $view. Ignoring.")
-            return
-        }
-        // 检查是否是请求下一页 (view == _uiState.value.currentView + 1)
-        // 并且下一页已经预加载 (nextHtmlList != null)
-        if (view == _uiState.value.currentView + 1 && nextHtmlList != null) {
-            Log.i(logTag, "Using preloaded content for view $view")
-            isTransitioning = true // 开始转场
-            // 应用预加载的内容
-            _uiState.value = _uiState.value.copy(
-                htmlList = nextHtmlList!!,
-                chapterList = nextChapterList ?: listOf(),
-                initPage = 0,
-                currentPercentage = 0f, // [修改]
-                currentView = view
-            )
-            // 清理
-            nextHtmlList = null
-            nextChapterList = null
-            latestPage = 0
-
-        } else {
-            // 否则 (跳转到非下一页，或没有预加载)，先检查缓存
-            Log.i(logTag, "Page $view not preloaded. Checking cache...")
-            // 清理掉可能过时的预加载数据
-            nextHtmlList = null
-            nextChapterList = null
-            isPreloading = false
-
-            CacheUtil.getCache(url, view) { cacheData ->
-                viewModelScope.launch {
-                    if (cacheData != null && cacheData.authorId == currentAuthorId) {
-                        // Case:缓存命中
-                        Log.i(logTag, "Cache hit for page $view. Loading from cache.")
-                        isTransitioning = true
-
-                        // [MODIFICATION] 从这里移除 initPage 的设置
-                        _uiState.value = _uiState.value.copy(
-                            currentView = view,
-                            initPage = 0, // [修改] 假设缓存的网页总是从 0 索引开始
-                            currentPercentage = 0f, // [修改]
-                            maxWebView = cacheData.maxPageNum
-                        )
-                        // 加载缓存的HTML
-                        loadFinished(
-                            success = true,
-                            cacheData.htmlContent,
-                            null,
-                            cacheData.maxPageNum,
-                            isFromCache = true,
-                            cacheTargetIndex = 0 // <-- [ADDED] 缓存的网页总是从 0 开始
-                        )
-
-                    } else {
-                        // Case:缓存未命中
-                        Log.i(logTag, "Cache miss for page $view. Loading from network.")
-                        loadFromNetwork(view)
-                        isTransitioning = true
-                    }
-                }
-            }
-        }
-    }
-
-    // 切换章节抽屉的显示状态
     fun toggleChapterDrawer(show: Boolean) {
         _uiState.value = _uiState.value.copy(showChapterDrawer = show)
     }
 
-    // 设置字体大小
     fun onSetFontSize(fontSize: TextUnit) {
         val newMinLineHeight = (fontSize.value * 1.5f).sp
         val currentLineHeight = _uiState.value.lineHeight
@@ -909,7 +1346,6 @@ class ReaderVM : ViewModel() {
         }
     }
 
-    // 设置行高
     fun onSetLineHeight(lineHeight: TextUnit) {
         val currentFontSizeValue = _uiState.value.fontSize.value
         val newMinLineHeightValue = currentFontSizeValue * 1.5f
@@ -922,12 +1358,10 @@ class ReaderVM : ViewModel() {
         )
     }
 
-    // 设置内边距
     fun onSetPadding(padding: Dp) {
         _uiState.value = _uiState.value.copy(padding = padding)
     }
 
-    // 切换夜间模式
     fun toggleNightMode(isNight: Boolean) {
         _uiState.value = _uiState.value.copy(
             nightMode = isNight,
@@ -936,7 +1370,6 @@ class ReaderVM : ViewModel() {
         saveCurrentSettings()
     }
 
-    // 切换图片加载
     fun toggleLoadImages(load: Boolean) {
         _uiState.value = _uiState.value.copy(loadImages = load)
         saveCurrentSettings()
@@ -945,7 +1378,6 @@ class ReaderVM : ViewModel() {
         onSetView(uiState.value.currentView, forceReload = true)
     }
 
-    // 设置背景颜色
     fun onSetBackgroundColor(color: Color?) {
         _uiState.value = _uiState.value.copy(
             backgroundColor = color,
@@ -953,20 +1385,24 @@ class ReaderVM : ViewModel() {
         )
     }
 
-    // 退出时，保存当前页面的历史记录，清理预加载相关的数据列表
+    // [MODIFIED]
     override fun onCleared() {
-        // [MODIFICATION]
-        // 只有在VM成功初始化 (即至少成功加载过一次页面) 之后，
-        // 才在退出时保存历史记录。
-        // 这可以防止在加载失败或卡住时 (initialized=false)，
-        // 退出页面导致 latestPage(0) 覆盖掉
-        // 已有的收藏记录。
         if (initialized) {
             saveHistory(latestPage)
         }
         nextHtmlList = null
         nextChapterList = null
         isPreloading = false
+
+        // [NEW] 销毁后台 WebView
+        viewModelScope.launch(Dispatchers.Main) {
+            cacheWebView?.stopLoading()
+            cacheWebView?.destroy()
+            cacheWebView = null
+            cacheWebViewClient = null
+            Log.i(logTag, "Background cache WebView destroyed in onCleared.")
+        }
+
         super.onCleared()
     }
 }
