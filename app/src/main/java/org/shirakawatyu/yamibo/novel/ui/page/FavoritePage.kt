@@ -144,7 +144,7 @@ fun FavoritePage(
         TopBar(title = if (isInManageMode) "管理收藏 (${selectedItems.size})" else "收藏") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // 保持间距 (这是 'if' 分支的)
-                Spacer(modifier = Modifier.width(24.dp))
+                Spacer(modifier = Modifier.width(12.dp))
                 if (isInManageMode) {
                     // 管理模式 (保持不变)
                     Button(
@@ -161,12 +161,10 @@ fun FavoritePage(
                     ) {
                         Text("隐藏")
                     }
-                    // 保持间距
                     Spacer(modifier = Modifier.width(24.dp))
                     Button(
                         onClick = { favoriteVM.unhideSelectedItems() },
                         enabled = selectedItems.isNotEmpty(),
-                        // 使用较小的内边距
                         contentPadding = ButtonDefaults.TextButtonContentPadding,
                         colors = ButtonDefaults.buttonColors(
                             disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -177,7 +175,7 @@ fun FavoritePage(
                     ) {
                         Text("显示")
                     }
-                    Spacer(modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.width(36.dp))
                     Button(onClick = { favoriteVM.toggleManageMode() }) {
                         Text("完成")
                     }
