@@ -1452,8 +1452,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     fun toggleNightMode(isNight: Boolean) {
         _uiState.value = _uiState.value.copy(
-            nightMode = isNight,
-            backgroundColor = null
+            nightMode = isNight
         )
         saveCurrentSettings()
     }

@@ -141,7 +141,11 @@ fun ReaderPage(
     ReaderTheme(nightMode = uiState.nightMode) {
         // 背景颜色
         val themeBackground = MaterialTheme.colorScheme.background
-        val finalBackground = uiState.backgroundColor ?: themeBackground
+        val finalBackground = if (uiState.nightMode) {
+            themeBackground // 夜间模式下, 强制使用主题夜间背景
+        } else {
+            uiState.backgroundColor ?: themeBackground // 日间模式下, 才使用自定义背景或主题日间背景
+        }
 
         val pagerState = rememberPagerState(pageCount = { uiState.htmlList.size })
         // 滚动列表 (竖屏)
