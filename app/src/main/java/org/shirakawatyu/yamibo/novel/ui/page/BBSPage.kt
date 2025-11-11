@@ -27,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -58,15 +59,9 @@ import java.net.URLEncoder
 // 用于在WebView外部保存登录状态的单例对象
 object BBSPageState {
     var lastLoginState: Boolean? = null
+    var hasSuccessfullyLoaded: Boolean = false
 }
 
-/**
- * Yamibo论坛首页，WebView不销毁，保存浏览状态
- *
- * @param webView 用于加载和显示网页内容的 WebView 实例。
- * @param isSelected 表示当前页面是否被选中，用于控制页面加载逻辑。
- * @param cookieFlow Cookie数据流，用于监听登录状态变化
- */
 @SuppressLint("RestrictedApi")
 @Composable
 fun BBSPage(
@@ -78,35 +73,29 @@ fun BBSPage(
     SetStatusBarColor(YamiboColors.primary)
     val indexUrl = "https://bbs.yamibo.com/forum.php"
     val activity = LocalContext.current as? Activity
-    // 用于跟踪WebView是否可以返回上一页
-    var canGoBack by remember { mutableStateOf(false) }
-    // 局部加载状态
-    var isLoading by remember { mutableStateOf(false) }
-    // 加载失败状态
-    var showLoadError by remember { mutableStateOf(false) }
 
+    var canGoBack by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var showLoadError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
-    // 重试计数器
     var retryCount by remember { mutableIntStateOf(0) }
-    // 当前URL
     var currentUrl by remember { mutableStateOf<String?>(null) }
+
     val canConvertToReader = remember(currentUrl) {
         ReaderModeDetector.canConvertToReaderMode(currentUrl)
     }
 
-    // 检查当前登录状态
     fun isLoggedIn(cookie: String): Boolean {
         return cookie.contains("EeqY_2132_auth=")
     }
 
-    // 封装加载逻辑，包含超时和重试
     lateinit var startLoading: (url: String) -> Unit
 
     fun runTimeout(onTimeout: () -> Unit) {
         timeoutJob?.cancel()
         timeoutJob = scope.launch {
-            delay(15000) // 15秒超时
+            delay(15000)
             if (isLoading) {
                 onTimeout()
             }
@@ -144,30 +133,42 @@ fun BBSPage(
             return@LaunchedEffect
         }
 
-        // 获取当前Cookie
         val currentCookie = cookieFlow.first()
         val currentLoginState = isLoggedIn(currentCookie)
 
         Log.d("BBSPage", "Page selected. Current cookie: ${currentCookie.take(50)}...")
         Log.d(
             "BBSPage",
-            "Current login state: $currentLoginState, Last login state: ${BBSPageState.lastLoginState}"
+            "Current login state: $currentLoginState, Last login state: ${BBSPageState.lastLoginState}, Has loaded: ${BBSPageState.hasSuccessfullyLoaded}"
         )
 
-        // 如果这是第一次进入，只记录状态
-        if (BBSPageState.lastLoginState == null) {
-            Log.d("BBSPage", "First time entering, recording login state")
-            BBSPageState.lastLoginState = currentLoginState
-        } else if (BBSPageState.lastLoginState != currentLoginState) {
-            // 登录状态发生变化，重新加载页面
-            Log.i(
-                "BBSPage",
-                "Login state changed from ${BBSPageState.lastLoginState} to $currentLoginState. Reloading page..."
-            )
-            BBSPageState.lastLoginState = currentLoginState
+        val needsLoad = when {
+            !BBSPageState.hasSuccessfullyLoaded -> {
+                Log.i("BBSPage", "First time or previous load failed, loading...")
+                true
+            }
+
+            webView.url.isNullOrEmpty() || webView.url == "about:blank" -> {
+                Log.i("BBSPage", "WebView URL is empty or blank, reloading...")
+                true
+            }
+
+            BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState -> {
+                Log.i(
+                    "BBSPage",
+                    "Login state changed from ${BBSPageState.lastLoginState} to $currentLoginState. Reloading page..."
+                )
+                true
+            }
+
+            else -> {
+                Log.d("BBSPage", "WebView state is good, no reload needed")
+                false
+            }
+        }
+
+        if (needsLoad) {
             startLoading(indexUrl)
-        } else {
-            Log.d("BBSPage", "Login state unchanged, no reload needed")
         }
     }
 
@@ -201,8 +202,23 @@ fun BBSPage(
                 showLoadError = false
                 super.onPageFinished(view, url)
                 canGoBack = view?.canGoBack() ?: false
-                if (isSelected && view == null) {
-                    startLoading(indexUrl)
+
+                // 只有在成功加载后才更新状态
+                if (url != null && !url.contains("about:blank")) {
+                    BBSPageState.hasSuccessfullyLoaded = true
+
+                    // 在首次成功加载或登录状态变化后的成功加载时，更新lastLoginState
+                    scope.launch {
+                        val currentCookie = cookieFlow.first()
+                        val currentLoginState = isLoggedIn(currentCookie)
+                        if (BBSPageState.lastLoginState == null || BBSPageState.lastLoginState != currentLoginState) {
+                            Log.d(
+                                "BBSPage",
+                                "Updating lastLoginState to $currentLoginState after successful load"
+                            )
+                            BBSPageState.lastLoginState = currentLoginState
+                        }
+                    }
                 }
             }
 
@@ -218,6 +234,8 @@ fun BBSPage(
                     isLoading = false
                     if (retryCount == 0) {
                         showLoadError = true
+                        // 加载失败时，标记为未成功加载
+                        BBSPageState.hasSuccessfullyLoaded = false
                     }
                 }
             }
@@ -234,22 +252,28 @@ fun BBSPage(
                     isLoading = false
                     if (retryCount == 0) {
                         showLoadError = true
+                        // 加载失败时，标记为未成功加载
+                        BBSPageState.hasSuccessfullyLoaded = false
                     }
                 }
             }
         }
 
-        if (webView.url == null) {
-            startLoading(indexUrl)
-        } else {
-            canGoBack = webView.canGoBack()
+        canGoBack = webView.canGoBack()
+    }
+
+    // 监听页面离开，保存当前URL
+    DisposableEffect(isSelected) {
+        onDispose {
+            if (!isSelected) {
+                Log.d("BBSPage", "Page deselected, current URL: ${webView.url}")
+            }
         }
     }
 
     BackHandler(enabled = true) {
         when {
             canGoBack -> webView.goBack()
-
             navController.currentBackStack.value.size > 1 -> {
                 navController.popBackStack()
             }
@@ -264,19 +288,24 @@ fun BBSPage(
         AndroidView(
             factory = {
                 (webView.parent as? ViewGroup)?.removeView(webView)
+                webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
                 webView
             },
-            update = {
-                canGoBack = it.canGoBack()
-                currentUrl = it.url
+            update = { view ->
+                canGoBack = view.canGoBack()
+                currentUrl = view.url
+                scope.launch {
+                    delay(200)
+                    view.onResume()
+                }
             },
             onRelease = {
                 (it.parent as? ViewGroup)?.removeView(it)
                 it.stopLoading()
+                it.onPause()
             }
         )
 
-        // 错误提示界面
         if (showLoadError) {
             Column(
                 modifier = Modifier
@@ -313,13 +342,13 @@ fun BBSPage(
             }
         }
 
-        // 局部加载指示器
         if (isLoading) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
                 color = YamiboColors.secondary
             )
         }
+
         ReaderModeFAB(
             visible = canConvertToReader && !isLoading && !showLoadError,
             onClick = {
