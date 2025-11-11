@@ -121,7 +121,6 @@ fun MinePage(
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            setLayerType(WebView.LAYER_TYPE_SOFTWARE, null)
             settings.apply {
                 javaScriptEnabled = true
                 useWideViewPort = true

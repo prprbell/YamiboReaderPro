@@ -42,20 +42,7 @@ class CacheUtil {
                     val keySize = key.length * 2
                     // 加上其他字段和对象开销的粗略估算 (例如 256 字节)
                     val totalSize = htmlSize + keySize + 256
-
-                    Log.v(logTag, "Cache item size: ${totalSize / 1024} KB for key: $key")
                     return totalSize
-                }
-
-                override fun entryRemoved(
-                    evicted: Boolean,
-                    key: String,
-                    oldValue: CacheData,
-                    newValue: CacheData?
-                ) {
-                    if (evicted) {
-                        Log.i(logTag, "Cache evicted (purged) item: $key")
-                    }
                 }
             }
 
@@ -105,11 +92,6 @@ class CacheUtil {
         fun getCache(novelUrl: String, pageNum: Int, callback: (data: CacheData?) -> Unit) {
             val key = generateKey(novelUrl, pageNum)
             val data = inMemoryCache[key]
-            if (data != null) {
-                Log.i(logTag, "Cache HIT for key: $key")
-            } else {
-                Log.i(logTag, "Cache MISS for key: $key")
-            }
             callback(data)
         }
 
@@ -124,7 +106,6 @@ class CacheUtil {
                 inMemoryCache.remove(key)
                 return // 不缓存
             }
-            Log.i(logTag, "Caching item: $key")
             inMemoryCache.put(key, data)
         }
 

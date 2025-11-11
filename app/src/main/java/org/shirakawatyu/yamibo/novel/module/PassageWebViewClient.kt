@@ -29,7 +29,7 @@ class PassageWebViewClient(
     private var hasErrorOccurred = false
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         if (url != null) {
-            Log.i(logTag, url)
+            // Log.i(logTag, url)
         }
         hasErrorOccurred = false
         super.onPageStarted(view, url, favicon)

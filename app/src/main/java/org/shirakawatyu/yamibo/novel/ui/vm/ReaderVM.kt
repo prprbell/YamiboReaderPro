@@ -66,8 +66,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private var latestPage: Int = 0
     private var currentAuthorId: String? = null
     private var isPreloading = false
-    private val PRELOAD_THRESHOLD_VERTICAL = 1000
-    private val PRELOAD_THRESHOLD_HORIZONTAL = 100
+    private val PRELOAD_THRESHOLD_VERTICAL = 200
+    private val PRELOAD_THRESHOLD_HORIZONTAL = 20
     private var viewBeingPreloaded = 0
     private var nextHtmlList: List<Content>? = null
     private var nextChapterList: List<ChapterInfo>? = null
@@ -118,7 +118,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     )
 
     init {
-        Log.i(logTag, "VM created.")
         // 在ViewModel创建时立即开始监听缓存索引变化
         viewModelScope.launch {
             localCache.index.collect { index ->
@@ -145,10 +144,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         val novelCache = index[url]
         if (novelCache != null && novelCache.pages.isNotEmpty()) {
             _cachedPages.value = novelCache.pages.keys
-            Log.i(logTag, "缓存状态已更新: $url - ${_cachedPages.value.size} 页")
         } else {
             _cachedPages.value = emptySet()
-            Log.i(logTag, "缓存状态已清空: $url - 无缓存")
         }
     }
 
@@ -164,10 +161,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         }
         if (pagesToCache.isEmpty()) return
 
-        Log.i(
-            logTag,
-            "Starting disk cache for ${pagesToCache.size} pages, includeImages=$includeImages"
-        )
 
         _isDiskCaching.value = true
         diskCacheQueue = pagesToCache.toMutableSet()
@@ -181,7 +174,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         viewModelScope.launch(Dispatchers.Main) {
             // WebView 必须在主线程创建
             if (cacheWebView == null) {
-                Log.i(logTag, "Creating background cache WebView...")
                 cacheWebView = WebView(applicationContext).apply {
                     // 基本设置
                     settings.javaScriptEnabled = true
@@ -269,10 +261,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
         // 检查加载是否成功
         if (isContentValid) {
-            Log.i(
-                logTag,
-                "DiskCache: Successfully fetched page $pageNum. Saving to disk & memory..."
-            )
             diskCacheRetries.remove(pageNum)
             // 启动一个IO协程来保存
             viewModelScope.launch(Dispatchers.IO) {
@@ -320,13 +308,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     delay(CACHE_RETRY_DELAY_MS)
                     // 检查在延迟期间缓存任务是否已被用户取消
                     if (_isDiskCaching.value && diskCacheQueue.contains(pageNum)) {
-                        Log.i(logTag, "DiskCache: Retrying load for $urlToReload")
                         cacheWebView?.loadUrl(urlToReload)
-                    } else {
-                        Log.i(
-                            logTag,
-                            "DiskCache: Retry for page $pageNum aborted (caching stopped or page removed)."
-                        )
                     }
                 }
             } else {
@@ -351,21 +333,14 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private fun loadNextPageForDiskCache(showInitialProgress: Boolean = true) {
         if (!_isDiskCaching.value || diskCacheQueue.isEmpty()) {
             _isDiskCaching.value = false
-            // 标记进度为完成 (如果进度条还显示的话)
+            // 标记进度为完成
             if (currentCacheSessionShowsProgress && _cacheProgress.value != null && _cacheProgress.value?.isComplete == false) {
                 _cacheProgress.value = _cacheProgress.value?.copy(
-                    // 确保进度条显示 100%
+                    // 确保进度条显示100%
                     currentPage = _cacheProgress.value?.totalPages ?: diskCacheTotalPages,
                     isComplete = true
                 )
-            } else if (!currentCacheSessionShowsProgress) {
-                // 如果是静默会话，就在日志中记录完成
-                Log.i(logTag, "Silent disk caching complete.")
-            } else {
-                Log.i(logTag, "Disk caching complete.")
             }
-            // 此时可以考虑销毁 cacheWebView 以释放资源，或者保留它以便下次使用
-            // 暂时保留
             return
         }
 
@@ -393,7 +368,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         CacheUtil.getCache(url, pageNum) { memoryCacheData ->
             if (memoryCacheData != null) {
                 // 内存缓存命中：直接保存到磁盘
-                Log.i(logTag, "Page $pageNum found in memory. Saving to disk.")
                 viewModelScope.launch(Dispatchers.IO) {
                     localCache.savePage(url, pageNum, memoryCacheData, diskCacheIncludeImages)
                     withContext(Dispatchers.Main) {
@@ -404,7 +378,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 }
             } else {
                 // 内存缓存未命中：触发 [cacheWebView] 加载
-                Log.i(logTag, "Page $pageNum not in memory. Triggering background WebView load.")
                 var urlToLoad = "${RequestConfig.BASE_URL}/${this.url}&page=${pageNum}"
                 if (currentAuthorId != null) {
                     urlToLoad += "&authorid=$currentAuthorId"
@@ -421,12 +394,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     fun deleteCachedPages(pagesToDelete: Set<Int>) {
         viewModelScope.launch {
             try {
-                Log.i(logTag, "Deleting ${pagesToDelete.size} cached pages")
                 pagesToDelete.forEach { pageNum ->
                     localCache.deletePage(url, pageNum)
                 }
                 _cachedPages.value -= pagesToDelete
-                Log.i(logTag, "Successfully deleted ${pagesToDelete.size} cached pages")
             } catch (e: Exception) {
                 Log.e(logTag, "Failed to delete cached pages", e)
             }
@@ -441,7 +412,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     ) {
         viewModelScope.launch {
             try {
-                Log.i(logTag, "Updating ${pagesToUpdate.size} cached pages")
                 // 先删除旧缓存
                 pagesToUpdate.forEach { pageNum ->
                     localCache.deletePage(url, pageNum)
@@ -460,7 +430,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         // 任何时候调用都隐藏对话框
         _cacheProgress.value = null
         currentCacheSessionShowsProgress = false
-        Log.i(logTag, "Cache progress hidden by user. Switching to silent caching.")
     }
 
     // 重新显示缓存进度
@@ -468,7 +437,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         // 仅当缓存正在运行且进度条被隐藏时
         if (_isDiskCaching.value && _cacheProgress.value == null) {
             currentCacheSessionShowsProgress = true
-            Log.i(logTag, "Cache progress re-enabled by user.")
 
             // 重新构建进度条状态
             _cacheProgress.value = CacheProgress(
@@ -483,7 +451,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     // 终止缓存
     fun stopCaching() {
         if (!_isDiskCaching.value) return
-        Log.i(logTag, "User requested to stop caching.")
         _isDiskCaching.value = false
         diskCacheQueue.clear()
         // 停止后台 WebView
@@ -542,7 +509,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 FavoriteUtil.getFavoriteFlow().collect { favorites ->
                     val isFavorited = favorites.any { it.url == url }  // 检查URL是否在收藏列表中
                     _uiState.value = _uiState.value.copy(isFavorited = isFavorited)
-                    Log.i(logTag, "当前页面 $url 是否收藏: $isFavorited")
                 }
             }
         }
@@ -570,7 +536,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
                     if (localCacheData != null) {
                         // 本地缓存命中
-                        Log.i(logTag, "Local cache hit for page $targetView")
 
                         if (currentAuthorId == null && localCacheData.authorId != null) {
                             currentAuthorId = localCacheData.authorId
@@ -595,7 +560,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     // 本地缓存未命中，检查内存缓存
                     CacheUtil.getCache(url, targetView) { cacheData ->
                         if (cacheData != null) {
-                            Log.i(logTag, "Memory cache hit for page $targetView")
 
                             if (currentAuthorId == null && cacheData.authorId != null) {
                                 currentAuthorId = cacheData.authorId
@@ -616,7 +580,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                             )
                         } else {
                             // 内存缓存也未命中，从网络加载
-                            Log.i(logTag, "Cache miss. Loading page $targetView from network.")
 
                             _uiState.value = _uiState.value.copy(
                                 currentView = targetView,
@@ -633,12 +596,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     fun onSetView(view: Int, forceReload: Boolean = false) {
         if (view == _uiState.value.currentView && !isTransitioning && !forceReload) {
-            Log.i(logTag, "Already on view $view. Ignoring.")
             return
         }
 
         if (view == _uiState.value.currentView + 1 && nextHtmlList != null && !forceReload) {
-            Log.i(logTag, "Using preloaded content for view $view")
             isTransitioning = true
 
             _uiState.value = _uiState.value.copy(
@@ -654,7 +615,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             latestPage = 0
 
         } else {
-            Log.i(logTag, "Page $view not preloaded. Checking cache...")
             nextHtmlList = null
             nextChapterList = null
             isPreloading = false
@@ -670,10 +630,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
                     if (localCacheData != null && localCacheData.authorId == currentAuthorId) {
                         // 本地缓存命中
-                        Log.i(
-                            logTag,
-                            "Local cache hit for page $view. Loading from local cache."
-                        )
                         isTransitioning = true
 
                         _uiState.value = _uiState.value.copy(
@@ -699,10 +655,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                         viewModelScope.launch {
                             if (cacheData != null && cacheData.authorId == currentAuthorId) {
                                 // 内存缓存命中
-                                Log.i(
-                                    logTag,
-                                    "Memory cache hit for page $view. Loading from memory cache."
-                                )
                                 isTransitioning = true
 
                                 _uiState.value = _uiState.value.copy(
@@ -722,17 +674,12 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                                 )
                             } else {
                                 // 缓存未命中
-                                Log.i(
-                                    logTag,
-                                    "Cache miss for page $view. Loading from network."
-                                )
                                 loadFromNetwork(view)
                                 isTransitioning = true
                             }
                         }
                     }
                 } else {
-                    Log.i(logTag, "Force reloading page $view from network.")
                     loadFromNetwork(view)
                     isTransitioning = true
                 }
@@ -788,7 +735,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             urlToLoad += "&authorid=$currentAuthorId"
         }
 
-        Log.i(logTag, "Triggering UI preload for page $targetView")
         _uiState.value = _uiState.value.copy(
             urlToLoad = "about:blank"
         )
@@ -853,7 +799,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 isPreloading = false
 
                 val pageNumToCache = viewBeingPreloaded
-                Log.i(logTag, "Caching page $pageNumToCache to *memory* for $url")
                 val dataToCache = CacheData(
                     cachedPageNum = pageNumToCache,
                     htmlContent = html,
@@ -884,7 +829,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 }
                 if (!isFromCache) {
                     val pageNumToCache = _uiState.value.currentView
-                    Log.i(logTag, "Caching current page $pageNumToCache to *memory* for ${url}")
                     val dataToCache = CacheData(
                         cachedPageNum = pageNumToCache,
                         htmlContent = html,
@@ -930,7 +874,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     }
 
     fun retryLoad() {
-        Log.i(logTag, "Retrying load for view ${uiState.value.currentView}")
         viewModelScope.launch {
             showLoadingScrim = true
             _uiState.value = _uiState.value.copy(
@@ -949,7 +892,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         val extractedAuthorId = loadedUrl.substringAfter("authorid=", "").substringBefore("&")
 
         if (extractedAuthorId.isNotBlank()) {
-            Log.i(logTag, "Discovered and storing new authorId $extractedAuthorId for ${this.url}")
             currentAuthorId = extractedAuthorId
             val baseUrl = this.url
 
@@ -1107,8 +1049,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             isTransitioning = true
             val newCurrentView = state.currentView + 1
 
-            Log.i(logTag, "Switching to preloaded page $newCurrentView")
-
             _uiState.value = state.copy(
                 htmlList = nextHtmlList!!,
                 chapterList = nextChapterList ?: listOf(),
@@ -1137,8 +1077,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             newPage >= triggerPageIndex
         ) {
             val viewToPreload = state.currentView + 1
-            Log.i(logTag, "newPage $newPage triggerPageIndex $triggerPageIndex")
-            Log.i(logTag, "Preloading view $viewToPreload")
             triggerPreload(viewToPreload, state.maxWebView)
         }
 
@@ -1168,7 +1106,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
             if (isSettledAtInit) {
                 // 这是 "成功" 的转场
-                Log.i(logTag, "Transition complete. Settled at page ${_uiState.value.initPage}")
                 isTransitioning = false
                 latestPage = _uiState.value.initPage
                 // 此处不能 return，需要让下面的逻辑（processPageChange）执行
@@ -1223,10 +1160,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     fun onVerticalPageSettled(newPage: Int) {
         if (isTransitioning) {
             // 只要它在转场期间稳定下来，就认为转场结束
-            Log.i(
-                logTag,
-                "Transition complete (Vertical). Settled at page $newPage"
-            )
             isTransitioning = false
             latestPage = newPage
         }
@@ -1257,8 +1190,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             return
         }
 
-        Log.i(logTag, "Force refreshing... URL: $novelUrl, Page: $pageToRefresh")
-
         // 1. 清除内存缓存
         CacheUtil.clearCacheEntry(novelUrl, pageToRefresh)
 
@@ -1280,17 +1211,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
         // 根据用户请求，检查是否需要更新本地缓存
         if (_cachedPages.value.contains(pageToRefresh)) {
-            Log.i(
-                logTag,
-                "Page $pageToRefresh is locally cached. Triggering disk cache update."
-            )
+
             // 触发磁盘缓存的“更新”（删除旧的，然后重新下载并保存）
             updateCachedPages(setOf(pageToRefresh), false, showProgressDialog = false)
-        } else {
-            Log.i(
-                logTag,
-                "Page $pageToRefresh is not locally cached. Skipping disk cache update."
-            )
         }
     }
 
@@ -1486,7 +1409,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             cacheWebView?.destroy()
             cacheWebView = null
             cacheWebViewClient = null
-            Log.i(logTag, "Background cache WebView destroyed in onCleared.")
         }
 
         super.onCleared()

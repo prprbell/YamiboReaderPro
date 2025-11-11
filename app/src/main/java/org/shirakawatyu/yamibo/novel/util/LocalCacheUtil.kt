@@ -46,7 +46,6 @@ class LocalCacheUtil(private val context: Context) {
             // [NEW] 修复fileSize为0的情况
             val fixedIndex = fixFileSizesIfNeeded(loadedIndex)
             _index.value = fixedIndex
-            Log.i(LOG_TAG, "初始缓存索引已加载. ${_index.value.size} 部小说。")
         }
     }
 
@@ -115,10 +114,6 @@ class LocalCacheUtil(private val context: Context) {
                     if (cacheFile.exists()) {
                         val actualSize = cacheFile.length()
                         if (actualSize > 0) {
-                            Log.i(
-                                LOG_TAG,
-                                "修复缓存大小: $novelUrl 第 $pageNum 页 -> $actualSize 字节"
-                            )
                             fixedPages[pageNum] = pageInfo.copy(fileSize = actualSize)
                             pagesChanged = true
                             needsUpdate = true
@@ -134,12 +129,10 @@ class LocalCacheUtil(private val context: Context) {
 
         // 如果有修复，保存回磁盘
         if (needsUpdate) {
-            Log.i(LOG_TAG, "检测到fileSize问题，正在更新索引...")
             try {
                 val indexFile = getIndexFile()
                 val jsonStr = JSON.toJSONString(fixedIndex)
                 indexFile.writeText(jsonStr)
-                Log.i(LOG_TAG, "索引修复完成并已保存")
             } catch (e: Exception) {
                 Log.e(LOG_TAG, "保存修复后的索引失败", e)
             }
@@ -159,7 +152,6 @@ class LocalCacheUtil(private val context: Context) {
                 val indexFile = getIndexFile()
                 val jsonStr = JSON.toJSONString(newIndex)
                 indexFile.writeText(jsonStr)
-                Log.v(LOG_TAG, "缓存索引已成功写入磁盘。")
             } catch (e: Exception) {
                 Log.e(LOG_TAG, "将缓存索引写入磁盘失败", e)
             }
@@ -209,8 +201,6 @@ class LocalCacheUtil(private val context: Context) {
 
             // 调用新的 writeIndex (它会立即更新Flow)
             writeIndex(newIndex)
-
-            Log.i(LOG_TAG, "已保存缓存 $novelUrl 第 $pageNum 页 (大小: $fileSize)")
             true
         } catch (e: Exception) {
             Log.e(LOG_TAG, "保存缓存失败", e)
@@ -230,8 +220,6 @@ class LocalCacheUtil(private val context: Context) {
 
             val jsonStr = cacheFile.readText()
             val data = JSON.parseObject(jsonStr, CacheData::class.java)
-
-            Log.i(LOG_TAG, "Loaded cache for $novelUrl page $pageNum")
             data
         } catch (e: Exception) {
             Log.e(LOG_TAG, "Failed to load cache", e)
@@ -278,7 +266,6 @@ class LocalCacheUtil(private val context: Context) {
                 writeIndex(newIndex)
             }
 
-            Log.i(LOG_TAG, "已删除缓存 $novelUrl 第 $pageNum 页")
             true
         } catch (e: Exception) {
             Log.e(LOG_TAG, "删除缓存失败", e)
@@ -305,8 +292,6 @@ class LocalCacheUtil(private val context: Context) {
             val newIndex = currentIndex.toMutableMap()
             newIndex.remove(novelUrl)
             writeIndex(newIndex)
-
-            Log.i(LOG_TAG, "已删除 $novelUrl 的所有缓存")
             true
         } catch (e: Exception) {
             Log.e(LOG_TAG, "删除小说缓存失败", e)
@@ -346,8 +331,6 @@ class LocalCacheUtil(private val context: Context) {
 
             // 更新内存并写入空map到磁盘
             writeIndex(emptyMap())
-
-            Log.i(LOG_TAG, "已清除所有缓存")
             true
         } catch (e: Exception) {
             Log.e(LOG_TAG, "清除所有缓存失败", e)

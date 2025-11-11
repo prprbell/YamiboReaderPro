@@ -35,7 +35,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private val localCache by lazy { LocalCacheUtil.getInstance(applicationContext) }
 
     init {
-        Log.i(logTag, "VM创建")
         viewModelScope.launch {
             FavoriteUtil.getFavoriteFlow().collect { fullList ->
                 allFavorites = fullList
@@ -57,7 +56,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             localCache.index.collect { index ->
                 // 每当内存索引变化时，都重新计算统计信息
                 if (allFavorites.isNotEmpty()) {
-                    Log.i(logTag, "缓存索引已更新, 正在刷新统计信息...")
                     refreshCacheInfo(index)
                 }
             }
@@ -69,7 +67,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             _uiState.value = _uiState.value.copy(isRefreshing = true)
         }
         CookieUtil.getCookie {
-            Log.i(logTag, it)
             val favoriteApi = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
             favoriteApi.getFavoritePage().enqueue(object : Callback<ResponseBody> {
                 override fun onResponse(
@@ -85,7 +82,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                             favList.forEach { li ->
                                 val title = li.text()
                                 val url = li.child(1).attribute("href").value
-                                Log.i(logTag, url)
                                 objList.add(Favorite(title, url))
                             }
                             FavoriteUtil.addFavorite(objList) { filteredList ->

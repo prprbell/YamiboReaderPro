@@ -56,7 +56,7 @@ fun ContentViewer(
     val chapterTitleHeight = 24.dp
     val cookie by GlobalData.cookieFlow.collectAsState(initial = "")
 
-    // [新增] 竖屏模式的特殊处理
+    // 竖屏模式的特殊处理
     if (isVerticalMode) {
         // 在竖屏模式下，padding(horizontal) 是由 ReaderPage 的 LazyColumn 的 modifier 提供的
         // 我们只需要处理顶部和底部的间距（即行高/图片高度）
