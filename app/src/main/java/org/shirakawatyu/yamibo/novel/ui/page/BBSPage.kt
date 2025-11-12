@@ -310,12 +310,13 @@ fun BBSPage(
                 scope.launch {
                     delay(200)
                     view.onResume()
+                    view.resumeTimers()
                 }
             },
             onRelease = {
-                (it.parent as? ViewGroup)?.removeView(it)
                 it.stopLoading()
                 it.onPause()
+                it.pauseTimers()
             }
         )
 
