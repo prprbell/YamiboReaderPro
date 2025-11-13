@@ -29,6 +29,9 @@ class BottomNavBarVM : ViewModel() {
         }
         isNavigating = true
         navController.navigate(pageList[index]) {
+            popUpTo("FavoritePage") {
+                saveState = true
+            }
             launchSingleTop = true
             restoreState = true
         }
