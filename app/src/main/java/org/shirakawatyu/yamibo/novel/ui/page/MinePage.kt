@@ -41,17 +41,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.navigation.NavController
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
-import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
-import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
-import java.net.URLEncoder
 
 private val hideCommand = """
     javascript:(function() {
@@ -69,8 +65,7 @@ private val hideCommand = """
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun MinePage(
-    isSelected: Boolean,
-    navController: NavController
+    isSelected: Boolean
 ) {
     SetStatusBarColor(YamiboColors.primary)
     val mineUrl = "https://bbs.yamibo.com/home.php?mod=space&do=profile&mycenter=1&mobile=2"
@@ -84,12 +79,8 @@ fun MinePage(
     val scope = rememberCoroutineScope()
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
-    var currentUrl by remember { mutableStateOf<String?>(null) }
 
-    val canConvertToReader = remember(currentUrl) {
-        ReaderModeDetector.canConvertToReaderMode(currentUrl)
-    }
-    lateinit var startLoading: (webView: WebView, url: String) -> Unit
+    lateinit var startLoading: (webView: WebView, url: String) -> Unit // 声明
 
     fun runTimeout(webView: WebView, onTimeout: () -> Unit) {
         timeoutJob?.cancel()
@@ -143,7 +134,6 @@ fun MinePage(
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                currentUrl = url
                 canGoBack = view?.canGoBack() ?: false
                 view?.loadUrl(hideCommand)
             }
@@ -167,7 +157,6 @@ fun MinePage(
                 isLoading = false
                 showLoadError = false
                 super.onPageFinished(view, url)
-                currentUrl = url
                 if (isSelected && view != null) {
                     val currentUrl = view.url ?: ""
 
@@ -238,7 +227,6 @@ fun MinePage(
             factory = { mineWebView },
             update = {
                 canGoBack = it.canGoBack()
-                currentUrl = it.url
             },
             onRelease = {
                 timeoutJob?.cancel()
@@ -246,20 +234,6 @@ fun MinePage(
                 it.stopLoading()
                 it.destroy() // 销毁实例
             }
-        )
-        ReaderModeFAB(
-            visible = canConvertToReader && !isLoading && !showLoadError,
-            onClick = {
-                currentUrl?.let { url ->
-                    ReaderModeDetector.extractThreadPath(url)?.let { threadPath ->
-                        val encodedPath = URLEncoder.encode(threadPath, "utf-8")
-                        navController.navigate("ReaderPage/$encodedPath")
-                    }
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 80.dp)
         )
 
         if (showLoadError) {
