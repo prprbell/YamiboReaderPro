@@ -808,6 +808,12 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 // 只保存到内存
                 CacheUtil.saveCache(url, dataToCache)
 
+                if (_cachedPages.value.contains(pageNumToCache)) {
+                    launch(Dispatchers.IO) {
+                        localCache.savePage(url, pageNumToCache, dataToCache, false)
+                    }
+                }
+
                 nextHtmlList = passages
                 nextChapterList = chapters
 
@@ -837,6 +843,11 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     )
                     // 只保存到内存
                     CacheUtil.saveCache(url, dataToCache)
+                    if (_cachedPages.value.contains(pageNumToCache)) {
+                        launch(Dispatchers.IO) {
+                            localCache.savePage(url, pageNumToCache, dataToCache, false)
+                        }
+                    }
                 }
 
                 val newInitPage = if (isFromCache) {
@@ -867,7 +878,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 if (!isFromCache) {
                     showLoadingScrim = false
                 }
-                // 无论是否来自缓存，只要是 '正常加载' 完成，就应该结束 'Transition' 状态
                 isTransitioning = false
             }
         }
@@ -1190,10 +1200,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             return
         }
 
-        // 1. 清除内存缓存
-        CacheUtil.clearCacheEntry(novelUrl, pageToRefresh)
-
-        // 2. 触发UI重载
         viewModelScope.launch {
             // 清理预加载状态 (从 onSetView(forceReload=true) 中提取)
             nextHtmlList = null
@@ -1202,18 +1208,11 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
             showLoadingScrim = true
             _uiState.value = _uiState.value.copy(
-                isError = false, // 清除错误状态
+                isError = false,
                 urlToLoad = "about:blank"
             )
-            delay(10) // 等待 recomposition
-            loadFromNetwork(pageToRefresh) // 加载真实 URL, 这会设置 isTransitioning = true
-        }
-
-        // 根据用户请求，检查是否需要更新本地缓存
-        if (_cachedPages.value.contains(pageToRefresh)) {
-
-            // 触发磁盘缓存的“更新”（删除旧的，然后重新下载并保存）
-            updateCachedPages(setOf(pageToRefresh), false, showProgressDialog = false)
+            delay(10)
+            loadFromNetwork(pageToRefresh)
         }
     }
 

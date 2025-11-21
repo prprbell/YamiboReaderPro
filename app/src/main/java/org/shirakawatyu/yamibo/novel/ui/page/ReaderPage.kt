@@ -410,15 +410,18 @@ fun ReaderPage(
                                         ) { index, content ->
                                             ContentViewer(
                                                 data = content,
-                                                padding = uiState.padding, // 传递以便 ContentViewer (横屏) 使用
+                                                padding = uiState.padding,
                                                 lineHeight = uiState.lineHeight,
                                                 letterSpacing = uiState.letterSpacing,
                                                 fontSize = uiState.fontSize,
                                                 currentPage = index + 1,
                                                 pageCount = uiState.htmlList.size,
                                                 nightMode = uiState.nightMode,
-                                                backgroundColor = finalBackground, // 传递以便 ContentViewer (横屏) 使用
-                                                isVerticalMode = true
+                                                backgroundColor = finalBackground,
+                                                isVerticalMode = true,
+                                                onRefresh = {
+                                                    readerVM.forceRefreshCurrentPage()
+                                                }
                                             )
                                         }
                                     }
@@ -486,7 +489,8 @@ fun ReaderPage(
                                             pageCount = pagerState.pageCount,
                                             nightMode = uiState.nightMode,
                                             backgroundColor = finalBackground,
-                                            isVerticalMode = false
+                                            isVerticalMode = false,
+                                            onRefresh = { readerVM.forceRefreshCurrentPage() }
                                         )
 
                                         SideEffect {

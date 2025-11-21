@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -70,7 +71,8 @@ private val hideCommand = """
 @Composable
 fun MinePage(
     isSelected: Boolean,
-    navController: NavController
+    navController: NavController,
+    webChromeClient: WebChromeClient
 ) {
     SetStatusBarColor(YamiboColors.primary)
     val mineUrl = "https://bbs.yamibo.com/home.php?mod=space&do=profile&mycenter=1&mobile=2"
@@ -134,7 +136,7 @@ fun MinePage(
                 javaScriptEnabled = true
                 useWideViewPort = true
             }
-            webChromeClient = GlobalData.webChromeClient
+            this.webChromeClient = webChromeClient
         }
     }
 

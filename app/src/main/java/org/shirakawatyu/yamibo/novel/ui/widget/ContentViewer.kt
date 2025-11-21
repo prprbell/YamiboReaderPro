@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,8 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,7 +53,8 @@ fun ContentViewer(
     pageCount: Int,
     nightMode: Boolean,
     backgroundColor: Color,
-    isVerticalMode: Boolean = false
+    isVerticalMode: Boolean = false,
+    onRefresh: () -> Unit = {}
 ) {
     // 顶部章节标题的固定高度（标题 + 间距）
     val chapterTitleHeight = 24.dp
@@ -58,9 +62,6 @@ fun ContentViewer(
 
     // 竖屏模式的特殊处理
     if (isVerticalMode) {
-        // 在竖屏模式下，padding(horizontal) 是由 ReaderPage 的 LazyColumn 的 modifier 提供的
-        // 我们只需要处理顶部和底部的间距（即行高/图片高度）
-
         if (data.type == ContentType.IMG) {
             // [竖屏图片]
             val imageRequestBuilder = ImageRequest.Builder(LocalContext.current)
@@ -75,8 +76,8 @@ fun ContentViewer(
 
             SubcomposeAsyncImage(
                 modifier = Modifier
-                    .fillMaxWidth() // 宽度占满 (padding 已由 LazyColumn 处理)
-                    .padding(vertical = 4.dp), // 图片上下加一点间距
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
                 model = imageRequestBuilder.build(),
                 onError = {
                     it.result.throwable.printStackTrace()
@@ -86,7 +87,7 @@ fun ContentViewer(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp), // 失败提示需要自己的 padding
+                            .padding(16.dp),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -107,18 +108,27 @@ fun ContentViewer(
                 loading = { CircularProgressIndicator() })
         } else if (data.type == ContentType.TEXT) {
             // [竖屏文本行]
-
-            // [修改] 如果 data.data 为空，我们将其渲染为一个空行（段落间距）
-            if (data.data.isEmpty()) {
-                // 这是一个段落分隔符。渲染一个固定高度的空行 (例如 1/3 行高)
-                // [FIX] Convert TextUnit (sp) to Dp
+            if (data.chapterTitle == "footer" && data.data.contains("正在加载下一页")) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Button(onClick = onRefresh) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("刷新本页内容")
+                    }
+                }
+            } else if (data.data.isEmpty()) {
                 Spacer(modifier = Modifier.height(ValueUtil.spToDp(lineHeight) / 3))
             } else {
-                // 这是一个正常的文本行
+                // 正常的文本行
                 JustifiedText(
                     modifier = Modifier
-                        .fillMaxWidth() // 宽度占满 (padding 已由 LazyColumn 处理)
-                        .height(ValueUtil.spToDp(lineHeight)), // [FIX] Convert TextUnit (sp) to Dp
+                        .fillMaxWidth()
+                        .height(ValueUtil.spToDp(lineHeight)),
                     text = data.data,
                     lineHeight = lineHeight,
                     fontSize = fontSize,
@@ -128,18 +138,16 @@ fun ContentViewer(
                 )
             }
         }
-        // [竖屏模式] 不渲染章节标题和页码 (由 ReaderPage.VerticalModeHeader 处理)
-
     } else {
-        // --- [旧逻辑] 横屏翻页模式 ---
+        // --- 横屏翻页模式 ---
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(backgroundColor)
-                .padding(horizontal = padding) // 横屏模式自己控制 padding
+                .padding(horizontal = padding)
         ) {
 
-            // [旧逻辑] 章节标题
+            // 章节标题
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -162,7 +170,7 @@ fun ContentViewer(
                 } ?: Spacer(modifier = Modifier.weight(1f))
             }
 
-            // [旧逻辑] 正文内容
+            // 正文内容
             if (data.type == ContentType.IMG) {
                 val imageRequestBuilder = ImageRequest.Builder(LocalContext.current)
                     .data(data.data)
@@ -207,20 +215,35 @@ fun ContentViewer(
                     contentDescription = "Image Content",
                     loading = { CircularProgressIndicator() })
             } else if (data.type == ContentType.TEXT) {
-                JustifiedText(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    text = data.data,
-                    lineHeight = lineHeight,
-                    fontSize = fontSize,
-                    letterSpacing = letterSpacing,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    isVerticalMode = false // [旧逻辑]
-                )
+                if (data.chapterTitle == "footer" && data.data.contains("正在加载下一页")) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Button(onClick = onRefresh) {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("刷新本页内容")
+                        }
+                    }
+                } else {
+                    JustifiedText(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        text = data.data,
+                        lineHeight = lineHeight,
+                        fontSize = fontSize,
+                        letterSpacing = letterSpacing,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        isVerticalMode = false
+                    )
+                }
             }
 
-            // [旧逻辑] 页码
+            // 页码
             if (!isVerticalMode) {
                 Row(
                     modifier = Modifier

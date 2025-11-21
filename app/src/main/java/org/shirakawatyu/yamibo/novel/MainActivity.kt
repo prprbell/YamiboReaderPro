@@ -4,13 +4,17 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,6 +75,46 @@ class MainActivity : ComponentActivity() {
         private set
     private var backgroundStopJob: Job? = null
     private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var uploadMessage: ValueCallback<Array<Uri>>? = null
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        // 解析结果并回调给 WebView
+        uploadMessage?.onReceiveValue(
+            WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+        )
+        uploadMessage = null
+    }
+    private val customWebChromeClient by lazy { createWebChromeClient() }
+    private fun createWebChromeClient(): WebChromeClient {
+        return object : WebChromeClient() {
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                if (uploadMessage != null) {
+                    uploadMessage?.onReceiveValue(null)
+                    uploadMessage = null
+                }
+                uploadMessage = filePathCallback
+
+                try {
+                    val intent = fileChooserParams?.createIntent()
+                    if (intent != null) {
+                        fileChooserLauncher.launch(intent)
+                    } else {
+                        uploadMessage = null
+                        return false
+                    }
+                } catch (e: Exception) {
+                    uploadMessage = null
+                    return false
+                }
+                return true
+            }
+        }
+    }
 
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,9 +122,9 @@ class MainActivity : ComponentActivity() {
         GlobalData.displayMetrics = resources.displayMetrics
         window.setBackgroundDrawable(0xfffcf4cf.toInt().toDrawable())
         super.onCreate(savedInstanceState)
-        bbsWebViewState = createBbsWebView(this)
+        bbsWebViewState = createBbsWebView(this, customWebChromeClient)
         setContent {
-            App(bbsWebView = bbsWebViewState)
+            App(bbsWebView = bbsWebViewState, webChromeClient = customWebChromeClient)
         }
     }
 
@@ -90,7 +134,7 @@ class MainActivity : ComponentActivity() {
         backgroundStopJob = null
 
         if (bbsWebViewState == null) {
-            bbsWebViewState = createBbsWebView(this).apply {
+            bbsWebViewState = createBbsWebView(this, customWebChromeClient).apply {
                 loadUrl("https://bbs.yamibo.com/forum.php")
             }
         } else {
@@ -122,7 +166,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @SuppressLint("SetJavaScriptEnabled")
-fun createBbsWebView(context: Context): WebView {
+fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): WebView {
     return WebView(context).apply {
         layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -135,14 +179,14 @@ fun createBbsWebView(context: Context): WebView {
             useWideViewPort = true
         }
         webViewClient = GlobalData.webViewClient
-        webChromeClient = GlobalData.webChromeClient
+        webChromeClient = chromeClient ?: GlobalData.webChromeClient
     }
 }
 
 @RequiresApi(Build.VERSION_CODES.O)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun App(bbsWebView: WebView?) {
+fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
     val isAppInitialized = GlobalData.isAppInitialized
 
     LaunchedEffect(Unit) {
@@ -210,7 +254,8 @@ fun App(bbsWebView: WebView?) {
                             composable("MinePage") {
                                 MinePage(
                                     isSelected = selectedItemIndex == 2,
-                                    navController = navController
+                                    navController = navController,
+                                    webChromeClient = webChromeClient
                                 )
                             }
 
