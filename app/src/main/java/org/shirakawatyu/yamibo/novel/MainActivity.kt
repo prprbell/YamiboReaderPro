@@ -57,6 +57,8 @@ import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
 import java.net.URLDecoder
 import androidx.core.graphics.drawable.toDrawable
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -122,11 +124,18 @@ class MainActivity : ComponentActivity() {
         GlobalData.displayMetrics = resources.displayMetrics
         window.setBackgroundDrawable(0xfffcf4cf.toInt().toDrawable())
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+
         bbsWebViewState = createBbsWebView(this, customWebChromeClient)
         setContent {
             App(bbsWebView = bbsWebViewState, webChromeClient = customWebChromeClient)
         }
     }
+
 
     override fun onStart() {
         super.onStart()

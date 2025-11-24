@@ -1,6 +1,9 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.EaseOut
@@ -99,10 +102,19 @@ import org.shirakawatyu.yamibo.novel.ui.widget.CacheDialog
 import org.shirakawatyu.yamibo.novel.ui.widget.CacheProgressDialog
 import org.shirakawatyu.yamibo.novel.ui.widget.ContentViewer
 import org.shirakawatyu.yamibo.novel.ui.widget.PassageWebView
-import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
-import org.shirakawatyu.yamibo.novel.util.ValueUtil
 import kotlin.math.roundToInt
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalDensity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import org.shirakawatyu.yamibo.novel.ui.widget.CustomStatusBar
+import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
+import androidx.activity.compose.BackHandler
+import androidx.core.view.ViewCompat
 
 private val backgroundColors = listOf(
     null, // 代表 "原背景"
@@ -137,109 +149,195 @@ fun ReaderPage(
     val isDiskCaching by readerVM.isDiskCaching.collectAsState()
     var showCacheDialog by remember { mutableStateOf(false) }
 
-    // 将所有内容包裹在 ReaderTheme 中
+    // 全屏与状态栏高度处理
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val window = remember(context) { context.findActivity()?.window }
+    val view = remember(window) { window?.decorView }
+    val statusBarHeight = getStatusBarHeight()
+
+    // 记录进入阅读器前的系统栏状态，退出时恢复，避免上一页上下栏抖动
+    val originalStatusBarColor = remember { mutableStateOf(window?.statusBarColor ?: 0) }
+    val originalBehavior = remember { mutableStateOf(0) }
+    val originalLightStatusBars = remember { mutableStateOf(false) }
+    val originalCutoutMode = remember { mutableStateOf(0) }
+    var hasCapturedOriginal by remember { mutableStateOf(false) }
+    var hasRestoredSystemUi by remember { mutableStateOf(false) }
+
+    val favorites by FavoriteUtil.getFavoriteFlow().collectAsState(initial = emptyList())
+    val bookTitle = remember(favorites, url) {
+        val rawTitle = favorites.find { it.url == url }?.title ?: ""
+        rawTitle.replace(Regex("(\\[.*?]|【.*?】|\\(.*?\\)|（.*?）)"), "").trim()
+    }
+    DisposableEffect(window, view) {
+        if (window == null || view == null) {
+            onDispose { }
+        } else {
+            val windowController = WindowCompat.getInsetsController(window, view)
+
+            if (!hasCapturedOriginal) {
+                originalStatusBarColor.value = window.statusBarColor
+                originalBehavior.value = windowController.systemBarsBehavior
+                originalLightStatusBars.value = windowController.isAppearanceLightStatusBars
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    originalCutoutMode.value = window.attributes.layoutInDisplayCutoutMode
+                }
+                hasCapturedOriginal = true
+            }
+
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val layoutParams = window.attributes
+                layoutParams.layoutInDisplayCutoutMode =
+                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                window.attributes = layoutParams
+            }
+
+            windowController.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+            onDispose {
+                // 如果不是通过exitReader主动恢复，这里兜底恢复一次
+                if (!hasRestoredSystemUi) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        val layoutParams = window.attributes
+                        layoutParams.layoutInDisplayCutoutMode = originalCutoutMode.value
+                        window.attributes = layoutParams
+                    }
+                    windowController.systemBarsBehavior = originalBehavior.value
+                    window.statusBarColor = originalStatusBarColor.value
+                    windowController.isAppearanceLightStatusBars = originalLightStatusBars.value
+                    windowController.show(WindowInsetsCompat.Type.systemBars())
+                }
+            }
+        }
+    }
+
+
     ReaderTheme(nightMode = uiState.nightMode) {
-        // 背景颜色
         val themeBackground = MaterialTheme.colorScheme.background
         val finalBackground = if (uiState.nightMode) {
-            themeBackground // 夜间模式下, 强制使用主题夜间背景
+            themeBackground
         } else {
-            uiState.backgroundColor ?: themeBackground // 日间模式下, 才使用自定义背景或主题日间背景
+            uiState.backgroundColor ?: themeBackground
         }
 
         val pagerState = rememberPagerState(pageCount = { uiState.htmlList.size })
-        // 滚动列表 (竖屏)
         val lazyListState = rememberLazyListState()
-
-        // 显示设置菜单
         var showSettings by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
-        // 抽屉状态
         val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-        val smoothScrollAnimation = remember {
-            tween<Float>(durationMillis = 432, easing = EaseOut)
-        }
-        // 监听VM状态来打开/关闭抽屉
+        val smoothScrollAnimation =
+            remember { tween<Float>(durationMillis = 432, easing = EaseOut) }
+
         LaunchedEffect(uiState.showChapterDrawer) {
-            if (uiState.showChapterDrawer) {
-                drawerState.open()
-            } else {
-                drawerState.close()
-            }
+            if (uiState.showChapterDrawer) drawerState.open() else drawerState.close()
         }
-        // 监听抽屉手势关闭，同步回VM
         LaunchedEffect(drawerState.isOpen) {
-            if (!drawerState.isOpen) {
-                readerVM.toggleChapterDrawer(false)
+            if (!drawerState.isOpen) readerVM.toggleChapterDrawer(false)
+        }
+
+        LaunchedEffect(showSettings, uiState.nightMode) {
+            val windowController = window?.let { WindowCompat.getInsetsController(it, view!!) }
+            if (windowController != null) {
+                if (showSettings) {
+                    // 打开设置：显示系统状态栏
+                    windowController.show(WindowInsetsCompat.Type.statusBars())
+                    window.statusBarColor = android.graphics.Color.BLACK
+                    windowController.isAppearanceLightStatusBars = false
+                } else {
+                    // 关闭设置：恢复沉浸式阅读
+                    windowController.hide(WindowInsetsCompat.Type.statusBars())
+                    window.statusBarColor = android.graphics.Color.TRANSPARENT
+                    windowController.isAppearanceLightStatusBars = !uiState.nightMode
+                }
             }
         }
-        // 当前页/行索引
+
+
         val currentPageIndex = if (uiState.isVerticalMode) {
-            // 使用快照，确保在重组时获取最新的稳定值
-            remember(
-                lazyListState.firstVisibleItemIndex,
-                lazyListState.isScrollInProgress
-            ) {
-                if (lazyListState.isScrollInProgress) {
-                    // 如果在滚动中，报告我们正前往的页面（或当前页）
-                    lazyListState.firstVisibleItemIndex
-                } else {
-                    // 稳定在的页面
-                    lazyListState.firstVisibleItemIndex
-                }
+            remember(lazyListState.firstVisibleItemIndex, lazyListState.isScrollInProgress) {
+                lazyListState.firstVisibleItemIndex
             }.coerceIn(0, (uiState.htmlList.size - 1).coerceAtLeast(0))
         } else {
             pagerState.currentPage
         }
 
-        // 使用这个正确的 currentPageIndex 来获取标题
         val currentChapterTitle =
             if (uiState.htmlList.isNotEmpty() && currentPageIndex < uiState.htmlList.size) {
                 uiState.htmlList[currentPageIndex].chapterTitle
             } else {
                 null
             }
-        // 存储fontSize,lineHeight,padding
+
         var settingsOnOpen by remember {
             mutableStateOf<Pair<Triple<TextUnit, TextUnit, Dp>, Color?>?>(
                 null
             )
         }
-        // 是否显示加载遮罩
         val isLoading = readerVM.showLoadingScrim
-        // 是否显示图片加载警告对话框
         var showImageWarning by remember { mutableStateOf(false) }
+
+        val exitReader: () -> Unit = remember(window, view, navController) {
+            {
+                if (window != null && view != null) {
+                    val controller = WindowCompat.getInsetsController(window, view)
+
+                    WindowCompat.setDecorFitsSystemWindows(window, true)
+
+                    if (hasCapturedOriginal) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            val lp = window.attributes
+                            lp.layoutInDisplayCutoutMode = originalCutoutMode.value
+                            window.attributes = lp
+                        }
+                        controller.systemBarsBehavior = originalBehavior.value
+                        window.statusBarColor = originalStatusBarColor.value
+                        controller.isAppearanceLightStatusBars = originalLightStatusBars.value
+                    }
+
+                    controller.show(WindowInsetsCompat.Type.systemBars())
+
+                    ViewCompat.requestApplyInsets(view)
+
+                    hasRestoredSystemUi = true
+
+                    view.post {
+                        navController.navigateUp()
+                    }
+                } else {
+                    hasRestoredSystemUi = true
+                    navController.navigateUp()
+                }
+            }
+        }
+        BackHandler {
+            if (showSettings) {
+                showSettings = false
+            } else {
+                exitReader()
+            }
+        }
         if (showImageWarning) {
             AlertDialog(
                 onDismissRequest = { showImageWarning = false },
                 title = { Text("确认加载图片") },
                 text = { Text("开启后将加载帖子中的图片，这会显著增加加载时间，并可能导致应用卡顿。") },
                 confirmButton = {
-                    TextButton(
-                        onClick = {
-                            readerVM.toggleLoadImages(true)
-                            showImageWarning = false
-                        }
-                    ) {
-                        Text("确认开启")
-                    }
+                    TextButton(onClick = {
+                        readerVM.toggleLoadImages(true); showImageWarning = false
+                    }) { Text("确认开启") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showImageWarning = false }) { Text("取消") }
+                    TextButton(onClick = {
+                        showImageWarning = false
+                    }) { Text("取消") }
                 }
             )
         }
-        // 根据设置页面显示状态设置状态栏颜色
-        val statusBarColor = if (showSettings) {
-            Color.Black
-        } else {
-            finalBackground
-        }
-        SetStatusBarColor(statusBarColor)
 
-        // 监听设置页面显示状态变化
         LaunchedEffect(showSettings) {
-            // 保存打开时的设置页面参数作为是否改变的判断基准
             if (showSettings) {
                 settingsOnOpen = Pair(
                     Triple(uiState.fontSize, uiState.lineHeight, uiState.padding),
@@ -247,410 +345,355 @@ fun ReaderPage(
                 )
             }
         }
-        // 监听竖屏滚动状态
+
         LaunchedEffect(uiState.isVerticalMode, lazyListState) {
             if (uiState.isVerticalMode) {
-                // 同时监听索引和滚动状态
                 snapshotFlow {
-                    // 只有当isScrollInProgress为false时，我们才认为状态是“稳定”的
-                    Pair(lazyListState.firstVisibleItemIndex, !lazyListState.isScrollInProgress)
+                    Pair(
+                        lazyListState.firstVisibleItemIndex,
+                        !lazyListState.isScrollInProgress
+                    )
                 }
-                    .distinctUntilChanged() // 确保只有在稳定状态或索引变化时才触发
+                    .distinctUntilChanged()
                     .collect { (visibleIndex, isSettled) ->
-                        // 当列表“稳定”在新的索引时，才调用VM
-                        if (isSettled) {
-                            if (visibleIndex >= 0 && visibleIndex < uiState.htmlList.size) {
-                                readerVM.onVerticalPageSettled(visibleIndex)
-                            }
+                        if (isSettled && visibleIndex >= 0 && visibleIndex < uiState.htmlList.size) {
+                            readerVM.onVerticalPageSettled(visibleIndex)
                         }
                     }
             }
         }
+
+        // --- 根布局Box ---
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(finalBackground)
         ) {
-            PassageWebView(
-                url = uiState.urlToLoad,
-                loadImages = uiState.loadImages
-            ) { success, html, loadedUrl, maxPage ->
-                readerVM.loadFinished(success, html, loadedUrl, maxPage)
-            }
-            ModalNavigationDrawer(
-                drawerState = drawerState,
-                gesturesEnabled = drawerState.isOpen,
-                drawerContent = {
-                    ChapterDrawerContent(
-                        drawerState = drawerState,
-                        chapterList = uiState.chapterList,
-                        currentChapterTitle = currentChapterTitle,
-                        // 传递 pageCount 和 isVerticalMode
-                        pageCount = uiState.htmlList.size,
-                        isVerticalMode = uiState.isVerticalMode,
-                        onChapterClick = { index ->
-                            scope.launch {
-                                if (uiState.isVerticalMode) {
-                                    // 如果是竖屏模式，滚动 LazyList
-                                    lazyListState.scrollToItem(index)
-                                } else {
-                                    // 否则，滚动Pager
-                                    pagerState.animateScrollToPage(index)
-                                }
-                            }
-                            readerVM.toggleChapterDrawer(false)
-                        }
-                    )
-                }
+            // 内容层
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = statusBarHeight)
+                    .navigationBarsPadding()
             ) {
-                BoxWithConstraints(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(finalBackground)
-                ) {
-                    var hasLoaded by remember { mutableStateOf(false) }
+                PassageWebView(
+                    url = uiState.urlToLoad,
+                    loadImages = uiState.loadImages
+                ) { success, html, loadedUrl, maxPage, title ->
+                    readerVM.loadFinished(success, html, loadedUrl, maxPage, title)
+                }
 
-                    if (maxHeight > 0.dp && maxWidth > 0.dp && !hasLoaded) {
-                        LaunchedEffect(maxHeight, maxWidth, url) {
-                            readerVM.firstLoad(url, maxHeight, maxWidth)
-                            hasLoaded = true
-                        }
-                    }
-
-                    if (uiState.isError) {
-                        // 显示错误和重试界面
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 32.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                painterResource(id = R.drawable.ic_error),
-                                contentDescription = "加载失败",
-                                modifier = Modifier.size(48.dp),
-                                tint = if (uiState.nightMode) Color.White else Color.Gray
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                "页面加载失败",
-                                fontSize = 18.sp,
-                                color = if (uiState.nightMode) Color.White else Color.DarkGray
-                            )
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Button(onClick = { readerVM.retryLoad() }) {
-                                Text("重试")
-                            }
-                        }
-                    } else if (hasLoaded) {
-
-                        // 定义一个key，当数据(列表)和目标页(initPage)都准备好时，这个key会更新
-                        val dataKey =
-                            "${uiState.htmlList.hashCode()}_${uiState.initPage}_${uiState.isVerticalMode}"
-
-                        // 这个flag用于跟踪这个currentView的初始滚动是否已完成。
-                        var isInitialScrollDone by remember(uiState.currentView) {
-                            mutableStateOf(
-                                false
-                            )
-                        }
-
-
-                        // 仅在hasLoaded且htmlList非空时才渲染内容
-                        if (uiState.htmlList.isNotEmpty()) {
-
-                            // 此LaunchedEffect仅在dataKey变化时运行一次
-                            LaunchedEffect(dataKey) {
-                                // 1. 仅在 "初始滚动" 未完成时执行
-                                if (!isInitialScrollDone) {
-                                    if (uiState.isVerticalMode) {
-                                        // 2. 检查用户是否已在滚动
-                                        if (lazyListState.firstVisibleItemIndex != uiState.initPage && !lazyListState.isScrollInProgress) {
-                                            lazyListState.scrollToItem(uiState.initPage)
-                                        }
-                                    } else {
-                                        // 2. 检查用户是否已在滚动
-                                        if (pagerState.pageCount > uiState.initPage && // 确保 Pager 已更新
-                                            pagerState.currentPage != uiState.initPage &&
-                                            !pagerState.isScrollInProgress
-                                        ) {
-                                            pagerState.scrollToPage(uiState.initPage)
-                                        }
-                                    }
-                                    // 3. 无论是否真的执行了滚动（可能被 isScrollInProgress 阻止），
-                                    // 都将此flag设为 true，以防止 "跳回" Bug。
-                                    isInitialScrollDone = true
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    gesturesEnabled = drawerState.isOpen,
+                    drawerContent = {
+                        ChapterDrawerContent(
+                            drawerState = drawerState,
+                            chapterList = uiState.chapterList,
+                            currentChapterTitle = currentChapterTitle,
+                            pageCount = uiState.htmlList.size,
+                            isVerticalMode = uiState.isVerticalMode,
+                            onChapterClick = { index ->
+                                scope.launch {
+                                    if (uiState.isVerticalMode) lazyListState.scrollToItem(index)
+                                    else pagerState.animateScrollToPage(index)
                                 }
+                                readerVM.toggleChapterDrawer(false)
                             }
+                        )
+                    }
+                ) {
+                    BoxWithConstraints(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        var hasLoaded by remember { mutableStateOf(false) }
+                        if (maxHeight > 0.dp && maxWidth > 0.dp && !hasLoaded) {
+                            LaunchedEffect(maxHeight, maxWidth, url) {
+                                readerVM.firstLoad(url, maxHeight, maxWidth)
+                                hasLoaded = true
+                            }
+                        }
 
-
-                            Box(
+                        if (uiState.isError) {
+                            Column(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                // 最好是等待 Pager/LazyList 稳定
-                                // .graphicsLayer(alpha = if (isInitialScrollDone) 1f else 0f)
+                                    .padding(horizontal = 32.dp),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                if (uiState.isVerticalMode) {
-                                    // 竖屏滚动模式
-                                    LazyColumn(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clickable(
-                                                indication = null,
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                onClick = { showSettings = true }
+                                Icon(
+                                    painterResource(id = R.drawable.ic_error),
+                                    "加载失败",
+                                    Modifier.size(48.dp),
+                                    tint = if (uiState.nightMode) Color.White else Color.Gray
+                                )
+                                Spacer(Modifier.height(16.dp))
+                                Text(
+                                    "页面加载失败",
+                                    fontSize = 18.sp,
+                                    color = if (uiState.nightMode) Color.White else Color.DarkGray
+                                )
+                                Spacer(Modifier.height(24.dp))
+                                Button(onClick = { readerVM.retryLoad() }) { Text("重试") }
+                            }
+                        } else if (hasLoaded) {
+                            val dataKey =
+                                "${uiState.htmlList.hashCode()}_${uiState.initPage}_${uiState.isVerticalMode}"
+                            var isInitialScrollDone by remember(uiState.currentView) {
+                                mutableStateOf(
+                                    false
+                                )
+                            }
+
+                            if (uiState.htmlList.isNotEmpty()) {
+                                LaunchedEffect(dataKey) {
+                                    if (!isInitialScrollDone) {
+                                        if (uiState.isVerticalMode) {
+                                            if (lazyListState.firstVisibleItemIndex != uiState.initPage) lazyListState.scrollToItem(
+                                                uiState.initPage
                                             )
-                                            .padding(horizontal = uiState.padding),
-                                        state = lazyListState
-                                    ) {
-                                        itemsIndexed(
-                                            items = uiState.htmlList,
-                                            key = { index, item -> "${item.type}_${item.chapterTitle}_${item.data.hashCode()}_${index}" }
-                                        ) { index, content ->
+                                        } else {
+                                            if (pagerState.pageCount > uiState.initPage && pagerState.currentPage != uiState.initPage) pagerState.scrollToPage(
+                                                uiState.initPage
+                                            )
+                                        }
+                                        isInitialScrollDone = true
+                                    }
+                                }
+
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    if (uiState.isVerticalMode) {
+                                        LazyColumn(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clickable(
+                                                    indication = null,
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    onClick = { showSettings = true }
+                                                )
+                                                .padding(horizontal = uiState.padding),
+                                            state = lazyListState
+                                        ) {
+                                            itemsIndexed(
+                                                items = uiState.htmlList,
+                                                key = { index, item -> "${item.type}_${item.chapterTitle}_${item.data.hashCode()}_${index}" }
+                                            ) { index, content ->
+                                                ContentViewer(
+                                                    data = content,
+                                                    padding = uiState.padding,
+                                                    lineHeight = uiState.lineHeight,
+                                                    letterSpacing = uiState.letterSpacing,
+                                                    fontSize = uiState.fontSize,
+                                                    currentPage = index + 1,
+                                                    pageCount = uiState.htmlList.size,
+                                                    nightMode = uiState.nightMode,
+                                                    backgroundColor = finalBackground,
+                                                    isVerticalMode = true,
+                                                    onRefresh = { readerVM.forceRefreshCurrentPage() },
+                                                    bookTitle = bookTitle
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        HorizontalPager(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .pointerInput(Unit) {
+                                                    detectTapGestures(
+                                                        onTap = { offset ->
+                                                            val screenWidth = size.width.toFloat()
+                                                            if (offset.x < screenWidth * 0.25f) {
+                                                                scope.launch {
+                                                                    pagerState.animateScrollToPage(
+                                                                        (pagerState.currentPage - 1).coerceAtLeast(
+                                                                            0
+                                                                        ),
+                                                                        animationSpec = smoothScrollAnimation
+                                                                    )
+                                                                }
+                                                            } else if (offset.x > screenWidth * 0.75f) {
+                                                                scope.launch {
+                                                                    pagerState.animateScrollToPage(
+                                                                        (pagerState.currentPage + 1).coerceAtMost(
+                                                                            pagerState.pageCount - 1
+                                                                        ),
+                                                                        animationSpec = smoothScrollAnimation
+                                                                    )
+                                                                }
+                                                            } else {
+                                                                showSettings = true
+                                                            }
+                                                        }
+                                                    )
+                                                }
+                                                .pointerInput(Unit) {
+                                                    detectTransformGestures { _, pan, zoom, _ ->
+                                                        readerVM.onTransform(
+                                                            pan,
+                                                            zoom
+                                                        )
+                                                    }
+                                                }
+                                                .graphicsLayer(
+                                                    scaleX = uiState.scale,
+                                                    scaleY = uiState.scale,
+                                                    translationX = uiState.offset.x,
+                                                    translationY = uiState.offset.y
+                                                ),
+                                            state = pagerState,
+                                        ) { page ->
                                             ContentViewer(
-                                                data = content,
+                                                data = uiState.htmlList[page],
                                                 padding = uiState.padding,
                                                 lineHeight = uiState.lineHeight,
                                                 letterSpacing = uiState.letterSpacing,
                                                 fontSize = uiState.fontSize,
-                                                currentPage = index + 1,
-                                                pageCount = uiState.htmlList.size,
+                                                currentPage = pagerState.currentPage + 1,
+                                                pageCount = pagerState.pageCount,
                                                 nightMode = uiState.nightMode,
                                                 backgroundColor = finalBackground,
-                                                isVerticalMode = true,
-                                                onRefresh = {
-                                                    readerVM.forceRefreshCurrentPage()
-                                                }
+                                                isVerticalMode = false,
+                                                onRefresh = { readerVM.forceRefreshCurrentPage() },
+                                                bookTitle = bookTitle
                                             )
-                                        }
-                                    }
-                                } else {
-                                    HorizontalPager(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .pointerInput(Unit) {
-                                                detectTapGestures(
-                                                    onTap = { offset ->
-                                                        val screenWidth = size.width.toFloat()
-                                                        val leftZoneEnd = screenWidth * 0.25f
-                                                        val rightZoneStart = screenWidth * 0.75f
-
-                                                        if (offset.x < leftZoneEnd) {
-                                                            // 点击左侧25%：上一页
-                                                            scope.launch {
-                                                                val newPage =
-                                                                    (pagerState.currentPage - 1).coerceAtLeast(
-                                                                        0
-                                                                    )
-                                                                pagerState.animateScrollToPage(
-                                                                    page = newPage,
-                                                                    animationSpec = smoothScrollAnimation
-                                                                )
-                                                            }
-                                                        } else if (offset.x > rightZoneStart) {
-                                                            // 点击右侧25%：下一页
-                                                            scope.launch {
-                                                                val newPage =
-                                                                    (pagerState.currentPage + 1)
-                                                                        .coerceAtMost(pagerState.pageCount - 1)
-                                                                pagerState.animateScrollToPage(
-                                                                    page = newPage,
-                                                                    animationSpec = smoothScrollAnimation
-                                                                )
-                                                            }
-                                                        } else {
-                                                            // 点击中间50%：显示设置
-                                                            showSettings = true
-                                                        }
-                                                    }
-                                                )
-                                            }
-                                            .pointerInput(Unit) {
-                                                detectTransformGestures { _, pan, zoom, _ ->
-                                                    readerVM.onTransform(pan, zoom)
-                                                }
-                                            }
-                                            .graphicsLayer(
-                                                scaleX = uiState.scale,
-                                                scaleY = uiState.scale,
-                                                translationX = uiState.offset.x,
-                                                translationY = uiState.offset.y
-                                            ),
-                                        state = pagerState,
-                                    ) { page ->
-                                        ContentViewer(
-                                            data = uiState.htmlList[page],
-                                            padding = uiState.padding,
-                                            lineHeight = uiState.lineHeight,
-                                            letterSpacing = uiState.letterSpacing,
-                                            fontSize = uiState.fontSize,
-                                            currentPage = pagerState.currentPage + 1,
-                                            pageCount = pagerState.pageCount,
-                                            nightMode = uiState.nightMode,
-                                            backgroundColor = finalBackground,
-                                            isVerticalMode = false,
-                                            onRefresh = { readerVM.forceRefreshCurrentPage() }
-                                        )
-
-                                        SideEffect {
-                                            readerVM.onPageChange(pagerState, scope)
+                                            SideEffect { readerVM.onPageChange(pagerState, scope) }
                                         }
                                     }
                                 }
                             }
-                        }
-
-                        // 添加固定的顶部栏
-                        if (uiState.isVerticalMode && !showSettings && uiState.htmlList.isNotEmpty()) {
-                            VerticalModeHeader(
-                                chapterTitle = currentChapterTitle,
-                                currentPage = currentPageIndex + 1,
-                                pageCount = uiState.htmlList.size,
-                                backgroundColor = finalBackground,
-                                padding = uiState.padding // 传入内边距以对齐
-                            )
-                        }
-                        // 设置页面
-                        if (showSettings) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.2f))
-                                    .clickable(
-                                        indication = null,
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        onClick = {
-                                            val settingsNow = Pair(
-                                                Triple(
-                                                    uiState.fontSize,
-                                                    uiState.lineHeight,
-                                                    uiState.padding
-                                                ),
-                                                uiState.backgroundColor
-                                            )
-                                            if (settingsOnOpen != settingsNow) {
-                                                readerVM.saveSettings(currentPageIndex)
-                                            }
-                                            showSettings = false
-                                        }
-                                    )
-                            )
-                            // 顶部栏
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .align(Alignment.TopCenter),
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shadowElevation = 8.dp
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-
-                                ) {
-                                    IconButton(onClick = {
-                                        navController.navigateUp()
-                                    }) {
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = "返回"
-                                        )
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        // 加载图片开关
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = "加载图片",
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                            Spacer(Modifier.width(8.dp))
-                                            Switch(
-                                                checked = uiState.loadImages,
-                                                onCheckedChange = { isChecked ->
-                                                    if (isChecked) {
-                                                        showImageWarning = true
-                                                    } else {
-                                                        readerVM.toggleLoadImages(false)
-                                                    }
-                                                }
-                                            )
-                                        }
-                                        Spacer(Modifier.width(16.dp))
-                                        // 夜间模式开关
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = "夜间模式",
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                            Spacer(Modifier.width(8.dp))
-                                            Switch(
-                                                checked = uiState.nightMode,
-                                                onCheckedChange = { isChecked ->
-                                                    readerVM.toggleNightMode(isChecked)
-                                                }
-                                            )
-                                        }
-
-                                        Spacer(Modifier.width(16.dp))
-                                        // 刷新按钮
-                                        IconButton(onClick = {
-                                            readerVM.forceRefreshCurrentPage()
-                                            // 立即隐藏设置菜单，以显示加载动画
-                                            showSettings = false
-                                        }) {
-                                            Icon(
-                                                Icons.Default.Refresh,
-                                                contentDescription = "刷新页面"
-                                            )
-                                        }
-                                    }
-                                }
+                            if (uiState.isVerticalMode && uiState.htmlList.isNotEmpty()) {
+                                VerticalModeHeader(
+                                    chapterTitle = currentChapterTitle,
+                                    currentPage = currentPageIndex + 1,
+                                    pageCount = uiState.htmlList.size,
+                                    backgroundColor = finalBackground,
+                                    padding = uiState.padding
+                                )
                             }
-                            // 底部栏
-                            ReaderSettingsBar(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .align(Alignment.BottomCenter),
-                                uiState = uiState,
-                                pageCount = uiState.htmlList.size,
-                                currentPage = currentPageIndex,
-                                onSetView = { readerVM.onSetView(it) },
-                                onSetPage = { pageIndex ->
-                                    scope.launch {
-                                        if (uiState.isVerticalMode) {
-                                            lazyListState.scrollToItem(pageIndex)
-                                        } else {
-                                            pagerState.scrollToPage(pageIndex)
-                                        }
-                                    }
-                                },
-                                onSetFontSize = { readerVM.onSetFontSize(it) },
-                                onSetLineHeight = { readerVM.onSetLineHeight(it) },
-                                onSetPadding = { readerVM.onSetPadding(it) },
-                                onShowChapters = { readerVM.toggleChapterDrawer(true) },
-                                onSetBackgroundColor = { readerVM.onSetBackgroundColor(it) },
-                                onSetReadingMode = { isVertical ->
-                                    readerVM.setReadingMode(isVertical, currentPageIndex)
-                                },
-                                onShowCacheDialog = {
-                                    if (isDiskCaching) {
-                                        // 如果正在缓存（即使在后台），直接显示进度
-                                        readerVM.showCacheProgress()
-                                    } else {
-                                        // 否则，显示缓存选择页
-                                        showCacheDialog = true
-                                    }
-                                }
-                            )
                         }
                     }
                 }
+            } // 正文Box End
+
+            // --- 自定义状态栏层 ---
+            if (!showSettings) {
+                CustomStatusBar(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(statusBarHeight)
+                        .align(Alignment.TopCenter),
+                    height = statusBarHeight,
+                    backgroundColor = finalBackground,
+                    contentColor = if (uiState.nightMode) Color.Gray else Color.DarkGray,
+                    title = ""
+                )
+            }
+
+            // --- 设置菜单层---
+            if (showSettings) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.2f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                            onClick = {
+                                val settingsNow = Pair(
+                                    Triple(
+                                        uiState.fontSize,
+                                        uiState.lineHeight,
+                                        uiState.padding
+                                    ), uiState.backgroundColor
+                                )
+                                if (settingsOnOpen != settingsNow) readerVM.saveSettings(
+                                    currentPageIndex
+                                )
+                                showSettings = false
+                            }
+                        )
+                )
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        IconButton(onClick = exitReader) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("加载图片", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.width(8.dp))
+                                Switch(
+                                    checked = uiState.loadImages,
+                                    onCheckedChange = {
+                                        if (it) showImageWarning =
+                                            true else readerVM.toggleLoadImages(false)
+                                    })
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("夜间模式", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.width(8.dp))
+                                Switch(
+                                    checked = uiState.nightMode,
+                                    onCheckedChange = { readerVM.toggleNightMode(it) })
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            IconButton(onClick = {
+                                readerVM.forceRefreshCurrentPage(); showSettings = false
+                            }) {
+                                Icon(Icons.Default.Refresh, "刷新页面")
+                            }
+                        }
+                    }
+                }
+
+                ReaderSettingsBar(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding(),
+                    uiState = uiState,
+                    pageCount = uiState.htmlList.size,
+                    currentPage = currentPageIndex,
+                    onSetView = { readerVM.onSetView(it) },
+                    onSetPage = { pageIndex ->
+                        scope.launch {
+                            if (uiState.isVerticalMode) lazyListState.scrollToItem(pageIndex)
+                            else pagerState.scrollToPage(pageIndex)
+                        }
+                    },
+                    onSetFontSize = { readerVM.onSetFontSize(it) },
+                    onSetLineHeight = { readerVM.onSetLineHeight(it) },
+                    onSetPadding = { readerVM.onSetPadding(it) },
+                    onShowChapters = { readerVM.toggleChapterDrawer(true) },
+                    onSetBackgroundColor = { readerVM.onSetBackgroundColor(it) },
+                    onSetReadingMode = { isVertical ->
+                        readerVM.setReadingMode(
+                            isVertical,
+                            currentPageIndex
+                        )
+                    },
+                    onShowCacheDialog = {
+                        if (isDiskCaching) readerVM.showCacheProgress() else showCacheDialog = true
+                    }
+                )
             }
         }
+
         // 加载遮罩
         if (isLoading) {
             Box(
@@ -660,43 +703,40 @@ fun ReaderPage(
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() },
-                        onClick = {}
-                    ),
+                        onClick = {}),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
+
         if (showCacheDialog) {
             CacheDialog(
                 maxWebView = uiState.maxWebView,
                 cachedPages = cachedPages,
                 onDismiss = { showCacheDialog = false },
                 onStartCache = { pages, includeImages ->
-                    readerVM.startCaching(pages, includeImages)
-                    showCacheDialog = false
+                    readerVM.startCaching(
+                        pages,
+                        includeImages
+                    ); showCacheDialog = false
                 },
-                onDeleteCache = { pages ->
-                    readerVM.deleteCachedPages(pages)
-                },
+                onDeleteCache = { pages -> readerVM.deleteCachedPages(pages) },
                 onUpdateCache = { pages, includeImages ->
-                    readerVM.updateCachedPages(pages, includeImages)
-                    showCacheDialog = false
+                    readerVM.updateCachedPages(
+                        pages,
+                        includeImages
+                    ); showCacheDialog = false
                 }
             )
         }
-        // 缓存进度对话框
         cacheProgress?.let { progress ->
             CacheProgressDialog(
                 totalPages = progress.totalPages,
                 currentPage = progress.currentPage,
                 currentPageNum = progress.currentPageNum,
-                onDismiss = {
-                    readerVM.resetCacheProgress()
-                },
-                onStopCache = {
-                    readerVM.stopCaching()
-                }
+                onDismiss = { readerVM.resetCacheProgress() },
+                onStopCache = { readerVM.stopCaching() }
             )
         }
     }
@@ -1100,9 +1140,7 @@ private fun RowScope.ColorSwatch(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    // null 代表"原背景"，我们用主题的背景色来显示它
     val displayColor = color ?: MaterialTheme.colorScheme.background
-    // 边框颜色
     val borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
 
     Box(
@@ -1110,13 +1148,11 @@ private fun RowScope.ColorSwatch(
             .weight(1f)
             .height(32.dp)
             .padding(horizontal = 4.dp)
-            // 使用 graphicsLayer 来裁剪为圆形
             .graphicsLayer {
                 shape = CircleShape
                 clip = true
             }
             .background(displayColor)
-            // 默认的细边框
             .border(
                 width = 1.dp,
                 color = borderColor,
@@ -1125,7 +1161,6 @@ private fun RowScope.ColorSwatch(
             .clickable(onClick = onClick)
     ) {
         if (isSelected) {
-            // 选中状态：显示一个更粗的、高亮的边框
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1137,7 +1172,6 @@ private fun RowScope.ColorSwatch(
             )
         }
         if (color == null) {
-            // "原背景" 选项的特殊标记 (使用你添加的 drawable)
             Icon(
                 painter = painterResource(id = R.drawable.ic_original_background),
                 contentDescription = "原背景",
@@ -1307,24 +1341,20 @@ private fun VerticalModeHeader(
     val chapterTitleHeight = 24.dp
 
     val totalItems = pageCount.coerceAtLeast(1)
-    // currentPage 是 1-based, 索引是 (currentPage - 1)
     val percent = ((currentPage.toFloat() - 1) / totalItems) * 100f
 
-    // 使用 Surface 来实现背景遮挡和阴影
+    // 使用Surface来实现背景遮挡和阴影
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .height(chapterTitleHeight)
-            // 裁切掉阴影，避免在透明背景时看起来奇怪
             .clip(RectangleShape),
-        // 使用带一点透明度的背景色，使其在内容滚动时有轻微区分
         color = backgroundColor.copy(alpha = 0.9f),
         shadowElevation = 2.dp // 添加一点阴影
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                // 关键：使用从 uiState 传入的 padding 来对齐 ContentViewer 的内边距
                 .padding(horizontal = padding),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1454,6 +1484,29 @@ private fun SettingAdjuster(
             IconButton(onClick = onIncrease) {
                 Icon(Icons.Default.Add, contentDescription = "Increase $label")
             }
+        }
+    }
+}
+
+fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+@SuppressLint("InternalInsetResource", "DiscouragedApi")
+@Composable
+fun getStatusBarHeight(): Dp {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val resourceId = remember(context) {
+        context.resources.getIdentifier("status_bar_height", "dimen", "android")
+    }
+    return remember(resourceId, density) {
+        if (resourceId > 0) {
+            with(density) { context.resources.getDimensionPixelSize(resourceId).toDp() }
+        } else {
+            28.dp
         }
     }
 }

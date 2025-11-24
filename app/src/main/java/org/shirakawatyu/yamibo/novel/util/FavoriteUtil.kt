@@ -56,17 +56,26 @@ class FavoriteUtil {
                     val oldFavData = oldEntry.value
 
                     if (networkMap.containsKey(url)) {
-                        val netFavData = networkMap[url]!!
-                        val updatedFav = oldFavData.copy(
-                            title = netFavData.title
-                        )
-                        finalOrderedMap[url] = updatedFav
+                        finalOrderedMap[url] = oldFavData
                     }
                 }
 
                 DataStoreUtil.addData(JSON.toJSONString(finalOrderedMap), key)
 
                 callback(finalOrderedMap.values.toList())
+            }
+        }
+
+        fun checkAndUpdateTitle(url: String, rawTitle: String?) {
+            if (rawTitle.isNullOrBlank()) return
+            val cleanTitle = rawTitle.replace(Regex(" - .*"), "")
+
+            getFavoriteMap { map ->
+                map[url]?.let { fav ->
+                    if (fav.title != cleanTitle) {
+                        updateFavorite(fav.copy(title = cleanTitle))
+                    }
+                }
             }
         }
 

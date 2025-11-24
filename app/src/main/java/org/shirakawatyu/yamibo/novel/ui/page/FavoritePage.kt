@@ -179,15 +179,11 @@ fun FavoritePage(
                     }
                 } else {
                     // 非管理模式
-                    // 1. Spacer将菜单推到最右侧
                     Spacer(modifier = Modifier.weight(1f))
 
-                    // 2. 菜单展开状态
                     var menuExpanded by remember { mutableStateOf(false) }
 
-                    // 3. Box用于锚定菜单
                     Box {
-                        // "..." 菜单触发按钮
                         IconButton(
                             onClick = { menuExpanded = true },
                             modifier = Modifier.size(40.dp)

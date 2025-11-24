@@ -19,7 +19,8 @@ class PassageWebViewClient(
         success: Boolean,
         contentHtml: String,
         url: String?,
-        maxPage: Int
+        maxPage: Int,
+        title: String?
     ) -> Unit
 ) :
     YamiboWebViewClient() {
@@ -107,6 +108,18 @@ class PassageWebViewClient(
                 return "1";
             })()
         """.trimIndent()
+        // 获取标题
+        val titleJs = """
+            (function() {
+                var mobileT = document.getElementsByClassName('view_tit')[0];
+                if(mobileT && mobileT.innerText) return mobileT.innerText;
+                
+                var t = document.getElementById('thread_subject');
+                if(t && t.innerText) return t.innerText;
+              
+                return null;
+            })()
+        """.trimIndent()
         // 执行JavaScript获取页面内容
         view?.evaluateJavascript(contentJs) { contentResult ->
             val contentHtml = "<html>${unescapeJsResult(contentResult)}</html>"
@@ -115,10 +128,14 @@ class PassageWebViewClient(
 
                 val maxPageString = unescapeJsResult(maxPageResult)
                 val maxPage = maxPageString.toIntOrNull() ?: 1
-                if (!hasErrorOccurred) {
-                    onFinished.invoke(true, contentHtml, url, maxPage)
+                view.evaluateJavascript(titleJs) { titleResult ->
+                    val title = unescapeJsResult(titleResult)
+
+                    if (!hasErrorOccurred) {
+                        onFinished.invoke(true, contentHtml, url, maxPage, title)
+                    }
+                    super.onPageFinished(view, url)
                 }
-                super.onPageFinished(view, url)
             }
         }
     }
@@ -126,7 +143,6 @@ class PassageWebViewClient(
     /**
      * 处理加载失败
      */
-    @RequiresApi(Build.VERSION_CODES.M)
     override fun onReceivedError(
         view: WebView?,
         request: WebResourceRequest?,
@@ -142,7 +158,8 @@ class PassageWebViewClient(
                 false,
                 "<html><body>[Error] 页面加载失败: ${error?.description}</body></html>",
                 request.url.toString(),
-                1
+                1,
+                null
             )
         }
     }
@@ -150,7 +167,6 @@ class PassageWebViewClient(
     /**
      * 处理 HTTP 错误
      */
-    @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
     override fun onReceivedHttpError(
         view: WebView?,
         request: WebResourceRequest?,
@@ -166,7 +182,8 @@ class PassageWebViewClient(
                 false,
                 "<html><body>[Error] 页面加载失败: ${errorResponse?.statusCode}</body></html>",
                 request.url.toString(),
-                1
+                1,
+                null
             )
         }
     }

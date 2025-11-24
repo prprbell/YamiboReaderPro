@@ -22,7 +22,13 @@ import org.shirakawatyu.yamibo.novel.module.PassageWebViewClient
 fun PassageWebView(
     url: String,
     loadImages: Boolean,
-    onFinished: (success: Boolean, html: String, url: String?, maxPage: Int) -> Unit
+    onFinished: (
+        success: Boolean,
+        html: String,
+        url: String?,
+        maxPage: Int,
+        title: String?
+    ) -> Unit
 ) {
     val passageWebViewClient = remember { PassageWebViewClient(onFinished) }
     var lastLoadedUrl by remember { mutableStateOf<String?>(null) }

@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.widget
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -22,7 +23,11 @@ fun BottomNavBar(
 ) {
     val uiState by navBarVM.uiState.collectAsState()
     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
-    NavigationBar(Modifier.height(50.dp), containerColor = YamiboColors.onSurface) {
+    NavigationBar(
+        Modifier.height(50.dp),
+        windowInsets = WindowInsets(0, 0, 0, 0),
+        containerColor = YamiboColors.onSurface
+    ) {
         uiState.icons.forEachIndexed { index, item ->
             val targetRoute = pageList[index]
             val isSelected = currentRoute == targetRoute

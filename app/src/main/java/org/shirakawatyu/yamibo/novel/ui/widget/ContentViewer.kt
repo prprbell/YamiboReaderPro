@@ -54,7 +54,8 @@ fun ContentViewer(
     nightMode: Boolean,
     backgroundColor: Color,
     isVerticalMode: Boolean = false,
-    onRefresh: () -> Unit = {}
+    onRefresh: () -> Unit = {},
+    bookTitle: String = ""
 ) {
     // 顶部章节标题的固定高度（标题 + 间距）
     val chapterTitleHeight = 24.dp
@@ -108,7 +109,7 @@ fun ContentViewer(
                 loading = { CircularProgressIndicator() })
         } else if (data.type == ContentType.TEXT) {
             // [竖屏文本行]
-            if (data.chapterTitle == "footer" && data.data.contains("正在加载下一页")) {
+            if (data.chapterTitle == "footer" && data.data.contains("正在加载下一页") || data.data == "刷新本页内容") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -215,7 +216,7 @@ fun ContentViewer(
                     contentDescription = "Image Content",
                     loading = { CircularProgressIndicator() })
             } else if (data.type == ContentType.TEXT) {
-                if (data.chapterTitle == "footer" && data.data.contains("正在加载下一页")) {
+                if (data.chapterTitle == "footer" && data.data.contains("正在加载下一页") || data.data == "刷新本页内容") {
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -244,22 +245,32 @@ fun ContentViewer(
             }
 
             // 页码
-            if (!isVerticalMode) {
-                Row(
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 4.dp, top = 1.dp, bottom = 4.dp)
+                    .height(50.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = bookTitle,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(end = 4.dp, top = 1.dp, bottom = 4.dp)
-                        .height(50.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "${currentPage}/${pageCount}",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.End
-                    )
-                }
+                        .padding(start = 8.dp)
+                        .weight(1f)
+                )
+
+                // 右侧显示页码
+                Text(
+                    text = "${currentPage}/${pageCount}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.End
+                )
             }
         }
     }

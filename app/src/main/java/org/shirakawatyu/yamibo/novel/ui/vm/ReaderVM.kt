@@ -230,7 +230,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         success: Boolean,
         html: String,
         loadedUrl: String?,
-        maxPage: Int
+        maxPage: Int,
+        title: String?
     ) {
         // 从URL中解析出我们刚刚加载的页码
         val pageNum = extractPageNumFromLoadedUrl(loadedUrl)
@@ -753,6 +754,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         html: String,
         loadedUrl: String?,
         maxPage: Int,
+        title: String? = null,
         isFromCache: Boolean = false,
         cacheTargetIndex: Int = 0
     ) {
@@ -777,6 +779,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             if (!isFromCache) {
                 checkAndStoreAuthorId(loadedUrl)
                 _uiState.value = _uiState.value.copy(maxWebView = maxPage)
+            }
+
+            if (!isFromCache && !isPreloading) {
+                FavoriteUtil.checkAndUpdateTitle(url, title)
             }
 
             val (passages, chapters) = withContext(Dispatchers.Default) {
@@ -967,16 +973,12 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 letterSpacing = state.letterSpacing
             ).toMutableList()
 
-            if (isTransitioning) {
-                // 正在转场中
-            } else if (isFromCache) {
-                lines.add(Content("正在加载下一页...", ContentType.TEXT, "footer"))
-            } else if (nextHtmlList != null) {
-                lines.add(Content("...下一页", ContentType.TEXT, "footer"))
+            if (nextHtmlList != null && nextHtmlList!!.isNotEmpty()) {
+                lines.add(nextHtmlList!!.first())
             } else if (uiState.value.currentView < uiState.value.maxWebView) {
-                lines.add(Content("正在加载下一页...", ContentType.TEXT, "footer"))
+                lines.add(Content("正在加载...", ContentType.TEXT, "footer"))
             } else {
-                lines.add(Content("...没有更多了", ContentType.TEXT, "footer"))
+                lines.add(Content("刷新本页内容", ContentType.TEXT, "footer"))
             }
             passages = lines
 
@@ -1005,16 +1007,12 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 }
             }
 
-            if (isTransitioning) {
-                // 正在转场中
-            } else if (isFromCache) {
-                passagesList.add(Content("正在加载下一页...", ContentType.TEXT, "footer"))
-            } else if (nextHtmlList != null) {
-                passagesList.add(Content("...下一页", ContentType.TEXT, "footer"))
+            if (nextHtmlList != null && nextHtmlList!!.isNotEmpty()) {
+                passagesList.add(nextHtmlList!!.first())
             } else if (uiState.value.currentView < uiState.value.maxWebView) {
-                passagesList.add(Content("正在加载下一页...", ContentType.TEXT, "footer"))
+                passagesList.add(Content("正在加载...", ContentType.TEXT, "footer"))
             } else {
-                passagesList.add(Content("...没有更多了", ContentType.TEXT, "footer"))
+                passagesList.add(Content("刷新本页内容", ContentType.TEXT, "footer"))
             }
             passages = passagesList
         }
