@@ -167,7 +167,8 @@ fun ReaderPage(
     val favorites by FavoriteUtil.getFavoriteFlow().collectAsState(initial = emptyList())
     val bookTitle = remember(favorites, url) {
         val rawTitle = favorites.find { it.url == url }?.title ?: ""
-        rawTitle.replace(Regex("(\\[.*?]|【.*?】|\\(.*?\\)|（.*?）)"), "").trim()
+        rawTitle.replace(Regex("(\\[.*?]|【.*?】|\\(.*?\\)|（.*?）)"), "").replace(Regex("\\s+"), " ")
+            .trim()
     }
     DisposableEffect(window, view) {
         if (window == null || view == null) {
