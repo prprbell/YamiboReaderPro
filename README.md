@@ -119,7 +119,7 @@ JSON解析: [FastJSON2](https://github.com/alibaba/fastjson2)
 
 ## 维护者
 
-[@34256346](https://github.com/34256346)
+[@prprbell](https://github.com/prprbell)
 
 ## 原项目 
 
