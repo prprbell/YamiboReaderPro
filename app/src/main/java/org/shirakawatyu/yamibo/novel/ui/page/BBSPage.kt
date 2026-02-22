@@ -136,6 +136,8 @@ fun BBSPage(
             return@LaunchedEffect
         }
 
+        webView.onResume()
+
         val currentCookie = cookieFlow.first()
         val currentLoginState = isLoggedIn(currentCookie)
 
@@ -307,16 +309,10 @@ fun BBSPage(
             update = { view ->
                 canGoBack = view.canGoBack()
                 currentUrl = view.url
-                scope.launch {
-                    delay(200)
-                    view.onResume()
-                    view.resumeTimers()
-                }
             },
             onRelease = {
                 it.stopLoading()
                 it.onPause()
-                it.pauseTimers()
             }
         )
 
