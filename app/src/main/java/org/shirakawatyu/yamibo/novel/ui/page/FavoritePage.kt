@@ -159,7 +159,7 @@ fun FavoritePage(
                     ) {
                         Text("隐藏")
                     }
-                    Spacer(modifier = Modifier.width(24.dp))
+                    Spacer(modifier = Modifier.width(20.dp))
                     Button(
                         onClick = { favoriteVM.unhideSelectedItems() },
                         enabled = selectedItems.isNotEmpty(),
@@ -173,7 +173,7 @@ fun FavoritePage(
                     ) {
                         Text("显示")
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Button(onClick = { favoriteVM.toggleManageMode() }) {
                         Text("完成")
                     }
