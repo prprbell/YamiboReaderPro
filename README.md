@@ -127,7 +127,7 @@ JSON解析: [FastJSON2](https://github.com/alibaba/fastjson2)
 
 ## 如何贡献
 
-非常欢迎你的加入！[提一个 Issue](https://github.com/flben233/YamiboReader/issues/new) 或者提交一个 Pull Request。
+非常欢迎你的加入！[提一个 Issue]([https://github.com/prprbell/YamiboReaderPro/issues/new]) 或者提交一个 Pull Request。
 
 ## 使用许可
 
