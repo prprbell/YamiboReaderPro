@@ -168,17 +168,13 @@ class TextUtil {
             output: MutableList<String>
         ) {
             val lineLength = line.length
-            val charWidths = FloatArray(lineLength) { i ->
-                if (line[i].code in ASCII_START..ASCII_END) halfWidthPx else fullWidthPx
-            }
-
             val lineBuilder = StringBuilder()
             var currentWidth = 0.0f
             var i = 0
 
             while (i < lineLength) {
                 val c = line[i]
-                val charWidth = charWidths[i]
+                val charWidth = if (c.code in ASCII_START..ASCII_END) halfWidthPx else fullWidthPx
 
                 if (currentWidth + charWidth > targetPixelWidth && lineBuilder.isNotEmpty()) {
                     val newWidth = handlePunctuationOptimized(
@@ -332,17 +328,13 @@ class TextUtil {
             output: MutableList<Content>
         ) {
             val lineLength = line.length
-            val charWidths = FloatArray(lineLength) { i ->
-                if (line[i].code in ASCII_START..ASCII_END) halfWidthPx else fullWidthPx
-            }
-
             val lineBuilder = StringBuilder()
             var currentWidth = 0.0f
             var i = 0
 
             while (i < lineLength) {
                 val c = line[i]
-                val charWidth = charWidths[i]
+                val charWidth = if (c.code in ASCII_START..ASCII_END) halfWidthPx else fullWidthPx
 
                 if (currentWidth + charWidth > targetPixelWidth && lineBuilder.isNotEmpty()) {
                     val newWidth = handlePunctuationOptimizedVertical(
