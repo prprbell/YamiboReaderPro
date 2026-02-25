@@ -20,6 +20,8 @@ class BottomNavBarVM : ViewModel() {
     private val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
     var isNavigating by mutableStateOf(false)
         private set
+    var showBottomNavBar by mutableStateOf(true)
+        private set
 
     fun changeSelection(index: Int, navController: NavController) {
         if (isNavigating) return
@@ -41,4 +43,7 @@ class BottomNavBarVM : ViewModel() {
         }
     }
 
+    fun setBottomNavBarVisibility(visible: Boolean) {
+        showBottomNavBar = visible
+    }
 }

@@ -1,15 +1,20 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.graphics.Bitmap
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -38,10 +44,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -49,6 +60,7 @@ import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
@@ -61,6 +73,15 @@ private val hideCommand = """
         document.head.appendChild(style);
     })()
 """.trimIndent()
+
+class FullscreenApiMine(private val onStateChange: (Boolean) -> Unit) {
+    @JavascriptInterface
+    fun notify(isFullscreen: Boolean) {
+        Handler(Looper.getMainLooper()).post {
+            onStateChange(isFullscreen)
+        }
+    }
+}
 
 /**
  * 个人中心，WebView每次访问时创建，离开时销毁
@@ -125,6 +146,38 @@ fun MinePage(
         webView.loadUrl(url)
     }
     val context = LocalContext.current
+    val activity = context as? Activity
+    val view = LocalView.current
+    // ----- 新增全屏状态控制 -----
+    val isFullscreenState = remember { mutableStateOf(false) }
+    val bottomNavBarVM: BottomNavBarVM =
+        viewModel(viewModelStoreOwner = context as ComponentActivity)
+
+    LaunchedEffect(isFullscreenState.value) {
+        val window = activity?.window ?: return@LaunchedEffect
+        val controller = WindowCompat.getInsetsController(window, view)
+
+        if (isFullscreenState.value) {
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            bottomNavBarVM.setBottomNavBarVisibility(false)
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+            bottomNavBarVM.setBottomNavBarVisibility(true)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.window?.let { window ->
+                WindowCompat.getInsetsController(window, view)
+                    .show(WindowInsetsCompat.Type.systemBars())
+            }
+            bottomNavBarVM.setBottomNavBarVisibility(true)
+        }
+    }
+    // ----- 全屏状态控制结束 -----
     val mineWebView = remember {
         WebView(context).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -142,10 +195,9 @@ fun MinePage(
                 textZoom = 100
                 domStorageEnabled = true
             }
-            settings.apply {
-                javaScriptEnabled = true
-                useWideViewPort = true
-            }
+            addJavascriptInterface(FullscreenApiMine { isFullscreen ->
+                isFullscreenState.value = isFullscreen
+            }, "AndroidFullscreen")
             this.webChromeClient = webChromeClient
         }
     }
@@ -158,6 +210,11 @@ fun MinePage(
                 currentUrl = url
                 canGoBack = view?.canGoBack() ?: false
                 view?.loadUrl(hideCommand)
+            }
+
+            override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                super.doUpdateVisitedHistory(view, url, isReload)
+                canGoBack = view?.canGoBack() ?: false
             }
 
             @RequiresApi(Build.VERSION_CODES.M)
@@ -260,7 +317,7 @@ fun MinePage(
             }
         )
         ReaderModeFAB(
-            visible = canConvertToReader && !isLoading && !showLoadError,
+            visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
             onClick = {
                 currentUrl?.let { url ->
                     ReaderModeDetector.extractThreadPath(url)?.let { threadPath ->

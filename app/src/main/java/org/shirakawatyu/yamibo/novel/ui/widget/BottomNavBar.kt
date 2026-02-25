@@ -21,6 +21,9 @@ fun BottomNavBar(
     currentRoute: String?,
     navBarVM: BottomNavBarVM
 ) {
+    if (!navBarVM.showBottomNavBar) {
+        return
+    }
     val uiState by navBarVM.uiState.collectAsState()
     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
     NavigationBar(

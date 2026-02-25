@@ -4,12 +4,16 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Arrangement
@@ -39,10 +43,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -52,6 +61,7 @@ import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import androidx.navigation.NavController
+import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import java.net.URLEncoder
@@ -60,6 +70,17 @@ import java.net.URLEncoder
 object BBSPageState {
     var lastLoginState: Boolean? = null
     var hasSuccessfullyLoaded: Boolean = false
+}
+
+// 用于接收大图打开/关闭的通知
+class FullscreenApi(private val onStateChange: (Boolean) -> Unit) {
+    @JavascriptInterface
+    fun notify(isFullscreen: Boolean) {
+        // 确保状态更新在主线程执行
+        Handler(Looper.getMainLooper()).post {
+            onStateChange(isFullscreen)
+        }
+    }
 }
 
 @SuppressLint("RestrictedApi")
@@ -76,7 +97,44 @@ fun BBSPage(
     val baseBbsUrl = "https://bbs.yamibo.com/"
 
     val activity = LocalContext.current as? Activity
+    // ----- 全屏状态控制 -----
+    val view = LocalView.current
+    val isFullscreenState = remember { mutableStateOf(false) }
+    // 强制获取 Activity 级别的 ViewModel，这样才能真正控制 MainActivity 里的底部导航栏
+    val bottomNavBarVM: BottomNavBarVM =
+        viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
 
+    // 监听全屏状态并切换 UI
+    LaunchedEffect(isFullscreenState.value) {
+        val window = activity?.window ?: return@LaunchedEffect
+        val controller = WindowCompat.getInsetsController(window, view)
+
+        if (isFullscreenState.value) {
+            // 进入全屏：隐藏手机顶部状态栏、底部系统小白条
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            // 允许用户从边缘滑动临时呼出状态栏
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            // 隐藏你自己 App 的底部导航栏
+            bottomNavBarVM.setBottomNavBarVisibility(false)
+        } else {
+            // 退出全屏：恢复所有 UI
+            controller.show(WindowInsetsCompat.Type.systemBars())
+            bottomNavBarVM.setBottomNavBarVisibility(true)
+        }
+    }
+
+    // 兜底逻辑：防止退出 BBS 页面时导航栏神秘消失
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.window?.let { window ->
+                WindowCompat.getInsetsController(window, view)
+                    .show(WindowInsetsCompat.Type.systemBars())
+            }
+            bottomNavBarVM.setBottomNavBarVisibility(true)
+        }
+    }
+    // ----- 全屏状态控制结束 -----
     var canGoBack by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var showLoadError by remember { mutableStateOf(false) }
@@ -317,6 +375,9 @@ fun BBSPage(
                     // 开启本地存储
                     domStorageEnabled = true
                 }
+                webView.addJavascriptInterface(FullscreenApi { isFullscreen ->
+                    isFullscreenState.value = isFullscreen
+                }, "AndroidFullscreen")
                 webView
             },
             update = { view ->
@@ -373,7 +434,7 @@ fun BBSPage(
         }
 
         ReaderModeFAB(
-            visible = canConvertToReader && !isLoading && !showLoadError,
+            visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
             onClick = {
                 currentUrl?.let { url ->
                     ReaderModeDetector.extractThreadPath(url)?.let { threadPath ->
