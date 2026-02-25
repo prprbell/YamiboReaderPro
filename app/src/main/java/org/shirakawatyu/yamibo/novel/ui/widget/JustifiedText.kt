@@ -49,23 +49,23 @@ fun JustifiedText(
             textPaint.letterSpacing = baseLetterSpacingMultiplier
 
 
-            // [新增] 模式切换
+            // 模式切换
             if (isVerticalMode) {
                 // --- 竖屏模式 ---
                 // text 是单行，Y 坐标固定
-                // 我们在 ContentViewer 中已经将 Composable 高度设为 lineHeightPx，
-                // 计算基线 (baseline) 使其在行高内垂直居中
+                // 在ContentViewer中已经将Composable高度设为lineHeightPx，
+                // 计算基线(baseline)使其在行高内垂直居中
                 val baselineY = (size.height / 2) + (fontSizePx / 2.8f) // 粗略估算
 
                 // 竖屏模式下，我们假设传来的 text 已经是被 TextUtil 分割好的一行
-                // 我们需要判断是否需要对齐
+                // 判断是否需要对齐
 
                 // 重置为基础间距，用于测量
                 textPaint.letterSpacing = baseLetterSpacingMultiplier
                 val originalWidth = textPaint.measureText(text)
                 val remainingSpace = availableWidth - originalWidth
 
-                // [竖屏对齐逻辑]
+                // 竖屏对齐逻辑
                 // 如果剩余空间大于一个字符宽度（估算），说明这是个短行（如段落末尾），不对齐。
                 val oneCharWidth = fontSizePx
                 if (remainingSpace > oneCharWidth && text.length > 1) {
@@ -94,7 +94,7 @@ fun JustifiedText(
                 )
 
             } else {
-                // --- 横屏模式 (旧逻辑) ---
+                // --- 横屏模式 ---
                 // 3. 按 TextUtil 的换行符 \n 拆分
                 val lines = text.split('\n')
                 var currentY = lineHeightPx // Y 坐标从第一行的基线开始

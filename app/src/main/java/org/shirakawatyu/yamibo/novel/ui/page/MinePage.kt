@@ -135,6 +135,16 @@ fun MinePage(
             settings.apply {
                 javaScriptEnabled = true
                 useWideViewPort = true
+                loadWithOverviewMode = true
+                setSupportZoom(false)
+                builtInZoomControls = false
+                displayZoomControls = false
+                textZoom = 100
+                domStorageEnabled = true
+            }
+            settings.apply {
+                javaScriptEnabled = true
+                useWideViewPort = true
             }
             this.webChromeClient = webChromeClient
         }

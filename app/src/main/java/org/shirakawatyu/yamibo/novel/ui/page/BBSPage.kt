@@ -304,6 +304,19 @@ fun BBSPage(
             factory = {
                 (webView.parent as? ViewGroup)?.removeView(webView)
                 webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
+                webView.settings.apply {
+                    // 强制遵守网页的viewport
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    // 禁用系统缩放
+                    setSupportZoom(false)
+                    builtInZoomControls = false
+                    displayZoomControls = false
+                    // 锁定字体比例
+                    textZoom = 100
+                    // 开启本地存储
+                    domStorageEnabled = true
+                }
                 webView
             },
             update = { view ->

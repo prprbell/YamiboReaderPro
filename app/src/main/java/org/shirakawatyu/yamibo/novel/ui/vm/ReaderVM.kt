@@ -112,8 +112,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     data class CacheProgress(
         val totalPages: Int,
-        val currentPage: Int, // 1-based index of processing (e..g., 1/20)
-        val currentPageNum: Int, // The actual page number being cached (e.g., Page 5)
+        val currentPage: Int,
+        val currentPageNum: Int,
         val isComplete: Boolean = false
     )
 
@@ -1113,12 +1113,12 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     curPagerState.settledPage == newPage // 确保已稳定
 
             if (isSettledAtInit) {
-                // 这是 "成功" 的转场
+                // "成功"转场
                 isTransitioning = false
                 latestPage = _uiState.value.initPage
-                // 此处不能 return，需要让下面的逻辑（processPageChange）执行
+                // 不能return，需要让下面的逻辑（processPageChange）执行
             } else if (userInterrupted) {
-                // 这是 "被用户中断" 的转场
+                // "被用户中断"的转场
                 Log.w(
                     logTag,
                     "User interrupted transition. Settled at page $newPage. Ending transition."
@@ -1146,7 +1146,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             return
         }
 
-        // 仅在页面真正改变时才处理 (修复了 isTransitioning 逻辑后，需要在这里加一个检查)
+        // 仅在页面真正改变时才处理
         if (newPage == latestPage) {
             if (curPagerState.settledPage != curPagerState.targetPage && _uiState.value.scale != 1f) {
                 _uiState.value = _uiState.value.copy(scale = 1f, offset = Offset(0f, 0f))

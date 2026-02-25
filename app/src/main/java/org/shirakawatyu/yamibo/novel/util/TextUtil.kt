@@ -113,14 +113,14 @@ class TextUtil {
                     }
                 }
 
-            // 2. [关键修复] 按 "内容行" 数量 (maxLine) 组装页面
+            // 2. 按"内容行"数量(maxLine)组装页面
             val estimatedPages = (resultLines.size / maxLine).coerceAtLeast(1)
             val pages = ArrayList<String>(estimatedPages)
 
-            var lineIndex = 0 // resultLines 的总游标
+            var lineIndex = 0 // resultLines的总游标
             while (lineIndex < resultLines.size) {
                 val pageBuilder = StringBuilder()
-                var contentLinesOnThisPage = 0 // 当前页已添加的 *内容行* 数量
+                var contentLinesOnThisPage = 0 // 当前页已添加的内容行数量
                 var lastIndexForThisPage = lineIndex // 当前页的结束游标
 
                 // 循环查找当前页的结束位置
@@ -131,13 +131,13 @@ class TextUtil {
                         // 这是一个内容行
                         if (contentLinesOnThisPage >= maxLine) {
                             // 内容行已满, 这行属于下一页
-                            break // 停止, [lastIndexForThisPage] 将是下一页的开头
+                            break // 停止, [lastIndexForThisPage]将是下一页的开头
                         }
                         contentLinesOnThisPage++ // 计入内容行
                     }
                     // else: 这是一个 "" 标记行, 我们总是把它包含在当前页, 且不计入 maxLine
 
-                    lastIndexForThisPage++ // 将这行 (内容或标记) 包含在当前页
+                    lastIndexForThisPage++ // 将这行包含在当前页
                 }
 
                 // 3. 根据计算好的起止索引, 构建页面字符串
@@ -148,7 +148,7 @@ class TextUtil {
                     }
                 }
 
-                // 4. 添加页面 (确保非空)
+                // 4. 添加页面(确保非空)
                 if (pageBuilder.isNotEmpty()) {
                     pages.add(pageBuilder.toString())
                 }
