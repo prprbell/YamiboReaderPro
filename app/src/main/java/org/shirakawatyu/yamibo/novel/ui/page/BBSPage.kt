@@ -100,11 +100,11 @@ fun BBSPage(
     // ----- 全屏状态控制 -----
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
-    // 强制获取 Activity 级别的 ViewModel，这样才能真正控制 MainActivity 里的底部导航栏
+    // 强制获取ViewModel
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
 
-    // 监听全屏状态并切换 UI
+    // 监听全屏状态并切换UI
     LaunchedEffect(isFullscreenState.value) {
         val window = activity?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, view)
@@ -115,7 +115,7 @@ fun BBSPage(
             // 允许用户从边缘滑动临时呼出状态栏
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            // 隐藏你自己 App 的底部导航栏
+            // 隐藏App的底部导航栏
             bottomNavBarVM.setBottomNavBarVisibility(false)
         } else {
             // 退出全屏：恢复所有 UI
@@ -124,7 +124,7 @@ fun BBSPage(
         }
     }
 
-    // 兜底逻辑：防止退出 BBS 页面时导航栏神秘消失
+    // 防止退出 BBS 页面时导航栏神秘消失
     DisposableEffect(Unit) {
         onDispose {
             activity?.window?.let { window ->
