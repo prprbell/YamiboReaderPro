@@ -3,7 +3,6 @@ package org.shirakawatyu.yamibo.novel.ui.page
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -15,7 +14,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.annotation.RequiresApi
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,6 +52,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -59,10 +60,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
-import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
-import androidx.navigation.NavController
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
+import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import java.net.URLEncoder
 
@@ -73,13 +73,18 @@ object BBSPageState {
 }
 
 // 用于接收大图打开/关闭的通知
-class FullscreenApi(private val onStateChange: (Boolean) -> Unit) {
+class FullscreenApi(
+    private val onStateChange: (Boolean) -> Unit,
+    private val onUiStateChange: (Boolean) -> Unit
+) {
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
-        // 确保状态更新在主线程执行
-        Handler(Looper.getMainLooper()).post {
-            onStateChange(isFullscreen)
-        }
+        Handler(Looper.getMainLooper()).post { onStateChange(isFullscreen) }
+    }
+
+    @JavascriptInterface
+    fun notifyUi(isUiVisible: Boolean) {
+        Handler(Looper.getMainLooper()).post { onUiStateChange(isUiVisible) }
     }
 }
 
@@ -100,6 +105,7 @@ fun BBSPage(
     // ----- 全屏状态控制 -----
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
+    val isFullscreenUiVisible = remember { mutableStateOf(true) }
     // 强制获取ViewModel
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
@@ -375,9 +381,16 @@ fun BBSPage(
                     // 开启本地存储
                     domStorageEnabled = true
                 }
-                webView.addJavascriptInterface(FullscreenApi { isFullscreen ->
-                    isFullscreenState.value = isFullscreen
-                }, "AndroidFullscreen")
+                webView.addJavascriptInterface(
+                    FullscreenApi(
+                        onStateChange = { isFullscreen ->
+                            isFullscreenState.value = isFullscreen
+                            if (!isFullscreen) isFullscreenUiVisible.value = true
+                        },
+                        onUiStateChange = { isUiVisible ->
+                            isFullscreenUiVisible.value = isUiVisible
+                        }
+                    ), "AndroidFullscreen")
                 webView
             },
             update = { view ->
@@ -447,5 +460,37 @@ fun BBSPage(
                 .align(Alignment.BottomEnd)
                 .padding(bottom = 80.dp)
         )
+
+        AnimatedVisibility(
+            // 控制条件：只有在全屏模式下，且顶部菜单栏可见时，才显示目录按钮
+            visible = isFullscreenState.value && isFullscreenUiVisible.value,
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(
+                initialOffsetY = { it / 2 }),
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(
+                targetOffsetY = { it / 2 }),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 48.dp)
+        ) {
+            Button(
+                onClick = {
+                    // TODO: 在此呼出你的目录 BottomSheet
+                    Log.d("PhotoSwipe", "目录按钮被点击")
+                },
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    // 半透明黑色背景，不抢戏，符合图片查看器的沉浸感
+                    containerColor = Color.Black.copy(alpha = 0.6f),
+                    contentColor = Color.White
+                )
+            ) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Default.Menu,
+                    contentDescription = "目录",
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.size(8.dp))
+                Text("目录")
+            }
+        }
     }
 }

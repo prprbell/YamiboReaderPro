@@ -17,6 +17,7 @@ import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -57,7 +59,6 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -74,12 +75,20 @@ private val hideCommand = """
     })()
 """.trimIndent()
 
-class FullscreenApiMine(private val onStateChange: (Boolean) -> Unit) {
+class FullscreenApiMine(
+    private val onStateChange: (Boolean) -> Unit,
+    private val onUiStateChange: (Boolean) -> Unit
+) {
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
         Handler(Looper.getMainLooper()).post {
             onStateChange(isFullscreen)
         }
+    }
+
+    @JavascriptInterface
+    fun notifyUi(isUiVisible: Boolean) {
+        Handler(Looper.getMainLooper()).post { onUiStateChange(isUiVisible) }
     }
 }
 
@@ -150,6 +159,8 @@ fun MinePage(
     val view = LocalView.current
     // ----- 全屏状态控制 -----
     val isFullscreenState = remember { mutableStateOf(false) }
+    val isFullscreenUiVisible = remember { mutableStateOf(true) }
+
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
 
@@ -195,9 +206,17 @@ fun MinePage(
                 textZoom = 100
                 domStorageEnabled = true
             }
-            addJavascriptInterface(FullscreenApiMine { isFullscreen ->
-                isFullscreenState.value = isFullscreen
-            }, "AndroidFullscreen")
+            addJavascriptInterface(
+                FullscreenApiMine(
+                    onStateChange = { isFullscreen ->
+                        isFullscreenState.value = isFullscreen
+                    },
+                    onUiStateChange = { isUiVisible ->
+                        isFullscreenUiVisible.value = isUiVisible
+                    }
+                ),
+                "AndroidFullscreen"
+            )
             this.webChromeClient = webChromeClient
         }
     }
@@ -374,5 +393,38 @@ fun MinePage(
                 color = YamiboColors.secondary
             )
         }
+
+        AnimatedVisibility(
+            // 控制条件：只有在全屏模式下，且顶部菜单栏可见时，才显示目录按钮
+            visible = isFullscreenState.value && isFullscreenUiVisible.value,
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(
+                initialOffsetY = { it / 2 }),
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(
+                targetOffsetY = { it / 2 }),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 48.dp)
+        ) {
+            Button(
+                onClick = {
+                    // TODO: 在此呼出你的目录 BottomSheet
+                    Log.d("PhotoSwipe", "目录按钮被点击")
+                },
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    // 半透明黑色背景，不抢戏，符合图片查看器的沉浸感
+                    containerColor = Color.Black.copy(alpha = 0.6f),
+                    contentColor = Color.White
+                )
+            ) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Default.Menu,
+                    contentDescription = "目录",
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.size(8.dp))
+                Text("目录")
+            }
+        }
     }
 }
+

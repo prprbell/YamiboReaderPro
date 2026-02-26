@@ -68,39 +68,88 @@ open class YamiboWebViewClient : WebViewClient() {
         super.onPageFinished(view, url)
         view?.evaluateJavascript(
             """
-                (function() {
-                    if (window.__historyHooked) return;
-                    window.__historyHooked = true;
-                    
-                    function checkState() {
-                        var state = window.history.state;
-                        var isFullscreen = state && typeof state === 'object' && 'pswp_index' in state;
-                        // 这里有安全检查：只有在使用 addJavascriptInterface 注入了 AndroidFullscreen 的页面才会回调
-                        if (window.AndroidFullscreen) {
-                            window.AndroidFullscreen.notify(!!isFullscreen);
+            (function() {
+                if (window.__historyHooked) return;
+                window.__historyHooked = true;
+                
+                var uiObserver = null;
+
+                function startUiObserver() {
+                    var pswp = document.querySelector('.pswp');
+                    if (!pswp) {
+                        setTimeout(startUiObserver, 50);
+                        return;
+                    }
+
+                    // 判断pswp--ui-visible
+                    function notifyState() {
+                        var isVisible = pswp.classList.contains('pswp--ui-visible');
+                        
+                        if (window.__lastUiState !== isVisible) {
+                            window.__lastUiState = isVisible;
+                            if (window.AndroidFullscreen) {
+                                window.AndroidFullscreen.notifyUi(isVisible);
+                            }
                         }
                     }
 
-                    var originalPushState = history.pushState;
-                    history.pushState = function() {
-                        var result = originalPushState.apply(this, arguments);
-                        checkState();
-                        return result;
-                    };
-                    
-                    var originalReplaceState = history.replaceState;
-                    history.replaceState = function() {
-                        var result = originalReplaceState.apply(this, arguments);
-                        checkState();
-                        return result;
-                    };
+                    if (uiObserver) {
+                        uiObserver.disconnect();
+                    }
 
-                    window.addEventListener('popstate', function() {
-                        checkState();
+                    uiObserver = new MutationObserver(function(mutations) {
+                        notifyState();
                     });
+
+                    // 监听pswp容器的'class'属性变化
+                    uiObserver.observe(pswp, { attributes: true, attributeFilter: ['class'] });
                     
+                    notifyState();
+                }
+
+                function stopUiObserver() {
+                    if (uiObserver) {
+                        uiObserver.disconnect();
+                        uiObserver = null;
+                    }
+                }
+
+                function checkState() {
+                    var state = window.history.state;
+                    var isFullscreen = state && typeof state === 'object' && 'pswp_index' in state;
+                    
+                    if (window.AndroidFullscreen) {
+                        window.AndroidFullscreen.notify(!!isFullscreen);
+                    }
+                    
+                    if (isFullscreen) {
+                        window.__lastUiState = null; 
+                        startUiObserver();
+                    } else {
+                        stopUiObserver();
+                    }
+                }
+
+                var originalPushState = history.pushState;
+                history.pushState = function() {
+                    var result = originalPushState.apply(this, arguments);
                     checkState();
-                })();
+                    return result;
+                };
+                
+                var originalReplaceState = history.replaceState;
+                history.replaceState = function() {
+                    var result = originalReplaceState.apply(this, arguments);
+                    checkState();
+                    return result;
+                };
+
+                window.addEventListener('popstate', function() {
+                    checkState();
+                });
+                
+                checkState();
+            })();
             """.trimIndent(), null
         )
     }
