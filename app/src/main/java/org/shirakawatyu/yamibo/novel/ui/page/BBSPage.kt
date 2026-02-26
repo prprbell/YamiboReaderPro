@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -102,6 +103,19 @@ fun BBSPage(
     val baseBbsUrl = "https://bbs.yamibo.com/"
 
     val activity = LocalContext.current as? Activity
+
+    var canGoBack by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var showLoadError by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var timeoutJob by remember { mutableStateOf<Job?>(null) }
+    var retryCount by remember { mutableIntStateOf(0) }
+    var currentUrl by remember { mutableStateOf<String?>(null) }
+    var showChapterList by remember { mutableStateOf(false) }
+
+    val canConvertToReader = remember(currentUrl) {
+        ReaderModeDetector.canConvertToReaderMode(currentUrl)
+    }
     // ----- 全屏状态控制 -----
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
@@ -127,10 +141,11 @@ fun BBSPage(
             // 退出全屏：恢复所有 UI
             controller.show(WindowInsetsCompat.Type.systemBars())
             bottomNavBarVM.setBottomNavBarVisibility(true)
+            showChapterList = false
         }
     }
 
-    // 防止退出 BBS 页面时导航栏神秘消失
+    // 防止退出BBS页面时导航栏消失
     DisposableEffect(Unit) {
         onDispose {
             activity?.window?.let { window ->
@@ -141,18 +156,6 @@ fun BBSPage(
         }
     }
     // ----- 全屏状态控制结束 -----
-    var canGoBack by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(false) }
-    var showLoadError by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    var timeoutJob by remember { mutableStateOf<Job?>(null) }
-    var retryCount by remember { mutableIntStateOf(0) }
-    var currentUrl by remember { mutableStateOf<String?>(null) }
-
-    val canConvertToReader = remember(currentUrl) {
-        ReaderModeDetector.canConvertToReaderMode(currentUrl)
-    }
-
     fun isLoggedIn(cookie: String): Boolean {
         return cookie.contains("EeqY_2132_auth=")
     }
@@ -474,23 +477,32 @@ fun BBSPage(
         ) {
             Button(
                 onClick = {
-                    // TODO: 在此呼出你的目录 BottomSheet
-                    Log.d("PhotoSwipe", "目录按钮被点击")
+                    showChapterList = true
                 },
+                modifier = Modifier.fillMaxWidth(0.5f),
                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                    // 半透明黑色背景，不抢戏，符合图片查看器的沉浸感
                     containerColor = Color.Black.copy(alpha = 0.6f),
                     contentColor = Color.White
                 )
             ) {
                 Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Default.Menu,
+                    imageVector = Icons.Default.Menu,
                     contentDescription = "目录",
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.size(8.dp))
                 Text("目录")
             }
+        }
+        if (showChapterList) {
+            MangaChapterPanel(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                onDismiss = { showChapterList = false },
+                onChapterClick = { chapter ->
+                    showChapterList = false
+                    // TODO: 跳转
+                }
+            )
         }
     }
 }

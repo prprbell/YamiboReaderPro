@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -117,7 +118,7 @@ fun MinePage(
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
-
+    var showChapterList by remember { mutableStateOf(false) }
     val canConvertToReader = remember(currentUrl) {
         ReaderModeDetector.canConvertToReaderMode(currentUrl)
     }
@@ -176,6 +177,7 @@ fun MinePage(
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars())
             bottomNavBarVM.setBottomNavBarVisibility(true)
+            showChapterList = false
         }
     }
 
@@ -407,23 +409,33 @@ fun MinePage(
         ) {
             Button(
                 onClick = {
-                    // TODO: 在此呼出你的目录 BottomSheet
-                    Log.d("PhotoSwipe", "目录按钮被点击")
+                    showChapterList = true
                 },
+                modifier = Modifier.fillMaxWidth(0.5f),
                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                    // 半透明黑色背景，不抢戏，符合图片查看器的沉浸感
                     containerColor = Color.Black.copy(alpha = 0.6f),
                     contentColor = Color.White
                 )
             ) {
                 Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Default.Menu,
+                    imageVector = Icons.Default.Menu,
                     contentDescription = "目录",
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.size(8.dp))
                 Text("目录")
             }
+        }
+        if (showChapterList) {
+            MangaChapterPanel(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                onDismiss = { showChapterList = false },
+                onChapterClick = { chapter ->
+                    showChapterList = false
+                    // TODO: 处理跳转逻辑，例如：
+                    // mineWebView.loadUrl(chapter.url)
+                }
+            )
         }
     }
 }
