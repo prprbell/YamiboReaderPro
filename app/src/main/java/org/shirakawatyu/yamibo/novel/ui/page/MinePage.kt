@@ -148,7 +148,7 @@ fun MinePage(
     val context = LocalContext.current
     val activity = context as? Activity
     val view = LocalView.current
-    // ----- 新增全屏状态控制 -----
+    // ----- 全屏状态控制 -----
     val isFullscreenState = remember { mutableStateOf(false) }
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
