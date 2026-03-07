@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.vm
 
+import android.app.Application
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -18,6 +19,11 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             modelClass.isAssignableFrom(FavoriteVM::class.java) -> {
                 @Suppress("UNCHECKED_CAST")
                 FavoriteVM(context) as T
+            }
+
+            modelClass.isAssignableFrom(MangaDirectoryVM::class.java) -> {
+                @Suppress("UNCHECKED_CAST")
+                MangaDirectoryVM(context.applicationContext as Application) as T
             }
 
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")

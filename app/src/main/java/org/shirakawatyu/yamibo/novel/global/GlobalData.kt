@@ -23,5 +23,6 @@ class GlobalData {
         val cookieFlow: Flow<String> by lazy {
             CookieUtil.getCookieFlow()
         }
+        var lastSearchTimestamp: Long = 0L
     }
 }

@@ -61,29 +61,14 @@ data class MangaChapter(
     val isCurrent: Boolean = false
 )
 
-fun mockChapters(): List<MangaChapter> = listOf(
-    MangaChapter(56, "终章·她的名字", isNew = true),
-    MangaChapter(55, "最后的约定"),
-    MangaChapter(54, "彼岸花开"),
-    MangaChapter(53, "雨夜的真相"),
-    MangaChapter(52, "破碎的镜子", isCurrent = true),
-    MangaChapter(51, "告白与背叛", isRead = true),
-    MangaChapter(50, "相遇在屋顶", isRead = true),
-    MangaChapter(49, "谎言的代价", isRead = true),
-    MangaChapter(48, "深夜的电话", isRead = true),
-    MangaChapter(47, "转学生", isRead = true),
-    MangaChapter(46, "春日序章", isRead = true),
-    MangaChapter(45, "心跳的距离", isRead = true),
-    MangaChapter(44, "放学后", isRead = true),
-    MangaChapter(43, "秘密", isRead = true),
-    MangaChapter(42, "初遇", isRead = true),
-)
-
 @Composable
 fun MangaChapterPanel(
     modifier: Modifier = Modifier,
-    title: String = "不可能的初恋",
-    chapters: List<MangaChapter> = mockChapters(),
+    title: String,                     // 移除了硬编码默认值
+    chapters: List<MangaChapter>,      // 移除了 mockChapters 默认值
+    isUpdating: Boolean = false,
+    cooldownSeconds: Int = 0,
+    onUpdateClick: () -> Unit = {},
     onDismiss: () -> Unit,
     onChapterClick: (MangaChapter) -> Unit
 ) {
@@ -100,7 +85,6 @@ fun MangaChapterPanel(
 
     fun dismiss() {
         scope.launch {
-            // 面板下滑 + 遮罩淡出并行
             val slideOut = launch {
                 offsetY.animateTo(
                     targetValue = 2000f,
@@ -119,10 +103,7 @@ fun MangaChapterPanel(
         }
     }
 
-    // 最外层 Box 同时承载遮罩 + 面板
     Box(modifier = modifier.fillMaxSize()) {
-
-        // 遮罩，alpha 与面板动画同步；点击遮罩也可关闭
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -130,7 +111,6 @@ fun MangaChapterPanel(
                 .clickable { dismiss() }
         )
 
-        // 面板本体，底部对齐
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -140,7 +120,6 @@ fun MangaChapterPanel(
                 .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
                 .background(BgSheet)
         ) {
-            // 拖拽把手区域（只有这里响应拖拽，不影响列表滚动）
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -184,7 +163,6 @@ fun MangaChapterPanel(
                 contentAlignment = Alignment.Center
             ) {
                 Column {
-                    // 把手指示条
                     Spacer(Modifier.height(10.dp))
                     Box(
                         Modifier
@@ -213,11 +191,11 @@ fun MangaChapterPanel(
                         )
                     }
 
-                    // 第二行：正序/倒序（左） + 最新话数（右）
+                    // 第二行：正序/倒序（左） + 最新话数与更新按钮（右）
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 16.dp, end = 20.dp, bottom = 12.dp),
+                            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -234,12 +212,37 @@ fun MangaChapterPanel(
                                 fontSize = 12.sp
                             )
                         }
-                        val latestChapter = chapters.maxByOrNull { it.index }
-                        Text(
-                            text = if (latestChapter != null) "最新：第 ${latestChapter.index} 话" else "",
-                            color = TextSec,
-                            fontSize = 12.sp
-                        )
+
+                        // 右侧区域：最新话数 + 更新按钮
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val latestChapter = chapters.maxByOrNull { it.index }
+                            Text(
+                                text = if (latestChapter != null) "最新: 第${latestChapter.index}话" else "",
+                                color = TextSec,
+                                fontSize = 12.sp
+                            )
+                            Spacer(Modifier.width(10.dp))
+
+                            val canUpdate = !isUpdating && cooldownSeconds <= 0
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable(enabled = canUpdate) { onUpdateClick() }
+                                    .background(if (canUpdate) Accent else Color(0xFF2A2D35))
+                                    .padding(horizontal = 12.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = when {
+                                        isUpdating -> "更新中..."
+                                        cooldownSeconds > 0 -> "${cooldownSeconds}s"
+                                        else -> "更新"
+                                    },
+                                    color = if (canUpdate) Color(0xFF111318) else TextSec,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
             }
