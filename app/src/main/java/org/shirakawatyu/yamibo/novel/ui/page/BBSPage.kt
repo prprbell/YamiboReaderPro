@@ -71,6 +71,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
+import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import java.net.URLEncoder
 
@@ -222,6 +223,14 @@ fun BBSPage(
         if (!isLoading && autoOpenMangaMode) {
             val clickJs = """
                 (function() {
+                    var typeLabel = document.querySelector('.view_tit em');
+                    if (typeLabel && typeLabel.innerText.indexOf('公告') !== -1) {
+                        // 如果是公告帖，立刻通知 Android 取消漫画黑屏模式，不执行后续点击逻辑
+                        if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
+                            window.AndroidFullscreen.notifyMangaActionDone();
+                        }
+                        return; 
+                    }
                     // 1. 穿上隐身衣，防止穿帮
                     if (!document.getElementById('manga-transition-style')) {
                         var style = document.createElement('style');
@@ -637,7 +646,7 @@ fun BBSPage(
                 onClick = {
                     showChapterList = true
                 },
-                modifier = Modifier.fillMaxWidth(0.5f),
+                modifier = Modifier.fillMaxWidth(0.4f),
                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                     containerColor = Color.Black.copy(alpha = 0.6f),
                     contentColor = Color.White
@@ -654,13 +663,16 @@ fun BBSPage(
         }
         if (showChapterList) {
             val currentDir = mangaDirVM.currentDirectory
-
+            val currentTid = remember(currentUrl) {
+                currentUrl?.let { MangaTitleCleaner.extractTidFromUrl(it) }
+            }
             // 将底层数据转换为 UI 需要的展示格式
             val displayChapters = currentDir?.chapters?.map { item ->
                 MangaChapter(
-                    index = item.chapterNum.toInt(),
+                    index = item.chapterNum,
                     title = item.rawTitle,
-                    isCurrent = currentUrl?.contains(item.url) == true, // 如果当前URL包含这章节的URL，则标亮
+                    url = item.url,
+                    isCurrent = item.tid == currentTid,
                     isRead = false
                 )
             } ?: emptyList()
@@ -675,13 +687,12 @@ fun BBSPage(
                 onDismiss = { showChapterList = false },
                 onChapterClick = { chapter ->
                     showChapterList = false
-                    val targetUrl =
-                        currentDir?.chapters?.find { it.chapterNum.toInt() == chapter.index }?.url
-                    if (targetUrl != null) {
+                    val targetUrl = chapter.url
+
+                    if (targetUrl.isNotEmpty()) {
                         val finalUrl =
                             if (targetUrl.startsWith("http")) targetUrl else "https://bbs.yamibo.com/$targetUrl"
                         autoOpenMangaMode = true
-                        // 暂存目标URL，并通知网页执行回退关闭大图
                         pendingNavigateUrl = finalUrl
                         webView.evaluateJavascript("window.history.back();", null)
                     }

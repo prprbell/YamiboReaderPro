@@ -9,10 +9,19 @@ class MangaHtmlParser {
         /**
          * 解析手机端 HTML，寻找 Tag ID
          */
-        fun findTagIdMobile(html: String): String? {
+        fun findTagIdsMobile(html: String): List<String> {
             val doc = Jsoup.parse(html)
-            val tagLink = doc.select("a[href*='mod=tag']").firstOrNull()
-            return tagLink?.attr("href")?.let { Regex("id=(\\d+)").find(it)?.groupValues?.get(1) }
+            // 选出所有包含 mod=tag 的 a 标签
+            val tagLinks = doc.select("a[href*='mod=tag']")
+
+            val ids = mutableListOf<String>()
+            for (link in tagLinks) {
+                val href = link.attr("href")
+                val match = Regex("id=(\\d+)").find(href)
+                match?.groupValues?.get(1)?.let { ids.add(it) }
+            }
+            // 返回去重后的 Tag ID 列表
+            return ids.distinct()
         }
 
         /**
@@ -46,18 +55,42 @@ class MangaHtmlParser {
         }
 
         /**
+         * 提取列表页的总页数 (处理包含 <div class="pg"> 的情况)
+         */
+        fun extractTotalPages(html: String): Int {
+            val doc = Jsoup.parse(html)
+
+            // 尝试从 <span title="共 3 页"> 提取
+            val titleAttr = doc.select(".pg label span").attr("title")
+            val match = Regex("(\\d+)").find(titleAttr)
+            if (match != null) {
+                return match.groupValues[1].toIntOrNull() ?: 1
+            }
+
+            // 保底策略：如果没有 span，直接提取翻页区所有普通数字页码，取最大值
+            val pageLinks = doc.select(".pg a:not(.nxt):not(.prev)")
+            if (pageLinks.isNotEmpty()) {
+                val maxPage = pageLinks.mapNotNull { it.text().toIntOrNull() }.maxOrNull()
+                if (maxPage != null) return maxPage
+            }
+
+            // 如果连 .pg 都没有，说明只有一页
+            return 1
+        }
+
+        /**
          * 解析 Tag 列表页(PC端) 或 搜索结果页(手机端)，转换为统一的 ChapterItem 列表
          */
-        fun parseListHtml(html: String): List<MangaChapterItem> {
+        fun parseListHtml(html: String, groupIndex: Int = 0): List<MangaChapterItem> {
             val doc = Jsoup.parse(html)
             val result = mutableListOf<MangaChapterItem>()
 
             // ==========================================
             // 分支 1：处理 PC 端 Tag 页面
-            // 依据：<body id="nv_misc" class="pg_tag"> 或包含 <div class="bm_c">
             // ==========================================
             if (doc.select("body.pg_tag").isNotEmpty() || doc.select(".bm_c table").isNotEmpty()) {
-                val rows = doc.select(".bm_c table tbody tr")
+                // 【修复】去掉 tbody，直接匹配 table 下所有的 tr，避免 Jsoup 兼容性问题
+                val rows = doc.select(".bm_c table tr")
                 for (row in rows) {
                     // 跳过表头 <tr><th><h2>相关帖子</h2></th></tr>
                     if (row.select("th h2").isNotEmpty()) continue
@@ -75,7 +108,17 @@ class MangaHtmlParser {
                     val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: continue
                     val chapterNum = MangaTitleCleaner.extractChapterNum(title)
 
-                    result.add(MangaChapterItem(tid, title, chapterNum, url, authorUid, authorName))
+                    result.add(
+                        MangaChapterItem(
+                            tid,
+                            title,
+                            chapterNum,
+                            url,
+                            authorUid,
+                            authorName,
+                            groupIndex
+                        )
+                    )
                 }
             }
             // ==========================================
@@ -101,7 +144,17 @@ class MangaHtmlParser {
                     val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: continue
                     val chapterNum = MangaTitleCleaner.extractChapterNum(title)
 
-                    result.add(MangaChapterItem(tid, title, chapterNum, url, authorUid, authorName))
+                    result.add(
+                        MangaChapterItem(
+                            tid,
+                            title,
+                            chapterNum,
+                            url,
+                            authorUid,
+                            authorName,
+                            groupIndex
+                        )
+                    )
                 }
             }
 

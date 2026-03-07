@@ -23,10 +23,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val BgSheet = Color(0xFF111318)
@@ -54,8 +59,9 @@ private val TextRead = Color(0xFF3D4454)
 private val Divider = Color(0xFF222630)
 
 data class MangaChapter(
-    val index: Int,
+    val index: Float,
     val title: String,
+    val url: String,
     val isRead: Boolean = false,
     val isNew: Boolean = false,
     val isCurrent: Boolean = false
@@ -64,8 +70,8 @@ data class MangaChapter(
 @Composable
 fun MangaChapterPanel(
     modifier: Modifier = Modifier,
-    title: String,                     // 移除了硬编码默认值
-    chapters: List<MangaChapter>,      // 移除了 mockChapters 默认值
+    title: String,
+    chapters: List<MangaChapter>,
     isUpdating: Boolean = false,
     cooldownSeconds: Int = 0,
     onUpdateClick: () -> Unit = {},
@@ -76,13 +82,23 @@ fun MangaChapterPanel(
     val sorted = remember(chapters, ascending) {
         if (ascending) chapters else chapters.reversed()
     }
-
+    val listState = rememberLazyListState()
     val offsetY = remember { Animatable(0f) }
     val scrimAlpha = remember { Animatable(0.6f) }
     val scope = rememberCoroutineScope()
 
     var dragJob by remember { mutableStateOf<Job?>(null) }
 
+    LaunchedEffect(sorted) {
+        val index = sorted.indexOfFirst { it.isCurrent }
+        if (index != -1) {
+            // 延迟 200ms 等待 BottomSheet 弹出动画稳定，滚动会更顺滑
+            delay(200)
+            listState.animateScrollToItem(
+                index = (index - 2).coerceAtLeast(0) // 让当前项显示在靠近中间的位置
+            )
+        }
+    }
     fun dismiss() {
         scope.launch {
             val slideOut = launch {
@@ -215,9 +231,16 @@ fun MangaChapterPanel(
 
                         // 右侧区域：最新话数 + 更新按钮
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            val latestChapter = chapters.maxByOrNull { it.index }
+                            val latestChapter =
+                                chapters.filter { it.index < 1000f }.maxByOrNull { it.index }
+
+                            val latestText = latestChapter?.let {
+                                if (it.index % 1f == 0f) it.index.toInt()
+                                    .toString() else it.index.toString()
+                            } ?: ""
+
                             Text(
-                                text = if (latestChapter != null) "最新: 第${latestChapter.index}话" else "",
+                                text = if (latestChapter != null) "最新: 第${latestText}话" else "",
                                 color = TextSec,
                                 fontSize = 12.sp
                             )
@@ -229,18 +252,33 @@ fun MangaChapterPanel(
                                     .clip(RoundedCornerShape(6.dp))
                                     .clickable(enabled = canUpdate) { onUpdateClick() }
                                     .background(if (canUpdate) Accent else Color(0xFF2A2D35))
-                                    .padding(horizontal = 12.dp, vertical = 5.dp)
+                                    .padding(horizontal = 12.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = when {
-                                        isUpdating -> "更新中..."
-                                        cooldownSeconds > 0 -> "${cooldownSeconds}s"
-                                        else -> "更新"
-                                    },
-                                    color = if (canUpdate) Color(0xFF111318) else TextSec,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                // 根据更新状态切换 UI
+                                if (isUpdating) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(
+                                            color = TextSec,
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            text = "更新中",
+                                            color = TextSec,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        text = if (cooldownSeconds > 0) "${cooldownSeconds}s" else "更新",
+                                        color = if (canUpdate) Color(0xFF111318) else TextSec,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
@@ -249,13 +287,29 @@ fun MangaChapterPanel(
 
             HorizontalDivider(color = Divider, thickness = 1.dp)
 
+            if (isUpdating) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp),
+                    color = Accent,
+                    trackColor = Color.Transparent
+                )
+            } else {
+                // 占位，防止动画出现/消失时列表发生上下抖动跳跃
+                Spacer(Modifier.height(2.dp))
+            }
             // 章节列表
             LazyColumn(
+                state = listState, // 绑定状态
                 contentPadding = PaddingValues(vertical = 6.dp, horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                itemsIndexed(sorted) { _, chapter ->
+                itemsIndexed(
+                    items = sorted,
+                    key = { _, chapter -> chapter.url } // 建议增加 key 以优化滚动性能
+                ) { _, chapter ->
                     ChapterRow(chapter = chapter, onClick = { onChapterClick(chapter) })
                 }
             }
@@ -276,7 +330,12 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
         chapter.isRead -> TextRead
         else -> TextSec
     }
-
+    // 【新增】格式化左侧的序号展示
+    val displayIndex = when {
+        chapter.index >= 1000f -> "SP" // 番外/附录统一显示为 SP (Special)
+        chapter.index % 1f == 0f -> chapter.index.toInt().toString() // 4.0 -> "4"
+        else -> chapter.index.toString() // 4.1 -> "4.1"
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -287,7 +346,7 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = chapter.index.toString(),
+            text = displayIndex,
             color = numColor,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,

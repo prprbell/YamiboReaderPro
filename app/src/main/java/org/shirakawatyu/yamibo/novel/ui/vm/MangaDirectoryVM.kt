@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy // 【新增导入】
 import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
 import org.shirakawatyu.yamibo.novel.repository.DirectoryRepository
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
@@ -39,6 +40,13 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
             // 调用我们之前写好的底层解析与降级保底逻辑
             val dir = repo.initDirectoryForThread(tid, url, title, html)
             currentDirectory = dir
+
+            // ==========================================
+            // 如果判定为 TAG 策略（低开销）且从未更新过完整目录，直接触发更新
+            // ==========================================
+            if (dir.strategy == DirectoryStrategy.TAG && dir.lastUpdateTime == 0L) {
+                updateMangaDirectory()
+            }
         }
     }
 
@@ -53,18 +61,15 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
             isUpdatingDirectory = true
             val result = repo.manuallyUpdateDirectory(dir)
 
-            result.onSuccess { updatedDir ->
-                Log.d(
-                    logTag,
-                    "Directory updated successfully. Chapters: ${updatedDir.chapters.size}"
-                )
-                currentDirectory = updatedDir
+            result.onSuccess { updateResult ->
+                currentDirectory = updateResult.directory
+                val cooldown = if (updateResult.searchPerformed) 30 else 5
+                startDirectoryCooldown(cooldown)
             }.onFailure { e ->
-                Log.e(logTag, "Failed to update directory", e)
+                Log.e(logTag, "Update failed", e)
+                startDirectoryCooldown(3) // 失败给 3s 缓冲
             }
-
             isUpdatingDirectory = false
-            startDirectoryCooldown(30)
         }
     }
 

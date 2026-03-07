@@ -1,11 +1,11 @@
 package org.shirakawatyu.yamibo.novel.repository
 
 import android.content.Context
-import androidx.datastore.preferences.core.stringPreferencesKey
+import android.util.Log
 import com.alibaba.fastjson2.JSON
-import com.alibaba.fastjson2.TypeReference
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy
 import org.shirakawatyu.yamibo.novel.bean.MangaChapterItem
@@ -14,62 +14,87 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.MangaApi
 import org.shirakawatyu.yamibo.novel.parser.MangaHtmlParser
-import org.shirakawatyu.yamibo.novel.util.DataStoreUtil
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
-import kotlin.coroutines.resume
+import java.io.File
+import java.io.IOException
+import java.util.Collections
+
+data class DirectoryUpdateResult(val directory: MangaDirectory, val searchPerformed: Boolean)
 
 class DirectoryRepository private constructor(private val context: Context) {
     private val mangaApi = YamiboRetrofit.getInstance().create(MangaApi::class.java)
-    private val DIRECTORY_KEY = stringPreferencesKey("manga_directory_map")
+    private val DIRECTORY_DIR = "manga_directory"
+    private val LOG_TAG = "DirectoryRepo"
+
+    // 条带锁：固定 32 个槽位，兼顾内存占用与并发性能
+    private val STRIPE_COUNT = 32
+    private val locks = Array(STRIPE_COUNT) { Mutex() }
+    private fun getFileLock(name: String) =
+        locks[(name.hashCode() and Int.MAX_VALUE) % STRIPE_COUNT]
+
+    // 内存 LRU 缓存：保持 50 部漫画对象，使用同步装饰器确保线程安全
+    private val memoryCache: MutableMap<String, MangaDirectory> = Collections.synchronizedMap(
+        object : LinkedHashMap<String, MangaDirectory>(20, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MangaDirectory>?) =
+                size > 50
+        }
+    )
 
     companion object {
         @Volatile
         private var instance: DirectoryRepository? = null
-        fun getInstance(context: Context): DirectoryRepository =
-            instance ?: synchronized(this) {
-                instance ?: DirectoryRepository(context.applicationContext).also { instance = it }
-            }
-    }
-
-    /**
-     * 辅助方法：将 DataStoreUtil 的 Callback 回调转换为挂起函数，读取目录 Map
-     */
-    private suspend fun getDirectoryMap(): MutableMap<String, MangaDirectory> {
-        return suspendCancellableCoroutine { continuation ->
-            DataStoreUtil.getData(
-                key = DIRECTORY_KEY,
-                callback = { jsonString ->
-                    try {
-                        val type =
-                            object : TypeReference<MutableMap<String, MangaDirectory>>() {}.type
-                        val map = JSON.parseObject(jsonString, type)
-                            ?: mutableMapOf<String, MangaDirectory>()
-                        continuation.resume(map)
-                    } catch (e: Exception) {
-                        continuation.resume(mutableMapOf())
-                    }
-                },
-                onNull = {
-                    continuation.resume(mutableMapOf())
-                }
-            )
+        fun getInstance(context: Context): DirectoryRepository = instance ?: synchronized(this) {
+            instance ?: DirectoryRepository(context.applicationContext).also { instance = it }
         }
     }
 
-    /**
-     * 辅助方法：将 DataStoreUtil 的 Callback 回调转换为挂起函数，保存目录 Map
-     */
-    private suspend fun saveDirectoryMap(map: Map<String, MangaDirectory>) {
-        return suspendCancellableCoroutine { continuation ->
-            val jsonString = JSON.toJSONString(map)
-            DataStoreUtil.addData(jsonString, DIRECTORY_KEY) {
-                continuation.resume(Unit)
+    private fun getDirectoryFile(cleanName: String): File {
+        val safeName = cleanName.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            .let { if (it.length > 50) it.substring(0, 50) else it }
+        return File(
+            File(context.filesDir, DIRECTORY_DIR).apply { if (!exists()) mkdirs() },
+            "${safeName}_${cleanName.hashCode().toString(16)}_dir.json"
+        )
+    }
+
+    private suspend fun loadDirectory(cleanName: String): MangaDirectory? {
+        memoryCache[cleanName]?.let { return it }
+        return withContext(Dispatchers.IO) {
+            try {
+                val file = getDirectoryFile(cleanName)
+                if (!file.exists()) return@withContext null
+                JSON.parseObject(file.readText(), MangaDirectory::class.java)
+                    .also { if (it != null) memoryCache[cleanName] = it }
+            } catch (e: Exception) {
+                null
             }
         }
     }
 
+    private suspend fun saveDirectory(directory: MangaDirectory) = withContext(Dispatchers.IO) {
+        val name = directory.cleanBookName
+        val file = getDirectoryFile(name)
+        val tempFile = File(file.parent, "${file.name}.tmp")
+        try {
+            memoryCache[name] = directory
+            tempFile.writeText(JSON.toJSONString(directory))
+            if (tempFile.exists()) {
+                if (file.exists()) file.delete()
+                tempFile.renameTo(file)
+            }
+            Unit // 显式返回 Unit 解决 if-else 报错
+        } catch (e: IOException) {
+            Log.e(LOG_TAG, "Save failed: $name", e)
+        } finally {
+            if (tempFile.exists()) tempFile.delete()
+        }
+    }
+
+    // novel/repository/DirectoryRepository.kt
+
     /**
-     * 核心动作 1：初次进入帖子时进行零开销探测 (无任何网络请求)
+     * 核心动作 1：初次进入帖子。
+     * 逻辑：无论是否有缓存，都尝试提取当前页超链接并合并，实现“动态补完”目录。
      */
     suspend fun initDirectoryForThread(
         tid: String,
@@ -77,153 +102,156 @@ class DirectoryRepository private constructor(private val context: Context) {
         rawTitle: String,
         mobileHtml: String
     ): MangaDirectory {
-        return withContext(Dispatchers.IO) {
-            val cleanName = MangaTitleCleaner.getCleanBookName(rawTitle)
+        val cleanName = MangaTitleCleaner.getCleanBookName(rawTitle)
 
-            // 【完美修补】1. 优先检查本地是否已经有完整缓存。
-            val dirMap = getDirectoryMap()
-            val cachedDir = dirMap[cleanName]
+        return getFileLock(cleanName).withLock {
+            // 1. 获取现有缓存
+            val cachedDir = loadDirectory(cleanName)
 
-            if (cachedDir != null && cachedDir.chapters.isNotEmpty()) {
-                // 检查当前用户所在的这一话，是否已经在我们的缓存目录里了
-                val isCurrentChapterExists = cachedDir.chapters.any { it.tid == tid }
+            // 2. 【核心修复】：无论是否有缓存，每次进入都尝试提取当前页面的“白嫖”超链接
+            val samePageLinks = MangaHtmlParser.extractSamePageLinks(mobileHtml)
 
-                if (!isCurrentChapterExists) {
-                    // 如果不在，说明这是用户自己点进来的新话！直接“白嫖”进本地目录
-                    val currentItem = MangaChapterItem(
-                        tid = tid,
-                        rawTitle = rawTitle,
-                        chapterNum = MangaTitleCleaner.extractChapterNum(rawTitle),
-                        url = currentUrl,
-                        authorUid = null,
-                        authorName = null
-                    )
-                    // 塞进列表并重新排序
-                    val updatedChapters =
-                        (cachedDir.chapters + currentItem).sortedBy { it.chapterNum }
-                    val updatedDir = cachedDir.copy(chapters = updatedChapters)
+            // 3. 构建当前话对象
+            val currentChapter = MangaChapterItem(
+                tid = tid,
+                rawTitle = rawTitle,
+                chapterNum = MangaTitleCleaner.extractChapterNum(rawTitle),
+                url = currentUrl,
+                authorUid = null,
+                authorName = null
+            )
 
-                    // 悄悄更新本地缓存
-                    dirMap[cleanName] = updatedDir
-                    saveDirectoryMap(dirMap)
+            // 4. 将“当前话”和“白嫖到的链接”汇总
+            val gatheredFromPage = (samePageLinks + currentChapter)
 
-                    return@withContext updatedDir
+            if (cachedDir != null) {
+                // 【情况 A】：已有缓存 -> 执行合并。
+                // 使用 mergeAndSortChapters 确保 TID 去重且排序正确
+                val mergedChapters = mergeAndSortChapters(cachedDir.chapters, gatheredFromPage)
+
+                // 策略升级：如果原来是 PENDING（啥都没搜到），现在白嫖到了链接，升级为 LINKS 策略
+                val newStrategy =
+                    if (cachedDir.strategy == DirectoryStrategy.PENDING_SEARCH && samePageLinks.isNotEmpty()) {
+                        DirectoryStrategy.LINKS
+                    } else cachedDir.strategy
+
+                val updatedDir = cachedDir.copy(
+                    chapters = mergedChapters,
+                    strategy = newStrategy
+                )
+
+                // 只有当数据真的发生变化（抓到了新东西）时才保存磁盘，减少 IO
+                if (updatedDir.chapters.size > cachedDir.chapters.size || updatedDir.strategy != cachedDir.strategy) {
+                    saveDirectory(updatedDir)
                 }
-
-                return@withContext cachedDir
-            }
-
-            // 2. 本地完全没有这本漫画的记录，进行初次解析与入库
-            val tagId = MangaHtmlParser.findTagIdMobile(mobileHtml)
-
-            val strategy: DirectoryStrategy
-            val sourceKey: String
-            val initialChapters: List<MangaChapterItem>
-
-            if (tagId != null) {
-                // 1. 有 Tag
-                strategy = DirectoryStrategy.TAG
-                sourceKey = tagId
-                initialChapters = emptyList() // 也可以马上提取一下同页链接垫底，但下次按更新会拿全量
+                return@withLock updatedDir
             } else {
-                // 2. 无 Tag，找同页超链接 (保底那 60%)
-                val links = MangaHtmlParser.extractSamePageLinks(mobileHtml)
-                if (links.isNotEmpty()) {
+                // 【情况 B】：完全没缓存 -> 按照原有优先级创建
+                val tagIds = MangaHtmlParser.findTagIdsMobile(mobileHtml)
+
+                val strategy: DirectoryStrategy
+                val sourceKey: String
+
+                if (tagIds.isNotEmpty()) {
+                    strategy = DirectoryStrategy.TAG
+                    sourceKey = tagIds.joinToString(",")
+                } else if (samePageLinks.isNotEmpty()) {
                     strategy = DirectoryStrategy.LINKS
                     sourceKey = cleanName
-                    initialChapters = links
                 } else {
-                    // 3. 啥都没有，只有当前这一话
                     strategy = DirectoryStrategy.PENDING_SEARCH
                     sourceKey = cleanName
-                    initialChapters = listOf(
-                        MangaChapterItem(
-                            tid,
-                            rawTitle,
-                            MangaTitleCleaner.extractChapterNum(rawTitle),
-                            currentUrl,
-                            null,
-                            null
-                        )
-                    )
                 }
+
+                val newDir = MangaDirectory(
+                    cleanBookName = cleanName,
+                    strategy = strategy,
+                    sourceKey = sourceKey,
+                    chapters = gatheredFromPage.sortedWith(
+                        compareBy(
+                            { it.groupIndex },
+                            { it.chapterNum })
+                    )
+                )
+
+                saveDirectory(newDir)
+                return@withLock newDir
             }
-
-            val directory = MangaDirectory(cleanName, strategy, sourceKey, initialChapters)
-
-            // 保存至本地 Map 并覆盖
-            dirMap[cleanName] = directory
-            saveDirectoryMap(dirMap)
-
-            return@withContext directory
         }
     }
 
-    /**
-     * 核心动作 2：用户手动点击“更新目录”按钮
-     */
-    suspend fun manuallyUpdateDirectory(currentDir: MangaDirectory): Result<MangaDirectory> {
-        return withContext(Dispatchers.IO) {
+    suspend fun manuallyUpdateDirectory(currentDir: MangaDirectory): Result<DirectoryUpdateResult> =
+        withContext(Dispatchers.IO) {
             val newChapters = mutableListOf<MangaChapterItem>()
-
+            var searchPerformed = false
             try {
                 if (currentDir.strategy == DirectoryStrategy.TAG) {
-                    // 低开销，直接请求 Tag 页
-                    val html = mangaApi.getTagPageHtml(currentDir.sourceKey).string()
-                    newChapters.addAll(MangaHtmlParser.parseListHtml(html))
+                    val tagIdList = currentDir.sourceKey.split(",")
+                    for ((index, tagId) in tagIdList.withIndex()) {
+                        if (tagId.isBlank()) continue
+                        val html1 = mangaApi.getTagPageHtml(tagId, 1).string()
+                        val parsed = MangaHtmlParser.parseListHtml(html1, index)
+                        if (parsed.isNotEmpty()) {
+                            newChapters.addAll(parsed)
+                            val total = MangaHtmlParser.extractTotalPages(html1)
+                            if (total > 1) for (p in 2..total) newChapters.addAll(
+                                MangaHtmlParser.parseListHtml(
+                                    mangaApi.getTagPageHtml(tagId, p).string(),
+                                    index
+                                )
+                            )
+                        }
+                    }
+                    if (newChapters.isEmpty()) {
+                        searchPerformed = true
+                        val res = performSearch(currentDir.cleanBookName)
+                        if (res.isFailure) return@withContext Result.failure(res.exceptionOrNull()!!)
+                        newChapters.addAll(res.getOrNull()!!)
+                    }
                 } else {
-                    // 高开销，执行全局 30 秒冷却拦截
-                    val now = System.currentTimeMillis()
-                    if (now - GlobalData.lastSearchTimestamp < 30_000L) {
-                        return@withContext Result.failure(Exception("论坛搜索接口冷却中，请稍候再试"))
-                    }
-                    GlobalData.lastSearchTimestamp = now
-
-                    val html = mangaApi.searchForum(keyword = currentDir.sourceKey).string()
-
-                    if (MangaHtmlParser.isFloodControlOrError(html)) {
-                        return@withContext Result.failure(Exception("论坛服务器繁忙(防灌水限制)，请稍后再试"))
-                    }
-                    newChapters.addAll(MangaHtmlParser.parseListHtml(html))
+                    searchPerformed = true
+                    val res = performSearch(currentDir.sourceKey)
+                    if (res.isFailure) return@withContext Result.failure(res.exceptionOrNull()!!)
+                    newChapters.addAll(res.getOrNull()!!)
                 }
 
-                // 合并去重与排序算法
-                val mergedChapters = mergeAndSortChapters(currentDir.chapters, newChapters)
-
-                // 使用 copy 生成不可变对象的最新状态
-                val updatedDir = currentDir.copy(
-                    chapters = mergedChapters,
-                    lastUpdateTime = System.currentTimeMillis(),
-                    // 这里已经在处理 SEARCHED 的状态变更了
-                    strategy = if (currentDir.strategy != DirectoryStrategy.TAG) DirectoryStrategy.SEARCHED else currentDir.strategy
-                )
-
-                // 获取最新的 Map，将更新后的对象塞进去保存
-                val dirMap = getDirectoryMap()
-                dirMap[updatedDir.cleanBookName] = updatedDir
-                saveDirectoryMap(dirMap)
-
-                Result.success(updatedDir)
-
+                val finalDir = getFileLock(currentDir.cleanBookName).withLock {
+                    val latest = loadDirectory(currentDir.cleanBookName) ?: currentDir
+                    val merged = mergeAndSortChapters(latest.chapters, newChapters)
+                    val updated = latest.copy(
+                        chapters = merged,
+                        lastUpdateTime = System.currentTimeMillis(),
+                        strategy = if (latest.strategy != DirectoryStrategy.TAG) DirectoryStrategy.SEARCHED else latest.strategy
+                    )
+                    saveDirectory(updated)
+                    updated
+                }
+                Result.success(DirectoryUpdateResult(finalDir, searchPerformed))
             } catch (e: Exception) {
                 Result.failure(e)
             }
         }
+
+    private suspend fun performSearch(keyword: String): Result<List<MangaChapterItem>> {
+        val now = System.currentTimeMillis()
+        if (now - GlobalData.lastSearchTimestamp.get() < 30_000L) return Result.failure(Exception("搜索冷却中"))
+        GlobalData.lastSearchTimestamp.set(now)
+        val html = mangaApi.searchForum(keyword = keyword).string()
+        if (MangaHtmlParser.isFloodControlOrError(html)) return Result.failure(Exception("防灌水限制"))
+        return Result.success(MangaHtmlParser.parseListHtml(html))
     }
 
-    /**
-     * 合并算法：以 TID 为唯一键去重，按 chapterNum 升序排列
-     */
     private fun mergeAndSortChapters(
-        oldList: List<MangaChapterItem>,
-        newList: List<MangaChapterItem>
+        old: List<MangaChapterItem>,
+        new: List<MangaChapterItem>
     ): List<MangaChapterItem> {
         val map = LinkedHashMap<String, MangaChapterItem>()
-        // 旧的先入 Map
-        oldList.forEach { map[it.tid] = it }
-        // 新的覆盖旧的（因为新的可能包含更新的发帖人等信息）
-        newList.forEach { map[it.tid] = it }
-
-        return map.values.toList().sortedBy { it.chapterNum }
+        val validNums = new.map { it.chapterNum }.toSet()
+        old.forEach {
+            if (!(validNums.contains(it.chapterNum) && new.none { n -> n.tid == it.tid })) map[it.tid] =
+                it
+        }
+        new.forEach { map[it.tid] = it }
+        return map.values.sortedWith(compareBy({ it.groupIndex }, { it.chapterNum }))
     }
 }

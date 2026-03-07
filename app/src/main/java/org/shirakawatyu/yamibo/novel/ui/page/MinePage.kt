@@ -18,6 +18,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -34,6 +38,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -72,6 +77,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
+import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import java.net.URLEncoder
 
@@ -410,6 +416,14 @@ fun MinePage(
         if (!isLoading && autoOpenMangaMode) {
             val clickJs = """
                 (function() {
+                    var typeLabel = document.querySelector('.view_tit em');
+                    if (typeLabel && typeLabel.innerText.indexOf('公告') !== -1) {
+                        // 如果是公告帖，立刻通知 Android 取消漫画黑屏模式，不执行后续点击逻辑
+                        if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
+                            window.AndroidFullscreen.notifyMangaActionDone();
+                        }
+                        return; 
+                    }
                     // 1. 穿上隐身衣，防止穿帮
                     if (!document.getElementById('manga-transition-style')) {
                         var style = document.createElement('style');
@@ -566,9 +580,9 @@ fun MinePage(
         AnimatedVisibility(
             // 控制条件：只有在全屏模式下，且顶部菜单栏可见时，才显示目录按钮
             visible = isFullscreenState.value && isFullscreenUiVisible.value,
-            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(
+            enter = fadeIn() + slideInVertically(
                 initialOffsetY = { it / 2 }),
-            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(
+            exit = fadeOut() + slideOutVertically(
                 targetOffsetY = { it / 2 }),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -578,8 +592,8 @@ fun MinePage(
                 onClick = {
                     showChapterList = true
                 },
-                modifier = Modifier.fillMaxWidth(0.5f),
-                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                modifier = Modifier.fillMaxWidth(0.4f),
+                colors = ButtonDefaults.buttonColors(
                     containerColor = Color.Black.copy(alpha = 0.6f),
                     contentColor = Color.White
                 )
@@ -595,14 +609,19 @@ fun MinePage(
         }
         if (showChapterList) {
             val currentDir = mangaDirVM.currentDirectory
+            val currentTid = remember(currentUrl) {
+                currentUrl?.let { MangaTitleCleaner.extractTidFromUrl(it) }
+            }
 
             // 将底层数据转换为 UI 需要的展示格式
             val displayChapters = currentDir?.chapters?.map { item ->
                 MangaChapter(
-                    index = item.chapterNum.toInt(),
+                    index = item.chapterNum,
                     title = item.rawTitle,
-                    isCurrent = currentUrl?.contains(item.url) == true, // 如果当前URL包含这章节的URL，则标亮
-                    isRead = false
+                    // 【核心修改】改用 TID 进行匹配
+                    isCurrent = item.tid == currentTid,
+                    isRead = false,
+                    url = item.url,
                 )
             } ?: emptyList()
 
@@ -616,13 +635,12 @@ fun MinePage(
                 onDismiss = { showChapterList = false },
                 onChapterClick = { chapter ->
                     showChapterList = false
-                    val targetUrl =
-                        currentDir?.chapters?.find { it.chapterNum.toInt() == chapter.index }?.url
-                    if (targetUrl != null) {
+                    val targetUrl = chapter.url
+
+                    if (targetUrl.isNotEmpty()) {
                         val finalUrl =
                             if (targetUrl.startsWith("http")) targetUrl else "https://bbs.yamibo.com/$targetUrl"
                         autoOpenMangaMode = true
-                        // 暂存 URL 并触发网页回退
                         pendingNavigateUrl = finalUrl
                         mineWebView.evaluateJavascript("window.history.back();", null)
                     }

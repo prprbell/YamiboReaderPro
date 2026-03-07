@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.Preferences
 import kotlinx.coroutines.flow.Flow
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
+import java.util.concurrent.atomic.AtomicLong
 
 class GlobalData {
 
@@ -23,6 +24,6 @@ class GlobalData {
         val cookieFlow: Flow<String> by lazy {
             CookieUtil.getCookieFlow()
         }
-        var lastSearchTimestamp: Long = 0L
+        val lastSearchTimestamp = AtomicLong(0L)
     }
 }
