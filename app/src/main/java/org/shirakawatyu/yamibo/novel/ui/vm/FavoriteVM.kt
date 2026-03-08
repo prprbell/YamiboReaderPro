@@ -115,9 +115,45 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         val urlEncoded = URLEncoder.encode(favorite.url, "utf-8")
         when (favorite.type) {
             1 -> navController.navigate("ReaderPage/$urlEncoded")
-            2 -> navController.navigate("MangaWebPage/$urlEncoded")
+            2 -> {
+                val targetUrl = favorite.lastMangaUrl ?: favorite.url
+                Log.d("MangaProgress", "最终跳转到: $targetUrl")
+                val encodedTarget = URLEncoder.encode(targetUrl, "utf-8")
+                val encodedOriginal = URLEncoder.encode(favorite.url, "utf-8")
+                navController.navigate("MangaWebPage/$encodedTarget/$encodedOriginal")
+            }
+
             3 -> navController.navigate("OtherWebPage/$urlEncoded")
             else -> navController.navigate("ProbingPage/$urlEncoded") // 0 或 未知
+        }
+    }
+
+    /**
+     * 更新漫画阅读进度
+     * @param favoriteUrl  收藏项的原始 URL（唯一标识，不变）
+     * @param chapterUrl   当前跳转的章节 URL（书签）
+     * @param chapterTitle 章节标题（显示在收藏列表副标题）
+     */
+    fun updateMangaProgress(favoriteUrl: String, chapterUrl: String, chapterTitle: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = allFavorites.map { fav ->
+                if (fav.url == favoriteUrl) {
+                    fav.copy(lastMangaUrl = chapterUrl, lastChapter = chapterTitle)
+                } else {
+                    fav
+                }
+            }
+
+            val matched = updated.any { it.lastMangaUrl == chapterUrl }
+
+            allFavorites = updated
+            FavoriteUtil.saveFavoriteOrder(updated)
+
+            val currentUiState = _uiState.value
+            _uiState.value = currentUiState.copy(
+                favoriteList = if (currentUiState.isInManageMode) updated
+                else updated.filter { !it.isHidden }
+            )
         }
     }
 

@@ -71,6 +71,7 @@ import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
+import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
@@ -123,7 +124,8 @@ object FullscreenApiManga {
 fun MangaWebPage(
     url: String,
     navController: NavController,
-    webChromeClient: WebChromeClient
+    webChromeClient: WebChromeClient,
+    originalFavoriteUrl: String = url
 ) {
 
     val finalUrl = remember(url) {
@@ -149,6 +151,10 @@ fun MangaWebPage(
 
     val context = LocalContext.current
     val activity = context as? Activity
+    val favoriteVM: FavoriteVM = viewModel(
+        viewModelStoreOwner = context as ComponentActivity,
+        factory = ViewModelFactory(LocalContext.current.applicationContext)
+    )
     val view = LocalView.current
     // 1. 新增：在页面刚组合时，瞬间记住上一页（收藏页）的黄色和亮色图标状态
     val originalStatusBarColor =
@@ -319,7 +325,7 @@ fun MangaWebPage(
 
             // 解析目录
             currentUrl?.let { threadUrl ->
-                if (threadUrl.contains("mod=viewthread") && threadUrl.contains("tid=")) {
+                if (MangaTitleCleaner.extractTidFromUrl(threadUrl) != null) {
                     val pageTitle = mangaWebView.title ?: ""
                     mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
                         val cleanHtml = try {
@@ -341,6 +347,7 @@ fun MangaWebPage(
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, pageUrl, favicon)
+                isLoading = true
                 currentUrl = pageUrl
                 canGoBack = view?.canGoBack() ?: false
                 view?.loadUrl(hideCommand)
@@ -531,7 +538,7 @@ fun MangaWebPage(
             val controller = WindowCompat.getInsetsController(window, view)
             WindowCompat.setDecorFitsSystemWindows(window, true)
 
-            // 核心修复：把状态栏颜色和图标颜色完美恢复成进入前（即 FavoritePage）的样子
+            // 把状态栏颜色和图标颜色完美恢复成进入前（即 FavoritePage）的样子
             window.statusBarColor = originalStatusBarColor.intValue
             controller.isAppearanceLightStatusBars = originalLightStatusBars.value
 
@@ -546,16 +553,10 @@ fun MangaWebPage(
     }
     BackHandler(enabled = true) {
         if (showChapterList) {
-            // 1. 如果底部的目录面板开着，先关掉面板
+            // 如果底部的目录面板开着，先关掉面板
             showChapterList = false
-        } else if (isFullscreenState.value || autoOpenMangaMode) {
-            // 2. 如果正在看漫画大图，执行快速退出（提前恢复状态栏）
-            performExit()
-        } else if (canGoBack) {
-            // 3. 正常后退网页
-            mangaWebView.goBack()
         } else {
-            // 4. 兜底退出
+            // 无论是否在大图模式，直接退出页面回到收藏界面，不再回退网页历史
             performExit()
         }
     }
@@ -707,10 +708,24 @@ fun MangaWebPage(
                     showChapterList = false
                     val target = chapter.url
                     if (target.isNotEmpty()) {
-                        val finalUrl =
+                        val absoluteUrl =
                             if (target.startsWith("http")) target else "https://bbs.yamibo.com/$target"
+
+                        // ✅ 修复1：用 originalFavoriteUrl 作为 key，永远能匹配到收藏项
+                        // ✅ 修复2：构造简短的"第X话"而非完整帖子标题
+                        val shortTitle = when {
+                            chapter.index >= 1000f -> "番外"
+                            chapter.index % 1f == 0f -> "读至第 ${chapter.index.toInt()} 话"
+                            else -> "读至第 ${chapter.index} 话"
+                        }
+                        favoriteVM.updateMangaProgress(
+                            favoriteUrl = originalFavoriteUrl,
+                            chapterUrl = absoluteUrl,
+                            chapterTitle = shortTitle
+                        )
+
                         autoOpenMangaMode = true
-                        pendingNavigateUrl = finalUrl
+                        pendingNavigateUrl = absoluteUrl
                         mangaWebView.evaluateJavascript("window.history.back();", null)
                     }
                 }

@@ -9,6 +9,7 @@ package org.shirakawatyu.yamibo.novel.bean
  * @param lastView 最后阅读的帖子页数，默认为1
  * @param lastChapter 最后阅读的章节名称，可为空，默认为null
  * @param authorId 帖子作者ID，可为空，默认为null
+ * @param lastMangaUrl 漫画书签URL
  */
 data class Favorite(
     var title: String,
@@ -18,5 +19,6 @@ data class Favorite(
     var lastChapter: String? = null,
     var authorId: String? = null,
     var isHidden: Boolean = false,
-    var type: Int = 0
+    var type: Int = 0,
+    var lastMangaUrl: String? = null
 )

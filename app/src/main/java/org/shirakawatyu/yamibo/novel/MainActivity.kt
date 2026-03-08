@@ -280,16 +280,24 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                             }
                             // 2. 漫画阅读页 (新增)
                             composable(
-                                "MangaWebPage/{url}",
-                                arguments = listOf(navArgument("url") { type = NavType.StringType })
+                                "MangaWebPage/{url}/{originalUrl}",
+                                arguments = listOf(
+                                    navArgument("url") { type = NavType.StringType },
+                                    navArgument("originalUrl") { type = NavType.StringType }
+                                )
                             ) {
-                                it.arguments?.getString("url")?.let { url ->
-                                    MangaWebPage(
-                                        url = URLDecoder.decode(url, "utf-8"),
-                                        navController = navController,
-                                        webChromeClient = webChromeClient
-                                    )
-                                }
+                                val loadUrl =
+                                    URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
+                                val originalUrl = URLDecoder.decode(
+                                    it.arguments?.getString("originalUrl") ?: "",
+                                    "utf-8"
+                                )
+                                MangaWebPage(
+                                    url = loadUrl,
+                                    originalFavoriteUrl = originalUrl,
+                                    navController = navController,
+                                    webChromeClient = webChromeClient
+                                )
                             }
 
                             // 3. 其他/探测网页 (新增)
@@ -319,7 +327,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                         val hideBottomNavRoutes = listOf(
                             "ReaderPage/{passageUrl}",
                             "ProbingPage/{url}",
-                            "MangaWebPage/{url}",
+                            "MangaWebPage/{url}/{originalUrl}",  // ← 改这行
                             "OtherWebPage/{url}"
                         )
                         if (currentRoute !in hideBottomNavRoutes) {
