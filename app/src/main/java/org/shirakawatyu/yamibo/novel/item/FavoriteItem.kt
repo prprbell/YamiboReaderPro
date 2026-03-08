@@ -81,7 +81,7 @@ fun FavoriteItem(
     val isFullWidthStart = title.isNotEmpty() && title.first() in listOf('【', '（', '《', '「', '『')
 
     // 2. 设定负数的首行缩进，把符号向左“拽”
-    val firstLineOffset = if (isFullWidthStart) (-9).sp else 0.sp
+    val firstLineOffset = if (isFullWidthStart) (-8).sp else 0.sp
 
     // 拖拽动画：根据是否处于拖拽状态动态调整卡片的阴影、缩放和颜色
     val elevation by animateDpAsState(
