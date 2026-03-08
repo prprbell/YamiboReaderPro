@@ -30,9 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -77,11 +75,11 @@ fun FavoriteItem(
             else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
         }
     }
-    // 1. 判断标题是否以常见的全角左符号开头
-    val isFullWidthStart = title.isNotEmpty() && title.first() in listOf('【', '（', '《', '「', '『')
-
-    // 2. 设定负数的首行缩进，把符号向左“拽”
-    val firstLineOffset = if (isFullWidthStart) (-8).sp else 0.sp
+//    // 1. 判断标题是否以常见的全角左符号开头
+//    val isFullWidthStart = title.isNotEmpty() && title.first() in listOf('【', '（', '《', '「', '『')
+//
+//    // 2. 设定负数的首行缩进，把符号向左“拽”
+//    val firstLineOffset = if (isFullWidthStart) (-6).sp else 0.sp
 
     // 拖拽动画：根据是否处于拖拽状态动态调整卡片的阴影、缩放和颜色
     val elevation by animateDpAsState(
@@ -148,12 +146,12 @@ fun FavoriteItem(
                         modifier = Modifier.padding(bottom = 6.dp),
                         fontSize = 16.sp,
                         color = Color.Black,
-                        maxLines = 2,
+                        maxLines = 3,
                         text = title,
                         fontWeight = FontWeight.Medium,
-                        style = TextStyle(
-                            textIndent = TextIndent(firstLine = firstLineOffset)
-                        )
+//                        style = TextStyle(
+//                            textIndent = TextIndent(firstLine = firstLineOffset)
+//                        )
                     )
                     // 显示最近阅读章节名
                     if (lastChapter != null && lastChapter.isNotBlank()) {

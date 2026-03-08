@@ -711,21 +711,18 @@ fun MangaWebPage(
                         val absoluteUrl =
                             if (target.startsWith("http")) target else "https://bbs.yamibo.com/$target"
 
-                        val chapterTid = MangaTitleCleaner.extractTidFromUrl(absoluteUrl)
-                        val favoriteTid = MangaTitleCleaner.extractTidFromUrl(originalFavoriteUrl)
 
-                        if (chapterTid != null && chapterTid == favoriteTid) {
-                            val shortTitle = when {
-                                chapter.index >= 1000f -> "番外"
-                                chapter.index % 1f == 0f -> "读至第 ${chapter.index.toInt()} 话"
-                                else -> "读至第 ${chapter.index} 话"
-                            }
-                            favoriteVM.updateMangaProgress(
-                                favoriteUrl = originalFavoriteUrl,
-                                chapterUrl = absoluteUrl,
-                                chapterTitle = shortTitle
-                            )
+                        val shortTitle = when {
+                            chapter.index >= 1000f -> "番外"
+                            chapter.index % 1f == 0f -> "读至第 ${chapter.index.toInt()} 话"
+                            else -> "读至第 ${chapter.index} 话"
                         }
+
+                        favoriteVM.updateMangaProgress(
+                            favoriteUrl = originalFavoriteUrl,
+                            chapterUrl = absoluteUrl,
+                            chapterTitle = shortTitle
+                        )
                         autoOpenMangaMode = true
                         pendingNavigateUrl = absoluteUrl
                         mangaWebView.evaluateJavascript("window.history.back();", null)
