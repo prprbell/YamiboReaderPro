@@ -4,7 +4,7 @@ class MangaTitleCleaner {
     companion object {
         fun getCleanThreadTitle(rawTitle: String): String {
             return rawTitle.replace(
-                Regex("\\s+-\\s+([^\\-]+区|百合会|论坛|手机版|Powered by).*$"),
+                Regex("(?i)\\s+[-—–_]+\\s+(.*?[区板]\\s+[-—–_]+\\s+)?(百合会|论坛|手机版|Powered by).*$"),
                 ""
             ).trim()
         }
@@ -31,7 +31,8 @@ class MangaTitleCleaner {
                         "[-—\\s]*Ch\\.?\\s*\\d+|" +
                         "[-—\\s]*(番外|特典|附录|短篇|单行本|最终话|最終話|最终回|最終回|大结局)|" +
                         "[-—\\s]+(前篇|中篇|后篇|上|中|下)|" +
-                        "[-—\\s]*[(（]\\s*[\\d\\.\\-零一二两三四五六七八九十百千]+\\s*[)）]" + // 【新增】匹配尾部单纯的 (一)、(1) 等括号数字
+                        "[-—\\s]*[(（]\\s*[\\d\\.\\-零一二两三四五六七八九十百千]+\\s*[)）]|" +
+                        "\\s+\\d+(?:\\.\\d+)?\\s+" +
                         ")"
             )
             val markerMatch = chapterMarkerPattern.find(clean)
