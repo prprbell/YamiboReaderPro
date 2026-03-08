@@ -563,7 +563,9 @@ fun MangaWebPage(
             performExit()
         }
     }
-    LaunchedEffect(mangaDirVM.currentDirectory, currentUrl) {
+    LaunchedEffect(mangaDirVM.currentDirectory, currentUrl, isLoading) {
+        if (isLoading) return@LaunchedEffect
+
         val dir = mangaDirVM.currentDirectory ?: return@LaunchedEffect
         val url = currentUrl ?: return@LaunchedEffect
         val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: return@LaunchedEffect
@@ -571,19 +573,51 @@ fun MangaWebPage(
         // 在目录中查找当前页面 TID 对应的章节
         val currentChapter = dir.chapters.find { it.tid == tid }
         if (currentChapter != null) {
-            val shortTitle = when {
-                currentChapter.chapterNum >= 1000f -> "番外"
-                currentChapter.chapterNum % 1f == 0f -> "读至第 ${currentChapter.chapterNum.toInt()} 话"
-                else -> "读至第 ${currentChapter.chapterNum} 话"
-            }
+            // 【新增】：注入 JS 探测面包屑导航中的版块名称
+            val checkSectionJs = """
+                (function() {
+                    var sectionHeader = document.querySelector('.header h2 a');
+                    if (sectionHeader) return sectionHeader.innerText.trim();
+                    var nav = document.querySelector('.z, .nav, .mz, .thread_nav, .sq_nav');
+                    if (nav) return nav.innerText.trim();
+                    return '';
+                })();
+            """.trimIndent()
 
-            // 自动刷新书签。这样即便用户是从收藏夹点进来的，
-            // 只要一进页面，进度就会自动刷新，保证列表页显示正确。
-            favoriteVM.updateMangaProgress(
-                favoriteUrl = originalFavoriteUrl,
-                chapterUrl = url,
-                chapterTitle = shortTitle
-            )
+            mangaWebView.evaluateJavascript(checkSectionJs) { result ->
+                // 解析 JS 返回的字符串
+                val sectionName = try {
+                    com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
+                } catch (e: Exception) {
+                    result?.replace("\"", "") ?: ""
+                }
+
+                // 允许的白名单（添加了简体的贴图区做容错）
+                val allowedSections =
+                    listOf("中文百合漫画区", "貼圖區", "贴图区", "原创图作区", "百合漫画图源区")
+
+                // 判断条件：如果抓到了非空的版块名，且不在白名单内，说明是跨区帖
+                val isCrossForum =
+                    sectionName.isNotBlank() && allowedSections.none { sectionName.contains(it) }
+
+                if (!isCrossForum) {
+                    // 安全的漫画区帖子，正常更新进度
+                    val shortTitle = when {
+                        currentChapter.chapterNum >= 1000f -> "番外"
+                        currentChapter.chapterNum % 1f == 0f -> "读至第 ${currentChapter.chapterNum.toInt()} 话"
+                        else -> "读至第 ${currentChapter.chapterNum} 话"
+                    }
+
+                    favoriteVM.updateMangaProgress(
+                        favoriteUrl = originalFavoriteUrl,
+                        chapterUrl = url,
+                        chapterTitle = shortTitle
+                    )
+                } else {
+                    // 拦截跨区帖子的书签记录
+                    Log.w("MangaWebPage", "已拦截跨区漫画书签写入！当前版块：${sectionName}")
+                }
+            }
         }
     }
     Box(modifier = Modifier.fillMaxSize()) {
@@ -735,19 +769,6 @@ fun MangaWebPage(
                     if (target.isNotEmpty()) {
                         val absoluteUrl =
                             if (target.startsWith("http")) target else "https://bbs.yamibo.com/$target"
-
-
-                        val shortTitle = when {
-                            chapter.index >= 1000f -> "番外"
-                            chapter.index % 1f == 0f -> "读至第 ${chapter.index.toInt()} 话"
-                            else -> "读至第 ${chapter.index} 话"
-                        }
-
-                        favoriteVM.updateMangaProgress(
-                            favoriteUrl = originalFavoriteUrl,
-                            chapterUrl = absoluteUrl,
-                            chapterTitle = shortTitle
-                        )
                         autoOpenMangaMode = true
                         pendingNavigateUrl = absoluteUrl
                         mangaWebView.evaluateJavascript("window.history.back();", null)
