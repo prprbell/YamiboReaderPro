@@ -157,6 +157,17 @@ class MangaTitleCleaner {
                     baseNum = matchSepNum.groupValues[1].toFloatOrNull() ?: 0f
                 }
             }
+            // 规则 2.8: 孤立数字边界判断法
+            if (baseNum == -1f) {
+                val matchIsolated =
+                    Regex("(?:^|\\s)([^\\d\\s部季名次期天卷]?)\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)\\s*([^\\d\\s部季名次期天卷]?)(?=\\s|$)").find(
+                        cleanTitle
+                    )
+
+                if (matchIsolated != null) {
+                    baseNum = parseNumber(matchIsolated.groupValues[2])
+                }
+            }
 
             // 规则 3: 第X话 / 第X.Y话 (e.g., "第8.5话", "第八话" -> 8.5, 8.0)
             if (baseNum == -1f) {
