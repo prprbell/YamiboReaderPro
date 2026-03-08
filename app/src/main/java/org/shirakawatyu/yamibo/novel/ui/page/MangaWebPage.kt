@@ -711,19 +711,21 @@ fun MangaWebPage(
                         val absoluteUrl =
                             if (target.startsWith("http")) target else "https://bbs.yamibo.com/$target"
 
-                        // ✅ 修复1：用 originalFavoriteUrl 作为 key，永远能匹配到收藏项
-                        // ✅ 修复2：构造简短的"第X话"而非完整帖子标题
-                        val shortTitle = when {
-                            chapter.index >= 1000f -> "番外"
-                            chapter.index % 1f == 0f -> "读至第 ${chapter.index.toInt()} 话"
-                            else -> "读至第 ${chapter.index} 话"
-                        }
-                        favoriteVM.updateMangaProgress(
-                            favoriteUrl = originalFavoriteUrl,
-                            chapterUrl = absoluteUrl,
-                            chapterTitle = shortTitle
-                        )
+                        val chapterTid = MangaTitleCleaner.extractTidFromUrl(absoluteUrl)
+                        val favoriteTid = MangaTitleCleaner.extractTidFromUrl(originalFavoriteUrl)
 
+                        if (chapterTid != null && chapterTid == favoriteTid) {
+                            val shortTitle = when {
+                                chapter.index >= 1000f -> "番外"
+                                chapter.index % 1f == 0f -> "读至第 ${chapter.index.toInt()} 话"
+                                else -> "读至第 ${chapter.index} 话"
+                            }
+                            favoriteVM.updateMangaProgress(
+                                favoriteUrl = originalFavoriteUrl,
+                                chapterUrl = absoluteUrl,
+                                chapterTitle = shortTitle
+                            )
+                        }
                         autoOpenMangaMode = true
                         pendingNavigateUrl = absoluteUrl
                         mangaWebView.evaluateJavascript("window.history.back();", null)

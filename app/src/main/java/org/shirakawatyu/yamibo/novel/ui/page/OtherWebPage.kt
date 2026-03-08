@@ -200,6 +200,20 @@ fun OtherWebPage(
         }
     }
 
+    fun getPagedUrl(baseUrl: String, page: Int): String {
+        if (page <= 1) return baseUrl
+        return if (baseUrl.contains("thread-")) {
+            baseUrl.replace(Regex("thread-(\\d+)-(\\d+)"), "thread-$1-$page")
+        } else {
+            if (baseUrl.contains("page=")) {
+                baseUrl.replace(Regex("page=\\d+"), "page=$page")
+            } else {
+                val sep = if (baseUrl.contains("?")) "&" else "?"
+                "$baseUrl${sep}page=$page"
+            }
+        }
+    }
+
     val startLoading: (webView: WebView, loadUrl: String) -> Unit = { webView, loadUrl ->
         isLoading = true
         showLoadError = false
@@ -390,6 +404,33 @@ fun OtherWebPage(
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 super.onPageFinished(view, finishedUrl)
                 isLoading = false
+                // 1. 提取当前页面的 TID 和 初始传入 URL 的 TID
+                val currentTid = MangaTitleCleaner.extractTidFromUrl(finishedUrl ?: "")
+                val originalTid = MangaTitleCleaner.extractTidFromUrl(url)
+
+                // 2. 如果用户已经跳到了别的帖子，就停止保存书签
+                if (currentTid != null && originalTid != null && currentTid != originalTid) {
+                    return
+                }
+                val extractPage = { urlStr: String? ->
+                    var page = 1
+                    if (urlStr != null) {
+                        val pageMatch = Regex("page=(\\d+)").find(urlStr)
+                        if (pageMatch != null) {
+                            page = pageMatch.groupValues[1].toIntOrNull() ?: 1
+                        } else {
+                            // 兼容静态化 URL，如 thread-12345-2-1.html
+                            val threadMatch = Regex("thread-\\d+-(\\d+)").find(urlStr)
+                            if (threadMatch != null) {
+                                page = threadMatch.groupValues[1].toIntOrNull() ?: 1
+                            }
+                        }
+                    }
+                    page
+                }
+                // 3. 只有 TID 一致（或者是同一个帖子），才执行后续的页码提取和保存逻辑
+                val currentPageNum = extractPage(finishedUrl)
+
                 // 核心：即使是“其他”页面，加载完也做一次解析
                 val checkTypeJs = """
                     (function() {
@@ -411,8 +452,24 @@ fun OtherWebPage(
                     scope.launch(Dispatchers.IO) {
                         FavoriteUtil.getFavoriteMap { map ->
                             map[url]?.let { fav ->
+                                var changed = false
+                                var newFav = fav
+
+                                // 更新类型
                                 if (fav.type != typeCode) {
-                                    FavoriteUtil.updateFavorite(fav.copy(type = typeCode))
+                                    newFav = newFav.copy(type = typeCode)
+                                    changed = true
+                                }
+
+                                // 更新阅读进度（网页页数）
+                                if (fav.lastView != currentPageNum) {
+                                    newFav = newFav.copy(lastView = currentPageNum)
+                                    changed = true
+                                }
+
+                                // 只有发生改变时才写入 DataStore
+                                if (changed) {
+                                    FavoriteUtil.updateFavorite(newFav)
                                 }
                             }
                         }
@@ -449,7 +506,18 @@ fun OtherWebPage(
             }
         }
 
-        if (otherWebView.url == null) otherWebView.loadUrl(finalUrl)
+        if (otherWebView.url == null) {
+            FavoriteUtil.getFavoriteMap { map ->
+                // 从 DataStore 拿到该帖子上一次保存的页码
+                val lastSavedPage = map[url]?.lastView ?: 1
+                val startUrl = getPagedUrl(finalUrl, lastSavedPage)
+
+                // 必须回到主线程 loadUrl
+                scope.launch(Dispatchers.Main) {
+                    otherWebView.loadUrl(startUrl)
+                }
+            }
+        }
     }
 
     // 1. 监听大图退出状态，执行积压的跳转任务
@@ -564,11 +632,7 @@ fun OtherWebPage(
     }
 
     BackHandler(enabled = true) {
-        if (otherWebView.canGoBack()) {
-            otherWebView.goBack()
-        } else {
-            performExit()
-        }
+        performExit()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

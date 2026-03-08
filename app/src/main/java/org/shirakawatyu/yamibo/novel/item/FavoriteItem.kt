@@ -166,11 +166,13 @@ fun FavoriteItem(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Text(
-                        color = Color.Black.copy(alpha = 0.8f),
-                        fontSize = 12.sp,
-                        text = "上次读到第${lastPage + 1}页, 对应网页第${lastView}页"
-                    )
+                    if (type == 1) {
+                        Text(
+                            color = Color.Black.copy(alpha = 0.8f),
+                            fontSize = 12.sp,
+                            text = "上次读到第${lastPage + 1}页, 对应网页第${lastView}页"
+                        )
+                    }
                     if (cacheInfo != null && cacheInfo.totalPages > 0) {
                         Row(
                             modifier = Modifier.padding(top = 4.dp),
