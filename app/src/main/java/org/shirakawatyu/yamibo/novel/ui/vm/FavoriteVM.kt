@@ -305,4 +305,64 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             }
         }
     }
+    // ==================== 书签/进度管理功能 ====================
+
+    /**
+     * 清除单个收藏的书签和阅读进度
+     */
+    fun clearBookmark(url: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = allFavorites.map { fav ->
+                if (fav.url == url) {
+                    // 重置该项的所有进度相关字段
+                    fav.copy(
+                        lastPage = 0,
+                        lastView = 1,
+                        lastChapter = null,
+                        lastMangaUrl = null
+                    )
+                } else {
+                    fav
+                }
+            }
+
+            allFavorites = updated
+            FavoriteUtil.saveFavoriteOrder(updated) // 保存回 DataStore
+
+            val currentUiState = _uiState.value
+            viewModelScope.launch(Dispatchers.Main) {
+                _uiState.value = currentUiState.copy(
+                    favoriteList = if (currentUiState.isInManageMode) updated
+                    else updated.filter { !it.isHidden }
+                )
+            }
+        }
+    }
+
+    /**
+     * 清空所有收藏的书签和阅读进度
+     */
+    fun clearAllBookmarks() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = allFavorites.map { fav ->
+                fav.copy(
+                    lastPage = 0,
+                    lastView = 1,
+                    lastChapter = null,
+                    lastMangaUrl = null
+                )
+            }
+
+            allFavorites = updated
+            FavoriteUtil.saveFavoriteOrder(updated)
+
+            val currentUiState = _uiState.value
+            viewModelScope.launch(Dispatchers.Main) {
+                _uiState.value = currentUiState.copy(
+                    favoriteList = if (currentUiState.isInManageMode) updated
+                    else updated.filter { !it.isHidden }
+                )
+            }
+        }
+    }
 }

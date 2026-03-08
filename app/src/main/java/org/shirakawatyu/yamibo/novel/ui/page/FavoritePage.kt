@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
@@ -101,6 +102,8 @@ fun FavoritePage(
     LaunchedEffect(Unit) {
         favoriteVM.refreshCacheInfo()
     }
+    var showBookmarkManagement by remember { mutableStateOf(false) }
+
     SetStatusBarColor(YamiboColors.onSurface)
 
     // 监听生命周期，在onResume时只刷新网络列表
@@ -220,8 +223,26 @@ fun FavoritePage(
                                     end = 96.dp
                                 )
                             )
-
-                            // 菜单项 2: 管理收藏
+                            // 菜单项 2: 管理书签
+                            DropdownMenuItem(
+                                text = { Text("管理书签") },
+                                onClick = {
+                                    showBookmarkManagement = true
+                                    menuExpanded = false
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.DateRange, // 需要导入
+                                        contentDescription = "书签管理",
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                },
+                                contentPadding = PaddingValues(
+                                    start = 12.dp,
+                                    end = 96.dp
+                                )
+                            )
+                            // 菜单项 3: 管理收藏
                             DropdownMenuItem(
                                 text = { Text("管理收藏") },
                                 onClick = {
@@ -241,7 +262,7 @@ fun FavoritePage(
                                 )
                             )
 
-                            // 菜单项 3: 刷新列表
+                            // 菜单项 4: 刷新列表
                             DropdownMenuItem(
                                 text = { Text("刷新列表") },
                                 onClick = {
@@ -340,6 +361,19 @@ fun FavoritePage(
                 },
                 onClearAll = {
                     favoriteVM.clearAllCache()
+                }
+            )
+        }
+        // 书签管理对话框
+        if (showBookmarkManagement) {
+            BookmarkManagementDialog(
+                favoriteList = favoriteList,
+                onDismiss = { showBookmarkManagement = false },
+                onClearBookmark = { url ->
+                    favoriteVM.clearBookmark(url)
+                },
+                onClearAll = {
+                    favoriteVM.clearAllBookmarks()
                 }
             )
         }
@@ -566,6 +600,179 @@ fun CacheManagementDialog(
             onDismissRequest = { showClearAllConfirm = false },
             title = { Text("确认清空") },
             text = { Text("确定要清空所有缓存吗？此操作不可撤销。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onClearAll()
+                        showClearAllConfirm = false
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("清空")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+}
+
+// 在文件末尾添加书签管理对话框
+@Composable
+fun BookmarkManagementDialog(
+    favoriteList: List<Favorite>,
+    onDismiss: () -> Unit,
+    onClearBookmark: (String) -> Unit,
+    onClearAll: () -> Unit
+) {
+    var showClearAllConfirm by remember { mutableStateOf(false) }
+
+    // 筛选出存在阅读进度的收藏 (只要页数大于0、网页大于1、有最后章节名，或者有漫画URL，就算有进度)
+    val bookmarkedList = favoriteList.filter {
+        it.lastPage > 0 || it.lastView > 1 || !it.lastChapter.isNullOrEmpty() || !it.lastMangaUrl.isNullOrEmpty()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "书签与进度管理",
+                fontSize = 22.sp,
+                color = MaterialTheme.colorScheme.primary
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 500.dp)
+            ) {
+                if (bookmarkedList.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "总计: ${bookmarkedList.size} 个书签/进度",
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    // 有书签的作品列表
+                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                        items(
+                            items = bookmarkedList,
+                            key = { it.url }
+                        ) { favorite ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp, horizontal = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        favorite.title,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    // 优先显示章节名，没有的话显示页数信息
+                                    val progressText = if (!favorite.lastChapter.isNullOrEmpty()) {
+                                        favorite.lastChapter!!
+                                    } else {
+                                        "第${favorite.lastPage + 1}页 / 网页第${favorite.lastView}页"
+                                    }
+                                    Text(
+                                        progressText,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                IconButton(onClick = { onClearBookmark(favorite.url) }) {
+                                    Icon(
+                                        Icons.Default.Delete, "删除书签",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                } else {
+                    // 无进度提示
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DateRange,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "暂无书签/进度",
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "阅读过的小说或漫画进度\n将会在这里显示",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (bookmarkedList.isNotEmpty()) {
+                TextButton(
+                    onClick = { showClearAllConfirm = true },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("清空所有书签")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
+    )
+
+    // 清空确认对话框
+    if (showClearAllConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearAllConfirm = false },
+            title = { Text("确认清空") },
+            text = { Text("确定要清空所有书签和阅读进度吗？\n此操作不可撤销，阅读进度将会重置。") },
             confirmButton = {
                 TextButton(
                     onClick = {

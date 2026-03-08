@@ -48,8 +48,8 @@ class MangaHtmlParser {
                 val title = link.text()
                 val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: continue
                 val chapterNum = MangaTitleCleaner.extractChapterNum(title)
-
-                result.add(MangaChapterItem(tid, title, chapterNum, url, null, null))
+                val safeUrl = "https://bbs.yamibo.com/forum.php?mod=viewthread&tid=$tid&mobile=2"
+                result.add(MangaChapterItem(tid, title, chapterNum, safeUrl, null, null))
             }
             return result
         }
