@@ -288,18 +288,17 @@ class DirectoryRepository private constructor(private val context: Context) {
 
                 if (newChapters.isEmpty()) {
                     searchPerformed = true
-                    val res = performSearch(currentDir.cleanBookName)
+                    val rawTitleForSearch =
+                        currentDir.chapters.firstOrNull()?.rawTitle ?: currentDir.cleanBookName
+                    val res = performSearch(rawTitleForSearch)
                     if (res.isFailure) return@withContext Result.failure(res.exceptionOrNull()!!)
                     newChapters.addAll(res.getOrNull()!!)
                 }
             } else {
                 searchPerformed = true
-                val realSearchKey = if (currentDir.strategy == DirectoryStrategy.TAG) {
-                    currentDir.cleanBookName
-                } else {
-                    currentDir.sourceKey
-                }
-                val res = performSearch(realSearchKey)
+                val rawTitleForSearch =
+                    currentDir.chapters.firstOrNull()?.rawTitle ?: currentDir.cleanBookName
+                val res = performSearch(rawTitleForSearch)
                 if (res.isFailure) return@withContext Result.failure(res.exceptionOrNull()!!)
                 newChapters.addAll(res.getOrNull()!!)
             }
@@ -321,12 +320,12 @@ class DirectoryRepository private constructor(private val context: Context) {
         }
     }
 
-    private suspend fun performSearch(keyword: String): Result<List<MangaChapterItem>> {
+    private suspend fun performSearch(rawTitle: String): Result<List<MangaChapterItem>> {
         val now = System.currentTimeMillis()
         if (now - GlobalData.lastSearchTimestamp.get() < 30_000L) return Result.failure(Exception("搜索冷却中"))
         GlobalData.lastSearchTimestamp.set(now)
 
-        val safeKeyword = MangaTitleCleaner.getSearchKeyword(keyword)
+        val safeKeyword = MangaTitleCleaner.getSearchKeyword(rawTitle)
 
         // 1. 获取第一页数据
         val firstPageHtml = mangaApi.searchForum(keyword = safeKeyword).string()
