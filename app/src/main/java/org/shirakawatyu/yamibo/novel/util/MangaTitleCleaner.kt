@@ -173,8 +173,7 @@ class MangaTitleCleaner {
         }
 
         /**
-         * 【新增】将中文数字/阿拉伯数字统一解析为 Float 浮点数
-         * 完美支持 "八", "十一", "一百零八" 等汉化组常见编号
+         * 将中文数字/阿拉伯数字统一解析为 Float 浮点数
          */
         private fun parseNumber(numStr: String): Float {
             // 如果本来就是阿拉伯数字，直接返回
