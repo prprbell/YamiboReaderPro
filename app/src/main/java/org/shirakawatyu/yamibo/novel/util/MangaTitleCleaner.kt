@@ -48,7 +48,7 @@ class MangaTitleCleaner {
         }
 
         /**
-         * 【新增的终极兜底策略】：提取核心搜索词
+         * 提取核心搜索词
          * 哪怕展示的标题残留了脏数据，只要提取前几个核心字去搜，就能百发百中
          */
         fun getSearchKeyword(cleanName: String): String {
@@ -64,8 +64,9 @@ class MangaTitleCleaner {
             if (keyword.length > 12) {
                 keyword = keyword.substring(0, 12).trim()
             }
-            keyword = keyword.replace(Regex("\\s*\\d+$"), "").trim()
-            return keyword
+            val refined = keyword.replace(Regex("\\s*\\d+$"), "").trim()
+
+            return refined.ifBlank { keyword }
         }
 
         /**

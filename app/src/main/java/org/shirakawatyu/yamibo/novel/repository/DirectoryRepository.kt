@@ -241,7 +241,12 @@ class DirectoryRepository private constructor(private val context: Context) {
                     }
                 } else {
                     searchPerformed = true
-                    val res = performSearch(currentDir.sourceKey)
+                    val realSearchKey = if (currentDir.strategy == DirectoryStrategy.TAG) {
+                        currentDir.cleanBookName
+                    } else {
+                        currentDir.sourceKey
+                    }
+                    val res = performSearch(realSearchKey)
                     if (res.isFailure) return@withContext Result.failure(res.exceptionOrNull()!!)
                     newChapters.addAll(res.getOrNull()!!)
                 }

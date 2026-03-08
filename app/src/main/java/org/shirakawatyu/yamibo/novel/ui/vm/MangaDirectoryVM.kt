@@ -77,8 +77,12 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
                     // 如果是 TAG 更新成功，开启 5s 的“全局搜索”窗口期
                     triggerSearchShortcutWindow()
                 }
-            }.onFailure {
-                startDirectoryCooldown(3)
+            }.onFailure { error ->
+                if (error.message?.contains("搜索冷却") == true) {
+                    startDirectoryCooldown(30)
+                } else {
+                    startDirectoryCooldown(5)
+                }
             }
             isUpdatingDirectory = false
         }
