@@ -51,22 +51,42 @@ class MangaTitleCleaner {
          * 提取核心搜索词
          * 哪怕展示的标题残留了脏数据，只要提取前几个核心字去搜，就能百发百中
          */
-        fun getSearchKeyword(cleanName: String): String {
-            // 兜底 1：遇到任何常见的“副标题分割符”或括号、空格，直接切断，只取第一块
+        fun getSearchKeyword(rawTitle: String, cleanName: String): String {
+            // 1. 先按原逻辑提取出核心关键词
             val chunks = cleanName.split(Regex("[-—\\s|｜(（:：！？\\?!]"))
             var keyword = chunks.firstOrNull { it.isNotBlank() } ?: cleanName
-            // 兜底 2：如果切出来的第一块实在太短（比如只有一个字），用单字搜索会搜出几百个无关帖子
+
+            // 兜底 2 & 3
             if (keyword.length < 2) {
                 keyword = if (cleanName.length > 4) cleanName.substring(0, 4) else cleanName
             }
-
-            // 兜底 3：防超长Discuz报错
             if (keyword.length > 12) {
                 keyword = keyword.substring(0, 12).trim()
             }
             val refined = keyword.replace(Regex("\\s*\\d+$"), "").trim()
+            val finalKeyword = refined.ifBlank { keyword }
 
-            return refined.ifBlank { keyword }
+            // 2. 截取核心关键词前面的“前缀”部分
+            // 这样做是为了防止误抓到标题尾部的 [完结] 等无关方括号
+            val prefix = rawTitle.substringBefore(finalKeyword)
+
+            // 3. 在前缀中寻找最后一个中文【】或英文[]方括号
+            val bracketMatch = Regex("【(.*?)】|\\[(.*?)\\]").findAll(prefix).lastOrNull()
+
+            if (bracketMatch != null) {
+                // groupValues[1] 是【】里的内容，groupValues[2] 是[]里的内容
+                // 取出里面真正的文字内容，去除两边的括号实体
+                val bracketContent =
+                    bracketMatch.groupValues[1].ifEmpty { bracketMatch.groupValues[2] }.trim()
+
+                if (bracketContent.isNotBlank()) {
+                    // 将 方括号内容 + 空格 + 核心关键词 拼接返回
+                    return "$bracketContent $finalKeyword"
+                }
+            }
+
+            // 如果没找到方括号，就直接返回原来的关键词
+            return finalKeyword
         }
 
         /**
