@@ -285,7 +285,13 @@ fun MangaWebPage(
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             mangaWebView.evaluateJavascript(
-                "var style = document.getElementById('manga-transition-style'); if (style) style.remove();",
+                """
+                (function() {
+                    var style = document.getElementById('manga-transition-style');
+                    if (style) style.remove();
+                    window.pswpObserverAttached = false;
+                })();
+                """.trimIndent(),
                 null
             )
             pendingNavigateUrl?.let { navigateUrl ->
@@ -313,11 +319,8 @@ fun MangaWebPage(
                             }
                         };
                         updateProgress();
-                        if (!window.pswpObserverAttached) {
-                            var observer = new MutationObserver(updateProgress);
-                            observer.observe(counter, { childList: true, characterData: true, subtree: true });
-                            window.pswpObserverAttached = true;
-                        }
+                        var observer = new MutationObserver(updateProgress);
+                        observer.observe(counter, { childList: true, characterData: true, subtree: true });
                     }
                 }, 500);
             """.trimIndent()

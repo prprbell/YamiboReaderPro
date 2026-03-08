@@ -281,15 +281,17 @@ fun MinePage(
     // 2. 统一处理全屏状态变化时的核心业务逻辑（脱下隐身衣、网页跳转、解析目录）
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
-            // 【核心修复 1】：退出大图时，务必撕掉网页的纯黑隐身衣！让原帖重新显示出来！
             mineWebView.evaluateJavascript(
                 """
-                var style = document.getElementById('manga-transition-style');
-                if (style) style.remove();
-            """.trimIndent(), null
+                (function() {
+                    var style = document.getElementById('manga-transition-style');
+                    if (style) style.remove();
+                    window.pswpObserverAttached = false; // 重置标记，确保下次进入能重新绑定
+                })();
+                """.trimIndent(),
+                null
             )
-
-            // 【核心修复 2】：处理积压的“下一话”跳转任务
+            // 处理积压的“下一话”跳转任务
             pendingNavigateUrl?.let { url ->
                 isLoading = true
                 mineWebView.loadUrl(url)
@@ -306,7 +308,7 @@ fun MinePage(
                     var counter = document.querySelector('.pswp__counter');
                     if (counter) {
                         var updateProgress = function() {
-                            var text = counter.innerText || ''; // 例如 "1 / 3"
+                            var text = counter.innerText || '';
                             var parts = text.split('/');
                             if (parts.length === 2) {
                                 var current = parseInt(parts[0].trim());
@@ -316,15 +318,11 @@ fun MinePage(
                                 }
                             }
                         };
-                        updateProgress(); // 立即执行一次
-                        // 挂载监听器，防止重复挂载
-                        if (!window.pswpObserverAttached) {
-                            var observer = new MutationObserver(updateProgress);
-                            observer.observe(counter, { childList: true, characterData: true, subtree: true });
-                            window.pswpObserverAttached = true;
-                        }
+                        updateProgress();
+                        var observer = new MutationObserver(updateProgress);
+                        observer.observe(counter, { childList: true, characterData: true, subtree: true });
                     }
-                }, 500); // 稍微延迟，等 pswp 的 DOM 渲染完毕
+                }, 500);
             """.trimIndent()
             mineWebView.evaluateJavascript(observerJs, null)
             // 大图模式下，抓取并解析当前页面的目录

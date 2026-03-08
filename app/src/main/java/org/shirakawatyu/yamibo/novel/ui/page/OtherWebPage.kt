@@ -315,7 +315,13 @@ fun OtherWebPage(
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             otherWebView.evaluateJavascript(
-                "var style = document.getElementById('manga-transition-style'); if (style) style.remove();",
+                """
+                (function() {
+                    var style = document.getElementById('manga-transition-style');
+                    if (style) style.remove();
+                    window.pswpObserverAttached = false; // 重置标记，确保下次进入能重新绑定
+                })();
+                """.trimIndent(),
                 null
             )
             pendingNavigateUrl?.let { navigateUrl ->
@@ -342,11 +348,8 @@ fun OtherWebPage(
                             }
                         };
                         updateProgress();
-                        if (!window.pswpObserverAttached) {
-                            var observer = new MutationObserver(updateProgress);
-                            observer.observe(counter, { childList: true, characterData: true, subtree: true });
-                            window.pswpObserverAttached = true;
-                        }
+                        var observer = new MutationObserver(updateProgress);
+                        observer.observe(counter, { childList: true, characterData: true, subtree: true });
                     }
                 }, 500);
             """.trimIndent()
