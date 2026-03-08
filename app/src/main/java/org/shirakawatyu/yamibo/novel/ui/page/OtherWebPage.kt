@@ -84,7 +84,7 @@ import java.net.URLEncoder
 private val hideCommand = """
     javascript:(function() {
         var style = document.createElement('style');
-        style.innerHTML = '.my { display: none !important; }';
+        style.innerHTML = '.my, .mz { visibility: hidden !important; pointer-events: none !important; }';
         document.head.appendChild(style);
     })()
 """.trimIndent()
@@ -156,6 +156,39 @@ fun OtherWebPage(
     val view = LocalView.current
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
+    val originalStatusBarColor =
+        remember { mutableIntStateOf(activity?.window?.statusBarColor ?: 0) }
+    val originalLightStatusBars = remember {
+        mutableStateOf(activity?.window?.let {
+            WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars
+        } ?: false)
+    }
+
+    var isExiting by remember { mutableStateOf(false) }
+
+    if (!isExiting) {
+        SetStatusBarColor(YamiboColors.primary)
+    }
+    val performExit = {
+        isExiting = true // 阻止 Compose 继续刷当前页的颜色
+        val window = activity?.window
+        if (window != null) {
+            val controller = WindowCompat.getInsetsController(window, view)
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+
+            // 把状态栏颜色和图标颜色完美恢复成进入前的样子
+            window.statusBarColor = originalStatusBarColor.intValue
+            controller.isAppearanceLightStatusBars = originalLightStatusBars.value
+
+            controller.show(WindowInsetsCompat.Type.systemBars())
+            bottomNavBarVM.setBottomNavBarVisibility(true)
+
+            view.post { navController.navigateUp() }
+        } else {
+            bottomNavBarVM.setBottomNavBarVisibility(true)
+            navController.navigateUp()
+        }
+    }
 
     fun runTimeout(webView: WebView, onTimeout: () -> Unit) {
         timeoutJob?.cancel()
@@ -531,7 +564,11 @@ fun OtherWebPage(
     }
 
     BackHandler(enabled = true) {
-        if (canGoBack) otherWebView.goBack() else navController.navigateUp()
+        if (otherWebView.canGoBack()) {
+            otherWebView.goBack()
+        } else {
+            performExit()
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

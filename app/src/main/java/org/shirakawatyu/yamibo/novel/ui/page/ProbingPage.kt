@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
+import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
 import java.net.URLEncoder
@@ -47,7 +48,7 @@ fun ProbingPage(url: String, navController: NavController) {
         color = MaterialTheme.colorScheme.background
     ) {
         Box(contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = Color.White)
+            CircularProgressIndicator(color = YamiboColors.primary)
 
             AndroidView(
                 factory = {
@@ -70,9 +71,9 @@ fun ProbingPage(url: String, navController: NavController) {
                                     var sectionHeader = document.querySelector('.header h2 a');
                                     var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
                                     var currentUrl = window.location.href;
-                                    var mangaSections = ['中文百合漫画区', '貼圖區', '原创图作区', '百合漫画图源区'];
+                                    var mangaSections = ['中文百合漫画区', '贴图区', '貼圖區', '原创图作区', '百合漫画图源区'];
                                     var isManga = mangaSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=30') !== -1;
-                                    var novelSections = ['文学区', '轻小说/译文区', 'TXT小说区'];
+                                    var novelSections = ['文學區', '文学区', '轻小说/译文区', 'TXT小说区'];
                                     var isNovel = novelSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=55') !== -1;
                                     if (isNovel) return 1;
                                     if (isManga) return 2;
@@ -95,7 +96,7 @@ fun ProbingPage(url: String, navController: NavController) {
                                             val encoded = URLEncoder.encode(url, "utf-8")
                                             val route = when (type) {
                                                 1 -> "ReaderPage/$encoded"
-                                                2 -> "MangaWebPage/$encoded"
+                                                2 -> "MangaWebPage/$encoded/$encoded"
                                                 else -> "OtherWebPage/$encoded"
                                             }
                                             navController.navigate(route) {

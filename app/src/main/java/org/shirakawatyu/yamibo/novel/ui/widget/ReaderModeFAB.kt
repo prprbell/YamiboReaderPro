@@ -7,6 +7,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -18,8 +19,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 
 /**
  * 阅读模式悬浮按钮
- * 
- * @param visible 是否显示按钮
+ * * @param visible 是否显示按钮
  * @param onClick 点击回调
  * @param modifier 修饰符
  */
@@ -39,6 +39,12 @@ fun ReaderModeFAB(
             onClick = onClick,
             containerColor = YamiboColors.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
+            elevation = FloatingActionButtonDefaults.elevation(
+                defaultElevation = 0.dp,
+                pressedElevation = 0.dp,
+                focusedElevation = 0.dp,
+                hoveredElevation = 0.dp
+            ),
             modifier = Modifier.padding(16.dp)
         ) {
             Icon(

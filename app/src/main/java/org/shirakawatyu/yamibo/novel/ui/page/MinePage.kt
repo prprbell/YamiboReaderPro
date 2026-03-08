@@ -139,14 +139,15 @@ fun MinePage(
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
+    var pageTitle by remember { mutableStateOf("") }
     var showChapterList by remember { mutableStateOf(false) }
     var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
     var currentImageIndex by remember { mutableFloatStateOf(1f) }
     var totalImageCount by remember { mutableFloatStateOf(1f) }
 
-    val canConvertToReader = remember(currentUrl) {
-        ReaderModeDetector.canConvertToReaderMode(currentUrl)
+    val canConvertToReader = remember(currentUrl, pageTitle) {
+        ReaderModeDetector.canConvertToReaderMode(currentUrl, pageTitle)
     }
     val mangaDirVM: MangaDirectoryVM = viewModel(
         factory = ViewModelFactory(LocalContext.current.applicationContext)
@@ -363,6 +364,9 @@ fun MinePage(
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageCommitVisible(view: WebView?, url: String?) {
                 super.onPageCommitVisible(view, url)
+
+                pageTitle = view?.title ?: ""
+
                 // 页面内容已可见，立即停止加载圈
                 if (isLoading) {
                     timeoutJob?.cancel()
