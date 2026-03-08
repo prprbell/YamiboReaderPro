@@ -560,7 +560,29 @@ fun MangaWebPage(
             performExit()
         }
     }
+    LaunchedEffect(mangaDirVM.currentDirectory, currentUrl) {
+        val dir = mangaDirVM.currentDirectory ?: return@LaunchedEffect
+        val url = currentUrl ?: return@LaunchedEffect
+        val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: return@LaunchedEffect
 
+        // 在目录中查找当前页面 TID 对应的章节
+        val currentChapter = dir.chapters.find { it.tid == tid }
+        if (currentChapter != null) {
+            val shortTitle = when {
+                currentChapter.chapterNum >= 1000f -> "番外"
+                currentChapter.chapterNum % 1f == 0f -> "读至第 ${currentChapter.chapterNum.toInt()} 话"
+                else -> "读至第 ${currentChapter.chapterNum} 话"
+            }
+
+            // 自动刷新书签。这样即便用户是从收藏夹点进来的，
+            // 只要一进页面，进度就会自动刷新，保证列表页显示正确。
+            favoriteVM.updateMangaProgress(
+                favoriteUrl = originalFavoriteUrl,
+                chapterUrl = url,
+                chapterTitle = shortTitle
+            )
+        }
+    }
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { (mangaWebView.parent as? ViewGroup)?.removeView(mangaWebView); mangaWebView },
