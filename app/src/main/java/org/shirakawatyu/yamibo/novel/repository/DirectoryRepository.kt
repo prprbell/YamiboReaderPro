@@ -365,4 +365,58 @@ class DirectoryRepository private constructor(private val context: Context) {
         new.forEach { map[it.tid] = it }
         return map.values.sortedWith(compareBy({ it.groupIndex }, { it.chapterNum }))
     }
+    // ==================== 目录管理功能 ====================
+
+    /**
+     * 获取所有本地保存的目录
+     */
+    suspend fun getAllDirectories(): List<MangaDirectory> = withContext(Dispatchers.IO) {
+        val dir = File(context.filesDir, DIRECTORY_DIR)
+        if (!dir.exists()) return@withContext emptyList()
+
+        val files = dir.listFiles { _, name -> name.endsWith("_dir.json") }
+            ?: return@withContext emptyList()
+        files.mapNotNull { file ->
+            try {
+                JSON.parseObject(file.readText(), MangaDirectory::class.java).also {
+                    // 同步到内存缓存
+                    if (it != null) memoryCache[it.cleanBookName] = it
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }.sortedByDescending { it.lastUpdateTime } // 按最后更新时间降序排列
+    }
+
+    /**
+     * 删除指定漫画的本地目录
+     */
+    suspend fun deleteDirectory(cleanName: String): Boolean = withContext(Dispatchers.IO) {
+        getFileLock(cleanName).withLock {
+            memoryCache.remove(cleanName)
+            val file = getDirectoryFile(cleanName)
+            if (file.exists()) {
+                file.delete()
+            } else {
+                false
+            }
+        }
+    }
+
+    /**
+     * 清空所有本地目录
+     */
+    suspend fun clearAllDirectories(): Boolean = withContext(Dispatchers.IO) {
+        val dir = File(context.filesDir, DIRECTORY_DIR)
+        if (!dir.exists()) return@withContext true
+
+        memoryCache.clear()
+        val files =
+            dir.listFiles { _, name -> name.endsWith("_dir.json") } ?: return@withContext true
+        var allDeleted = true
+        for (file in files) {
+            if (!file.delete()) allDeleted = false
+        }
+        allDeleted
+    }
 }

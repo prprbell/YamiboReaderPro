@@ -365,4 +365,41 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             }
         }
     }
+    // ==================== 目录管理功能 ====================
+
+    fun getDirectoryList(callback: (List<org.shirakawatyu.yamibo.novel.bean.MangaDirectory>) -> Unit) {
+        viewModelScope.launch {
+            val repo = org.shirakawatyu.yamibo.novel.repository.DirectoryRepository.getInstance(
+                applicationContext
+            )
+            val dirs = repo.getAllDirectories()
+            viewModelScope.launch(Dispatchers.Main) {
+                callback(dirs)
+            }
+        }
+    }
+
+    fun deleteDirectory(cleanName: String, callback: () -> Unit) {
+        viewModelScope.launch {
+            val repo = org.shirakawatyu.yamibo.novel.repository.DirectoryRepository.getInstance(
+                applicationContext
+            )
+            repo.deleteDirectory(cleanName)
+            viewModelScope.launch(Dispatchers.Main) {
+                callback()
+            }
+        }
+    }
+
+    fun clearAllDirectories(callback: () -> Unit) {
+        viewModelScope.launch {
+            val repo = org.shirakawatyu.yamibo.novel.repository.DirectoryRepository.getInstance(
+                applicationContext
+            )
+            repo.clearAllDirectories()
+            viewModelScope.launch(Dispatchers.Main) {
+                callback()
+            }
+        }
+    }
 }
