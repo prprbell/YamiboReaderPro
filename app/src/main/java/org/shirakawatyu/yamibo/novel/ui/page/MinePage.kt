@@ -791,7 +791,12 @@ fun MinePage(
                 chapters = displayChapters,
                 isUpdating = mangaDirVM.isUpdatingDirectory,
                 cooldownSeconds = mangaDirVM.directoryCooldown,
-                onUpdateClick = { mangaDirVM.updateMangaDirectory() },
+                strategy = currentDir?.strategy,
+                showSearchShortcut = mangaDirVM.showSearchShortcut,
+                searchShortcutCountdown = mangaDirVM.searchShortcutCountdown,
+                onUpdateClick = { isForced ->
+                    mangaDirVM.updateMangaDirectory(isForced)
+                },
                 onDismiss = { showChapterList = false },
                 onChapterClick = { chapter ->
                     showChapterList = false

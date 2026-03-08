@@ -851,9 +851,14 @@ fun BBSPage(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 title = currentDir?.cleanBookName ?: "加载中...",
                 chapters = displayChapters,
-                isUpdating = mangaDirVM.isUpdatingDirectory,       // 传入更新状态
-                cooldownSeconds = mangaDirVM.directoryCooldown,    // 传入冷却秒数
-                onUpdateClick = { mangaDirVM.updateMangaDirectory() }, // 绑定点击事件
+                isUpdating = mangaDirVM.isUpdatingDirectory,
+                cooldownSeconds = mangaDirVM.directoryCooldown,
+                strategy = currentDir?.strategy,
+                showSearchShortcut = mangaDirVM.showSearchShortcut,
+                searchShortcutCountdown = mangaDirVM.searchShortcutCountdown,
+                onUpdateClick = { isForced ->
+                    mangaDirVM.updateMangaDirectory(isForced)
+                },
                 onDismiss = { showChapterList = false },
                 onChapterClick = { chapter ->
                     showChapterList = false

@@ -86,6 +86,14 @@ class MangaTitleCleaner {
             // 第二步：提取主话数
             // ==========================================
             var baseNum = -1f
+            val circleMap = mapOf(
+                '①' to 0.1f, '②' to 0.2f, '③' to 0.3f, '④' to 0.4f, '⑤' to 0.5f,
+                '⑥' to 0.6f, '⑦' to 0.7f, '⑧' to 0.8f, '⑨' to 0.9f
+            )
+            val circleMatch = Regex("[①②③④⑤⑥⑦⑧⑨]").find(cleanTitle)
+            if (circleMatch != null) {
+                subModifier = circleMap[circleMatch.value[0]] ?: 0f
+            }
 
             // 规则 1: (第)?X话其Y (e.g., "1话其2" -> 1.02f)
             val matchQi =

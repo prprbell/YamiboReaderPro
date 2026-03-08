@@ -606,8 +606,10 @@ fun MangaWebPage(
         // 全屏 UI (目录和滑动条)
         AnimatedVisibility(
             visible = isFullscreenState.value && isFullscreenUiVisible.value,
-            enter = androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.fadeOut(),
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(
+                initialOffsetY = { it / 2 }),
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(
+                targetOffsetY = { it / 2 }),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 32.dp)
@@ -663,7 +665,9 @@ fun MangaWebPage(
                                     alpha = 0.8f
                                 ),
                                 activeTrackColor = YamiboColors.secondary.copy(alpha = 0.5f),
-                                inactiveTrackColor = Color.White.copy(alpha = 0.1f)
+                                inactiveTrackColor = Color.White.copy(alpha = 0.1f),
+                                inactiveTickColor = Color.Transparent,
+                                activeTickColor = Color.Transparent
                             )
                         )
                         Text("${totalImageCount.toInt()}", color = Color.White, fontSize = 12.sp)
@@ -692,7 +696,12 @@ fun MangaWebPage(
                 chapters = displayChapters,
                 isUpdating = mangaDirVM.isUpdatingDirectory,
                 cooldownSeconds = mangaDirVM.directoryCooldown,
-                onUpdateClick = { mangaDirVM.updateMangaDirectory() },
+                strategy = currentDir?.strategy,
+                showSearchShortcut = mangaDirVM.showSearchShortcut,
+                searchShortcutCountdown = mangaDirVM.searchShortcutCountdown,
+                onUpdateClick = { isForced ->
+                    mangaDirVM.updateMangaDirectory(isForced)
+                },
                 onDismiss = { showChapterList = false },
                 onChapterClick = { chapter ->
                     showChapterList = false

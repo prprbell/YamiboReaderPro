@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy
 
 private val BgSheet = Color(0xFF111318)
 private val BgItem = Color(0xFF1C2028)
@@ -76,7 +77,10 @@ fun MangaChapterPanel(
     chapters: List<MangaChapter>,
     isUpdating: Boolean = false,
     cooldownSeconds: Int = 0,
-    onUpdateClick: () -> Unit = {},
+    strategy: DirectoryStrategy? = null,
+    showSearchShortcut: Boolean = false,
+    searchShortcutCountdown: Int = 0,
+    onUpdateClick: (isForced: Boolean) -> Unit,
     onDismiss: () -> Unit,
     onChapterClick: (MangaChapter) -> Unit
 ) {
@@ -93,6 +97,21 @@ fun MangaChapterPanel(
     val scope = rememberCoroutineScope()
 
     var dragJob by remember { mutableStateOf<Job?>(null) }
+    val isSearchMode = strategy != DirectoryStrategy.TAG || showSearchShortcut
+    val canUpdate = !isUpdating && cooldownSeconds <= 0
+
+    // buttonText 里用上倒计时
+    val buttonText = when {
+        isUpdating -> "更新中"
+        cooldownSeconds > 0 -> "${cooldownSeconds}s"
+        isSearchMode -> if (searchShortcutCountdown > 0) "全局搜索 ${searchShortcutCountdown}s" else "全局搜索"
+        else -> "更新"
+    }
+    val buttonBgColor = when {
+        !canUpdate -> Color(0xFF2A2D35) // 禁用色
+        isSearchMode -> Color(0xFF6366F1) // 全局搜索：蓝色/紫色
+        else -> Accent // 普通更新：原有橙色
+    }
 
     LaunchedEffect(sorted) {
         val index = sorted.indexOfFirst { it.isCurrent }
@@ -260,8 +279,10 @@ fun MangaChapterPanel(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .clickable(enabled = canUpdate) { onUpdateClick() }
-                                    .background(if (canUpdate) Accent else Color(0xFF2A2D35))
+                                    .clickable(enabled = canUpdate) {
+                                        onUpdateClick(isSearchMode)
+                                    }
+                                    .background(buttonBgColor)
                                     .padding(horizontal = 12.dp, vertical = 5.dp),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -282,8 +303,12 @@ fun MangaChapterPanel(
                                     }
                                 } else {
                                     Text(
-                                        text = if (cooldownSeconds > 0) "${cooldownSeconds}s" else "更新",
-                                        color = if (canUpdate) Color(0xFF111318) else TextSec,
+                                        text = buttonText,
+                                        color = when {
+                                            !canUpdate -> TextSec
+                                            isSearchMode -> Color.White   // 蓝紫底色配白字
+                                            else -> Color(0xFF111318)     // 橙色底色配深字
+                                        },
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold
                                     )

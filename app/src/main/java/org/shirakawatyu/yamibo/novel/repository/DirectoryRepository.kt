@@ -187,12 +187,15 @@ class DirectoryRepository private constructor(private val context: Context) {
         }
     }
 
-    suspend fun manuallyUpdateDirectory(currentDir: MangaDirectory): Result<DirectoryUpdateResult> =
+    suspend fun manuallyUpdateDirectory(
+        currentDir: MangaDirectory,
+        forceSearch: Boolean = false
+    ): Result<DirectoryUpdateResult> =
         withContext(Dispatchers.IO) {
             val newChapters = mutableListOf<MangaChapterItem>()
             var searchPerformed = false
             try {
-                if (currentDir.strategy == DirectoryStrategy.TAG) {
+                if (!forceSearch && currentDir.strategy == DirectoryStrategy.TAG) {
                     val tagIdList = currentDir.sourceKey.split(",")
                     for ((index, tagId) in tagIdList.withIndex()) {
                         if (tagId.isBlank()) continue

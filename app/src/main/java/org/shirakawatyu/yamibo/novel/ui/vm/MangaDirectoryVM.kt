@@ -1,7 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.vm
 
 import android.app.Application
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -10,7 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy // 【新增导入】
+import org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy
 import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
 import org.shirakawatyu.yamibo.novel.repository.DirectoryRepository
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
@@ -29,6 +28,11 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
 
     // 更新按钮的冷却时间 (秒)
     var directoryCooldown by mutableIntStateOf(0)
+        private set
+
+    var showSearchShortcut by mutableStateOf(false)
+        private set
+    var searchShortcutCountdown by mutableIntStateOf(0)
         private set
 
     /**
@@ -53,23 +57,42 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
     /**
      * 触发目录更新 (连接到 MangaChapterBottomSheet 的更新按钮)
      */
-    fun updateMangaDirectory() {
+    fun updateMangaDirectory(isForced: Boolean = false) {
         val dir = currentDirectory ?: return
         if (isUpdatingDirectory || directoryCooldown > 0) return
 
         viewModelScope.launch {
             isUpdatingDirectory = true
-            val result = repo.manuallyUpdateDirectory(dir)
+            showSearchShortcut = false // 开始更新时关闭窗口
+
+            val result = repo.manuallyUpdateDirectory(dir, forceSearch = isForced)
 
             result.onSuccess { updateResult ->
                 currentDirectory = updateResult.directory
-                val cooldown = if (updateResult.searchPerformed) 30 else 5
-                startDirectoryCooldown(cooldown)
-            }.onFailure { e ->
-                Log.e(logTag, "Update failed", e)
-                startDirectoryCooldown(3) // 失败给 3s 缓冲
+
+                if (updateResult.searchPerformed) {
+                    // 如果执行了搜索（无论是强制还是自动降级），进入 30s 冷却
+                    startDirectoryCooldown(30)
+                } else {
+                    // 如果是 TAG 更新成功，开启 5s 的“全局搜索”窗口期
+                    triggerSearchShortcutWindow()
+                }
+            }.onFailure {
+                startDirectoryCooldown(3)
             }
             isUpdatingDirectory = false
+        }
+    }
+
+    private fun triggerSearchShortcutWindow() {
+        viewModelScope.launch {
+            showSearchShortcut = true
+            searchShortcutCountdown = 5
+            while (searchShortcutCountdown > 0) {
+                delay(1000)
+                searchShortcutCountdown--
+            }
+            showSearchShortcut = false
         }
     }
 
