@@ -128,7 +128,7 @@ fun FavoriteItem(
 
             Spacer(
                 modifier = Modifier
-                    .width(2.5.dp)
+                    .width(3.dp)
                     .fillMaxHeight()
                     .align(Alignment.CenterStart)
                     .background(
