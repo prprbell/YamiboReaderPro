@@ -143,6 +143,7 @@ fun OtherWebPage(
     var autoOpenMangaMode by remember { mutableStateOf(false) }
     var currentImageIndex by remember { mutableFloatStateOf(1f) }
     var totalImageCount by remember { mutableFloatStateOf(1f) }
+    var isMangaSection by remember { mutableStateOf(false) }
 
     val canConvertToReader = remember(currentUrl) {
         ReaderModeDetector.canConvertToReaderMode(currentUrl)
@@ -401,6 +402,21 @@ fun OtherWebPage(
                     isLoading = false
                     showLoadError = false
                 }
+                view?.evaluateJavascript(
+                    """
+                    (function(){
+                        var a = document.querySelector('.header h2 a');
+                        if (!a) return false;
+                        var t = a.innerText;
+                        return t.indexOf('中文百合漫画区') !== -1 || 
+                               t.indexOf('貼圖區') !== -1 || 
+                               t.indexOf('原创图作区') !== -1 || 
+                               t.indexOf('百合漫画图源区') !== -1;
+                    })()
+                    """.trimIndent()
+                ) { result ->
+                    isMangaSection = result == "true"
+                }
             }
 
             @RequiresApi(Build.VERSION_CODES.M)
@@ -477,6 +493,21 @@ fun OtherWebPage(
                             }
                         }
                     }
+                }
+                view?.evaluateJavascript(
+                    """
+                    (function(){
+                        var a = document.querySelector('.header h2 a');
+                        if (!a) return false;
+                        var t = a.innerText;
+                        return t.indexOf('中文百合漫画区') !== -1 || 
+                               t.indexOf('貼圖區') !== -1 || 
+                               t.indexOf('原创图作区') !== -1 || 
+                               t.indexOf('百合漫画图源区') !== -1;
+                    })()
+                    """.trimIndent()
+                ) { result ->
+                    isMangaSection = result == "true"
                 }
             }
 
@@ -708,21 +739,29 @@ fun OtherWebPage(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Button(
-                    onClick = { showChapterList = true },
-                    modifier = Modifier.fillMaxWidth(0.4f),
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                        containerColor = Color.Black.copy(
-                            alpha = 0.6f
-                        ), contentColor = Color.White
-                    )
-                ) {
-                    Icon(Icons.Default.Menu, "目录", Modifier.size(18.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text("目录")
-                }
+                if (isMangaSection) {
+                    // 原有的目录按钮
+                    Button(
+                        onClick = {
+                            showChapterList = true
+                        },
+                        modifier = Modifier.fillMaxWidth(0.4f),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = Color.Black.copy(alpha = 0.6f),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "目录",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Text("目录")
+                    }
 
-                Spacer(Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
 
                 if (totalImageCount > 1f) {
                     Row(
