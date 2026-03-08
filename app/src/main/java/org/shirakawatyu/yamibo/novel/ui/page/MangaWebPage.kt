@@ -613,7 +613,7 @@ fun MangaWebPage(
                 targetOffsetY = { it / 2 }),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 32.dp)
+                .padding(bottom = 24.dp)
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -633,7 +633,7 @@ fun MangaWebPage(
                     Text("目录")
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(4.dp))
 
                 if (totalImageCount > 1f) {
                     Row(

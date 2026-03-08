@@ -687,7 +687,7 @@ fun MinePage(
                 targetOffsetY = { it / 2 }),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 32.dp) // 【修改】稍微减少底部距离，给滑动条腾位置
+                .padding(bottom = 24.dp)
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -713,7 +713,7 @@ fun MinePage(
                     Text("目录")
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 // 【新增】图片滑动条组件 (仅在图片总数 > 1 时显示)
                 if (totalImageCount > 1f) {

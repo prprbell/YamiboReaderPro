@@ -635,7 +635,7 @@ fun OtherWebPage(
             exit = androidx.compose.animation.fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 32.dp)
+                .padding(bottom = 24.dp)
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -655,7 +655,7 @@ fun OtherWebPage(
                     Text("目录")
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(4.dp))
 
                 if (totalImageCount > 1f) {
                     Row(
