@@ -938,14 +938,6 @@ fun DirectoryManagementDialog(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        "包含 ${dir.chapters.size} 章 · 检索方式: ${dir.strategy.name}",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
                                 }
                                 IconButton(onClick = { onDeleteDirectory(dir.cleanBookName) }) {
                                     Icon(
