@@ -96,6 +96,9 @@ class DirectoryRepository private constructor(private val context: Context) {
      * 核心动作 1：初次进入帖子。
      * 逻辑：无论是否有缓存，都尝试提取当前页超链接并合并，实现“动态补完”目录。
      */
+    /**
+     * 核心动作 1：初次进入帖子。
+     */
     suspend fun initDirectoryForThread(
         tid: String,
         currentUrl: String,
@@ -105,13 +108,9 @@ class DirectoryRepository private constructor(private val context: Context) {
         val cleanName = MangaTitleCleaner.getCleanBookName(rawTitle)
 
         return getFileLock(cleanName).withLock {
-            // 1. 获取现有缓存
             val cachedDir = loadDirectory(cleanName)
-
-            // 2. 【核心修复】：无论是否有缓存，每次进入都尝试提取当前页面的“白嫖”超链接
             val samePageLinks = MangaHtmlParser.extractSamePageLinks(mobileHtml)
 
-            // 3. 构建当前话对象
             val currentChapter = MangaChapterItem(
                 tid = tid,
                 rawTitle = rawTitle,
@@ -121,15 +120,25 @@ class DirectoryRepository private constructor(private val context: Context) {
                 authorName = null
             )
 
-            // 4. 将“当前话”和“白嫖到的链接”汇总
             val gatheredFromPage = (samePageLinks + currentChapter)
 
             if (cachedDir != null) {
-                // 【情况 A】：已有缓存 -> 执行合并。
-                // 使用 mergeAndSortChapters 确保 TID 去重且排序正确
-                val mergedChapters = mergeAndSortChapters(cachedDir.chapters, gatheredFromPage)
+                // 【情况 A】：已有缓存 -> 执行“补充合并”
+                // 核心修复：白嫖的数据只作为补充，不覆盖已有的缓存数据！
+                val existingTids = cachedDir.chapters.map { it.tid }.toSet()
+                val supplementaryChapters = gatheredFromPage.filter { it.tid !in existingTids }
 
-                // 策略升级：如果原来是 PENDING（啥都没搜到），现在白嫖到了链接，升级为 LINKS 策略
+                val mergedChapters = if (supplementaryChapters.isNotEmpty()) {
+                    (cachedDir.chapters + supplementaryChapters).sortedWith(
+                        compareBy(
+                            { it.groupIndex },
+                            { it.chapterNum })
+                    )
+                } else {
+                    cachedDir.chapters
+                }
+
+                // 策略升级
                 val newStrategy =
                     if (cachedDir.strategy == DirectoryStrategy.PENDING_SEARCH && samePageLinks.isNotEmpty()) {
                         DirectoryStrategy.LINKS
@@ -140,8 +149,8 @@ class DirectoryRepository private constructor(private val context: Context) {
                     strategy = newStrategy
                 )
 
-                // 只有当数据真的发生变化（抓到了新东西）时才保存磁盘，减少 IO
-                if (updatedDir.chapters.size > cachedDir.chapters.size || updatedDir.strategy != cachedDir.strategy) {
+                // 只有真的补充了新章节，或者策略改变了，才触发磁盘保存
+                if (supplementaryChapters.isNotEmpty() || updatedDir.strategy != cachedDir.strategy) {
                     saveDirectory(updatedDir)
                 }
                 return@withLock updatedDir
@@ -168,9 +177,7 @@ class DirectoryRepository private constructor(private val context: Context) {
                     strategy = strategy,
                     sourceKey = sourceKey,
                     chapters = gatheredFromPage.sortedWith(
-                        compareBy(
-                            { it.groupIndex },
-                            { it.chapterNum })
+                        compareBy({ it.groupIndex }, { it.chapterNum })
                     )
                 )
 
@@ -236,9 +243,62 @@ class DirectoryRepository private constructor(private val context: Context) {
         val now = System.currentTimeMillis()
         if (now - GlobalData.lastSearchTimestamp.get() < 30_000L) return Result.failure(Exception("搜索冷却中"))
         GlobalData.lastSearchTimestamp.set(now)
-        val html = mangaApi.searchForum(keyword = keyword).string()
-        if (MangaHtmlParser.isFloodControlOrError(html)) return Result.failure(Exception("防灌水限制"))
-        return Result.success(MangaHtmlParser.parseListHtml(html))
+
+        val safeKeyword = MangaTitleCleaner.getSearchKeyword(keyword)
+
+        // 1. 获取第一页数据
+        val firstPageHtml = mangaApi.searchForum(keyword = safeKeyword).string()
+        if (MangaHtmlParser.isFloodControlOrError(firstPageHtml)) return Result.failure(Exception("防灌水限制"))
+
+        val allItems = mutableListOf<MangaChapterItem>()
+        allItems.addAll(MangaHtmlParser.parseListHtml(firstPageHtml))
+
+        // 2. 【翻页逻辑】：如果有更多页，拿到 searchId 把后面所有的帖子全拉下来
+        val totalPages = MangaHtmlParser.extractTotalPages(firstPageHtml)
+        val searchId = MangaHtmlParser.extractSearchId(firstPageHtml)
+
+        if (searchId != null && totalPages > 1) {
+            for (p in 2..totalPages) {
+                // 翻页使用的是 searchid，基本不会触发 30秒搜索冷却机制
+                val pageHtml = mangaApi.searchForumPage(searchid = searchId, page = p).string()
+                allItems.addAll(MangaHtmlParser.parseListHtml(pageHtml))
+            }
+        }
+
+        // 3. 【核心修复】：基于发帖时间线的话数兜底注入
+        // 抓下来的 allItems 默认是【最新发帖在前】(时间倒序 / 话数降序)
+        // 我们将其反转成【最老发帖在前】(时间正序 / 话数升序)，重现真实的汉化发布流程
+        val ascendingItems = allItems.reversed()
+
+        var lastValidNum = 0f
+        var subIndex = 1
+
+        val fixedItems = ascendingItems.map { item ->
+            // 情况 A：能够精准解析出话数 (比如 第32话) -> 把它设为新的时间线锚点
+            if (item.chapterNum > 0f && item.chapterNum < 1000f) {
+                lastValidNum = item.chapterNum
+                subIndex = 1 // 充当基准点，重置计数器
+                item
+            }
+            // 情况 B：完全解析不出话数 (比如 "野猫驯养日记"，提取为 0f)
+            else if (item.chapterNum == 0f) {
+                // 精髓：根据发帖时间赋予微小小数。比如跟在 32话 后面的无编号帖子会被赋为 32.001话
+                // 如果紧接着又是一篇无编号，则是 32.002话，极其完美的契合时间排序！
+                val virtualNum = lastValidNum + (subIndex * 0.001f)
+                subIndex++
+                item.copy(chapterNum = virtualNum)
+            }
+            // 情况 C：带"番外/特典"的高编号 (提取为 1000f 以上)
+            else {
+                // 依然加上微小的发帖时间偏置，这样发多篇番外也会按发帖顺序稳稳排列
+                val virtualNum = item.chapterNum + (subIndex * 0.001f)
+                subIndex++
+                item.copy(chapterNum = virtualNum)
+            }
+        }
+
+        // 最终返回，因为 `mergeAndSortChapters` 后续会利用我们注入好的 chapterNum 进行强排序
+        return Result.success(fixedItems)
     }
 
     private fun mergeAndSortChapters(

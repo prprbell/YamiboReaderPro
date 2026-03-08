@@ -9,29 +9,23 @@ class MangaTitleCleaner {
         fun getCleanBookName(rawTitle: String): String {
             var clean = rawTitle
 
-            // 1. 【新增】预处理：强制切掉已知的论坛/站点后缀
-            // 匹配 " - " 后面跟着 "区" 或者 "百合会" 等关键词及其后续内容
             clean = clean.replace(Regex("\\s+-\\s+.*?(中文百合漫画区|百合会|论坛).*$"), "")
-
-            // 2. 无差别干掉所有的 【汉化组】、[作者名]、[英文原名] 等外围标签
-            // 使用非贪婪匹配
             clean = clean.replace(Regex("【.*?】|\\[.*?\\]"), "")
-
-            // 干掉展会标签 (C107) 等
             clean = clean.replace(Regex("\\([Cc]\\d+\\)|（[Cc]\\d+）"), "")
+            clean = clean.replace(Regex("\\s*[|｜].*$"), "")
 
-            // 3. 【核心强化】：截断章节标记及其后面的所有内容
-            // 增加了：#, S(第几季), EP(集数), Vol, Ch, 以及连字符接数字的情况
+            // 3. 截断章节标记及其后面的所有内容
             val chapterMarkerPattern = Regex(
                 "(?i)(" + // (?i) 表示忽略大小写
-                        "第\\s*[\\d\\.\\-零一二两三四五六七八九十百千]+\\s*[话話回卷]|" +
-                        "\\s*[#＃]\\s*\\d+|" +      // 匹配 #129
-                        "\\s*S\\d+(\\s*EP\\d+)?|" + // 匹配 S3 EP01
-                        "\\s*EP\\d+|" +             // 匹配 EP01
-                        "\\s*Vol\\.?\\s*\\d+|" +    // 匹配 Vol.01
-                        "\\s*Ch\\.?\\s*\\d+|" +     // 匹配 Ch.01
-                        "\\s+番外|\\s+特典|\\s+附录|\\s+短篇|\\s+单行本|" +
-                        "\\s+(前篇|中篇|后篇|上|中|下)" +
+                        "第\\s*[\\d\\.\\-零一二两三四五六七八九十百千]+\\s*[话話回卷季]|" +
+                        "[-—\\s]*[#＃]\\s*\\d+|" +
+                        "[-—\\s]*S\\d+(\\s*EP\\d+)?|" +
+                        "[-—\\s]*EP\\d+|" +
+                        "[-—\\s]*Vol\\.?\\s*\\d+|" +
+                        "[-—\\s]*Ch\\.?\\s*\\d+|" +
+                        "[-—\\s]*(番外|特典|附录|短篇|单行本|最终话|最終話|最终回|最終回|大结局)|" +
+                        "[-—\\s]+(前篇|中篇|后篇|上|中|下)|" +
+                        "[-—\\s]*[(（]\\s*[\\d\\.\\-零一二两三四五六七八九十百千]+\\s*[)）]" + // 【新增】匹配尾部单纯的 (一)、(1) 等括号数字
                         ")"
             )
             val markerMatch = chapterMarkerPattern.find(clean)
@@ -39,14 +33,35 @@ class MangaTitleCleaner {
                 clean = clean.substring(0, markerMatch.range.first)
             }
 
-            // 4. 处理末尾残留的孤立数字 (例如: "书名 16")
-            // 匹配：空格 + 数字 + 结尾
             clean = clean.replace(Regex("\\s+\\d+(\\.\\d+)?\\s*$"), "")
+            clean = clean.replace(Regex("^[\\s\\-|/\\)#]+|[\\s\\-|/\\(#:]+$"), "").trim()
 
-            // 5. 最终清洗两端残留的无用符号 (加上了 #, :, 等)
-            clean = clean.replace(Regex("^[\\s\\-|/\\)#]+|[\\s\\-|/\\(#:]+$"), "")
+            return clean
+        }
 
-            return clean.trim()
+        /**
+         * 【新增的终极兜底策略】：提取核心搜索词
+         * 哪怕展示的标题残留了脏数据，只要提取前几个核心字去搜，就能百发百中
+         */
+        fun getSearchKeyword(cleanName: String): String {
+            // 兜底 1：遇到任何常见的“副标题分割符”或括号、空格，直接切断，只取第一块
+            // 例如 "百人百話-百合五篇" -> "百人百話"
+            // 例如 "Madder & Teal" -> "Madder"
+            val chunks = cleanName.split(Regex("[-—\\s|｜(（:：]"))
+            var keyword = chunks.firstOrNull { it.isNotBlank() } ?: cleanName
+
+            // 兜底 2：如果切出来的第一块实在太短（比如只有一个字），用单字搜索会搜出几百个无关帖子
+            // 那就退一步，拿原标题截取前 4 个字作为安全搜索词
+            if (keyword.length < 2) {
+                keyword = if (cleanName.length > 4) cleanName.substring(0, 4) else cleanName
+            }
+
+            // 兜底 3：防超长 Discuz 报错（之前我们写的 12 个字限制）
+            if (keyword.length > 12) {
+                keyword = keyword.substring(0, 12).trim()
+            }
+            keyword = keyword.replace(Regex("\\s*\\d+$"), "").trim()
+            return keyword
         }
 
         /**
@@ -56,65 +71,105 @@ class MangaTitleCleaner {
             // 先去掉各种括号，防止把 [阅读权限 20] 当成第20话
             val cleanTitle = rawTitle.replace(Regex("【.*?】|\\[.*?\\]|\\(.*?\\)|（.*?）"), "")
 
+            // ==========================================
+            // 第一步：提取小数修饰符 (前中后/上下)
+            // ==========================================
+            var subModifier = 0f
+            // (?!.*[\d零一二两三四五六七八九十百千]) 确保上/下后面没有主要数字，防止误伤 "上册第3话"
+            val noDigitAfter = "(?!.*[\\d零一二两三四五六七八九十百千])"
+
+            if (Regex("(前篇|上)$noDigitAfter").containsMatchIn(cleanTitle)) subModifier = 0.1f
+            else if (Regex("(中篇|中)$noDigitAfter").containsMatchIn(cleanTitle)) subModifier = 0.2f
+            else if (Regex("(后篇|下)$noDigitAfter").containsMatchIn(cleanTitle)) subModifier = 0.3f
+
+            // ==========================================
+            // 第二步：提取主话数
+            // ==========================================
+            var baseNum = -1f
+
             // 规则 1: (第)?X话其Y (e.g., "1话其2" -> 1.02f)
             val matchQi =
                 Regex("(?:第)?\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)\\s*[话話]\\s*其\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)").find(
                     cleanTitle
                 )
             if (matchQi != null) {
-                val p1 = parseNumber(matchQi.groupValues[1])
-                val p2 = parseNumber(matchQi.groupValues[2])
-                // 【稳健计算逻辑】：主话数 + (子话数 / 100f)
-                return p1 + (p2 / 100f)
+                baseNum =
+                    parseNumber(matchQi.groupValues[1]) + (parseNumber(matchQi.groupValues[2]) / 100f)
             }
 
             // 规则 2: 第X-Y话 (e.g., "第9-2话" -> 9.02f)
-            val matchDash =
-                Regex("第\\s*([\\d]+|[零一二两三四五六七八九十百千]+)[\\-]([\\d]+|[零一二两三四五六七八九十百千]+)\\s*[话話]").find(
-                    cleanTitle
-                )
-            if (matchDash != null) {
-                val p1 = parseNumber(matchDash.groupValues[1])
-                val p2 = parseNumber(matchDash.groupValues[2])
-                return p1 + (p2 / 100f)
+            if (baseNum == -1f) {
+                val matchDash =
+                    Regex("第\\s*([\\d]+|[零一二两三四五六七八九十百千]+)[\\-]([\\d]+|[零一二两三四五六七八九十百千]+)\\s*[话話]").find(
+                        cleanTitle
+                    )
+                if (matchDash != null) {
+                    baseNum =
+                        parseNumber(matchDash.groupValues[1]) + (parseNumber(matchDash.groupValues[2]) / 100f)
+                }
+            }
+
+            // 规则 2.5: 匹配竖线或横杠后直接跟着的数字 (e.g., "| 33. 夏日飞行" -> 33)
+            if (baseNum == -1f) {
+                val matchSepNum =
+                    Regex("[-—|｜]\\s*(\\d+(?:\\.\\d+)?)(?:\\s|\\.|$)").find(cleanTitle)
+                if (matchSepNum != null) {
+                    baseNum = matchSepNum.groupValues[1].toFloatOrNull() ?: 0f
+                }
             }
 
             // 规则 3: 第X话 / 第X.Y话 (e.g., "第8.5话", "第八话" -> 8.5, 8.0)
-            val matchStandard =
-                Regex("第\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)\\s*[话話]").find(cleanTitle)
-            if (matchStandard != null) {
-                return parseNumber(matchStandard.groupValues[1])
-            }
-
-            // 规则 4: 番外 / 特典 / 附录 (赋予极大的基础值，让它们排在正篇后面)
-            val matchExtra = Regex("(番外|特典|附录)(?:篇)?\\s*([\\d\\.]*)").find(cleanTitle)
-            if (matchExtra != null) {
-                val type = matchExtra.groupValues[1]
-                val numStr = matchExtra.groupValues[2]
-                val num = numStr.toFloatOrNull() ?: 0f
-
-                val base = when (type) {
-                    "番外" -> 1000f
-                    "特典" -> 2000f
-                    "附录" -> 3000f
-                    else -> 4000f
+            if (baseNum == -1f) {
+                val matchStandard =
+                    Regex("第\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)\\s*[话話]").find(
+                        cleanTitle
+                    )
+                if (matchStandard != null) {
+                    baseNum = parseNumber(matchStandard.groupValues[1])
                 }
-                return base + num
             }
 
-            // 规则 5: 前/中/后篇 赋予微小小数以便在同一话内排序
-            if (cleanTitle.contains("前篇") || cleanTitle.contains("上")) return 0.1f
-            if (cleanTitle.contains("中篇") || cleanTitle.contains("中")) return 0.2f
-            if (cleanTitle.contains("后篇") || cleanTitle.contains("下")) return 0.3f
+            // 规则 4: 番外 / 特典 / 附录
+            if (baseNum == -1f) {
+                val matchExtra = Regex("(番外|特典|附录)(?:篇)?\\s*([\\d\\.]*)").find(cleanTitle)
+                if (matchExtra != null) {
+                    val type = matchExtra.groupValues[1]
+                    val num = matchExtra.groupValues[2].toFloatOrNull() ?: 0f
+                    baseNum = when (type) {
+                        "番外" -> 1000f
+                        "特典" -> 2000f
+                        "附录" -> 3000f
+                        else -> 4000f
+                    } + num
+                }
+            }
+
+            // 规则 4.5: 最终话
+            if (baseNum == -1f) {
+                if (Regex("最终话|最終話|最终回|最終回|大结局").containsMatchIn(cleanTitle)) {
+                    baseNum = 999f
+                }
+            }
 
             // 规则 6: 啥都没写，只在最后丢个数字
-            val matchLastNum = Regex("([\\d\\.]+)(?!.*\\d)").find(cleanTitle)
-            if (matchLastNum != null && matchLastNum.groupValues[1] != ".") {
-                return matchLastNum.groupValues[1].toFloatOrNull() ?: 0f
+            if (baseNum == -1f) {
+                val matchLastNum = Regex("([\\d\\.]+)(?!.*\\d)").find(cleanTitle)
+                if (matchLastNum != null && matchLastNum.groupValues[1] != ".") {
+                    baseNum = matchLastNum.groupValues[1].toFloatOrNull() ?: 0f
+                }
             }
 
-            // 默认返回 0f (完全没进度的短篇集)
-            return 0f
+            // 兜底：如果一圈下来啥也没匹配到，主话数为 0
+            if (baseNum == -1f) {
+                baseNum = 0f
+            }
+
+            // ==========================================
+            // 第三步：合并主副话数并严格限制浮点精度
+            // ==========================================
+            // 使用 Math.round 防止 Float 精度溢出
+            // （例如 3 + 0.1 变成 3.1000004 从而被 UI 误判为时间线生成的 3 位小数）
+            return Math.round((baseNum + subModifier) * 100) / 100f
         }
 
         /**

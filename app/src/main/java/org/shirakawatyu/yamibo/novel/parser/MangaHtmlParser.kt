@@ -55,27 +55,48 @@ class MangaHtmlParser {
         }
 
         /**
-         * 提取列表页的总页数 (处理包含 <div class="pg"> 的情况)
+         * 提取列表页的总页数 (强化兼容手机端)
          */
         fun extractTotalPages(html: String): Int {
             val doc = Jsoup.parse(html)
 
-            // 尝试从 <span title="共 3 页"> 提取
+            // 1. 【新增优先】优先从手机端的下拉框中提取最大页数
+            val mobileOptions = doc.select("select#dumppage option")
+            if (mobileOptions.isNotEmpty()) {
+                val maxPage =
+                    mobileOptions.mapNotNull { it.attr("value").toIntOrNull() }.maxOrNull()
+                if (maxPage != null) return maxPage
+            }
+
+            // 2. 尝试从 PC 端 <span title="共 3 页"> 提取
             val titleAttr = doc.select(".pg label span").attr("title")
             val match = Regex("(\\d+)").find(titleAttr)
             if (match != null) {
                 return match.groupValues[1].toIntOrNull() ?: 1
             }
 
-            // 保底策略：如果没有 span，直接提取翻页区所有普通数字页码，取最大值
+            // 3. 保底策略：提取普通数字页码取最大值
             val pageLinks = doc.select(".pg a:not(.nxt):not(.prev)")
             if (pageLinks.isNotEmpty()) {
                 val maxPage = pageLinks.mapNotNull { it.text().toIntOrNull() }.maxOrNull()
                 if (maxPage != null) return maxPage
             }
 
-            // 如果连 .pg 都没有，说明只有一页
             return 1
+        }
+
+        /**
+         * 【新增】：提取搜索结果页的 searchid (用于翻页请求)
+         */
+        fun extractSearchId(html: String): String? {
+            val doc = Jsoup.parse(html)
+            val nextLink = doc.select("div.page a[href*='searchid='], div.pg a[href*='searchid=']")
+                .firstOrNull()?.attr("href")
+            if (nextLink != null) {
+                val match = Regex("searchid=(\\d+)").find(nextLink)
+                return match?.groupValues?.get(1)
+            }
+            return null
         }
 
         /**
@@ -165,9 +186,12 @@ class MangaHtmlParser {
          * 异常嗅探：防止把防灌水页面当做空目录解析
          */
         fun isFloodControlOrError(html: String): Boolean {
+            // 搜不到不是错误，返回空列表即可，不要抛异常
+            if (html.contains("没有找到匹配结果")) return false
+
             return html.contains("只能进行一次搜索") ||
                     html.contains("防灌水") ||
-                    html.contains("抱歉")
+                    html.contains("指定的搜索词长度")
         }
     }
 }

@@ -9,7 +9,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import okhttp3.ResponseBody
 import org.jsoup.Jsoup
 import org.shirakawatyu.yamibo.novel.bean.Favorite
@@ -110,9 +109,16 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         }
     }
 
-    fun clickHandler(url: String, navController: NavController) {
-        val urlEncoded = URLEncoder.encode(url, "utf-8")
-        navController.navigate("ReaderPage/$urlEncoded")
+    // novel/ui/vm/FavoriteVM.kt
+
+    fun clickHandler(favorite: Favorite, navController: NavController) {
+        val urlEncoded = URLEncoder.encode(favorite.url, "utf-8")
+        when (favorite.type) {
+            1 -> navController.navigate("ReaderPage/$urlEncoded")
+            2 -> navController.navigate("MangaWebPage/$urlEncoded")
+            3 -> navController.navigate("OtherWebPage/$urlEncoded")
+            else -> navController.navigate("ProbingPage/$urlEncoded") // 0 或 未知
+        }
     }
 
     fun moveFavorite(from: Int, to: Int) {

@@ -3,12 +3,17 @@ package org.shirakawatyu.yamibo.novel.item
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,7 +28,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -57,6 +66,7 @@ fun FavoriteItem(
     isManageMode: Boolean = false,
     isSelected: Boolean = false,
     isHidden: Boolean = false,
+    type: Int = 0,
     cacheInfo: FavoriteVM.CacheInfo? = null
 ) {
     // 格式化文件大小的辅助函数
@@ -67,6 +77,12 @@ fun FavoriteItem(
             else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
         }
     }
+    // 1. 判断标题是否以常见的全角左符号开头
+    val isFullWidthStart = title.isNotEmpty() && title.first() in listOf('【', '（', '《', '「', '『')
+
+    // 2. 设定负数的首行缩进，把符号向左“拽”
+    val firstLineOffset = if (isFullWidthStart) (-8).sp else 0.sp
+
     // 拖拽动画：根据是否处于拖拽状态动态调整卡片的阴影、缩放和颜色
     val elevation by animateDpAsState(
         targetValue = if (isDragging) 12.dp else 1.dp,
@@ -85,6 +101,16 @@ fun FavoriteItem(
         },
         label = "color_animation"
     )
+
+    val typeColor = when (type) {
+        1 -> Color(0xFFE8F5E9) to Color(0xFF4CAF50) // 绿：明亮的鲜绿色
+        2 -> Color(0xFFE3F2FD) to Color(0xFF2196F3) // 蓝：明亮的亮蓝色
+        3 -> Color(0xFFFFF3E0) to Color(0xFFFF9800) // 橙：明亮的活力橙
+        else -> Color(0xFFF5F5F5) to Color(0xFF9E9E9E) // 灰：明亮的中性灰
+    }
+
+    val middleColor = lerp(typeColor.first, typeColor.second, 0.75f)
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -94,68 +120,93 @@ fun FavoriteItem(
         colors = CardDefaults.cardColors(containerColor = color),
         elevation = CardDefaults.cardElevation(defaultElevation = elevation)
     ) {
-        Row(
-            Modifier
+        Box(
+            modifier = Modifier
                 .fillMaxWidth()
-                .padding(15.dp, 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .height(IntrinsicSize.Min)
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    modifier = Modifier.padding(0.dp, 5.dp),
-                    fontSize = 16.sp,
-                    color = Color.Black,
-                    maxLines = 2,
-                    text = title
-                )
-                // 显示最近阅读章节名（如果存在且非空）
-                if (lastChapter != null && lastChapter.isNotBlank()) {
-                    Text(
-                        modifier = Modifier.padding(0.dp, 2.dp),
-                        color = Color.Black.copy(alpha = 0.7f),
-                        fontSize = 12.sp,
-                        text = lastChapter,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+
+            Spacer(
+                modifier = Modifier
+                    .width(2.5.dp)
+                    .fillMaxHeight()
+                    .align(Alignment.CenterStart)
+                    .background(
+                        color = middleColor
                     )
-                }
-                Text(
-                    color = Color.Black,
-                    fontSize = 12.sp,
-                    text = "上次读到第${lastPage + 1}页, 对应网页第${lastView}页"
-                )
-                if (cacheInfo != null && cacheInfo.totalPages > 0) {
-                    Row(
-                        modifier = Modifier.padding(top = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_cache),
-                            contentDescription = "已缓存",
-                            modifier = Modifier.size(12.dp),
-                            tint = MaterialTheme.colorScheme.primary
+            )
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 15.dp, end = 15.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        modifier = Modifier.padding(bottom = 6.dp),
+                        fontSize = 16.sp,
+                        color = Color.Black,
+                        maxLines = 2,
+                        text = title,
+                        fontWeight = FontWeight.Medium,
+                        style = TextStyle(
+                            textIndent = TextIndent(firstLine = firstLineOffset)
                         )
-                        Spacer(Modifier.width(4.dp))
+                    )
+                    // 显示最近阅读章节名
+                    if (lastChapter != null && lastChapter.isNotBlank()) {
                         Text(
-                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(0.dp, 2.dp),
+                            color = Color.Black.copy(alpha = 0.7f),
                             fontSize = 12.sp,
-                            text = "已缓存 ${cacheInfo.totalPages} 页 (${formatFileSize(cacheInfo.totalSize)})"
+                            text = lastChapter,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Text(
+                        color = Color.Black.copy(alpha = 0.8f),
+                        fontSize = 12.sp,
+                        text = "上次读到第${lastPage + 1}页, 对应网页第${lastView}页"
+                    )
+                    if (cacheInfo != null && cacheInfo.totalPages > 0) {
+                        Row(
+                            modifier = Modifier.padding(top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_cache),
+                                contentDescription = "已缓存",
+                                modifier = Modifier.size(12.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 12.sp,
+                                text = "已缓存 ${cacheInfo.totalPages} 页 (${
+                                    formatFileSize(
+                                        cacheInfo.totalSize
+                                    )
+                                })"
+                            )
+                        }
+                    }
+                    if (isManageMode && isHidden) {
+                        Text(
+                            modifier = Modifier.padding(top = 2.dp),
+                            color = Color.Gray,
+                            fontSize = 12.sp,
+                            text = "[已隐藏]"
                         )
                     }
                 }
-                if (isManageMode && isHidden) {
-                    Text(
-                        modifier = Modifier.padding(top = 2.dp),
-                        color = Color.Gray,
-                        fontSize = 12.sp,
-                        text = "[已隐藏]"
-                    )
+                // 拖拽手柄
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    dragHandle()
                 }
-            }
-            // 拖拽手柄
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                dragHandle()
             }
         }
     }

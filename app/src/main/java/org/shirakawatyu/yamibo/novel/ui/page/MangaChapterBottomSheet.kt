@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -7,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -79,6 +81,9 @@ fun MangaChapterPanel(
     onChapterClick: (MangaChapter) -> Unit
 ) {
     var ascending by remember { mutableStateOf(true) }
+    // 顶部标题的展开状态
+    var isTitleExpanded by remember { mutableStateOf(false) }
+
     val sorted = remember(chapters, ascending) {
         if (ascending) chapters else chapters.reversed()
     }
@@ -92,10 +97,9 @@ fun MangaChapterPanel(
     LaunchedEffect(sorted) {
         val index = sorted.indexOfFirst { it.isCurrent }
         if (index != -1) {
-            // 延迟 200ms 等待 BottomSheet 弹出动画稳定，滚动会更顺滑
             delay(200)
             listState.animateScrollToItem(
-                index = (index - 2).coerceAtLeast(0) // 让当前项显示在靠近中间的位置
+                index = (index - 2).coerceAtLeast(0)
             )
         }
     }
@@ -190,11 +194,12 @@ fun MangaChapterPanel(
                     )
                     Spacer(Modifier.height(10.dp))
 
-                    // 第一行：标题
+                    // 第一行：标题 (支持点击展开)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 20.dp, end = 20.dp, bottom = 6.dp),
+                            .padding(start = 20.dp, end = 20.dp, bottom = 6.dp)
+                            .animateContentSize(), // 添加平滑展开动画
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -202,8 +207,13 @@ fun MangaChapterPanel(
                             color = TextPri,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            maxLines = if (isTitleExpanded) Int.MAX_VALUE else 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null // 去除点击波纹，因为这里只是纯净的文字展开
+                                ) { isTitleExpanded = !isTitleExpanded }
                         )
                     }
 
@@ -255,7 +265,6 @@ fun MangaChapterPanel(
                                     .padding(horizontal = 12.dp, vertical = 5.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                // 根据更新状态切换 UI
                                 if (isUpdating) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         CircularProgressIndicator(
@@ -296,19 +305,18 @@ fun MangaChapterPanel(
                     trackColor = Color.Transparent
                 )
             } else {
-                // 占位，防止动画出现/消失时列表发生上下抖动跳跃
                 Spacer(Modifier.height(2.dp))
             }
             // 章节列表
             LazyColumn(
-                state = listState, // 绑定状态
+                state = listState,
                 contentPadding = PaddingValues(vertical = 6.dp, horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
                 itemsIndexed(
                     items = sorted,
-                    key = { _, chapter -> chapter.url } // 建议增加 key 以优化滚动性能
+                    key = { _, chapter -> chapter.url }
                 ) { _, chapter ->
                     ChapterRow(chapter = chapter, onClick = { onChapterClick(chapter) })
                 }
@@ -330,19 +338,41 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
         chapter.isRead -> TextRead
         else -> TextSec
     }
-    // 【新增】格式化左侧的序号展示
+    // 【核心修复】格式化左侧的序号展示
     val displayIndex = when {
-        chapter.index >= 1000f -> "SP" // 番外/附录统一显示为 SP (Special)
+        chapter.index >= 1000f -> "SP"   // 番外/附录统一显示为 SP
+        chapter.index == 999f -> "终"    // 兜底最终话
+
+        // 1. 隐藏时间线算法生成的 3 位小数 (如 32.001) -> 显示为 Ex
+        chapter.index.toString().substringAfter(".", "").length >= 3 -> "Ex"
+
+        // 2. 隐藏 0f 以及误判的 0.1/0.2：
+        // 只要底层计算出的话数小于 1 (比如 0.0, 0.1, 0.2)，且原标题里根本没有显式地写 "0"、"零" 或 "〇"
+        // 统统视为无话数的短篇或被“上/下”关键字误伤的帖子，显示为 Ex
+        chapter.index < 1f && !chapter.title.contains(Regex("0|零|〇")) -> "Ex"
+
         chapter.index % 1f == 0f -> chapter.index.toInt().toString() // 4.0 -> "4"
-        else -> chapter.index.toString() // 4.1 -> "4.1"
+        else -> chapter.index.toString() // 29.5 -> "29.5"
     }
+
+    // 【核心修复】：使用 chapter.url 作为 remember 的 key。
+    // 这样当 LazyColumn 复用这个组件给另一个章节时，这两个状态会“瞬间、同步”地重置为 false，彻底消灭滑动闪烁。
+    var isExpanded by remember(chapter.url) { mutableStateOf(false) }
+    var isTruncated by remember(chapter.url) { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
             .background(bg)
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 13.dp),
+            .clickable {
+                // 当前话防重复跳转
+                if (!chapter.isCurrent) {
+                    onClick()
+                }
+            }
+            .padding(horizontal = 16.dp, vertical = 13.dp)
+            .animateContentSize(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -352,17 +382,44 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
             fontWeight = FontWeight.Bold,
             modifier = Modifier.width(32.dp)
         )
+
         Text(
             text = chapter.title,
             color = textColor,
             fontSize = 14.sp,
-            maxLines = 1,
+            maxLines = if (isExpanded) Int.MAX_VALUE else 1,
             overflow = TextOverflow.Ellipsis,
+            onTextLayout = { textLayoutResult ->
+                // 【核心修复】：只有在“未展开”的状态下才去判定是否截断
+                // 只要发现视觉溢出，就立刻标记为已截断（无论如何滑动都不会丢失该判定）
+                if (!isExpanded && textLayoutResult.hasVisualOverflow) {
+                    isTruncated = true
+                }
+            },
             modifier = Modifier.weight(1f)
         )
+
+        // 如果名字太长被截断了，就显示操作按钮
+        if (isTruncated) {
+            Text(
+                text = if (isExpanded) "收起" else "展开",
+                color = Accent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { isExpanded = !isExpanded }
+                    .padding(vertical = 0.25.dp, horizontal = 2.dp)
+            )
+        }
+
         when {
             chapter.isNew -> Box(
                 modifier = Modifier
+                    .padding(start = 6.dp)
                     .clip(RoundedCornerShape(3.dp))
                     .background(Accent)
                     .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -377,6 +434,7 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
 
             chapter.isCurrent -> Box(
                 modifier = Modifier
+                    .padding(start = 6.dp)
                     .size(6.dp)
                     .clip(RoundedCornerShape(3.dp))
                     .background(Accent)

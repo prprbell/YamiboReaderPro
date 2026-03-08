@@ -25,4 +25,11 @@ interface MangaApi {
         // 4. 建议只搜索标题，过滤掉因为正文提到该漫画而造成的干扰项
         @Query("srchtype") type: String = "title"
     ): ResponseBody
+
+    // 用于搜索结果的后续翻页
+    @GET("/search.php?mod=forum&orderby=dateline&ascdesc=desc&searchsubmit=yes&mobile=2")
+    suspend fun searchForumPage(
+        @Query("searchid") searchid: String,
+        @Query("page") page: Int
+    ): ResponseBody
 }

@@ -4,7 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues // 导入 PaddingValues
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -21,9 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -36,8 +33,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialTheme // 导入 MaterialTheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -297,11 +293,11 @@ fun FavoritePage(
                         item.lastPage,
                         item.lastChapter,
                         onClick = {
-                            // 点击逻辑
                             if (isInManageMode) {
                                 favoriteVM.toggleItemSelection(item.url)
                             } else {
-                                favoriteVM.clickHandler(item.url, navController)
+                                // 传入 item.type
+                                favoriteVM.clickHandler(item, navController)
                             }
                         },
                         // 拖拽手柄只在非管理模式下启用
@@ -316,6 +312,7 @@ fun FavoritePage(
                         isManageMode = isInManageMode,
                         isSelected = isSelected,
                         isHidden = item.isHidden,
+                        type = item.type,
                         cacheInfo = cacheInfoMap[item.url],
                         // 拖拽手柄只在非管理模式下显示
                         dragHandle = {

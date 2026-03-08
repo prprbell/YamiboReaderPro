@@ -146,7 +146,8 @@ class FavoriteUtil {
                     obj["lastView"] as Int,
                     obj["lastChapter"] as? String,
                     obj["authorId"] as? String,
-                    obj["isHidden"] as? Boolean ?: false
+                    obj["isHidden"] as? Boolean ?: false,
+                    obj["type"] as? Int ?: 0
                 )
                 map[fav.url] = fav
             }

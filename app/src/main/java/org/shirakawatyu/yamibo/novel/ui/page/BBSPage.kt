@@ -21,6 +21,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,11 +34,13 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,25 +84,31 @@ object BBSPageState {
     var hasSuccessfullyLoaded: Boolean = false
 }
 
-// 用于接收大图打开/关闭的通知
-class FullscreenApi(
-    private val onStateChange: (Boolean) -> Unit,
-    private val onUiStateChange: (Boolean) -> Unit,
-    private val onMangaActionDone: () -> Unit
-) {
+// 用于接收大图打开/关闭的通知（改为单例，避免 WebView 旧页面不识别新对象）
+object FullscreenApi {
+    var onStateChange: ((Boolean) -> Unit)? = null
+    var onUiStateChange: ((Boolean) -> Unit)? = null
+    var onMangaActionDone: (() -> Unit)? = null
+    var onImageProgressChange: ((Int, Int) -> Unit)? = null
+
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
-        Handler(Looper.getMainLooper()).post { onStateChange(isFullscreen) }
+        Handler(Looper.getMainLooper()).post { onStateChange?.invoke(isFullscreen) }
     }
 
     @JavascriptInterface
     fun notifyUi(isUiVisible: Boolean) {
-        Handler(Looper.getMainLooper()).post { onUiStateChange(isUiVisible) }
+        Handler(Looper.getMainLooper()).post { onUiStateChange?.invoke(isUiVisible) }
     }
 
     @JavascriptInterface
     fun notifyMangaActionDone() {
-        Handler(Looper.getMainLooper()).post { onMangaActionDone() }
+        Handler(Looper.getMainLooper()).post { onMangaActionDone?.invoke() }
+    }
+
+    @JavascriptInterface
+    fun updateImageProgress(current: Int, total: Int) {
+        Handler(Looper.getMainLooper()).post { onImageProgressChange?.invoke(current, total) }
     }
 }
 
@@ -128,6 +137,8 @@ fun BBSPage(
     var showChapterList by remember { mutableStateOf(false) }
     var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
+    var currentImageIndex by remember { mutableFloatStateOf(1f) }
+    var totalImageCount by remember { mutableFloatStateOf(1f) }
 
     val canConvertToReader = remember(currentUrl) {
         ReaderModeDetector.canConvertToReaderMode(currentUrl)
@@ -136,6 +147,31 @@ fun BBSPage(
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
     val isFullscreenUiVisible = remember { mutableStateOf(true) }
+    // 【新增】：BBSPage 进入或返回时，动态绑定当前最新的 Compose 状态，防止状态脱节
+    DisposableEffect(Unit) {
+        FullscreenApi.onStateChange = { isFullscreen ->
+            isFullscreenState.value = isFullscreen
+            if (!isFullscreen) isFullscreenUiVisible.value = true
+        }
+        FullscreenApi.onUiStateChange = { isUiVisible ->
+            isFullscreenUiVisible.value = isUiVisible
+        }
+        FullscreenApi.onMangaActionDone = {
+            autoOpenMangaMode = false
+        }
+        FullscreenApi.onImageProgressChange = { current, total ->
+            currentImageIndex = current.toFloat()
+            totalImageCount = total.toFloat()
+        }
+
+        onDispose {
+            // 页面彻底销毁时解除引用，防止内存泄漏
+            FullscreenApi.onStateChange = null
+            FullscreenApi.onUiStateChange = null
+            FullscreenApi.onMangaActionDone = null
+            FullscreenApi.onImageProgressChange = null
+        }
+    }
     // 强制获取ViewModel
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
@@ -152,11 +188,17 @@ fun BBSPage(
         val shouldBeFullscreen = isFullscreenState.value || autoOpenMangaMode
 
         if (shouldBeFullscreen) {
+            // 【新增】：进入大图模式时，强制关闭系统窗口适应，允许内容沉浸到系统栏区域
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             bottomNavBarVM.setBottomNavBarVisibility(false)
         } else {
+            // 【新增】：退出大图模式时，恢复窗口适应，避免遮挡网页顶部
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+
             controller.show(WindowInsetsCompat.Type.systemBars())
             bottomNavBarVM.setBottomNavBarVisibility(true)
             showChapterList = false
@@ -185,7 +227,33 @@ fun BBSPage(
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
             }
-
+            // 【新增】：只要进入全屏，立刻注入页码监听器！
+            val observerJs = """
+                setTimeout(function() {
+                    var counter = document.querySelector('.pswp__counter');
+                    if (counter) {
+                        var updateProgress = function() {
+                            var text = counter.innerText || ''; // 例如 "1 / 3"
+                            var parts = text.split('/');
+                            if (parts.length === 2) {
+                                var current = parseInt(parts[0].trim());
+                                var total = parseInt(parts[1].trim());
+                                if (!isNaN(current) && !isNaN(total) && window.AndroidFullscreen && window.AndroidFullscreen.updateImageProgress) {
+                                    window.AndroidFullscreen.updateImageProgress(current, total);
+                                }
+                            }
+                        };
+                        updateProgress(); // 立即执行一次
+                        // 挂载监听器，防止重复挂载
+                        if (!window.pswpObserverAttached) {
+                            var observer = new MutationObserver(updateProgress);
+                            observer.observe(counter, { childList: true, characterData: true, subtree: true });
+                            window.pswpObserverAttached = true;
+                        }
+                    }
+                }, 500); // 稍微延迟，等 pswp 的 DOM 渲染完毕
+            """.trimIndent()
+            webView.evaluateJavascript(observerJs, null)
             // 大图模式下，抓取并解析当前页面的目录
             currentUrl?.let { url ->
                 if (url.contains("mod=viewthread") && url.contains("tid=")) {
@@ -223,6 +291,26 @@ fun BBSPage(
         if (!isLoading && autoOpenMangaMode) {
             val clickJs = """
                 (function() {
+                    var sectionHeader = document.querySelector('.header h2 a');
+                    var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
+                    if (sectionName !== '') {
+                        var allowedSections = ['中文百合漫画区', '貼圖區', '原创图作区', '百合漫画图源区'];
+                        var isAllowedSection = false;
+                        for (var k = 0; k < allowedSections.length; k++) {
+                            if (sectionName.indexOf(allowedSections[k]) !== -1) {
+                                isAllowedSection = true;
+                                break;
+                            }
+                        }
+                        // 如果当前版块不在白名单中，立刻取消自动进大图模式
+                        if (!isAllowedSection) {
+                            if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
+                                window.AndroidFullscreen.notifyMangaActionDone();
+                            }
+                            return;
+                        }
+                    }
+                    
                     var typeLabel = document.querySelector('.view_tit em');
                     if (typeLabel && typeLabel.innerText.indexOf('公告') !== -1) {
                         // 如果是公告帖，立刻通知 Android 取消漫画黑屏模式，不执行后续点击逻辑
@@ -262,12 +350,31 @@ fun BBSPage(
                         // 步骤 A: 检查 PhotoSwipe 的全屏容器 (.pswp) 是否已经生成
                         var pswp = document.querySelector('.pswp');
                         if (pswp) {
-                            // 大图弹出来了！立刻停止探测并通知 Android
                             isDone = true;
                             clearInterval(timer);
                             if (window.AndroidFullscreen) {
                                 window.AndroidFullscreen.notify(true);
                                 window.AndroidFullscreen.notifyMangaActionDone();
+                                
+                                // 【新增】监听 pswp__counter 提取页码进度
+                                var counter = document.querySelector('.pswp__counter');
+                                if (counter) {
+                                    var updateProgress = function() {
+                                        var text = counter.innerText || ''; // 例如 "1 / 3"
+                                        var parts = text.split('/');
+                                        if (parts.length === 2) {
+                                            var current = parseInt(parts[0].trim());
+                                            var total = parseInt(parts[1].trim());
+                                            if (!isNaN(current) && !isNaN(total)) {
+                                                window.AndroidFullscreen.updateImageProgress(current, total);
+                                            }
+                                        }
+                                    };
+                                    updateProgress(); // 初始化调用一次
+                                    // 监听文本变化
+                                    var observer = new MutationObserver(updateProgress);
+                                    observer.observe(counter, { childList: true, characterData: true, subtree: true });
+                                }
                             }
                             return;
                         }
@@ -275,9 +382,19 @@ fun BBSPage(
                         // 步骤 B: 还没弹出来？继续尝试点击图片
                         // 因为我们不知道网页自带的 JS 到底在什么时候绑定完成，所以要持续“叩门”
                         var links = document.querySelectorAll('a[data-pswp-width], .img_one a.orange, .message a.orange, .postmessage a.orange');
-                        if (links.length > 0) {
-                            var el = links[0];
-                            el.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+                        var targetEl = null;
+                        for (var i = 0; i < links.length; i++) {
+                            var href = links[i].getAttribute('href') || '';
+                            var innerHtml = links[i].innerHTML || '';
+                            // 核心过滤：跳过所有 .gif 后缀的链接，以及属于论坛静态资源(表情/分割线)的链接
+                            if (href.toLowerCase().indexOf('.gif') === -1 && href.indexOf('static/image/') === -1 && innerHtml.indexOf('static/image/') === -1) {
+                                targetEl = links[i];
+                                break; // 找到第一张真正的正文图片，跳出循环
+                            }
+                        }
+                        
+                        if (targetEl) {
+                            targetEl.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
                         }
 
                         // 步骤 C: 终极防死锁兜底
@@ -549,18 +666,8 @@ fun BBSPage(
                     javaScriptEnabled = true
                 }
                 webView.addJavascriptInterface(
-                    FullscreenApi(
-                        onStateChange = { isFullscreen ->
-                            isFullscreenState.value = isFullscreen
-                            if (!isFullscreen) isFullscreenUiVisible.value = true
-                        },
-                        onUiStateChange = { isUiVisible ->
-                            isFullscreenUiVisible.value = isUiVisible
-                        },
-                        onMangaActionDone = {
-                            autoOpenMangaMode = false
-                        }
-                    ), "AndroidFullscreen")
+                    FullscreenApi, "AndroidFullscreen"
+                )
                 webView
             },
             update = { view ->
@@ -632,7 +739,6 @@ fun BBSPage(
         )
 
         AnimatedVisibility(
-            // 控制条件：只有在全屏模式下，且顶部菜单栏可见时，才显示目录按钮
             visible = isFullscreenState.value && isFullscreenUiVisible.value,
             enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(
                 initialOffsetY = { it / 2 }),
@@ -640,25 +746,89 @@ fun BBSPage(
                 targetOffsetY = { it / 2 }),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 48.dp)
+                .padding(bottom = 32.dp) // 【修改】稍微减少底部距离，给滑动条腾位置
         ) {
-            Button(
-                onClick = {
-                    showChapterList = true
-                },
-                modifier = Modifier.fillMaxWidth(0.4f),
-                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                    containerColor = Color.Black.copy(alpha = 0.6f),
-                    contentColor = Color.White
-                )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(
-                    imageVector = Icons.Default.Menu,
-                    contentDescription = "目录",
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.size(8.dp))
-                Text("目录")
+                // 原有的目录按钮
+                Button(
+                    onClick = {
+                        showChapterList = true
+                    },
+                    modifier = Modifier.fillMaxWidth(0.4f),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = Color.Black.copy(alpha = 0.6f),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "目录",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text("目录")
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // 【新增】图片滑动条组件 (仅在图片总数 > 1 时显示)
+                if (totalImageCount > 1f) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth(0.85f)
+                            .background(
+                                Color.Black.copy(alpha = 0.6f),
+                                androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                            )
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                    ) {
+                        Text("${currentImageIndex.toInt()}", color = Color.White, fontSize = 12.sp)
+
+                        androidx.compose.material3.Slider(
+                            value = currentImageIndex,
+                            onValueChange = { newValue ->
+                                currentImageIndex = newValue
+                            },
+                            onValueChangeFinished = {
+                                // 拖动结束后，通知 WebView 的 PhotoSwipe 跳转
+                                val targetIndex = currentImageIndex.toInt() - 1
+                                val js = """
+                                    (function() {
+                                        // 尝试获取常见的 PhotoSwipe 实例变量
+                                        var pswpObj = window.pswp || window.gallery || (document.querySelector('.pswp') ? document.querySelector('.pswp').PhotoSwipe : null);
+                                        if (pswpObj && typeof pswpObj.goTo === 'function') {
+                                            pswpObj.goTo($targetIndex);
+                                        }
+                                    })();
+                                """.trimIndent()
+                                webView.evaluateJavascript(js, null)
+                            },
+                            valueRange = 1f..totalImageCount,
+                            steps = if (totalImageCount > 2f) (totalImageCount - 2f).toInt() else 0,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 12.dp),
+                            colors = SliderDefaults.colors(
+                                // 滑块和已看过的进度条颜色（保持应用的主题高亮色，或者你也可以改为 Color.White）
+                                thumbColor = YamiboColors.secondary.copy(alpha = 0.8f),
+                                activeTrackColor = YamiboColors.secondary.copy(alpha = 0.5f),
+
+                                // 【关键修改】：让未看部分的轨道变成极低透明度的白色，彻底弱化它的存在感
+                                inactiveTrackColor = Color.White.copy(alpha = 0.1f),
+
+                                // 隐藏所有分段刻度点，让整个滑动条看起来更干净、纯粹
+                                inactiveTickColor = Color.Transparent,
+                                activeTickColor = Color.Transparent
+                            )
+                        )
+
+                        Text("${totalImageCount.toInt()}", color = Color.White, fontSize = 12.sp)
+                    }
+                }
             }
         }
         if (showChapterList) {

@@ -3,11 +3,9 @@ package org.shirakawatyu.yamibo.novel
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.view.ViewGroup
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -27,13 +25,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalGraphicsContext
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.core.graphics.drawable.toDrawable
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
@@ -45,29 +43,28 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import kotlinx.coroutines.flow.first
-import org.shirakawatyu.yamibo.novel.global.GlobalData
-import org.shirakawatyu.yamibo.novel.ui.page.BBSPage
-import org.shirakawatyu.yamibo.novel.ui.page.FavoritePage
-import org.shirakawatyu.yamibo.novel.ui.page.MinePage
-import org.shirakawatyu.yamibo.novel.ui.page.ReaderPage
-import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
-import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
-import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
-import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
-import java.net.URLDecoder
-import androidx.core.graphics.drawable.toDrawable
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.ui.page.BBSPage
+import org.shirakawatyu.yamibo.novel.ui.page.FavoritePage
+import org.shirakawatyu.yamibo.novel.ui.page.MangaWebPage
+import org.shirakawatyu.yamibo.novel.ui.page.MinePage
+import org.shirakawatyu.yamibo.novel.ui.page.OtherWebPage
+import org.shirakawatyu.yamibo.novel.ui.page.ProbingPage
+import org.shirakawatyu.yamibo.novel.ui.page.ReaderPage
+import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
+import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
-
+import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
+import java.net.URLDecoder
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cookies")
 
@@ -267,7 +264,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     webChromeClient = webChromeClient
                                 )
                             }
-
+                            // 1. 小说阅读页
                             composable(
                                 "ReaderPage/{passageUrl}",
                                 arguments = listOf(navArgument("passageUrl") {
@@ -281,8 +278,51 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     )
                                 }
                             }
+                            // 2. 漫画阅读页 (新增)
+                            composable(
+                                "MangaWebPage/{url}",
+                                arguments = listOf(navArgument("url") { type = NavType.StringType })
+                            ) {
+                                it.arguments?.getString("url")?.let { url ->
+                                    MangaWebPage(
+                                        url = URLDecoder.decode(url, "utf-8"),
+                                        navController = navController,
+                                        webChromeClient = webChromeClient
+                                    )
+                                }
+                            }
+
+                            // 3. 其他/探测网页 (新增)
+                            composable(
+                                "OtherWebPage/{url}",
+                                arguments = listOf(navArgument("url") { type = NavType.StringType })
+                            ) {
+                                it.arguments?.getString("url")?.let { url ->
+                                    OtherWebPage(
+                                        url = URLDecoder.decode(url, "utf-8"),
+                                        navController = navController,
+                                        webChromeClient = webChromeClient
+                                    )
+                                }
+                            }
+                            composable(
+                                "ProbingPage/{url}",
+                                arguments = listOf(navArgument("url") { type = NavType.StringType })
+                            ) {
+                                val url =
+                                    URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
+                                ProbingPage(url, navController)
+                            }
                         }
-                        if (currentRoute != "ReaderPage/{passageUrl}") {
+
+                        // 修改判断逻辑：如果当前路由是阅读类页面，则不显示底部导航栏
+                        val hideBottomNavRoutes = listOf(
+                            "ReaderPage/{passageUrl}",
+                            "ProbingPage/{url}",
+                            "MangaWebPage/{url}",
+                            "OtherWebPage/{url}"
+                        )
+                        if (currentRoute !in hideBottomNavRoutes) {
                             BottomNavBar(navController, currentRoute, bottomNavBarVM)
                         }
                     }
