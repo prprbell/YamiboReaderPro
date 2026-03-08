@@ -161,7 +161,9 @@ class MangaTitleCleaner {
             // 规则 3: 第X话 / 第X.Y话 (e.g., "第8.5话", "第八话" -> 8.5, 8.0)
             if (baseNum == -1f) {
                 val matchStandard =
-                    Regex("第\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)").find(cleanTitle)
+                    Regex("第\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)(?:\\s*[话話织回章节幕折更]|(?=[\\s:：,，.。!！?？|｜\\-—]|$))").find(
+                        cleanTitle
+                    )
                 if (matchStandard != null) {
                     baseNum = parseNumber(matchStandard.groupValues[1])
                 }
