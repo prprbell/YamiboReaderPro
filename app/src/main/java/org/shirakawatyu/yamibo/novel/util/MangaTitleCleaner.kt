@@ -33,7 +33,8 @@ class MangaTitleCleaner {
                 clean = clean.substring(0, markerMatch.range.first)
             }
 
-            clean = clean.replace(Regex("\\s+\\d+(\\.\\d+)?\\s*$"), "")
+            clean = clean.replace(Regex("\\s*\\d+(\\.\\d+)?\\s*$"), "")
+            clean = clean.replace(Regex("[！？\\?！!~。，、\\.]+$"), "")
             clean = clean.replace(Regex("^[\\s\\-|/\\)#]+|[\\s\\-|/\\(#:]+$"), "").trim()
 
             return clean
@@ -45,18 +46,14 @@ class MangaTitleCleaner {
          */
         fun getSearchKeyword(cleanName: String): String {
             // 兜底 1：遇到任何常见的“副标题分割符”或括号、空格，直接切断，只取第一块
-            // 例如 "百人百話-百合五篇" -> "百人百話"
-            // 例如 "Madder & Teal" -> "Madder"
-            val chunks = cleanName.split(Regex("[-—\\s|｜(（:：]"))
+            val chunks = cleanName.split(Regex("[-—\\s|｜(（:：！？\\?!]"))
             var keyword = chunks.firstOrNull { it.isNotBlank() } ?: cleanName
-
             // 兜底 2：如果切出来的第一块实在太短（比如只有一个字），用单字搜索会搜出几百个无关帖子
-            // 那就退一步，拿原标题截取前 4 个字作为安全搜索词
             if (keyword.length < 2) {
                 keyword = if (cleanName.length > 4) cleanName.substring(0, 4) else cleanName
             }
 
-            // 兜底 3：防超长 Discuz 报错（之前我们写的 12 个字限制）
+            // 兜底 3：防超长Discuz报错
             if (keyword.length > 12) {
                 keyword = keyword.substring(0, 12).trim()
             }
@@ -69,8 +66,12 @@ class MangaTitleCleaner {
          */
         fun extractChapterNum(rawTitle: String): Float {
             // 先去掉各种括号，防止把 [阅读权限 20] 当成第20话
-            val cleanTitle = rawTitle.replace(Regex("【.*?】|\\[.*?\\]|\\(.*?\\)|（.*?）"), "")
-
+            val cleanTitle = rawTitle
+                .replace(Regex("【.*?】|\\[.*?\\]|\\(.*?\\)|（.*?）"), "")
+                .replace(Regex("\\d+\\s*[xX×]\\s*\\d+"), "")
+            if (Regex("番外|特典|附录|SP", RegexOption.IGNORE_CASE).containsMatchIn(rawTitle)) {
+                return 0f
+            }
             // ==========================================
             // 第一步：提取小数修饰符 (前中后/上下)
             // ==========================================
@@ -137,20 +138,6 @@ class MangaTitleCleaner {
                 }
             }
 
-            // 规则 4: 番外 / 特典 / 附录
-            if (baseNum == -1f) {
-                val matchExtra = Regex("(番外|特典|附录)(?:篇)?\\s*([\\d\\.]*)").find(cleanTitle)
-                if (matchExtra != null) {
-                    val type = matchExtra.groupValues[1]
-                    val num = matchExtra.groupValues[2].toFloatOrNull() ?: 0f
-                    baseNum = when (type) {
-                        "番外" -> 1000f
-                        "特典" -> 2000f
-                        "附录" -> 3000f
-                        else -> 4000f
-                    } + num
-                }
-            }
 
             // 规则 4.5: 最终话
             if (baseNum == -1f) {
@@ -171,13 +158,10 @@ class MangaTitleCleaner {
             if (baseNum == -1f) {
                 baseNum = 0f
             }
-
             // ==========================================
             // 第三步：合并主副话数并严格限制浮点精度
             // ==========================================
-            // 使用 Math.round 防止 Float 精度溢出
-            // （例如 3 + 0.1 变成 3.1000004 从而被 UI 误判为时间线生成的 3 位小数）
-            return Math.round((baseNum + subModifier) * 100) / 100f
+            return Math.round((baseNum + subModifier) * 1000) / 1000f
         }
 
         /**

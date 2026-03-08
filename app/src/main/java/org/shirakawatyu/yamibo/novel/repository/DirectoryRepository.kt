@@ -109,7 +109,32 @@ class DirectoryRepository private constructor(private val context: Context) {
 
         return getFileLock(cleanName).withLock {
             val cachedDir = loadDirectory(cleanName)
-            val samePageLinks = MangaHtmlParser.extractSamePageLinks(mobileHtml)
+
+            val rawSamePageLinks = MangaHtmlParser.extractSamePageLinks(mobileHtml)
+
+            val validNums = rawSamePageLinks.map { it.chapterNum }.filter { it > 0f && it < 1000f }
+            val isDescending = validNums.size >= 2 && validNums.first() > validNums.last()
+
+            val ascendingLinks = if (isDescending) rawSamePageLinks.reversed() else rawSamePageLinks
+
+            var lastValidNum = 0f
+            var subIndex = 1
+
+            val fixedSamePageLinks = ascendingLinks.map { item ->
+                if (item.chapterNum > 0f && item.chapterNum < 1000f) {
+                    lastValidNum = item.chapterNum
+                    subIndex = 1
+                    item
+                } else if (item.chapterNum == 0f) {
+                    val virtualNum = lastValidNum + (subIndex * 0.001f)
+                    subIndex++
+                    item.copy(chapterNum = virtualNum)
+                } else {
+                    val virtualNum = item.chapterNum + (subIndex * 0.001f)
+                    subIndex++
+                    item.copy(chapterNum = virtualNum)
+                }
+            }
 
             val currentChapter = MangaChapterItem(
                 tid = tid,
@@ -120,11 +145,9 @@ class DirectoryRepository private constructor(private val context: Context) {
                 authorName = null
             )
 
-            val gatheredFromPage = (samePageLinks + currentChapter)
+            val gatheredFromPage = (fixedSamePageLinks + currentChapter).distinctBy { it.tid }
 
             if (cachedDir != null) {
-                // 【情况 A】：已有缓存 -> 执行“补充合并”
-                // 核心修复：白嫖的数据只作为补充，不覆盖已有的缓存数据！
                 val existingTids = cachedDir.chapters.map { it.tid }.toSet()
                 val supplementaryChapters = gatheredFromPage.filter { it.tid !in existingTids }
 
@@ -138,9 +161,8 @@ class DirectoryRepository private constructor(private val context: Context) {
                     cachedDir.chapters
                 }
 
-                // 策略升级
                 val newStrategy =
-                    if (cachedDir.strategy == DirectoryStrategy.PENDING_SEARCH && samePageLinks.isNotEmpty()) {
+                    if (cachedDir.strategy == DirectoryStrategy.PENDING_SEARCH && rawSamePageLinks.isNotEmpty()) {
                         DirectoryStrategy.LINKS
                     } else cachedDir.strategy
 
@@ -149,13 +171,11 @@ class DirectoryRepository private constructor(private val context: Context) {
                     strategy = newStrategy
                 )
 
-                // 只有真的补充了新章节，或者策略改变了，才触发磁盘保存
                 if (supplementaryChapters.isNotEmpty() || updatedDir.strategy != cachedDir.strategy) {
                     saveDirectory(updatedDir)
                 }
                 return@withLock updatedDir
             } else {
-                // 【情况 B】：完全没缓存 -> 按照原有优先级创建
                 val tagIds = MangaHtmlParser.findTagIdsMobile(mobileHtml)
 
                 val strategy: DirectoryStrategy
@@ -164,7 +184,7 @@ class DirectoryRepository private constructor(private val context: Context) {
                 if (tagIds.isNotEmpty()) {
                     strategy = DirectoryStrategy.TAG
                     sourceKey = tagIds.joinToString(",")
-                } else if (samePageLinks.isNotEmpty()) {
+                } else if (rawSamePageLinks.isNotEmpty()) {
                     strategy = DirectoryStrategy.LINKS
                     sourceKey = cleanName
                 } else {

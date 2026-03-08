@@ -260,8 +260,17 @@ fun MangaChapterPanel(
 
                         // 右侧区域：最新话数 + 更新按钮
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            val latestChapter =
-                                chapters.filter { it.index < 1000f }.maxByOrNull { it.index }
+                            val latestChapter = chapters.filter {
+                                // 屏蔽时间线算法生成的 3 位小数隐藏章节
+                                it.index.toString().substringAfter(".", "").length < 3 &&
+                                        // 屏蔽所有番外/特典，不让它们抢占“最新进度”
+                                        !it.title.contains(
+                                            Regex(
+                                                "番外|特典|附录|SP",
+                                                RegexOption.IGNORE_CASE
+                                            )
+                                        )
+                            }.maxByOrNull { it.index }
 
                             val latestText = latestChapter?.let {
                                 if (it.index % 1f == 0f) it.index.toInt()
@@ -363,24 +372,20 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
         chapter.isRead -> TextRead
         else -> TextSec
     }
-    // 【核心修复】格式化左侧的序号展示
+    // 格式化左侧的序号展示
     val displayIndex = when {
-        chapter.index >= 1000f -> "SP"   // 番外/附录统一显示为 SP
-        chapter.index == 999f -> "终"    // 兜底最终话
-
+        chapter.title.contains(Regex("番外|特典|附录|SP", RegexOption.IGNORE_CASE)) -> "SP"
+        chapter.index == 999f -> "终"
         // 1. 隐藏时间线算法生成的 3 位小数 (如 32.001) -> 显示为 Ex
         chapter.index.toString().substringAfter(".", "").length >= 3 -> "Ex"
 
         // 2. 隐藏 0f 以及误判的 0.1/0.2：
-        // 只要底层计算出的话数小于 1 (比如 0.0, 0.1, 0.2)，且原标题里根本没有显式地写 "0"、"零" 或 "〇"
-        // 统统视为无话数的短篇或被“上/下”关键字误伤的帖子，显示为 Ex
         chapter.index < 1f && !chapter.title.contains(Regex("0|零|〇")) -> "Ex"
 
         chapter.index % 1f == 0f -> chapter.index.toInt().toString() // 4.0 -> "4"
         else -> chapter.index.toString() // 29.5 -> "29.5"
     }
 
-    // 【核心修复】：使用 chapter.url 作为 remember 的 key。
     // 这样当 LazyColumn 复用这个组件给另一个章节时，这两个状态会“瞬间、同步”地重置为 false，彻底消灭滑动闪烁。
     var isExpanded by remember(chapter.url) { mutableStateOf(false) }
     var isTruncated by remember(chapter.url) { mutableStateOf(false) }
