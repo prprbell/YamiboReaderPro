@@ -105,6 +105,7 @@ class DirectoryRepository private constructor(private val context: Context) {
         rawTitle: String,
         mobileHtml: String
     ): MangaDirectory {
+        val threadTitle = MangaTitleCleaner.getCleanThreadTitle(rawTitle)
         val cleanName = MangaTitleCleaner.getCleanBookName(rawTitle)
 
         return getFileLock(cleanName).withLock {
@@ -138,8 +139,8 @@ class DirectoryRepository private constructor(private val context: Context) {
 
             val currentChapter = MangaChapterItem(
                 tid = tid,
-                rawTitle = rawTitle,
-                chapterNum = MangaTitleCleaner.extractChapterNum(rawTitle),
+                rawTitle = threadTitle,
+                chapterNum = MangaTitleCleaner.extractChapterNum(threadTitle),
                 url = currentUrl,
                 authorUid = null,
                 authorName = null
