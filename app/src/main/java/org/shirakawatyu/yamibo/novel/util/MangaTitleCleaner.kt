@@ -2,12 +2,18 @@ package org.shirakawatyu.yamibo.novel.util
 
 class MangaTitleCleaner {
     companion object {
+        fun getCleanThreadTitle(rawTitle: String): String {
+            return rawTitle.replace(
+                Regex("\\s+-\\s+([^\\-]+区|百合会|论坛|手机版|Powered by).*$"),
+                ""
+            ).trim()
+        }
 
         /**
          * 提取纯净书名 (用于后续去重和搜索)
          */
         fun getCleanBookName(rawTitle: String): String {
-            var clean = rawTitle
+            var clean = getCleanThreadTitle(rawTitle)
 
             clean = clean.replace(Regex("\\s+-\\s+.*?(中文百合漫画区|百合会|论坛).*$"), "")
             clean = clean.replace(Regex("【.*?】|\\[.*?\\]"), "")
