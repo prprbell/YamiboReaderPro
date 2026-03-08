@@ -3,6 +3,8 @@ package org.shirakawatyu.yamibo.novel.parser
 import org.jsoup.Jsoup
 import org.shirakawatyu.yamibo.novel.bean.MangaChapterItem
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class MangaHtmlParser {
     companion object {
@@ -99,6 +101,17 @@ class MangaHtmlParser {
             return null
         }
 
+        private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+        private fun parsePublishTime(dateStr: String?): Long {
+            if (dateStr.isNullOrBlank()) return 0L
+            return try {
+                dateFormat.parse(dateStr.trim())?.time ?: 0L
+            } catch (e: Exception) {
+                0L
+            }
+        }
+
         /**
          * 解析 Tag 列表页(PC端) 或 搜索结果页(手机端)，转换为统一的 ChapterItem 列表
          */
@@ -106,25 +119,28 @@ class MangaHtmlParser {
             val doc = Jsoup.parse(html)
             val result = mutableListOf<MangaChapterItem>()
 
-            // ==========================================
             // 分支 1：处理 PC 端 Tag 页面
-            // ==========================================
             if (doc.select("body.pg_tag").isNotEmpty() || doc.select(".bm_c table").isNotEmpty()) {
-                // 【修复】去掉 tbody，直接匹配 table 下所有的 tr，避免 Jsoup 兼容性问题
                 val rows = doc.select(".bm_c table tr")
                 for (row in rows) {
-                    // 跳过表头 <tr><th><h2>相关帖子</h2></th></tr>
                     if (row.select("th h2").isNotEmpty()) continue
 
-                    // 提取标题和链接 (在 <th> 下的 <a> 中)
                     val titleElement = row.select("th a").firstOrNull() ?: continue
                     val url = titleElement.attr("href")
-                    val title = titleElement.text() // Jsoup 会自动剥离HTML标签，得到纯文本
+                    val title = titleElement.text()
 
-                    // 提取作者和 UID (在 <td class="by"> <cite> <a> 中)
-                    val authorElement = row.select("td.by cite a").firstOrNull()
+                    // 【修改】获取第二个 td.by (即作者与发布时间所在列，避开第三个 td.by 最后发表)
+                    val authorTd = row.select("td.by").getOrNull(1)
+                    val authorElement = authorTd?.select("cite a")?.firstOrNull()
                     val authorName = authorElement?.text()
                     val authorUid = authorElement?.attr("href")?.let { extractUidFromUrl(it) }
+
+                    // 【新增】精准提取发帖时间 <em><span>2025-6-6</span></em> 或 <em>2025-6-6</em>
+                    val timeStr = authorTd?.select("em span")?.firstOrNull()?.text()
+                        ?: authorTd?.select("em")?.firstOrNull()?.text()
+                    // 剔除可能多余的字符，只保留数字和连字符
+                    val cleanTimeStr = timeStr?.replace(Regex("[^0-9-]"), "")
+                    val publishTime = parsePublishTime(cleanTimeStr)
 
                     val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: continue
                     val chapterNum = MangaTitleCleaner.extractChapterNum(title)
@@ -137,7 +153,8 @@ class MangaHtmlParser {
                             url,
                             authorUid,
                             authorName,
-                            groupIndex
+                            groupIndex,
+                            publishTime
                         )
                     )
                 }

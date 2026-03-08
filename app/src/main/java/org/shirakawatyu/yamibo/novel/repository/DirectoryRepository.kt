@@ -208,65 +208,118 @@ class DirectoryRepository private constructor(private val context: Context) {
         }
     }
 
+    /**
+     * 通用时间线降级补完算法
+     * 将无编号的章节或高编号番外，利用时间线顺位赋予小数以稳定排序
+     * @param items 抓取到的源数据
+     * @param isSearchDesc 是否来自搜索接口 (搜索接口默认是最新发帖在前，需要反转)
+     */
+    private fun fixChaptersByTimeline(
+        items: List<MangaChapterItem>,
+        isSearchDesc: Boolean = false
+    ): List<MangaChapterItem> {
+        if (items.isEmpty()) return items
+
+        // 1. 决定基准时间线排序 (最老发帖在前)
+        val ascendingItems = if (items.any { it.publishTime > 0L }) {
+            // 如果成功抓取到了发帖时间，以时间戳为准进行严格正序
+            items.sortedBy { it.publishTime }
+        } else {
+            // 如果没抓到时间（例如手机端），按照既定策略反转或保留
+            if (isSearchDesc) items.reversed() else items
+        }
+
+        var lastValidNum = 0f
+        var subIndex = 1
+
+        // 2. 小数点注入
+        return ascendingItems.map { item ->
+            if (item.chapterNum > 0f && item.chapterNum < 1000f) {
+                lastValidNum = item.chapterNum
+                subIndex = 1 // 基准点重置
+                item
+            } else {
+                // 如果是 0f(未解析到)，跟随上一话；如果是 >=1000f(SP/番外)，跟随自己原始的基数
+                val baseNum = if (item.chapterNum == 0f) lastValidNum else item.chapterNum
+                val virtualNum = baseNum + (subIndex * 0.001f)
+                subIndex++
+                item.copy(chapterNum = virtualNum)
+            }
+        }
+    }
+
     suspend fun manuallyUpdateDirectory(
         currentDir: MangaDirectory,
         forceSearch: Boolean = false
-    ): Result<DirectoryUpdateResult> =
-        withContext(Dispatchers.IO) {
-            val newChapters = mutableListOf<MangaChapterItem>()
-            var searchPerformed = false
-            try {
-                if (!forceSearch && currentDir.strategy == DirectoryStrategy.TAG) {
-                    val tagIdList = currentDir.sourceKey.split(",")
-                    for ((index, tagId) in tagIdList.withIndex()) {
-                        if (tagId.isBlank()) continue
-                        val html1 = mangaApi.getTagPageHtml(tagId, 1).string()
-                        val parsed = MangaHtmlParser.parseListHtml(html1, index)
-                        if (parsed.isNotEmpty()) {
-                            newChapters.addAll(parsed)
-                            val total = MangaHtmlParser.extractTotalPages(html1)
-                            if (total > 1) for (p in 2..total) newChapters.addAll(
-                                MangaHtmlParser.parseListHtml(
-                                    mangaApi.getTagPageHtml(tagId, p).string(),
-                                    index
+    ): Result<DirectoryUpdateResult> = withContext(Dispatchers.IO) {
+        val newChapters = mutableListOf<MangaChapterItem>()
+        var searchPerformed = false
+        try {
+            if (!forceSearch && currentDir.strategy == DirectoryStrategy.TAG) {
+                val tagIdList = currentDir.sourceKey.split(",")
+                for ((index, tagId) in tagIdList.withIndex()) {
+                    if (tagId.isBlank()) continue
+                    val html1 = mangaApi.getTagPageHtml(tagId, 1).string()
+                    val parsed = MangaHtmlParser.parseListHtml(html1, index)
+                    if (parsed.isNotEmpty()) {
+                        newChapters.addAll(parsed)
+                        val total = MangaHtmlParser.extractTotalPages(html1)
+                        if (total > 1) {
+                            for (p in 2..total) {
+                                newChapters.addAll(
+                                    MangaHtmlParser.parseListHtml(
+                                        mangaApi.getTagPageHtml(
+                                            tagId,
+                                            p
+                                        ).string(), index
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
-                    if (newChapters.isEmpty()) {
-                        searchPerformed = true
-                        val res = performSearch(currentDir.cleanBookName)
-                        if (res.isFailure) return@withContext Result.failure(res.exceptionOrNull()!!)
-                        newChapters.addAll(res.getOrNull()!!)
-                    }
-                } else {
+                }
+
+                // TAG 爬取完毕后，应用时间线兜底排序机制！
+                if (newChapters.isNotEmpty()) {
+                    val fixedChapters = fixChaptersByTimeline(newChapters, isSearchDesc = false)
+                    newChapters.clear()
+                    newChapters.addAll(fixedChapters)
+                }
+
+                if (newChapters.isEmpty()) {
                     searchPerformed = true
-                    val realSearchKey = if (currentDir.strategy == DirectoryStrategy.TAG) {
-                        currentDir.cleanBookName
-                    } else {
-                        currentDir.sourceKey
-                    }
-                    val res = performSearch(realSearchKey)
+                    val res = performSearch(currentDir.cleanBookName)
                     if (res.isFailure) return@withContext Result.failure(res.exceptionOrNull()!!)
                     newChapters.addAll(res.getOrNull()!!)
                 }
-
-                val finalDir = getFileLock(currentDir.cleanBookName).withLock {
-                    val latest = loadDirectory(currentDir.cleanBookName) ?: currentDir
-                    val merged = mergeAndSortChapters(latest.chapters, newChapters)
-                    val updated = latest.copy(
-                        chapters = merged,
-                        lastUpdateTime = System.currentTimeMillis(),
-                        strategy = if (latest.strategy != DirectoryStrategy.TAG) DirectoryStrategy.SEARCHED else latest.strategy
-                    )
-                    saveDirectory(updated)
-                    updated
+            } else {
+                searchPerformed = true
+                val realSearchKey = if (currentDir.strategy == DirectoryStrategy.TAG) {
+                    currentDir.cleanBookName
+                } else {
+                    currentDir.sourceKey
                 }
-                Result.success(DirectoryUpdateResult(finalDir, searchPerformed))
-            } catch (e: Exception) {
-                Result.failure(e)
+                val res = performSearch(realSearchKey)
+                if (res.isFailure) return@withContext Result.failure(res.exceptionOrNull()!!)
+                newChapters.addAll(res.getOrNull()!!)
             }
+
+            val finalDir = getFileLock(currentDir.cleanBookName).withLock {
+                val latest = loadDirectory(currentDir.cleanBookName) ?: currentDir
+                val merged = mergeAndSortChapters(latest.chapters, newChapters)
+                val updated = latest.copy(
+                    chapters = merged,
+                    lastUpdateTime = System.currentTimeMillis(),
+                    strategy = if (latest.strategy != DirectoryStrategy.TAG) DirectoryStrategy.SEARCHED else latest.strategy
+                )
+                saveDirectory(updated)
+                updated
+            }
+            Result.success(DirectoryUpdateResult(finalDir, searchPerformed))
+        } catch (e: Exception) {
+            Result.failure(e)
         }
+    }
 
     private suspend fun performSearch(keyword: String): Result<List<MangaChapterItem>> {
         val now = System.currentTimeMillis()
@@ -294,39 +347,8 @@ class DirectoryRepository private constructor(private val context: Context) {
             }
         }
 
-        // 3. 【核心修复】：基于发帖时间线的话数兜底注入
-        // 抓下来的 allItems 默认是【最新发帖在前】(时间倒序 / 话数降序)
-        // 我们将其反转成【最老发帖在前】(时间正序 / 话数升序)，重现真实的汉化发布流程
-        val ascendingItems = allItems.reversed()
+        val fixedItems = fixChaptersByTimeline(allItems, isSearchDesc = true)
 
-        var lastValidNum = 0f
-        var subIndex = 1
-
-        val fixedItems = ascendingItems.map { item ->
-            // 情况 A：能够精准解析出话数 (比如 第32话) -> 把它设为新的时间线锚点
-            if (item.chapterNum > 0f && item.chapterNum < 1000f) {
-                lastValidNum = item.chapterNum
-                subIndex = 1 // 充当基准点，重置计数器
-                item
-            }
-            // 情况 B：完全解析不出话数 (比如 "野猫驯养日记"，提取为 0f)
-            else if (item.chapterNum == 0f) {
-                // 精髓：根据发帖时间赋予微小小数。比如跟在 32话 后面的无编号帖子会被赋为 32.001话
-                // 如果紧接着又是一篇无编号，则是 32.002话，极其完美的契合时间排序！
-                val virtualNum = lastValidNum + (subIndex * 0.001f)
-                subIndex++
-                item.copy(chapterNum = virtualNum)
-            }
-            // 情况 C：带"番外/特典"的高编号 (提取为 1000f 以上)
-            else {
-                // 依然加上微小的发帖时间偏置，这样发多篇番外也会按发帖顺序稳稳排列
-                val virtualNum = item.chapterNum + (subIndex * 0.001f)
-                subIndex++
-                item.copy(chapterNum = virtualNum)
-            }
-        }
-
-        // 最终返回，因为 `mergeAndSortChapters` 后续会利用我们注入好的 chapterNum 进行强排序
         return Result.success(fixedItems)
     }
 

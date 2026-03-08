@@ -26,5 +26,8 @@ data class MangaChapterItem @JSONCreator constructor(
     val authorName: String?,           // 发帖人昵称，用于UI展示
 
     @JSONField(name = "groupIndex")
-    val groupIndex: Int = 0
+    val groupIndex: Int = 0,
+
+    @JSONField(name = "publishTime")
+    val publishTime: Long = 0L
 )

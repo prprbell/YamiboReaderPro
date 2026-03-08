@@ -23,7 +23,7 @@ class MangaTitleCleaner {
             // 3. 截断章节标记及其后面的所有内容
             val chapterMarkerPattern = Regex(
                 "(?i)(" + // (?i) 表示忽略大小写
-                        "第\\s*[\\d\\.\\-零一二两三四五六七八九十百千]+\\s*[话話回卷季]|" +
+                        "第\\s*[\\d\\.\\-零一二两三四五六七八九十百千]+" +
                         "[-—\\s]*[#＃]\\s*\\d+|" +
                         "[-—\\s]*S\\d+(\\s*EP\\d+)?|" +
                         "[-—\\s]*EP\\d+|" +
@@ -104,9 +104,10 @@ class MangaTitleCleaner {
                 subModifier = circleMap[circleMatch.value[0]] ?: 0f
             }
 
-            // 规则 1: (第)?X话其Y (e.g., "1话其2" -> 1.02f)
+            // 规则 1: (第)?X[任意单字]其Y (e.g., "1话其2", "第一织其二" -> 1.02f)
+            // 这里的 [^\d零一二两三四五六七八九十百千]? 用于匹配“话”、“织”等量词，确保它不是数字本身
             val matchQi =
-                Regex("(?:第)?\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)\\s*[话話]\\s*其\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)").find(
+                Regex("(?:第)?\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)\\s*[^\\d零一二两三四五六七八九十百千]?\\s*其\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)").find(
                     cleanTitle
                 )
             if (matchQi != null) {
@@ -114,10 +115,11 @@ class MangaTitleCleaner {
                     parseNumber(matchQi.groupValues[1]) + (parseNumber(matchQi.groupValues[2]) / 100f)
             }
 
-            // 规则 2: 第X-Y话 (e.g., "第9-2话" -> 9.02f)
+            // 规则 2: 第X-Y (e.g., "第9-2织", "第9-2" -> 9.02f)
             if (baseNum == -1f) {
+                // 删除了末尾的 \s*[话話] 限制
                 val matchDash =
-                    Regex("第\\s*([\\d]+|[零一二两三四五六七八九十百千]+)[\\-]([\\d]+|[零一二两三四五六七八九十百千]+)\\s*[话話]").find(
+                    Regex("第\\s*([\\d]+|[零一二两三四五六七八九十百千]+)[\\-]([\\d]+|[零一二两三四五六七八九十百千]+)").find(
                         cleanTitle
                     )
                 if (matchDash != null) {
@@ -138,9 +140,7 @@ class MangaTitleCleaner {
             // 规则 3: 第X话 / 第X.Y话 (e.g., "第8.5话", "第八话" -> 8.5, 8.0)
             if (baseNum == -1f) {
                 val matchStandard =
-                    Regex("第\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)\\s*[话話]").find(
-                        cleanTitle
-                    )
+                    Regex("第\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)").find(cleanTitle)
                 if (matchStandard != null) {
                     baseNum = parseNumber(matchStandard.groupValues[1])
                 }
