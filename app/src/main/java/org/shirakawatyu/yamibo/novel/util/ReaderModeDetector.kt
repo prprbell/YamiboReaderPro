@@ -16,14 +16,14 @@ class ReaderModeDetector {
         fun canConvertToReaderMode(url: String?, title: String? = null): Boolean {
             if (url.isNullOrBlank()) return false
 
-            // 1. 基础条件：必须是帖子查看页面
+            // 1. 必须是帖子查看页面
             val isThreadPage = url.contains("mod=viewthread") && url.contains("tid=")
             if (!isThreadPage) return false
 
-            // 2. 标题为空时直接不显示，防止在加载初期乱闪
+            // 2. 标题为空时直接不显示
             if (title.isNullOrBlank()) return false
 
-            // 3. 白名单放行：只有标题里确切包含这三个板块名之一，才允许显示阅读按钮
+            // 3. 只有标题里确切包含这三个板块名之一，才允许显示阅读按钮
             return textSections.any { title.contains(it) }
         }
 

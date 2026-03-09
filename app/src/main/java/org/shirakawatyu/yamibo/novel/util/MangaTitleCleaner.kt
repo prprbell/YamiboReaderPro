@@ -49,11 +49,6 @@ class MangaTitleCleaner {
 
         /**
          * 提取核心搜索词
-         * 哪怕展示的标题残留了脏数据，只要提取前几个核心字去搜，就能百发百中
-         */
-        /**
-         * 提取核心搜索词
-         * 传入完整原标题，自动提取 [汉化组/作者] + 核心书名
          */
         fun getSearchKeyword(rawTitle: String): String {
             // 1. 内部自动获取纯净书名，不用外面传了
@@ -91,7 +86,7 @@ class MangaTitleCleaner {
         }
 
         /**
-         * 提取话数 (用于排序，必须返回 Float)
+         * 提取话数，用于排序
          */
         fun extractChapterNum(rawTitle: String): Float {
             // 先去掉各种括号，防止把 [阅读权限 20] 当成第20话
@@ -101,20 +96,16 @@ class MangaTitleCleaner {
             if (Regex("番外|特典|附录|SP", RegexOption.IGNORE_CASE).containsMatchIn(rawTitle)) {
                 return 0f
             }
-            // ==========================================
             // 第一步：提取小数修饰符 (前中后/上下)
-            // ==========================================
+
             var subModifier = 0f
-            // (?!.*[\d零一二两三四五六七八九十百千]) 确保上/下后面没有主要数字，防止误伤 "上册第3话"
             val noDigitAfter = "(?!.*[\\d零一二两三四五六七八九十百千])"
 
             if (Regex("(前篇|上)$noDigitAfter").containsMatchIn(cleanTitle)) subModifier = 0.1f
             else if (Regex("(中篇|中)$noDigitAfter").containsMatchIn(cleanTitle)) subModifier = 0.2f
             else if (Regex("(后篇|下)$noDigitAfter").containsMatchIn(cleanTitle)) subModifier = 0.3f
 
-            // ==========================================
             // 第二步：提取主话数
-            // ==========================================
             var baseNum = -1f
             val circleMap = mapOf(
                 '①' to 0.1f, '②' to 0.2f, '③' to 0.3f, '④' to 0.4f, '⑤' to 0.5f,
@@ -126,7 +117,6 @@ class MangaTitleCleaner {
             }
 
             // 规则 1: (第)?X[任意单字]其Y (e.g., "1话其2", "第一织其二" -> 1.02f)
-            // 这里的 [^\d零一二两三四五六七八九十百千]? 用于匹配“话”、“织”等量词，确保它不是数字本身
             val matchQi =
                 Regex("(?:第)?\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)\\s*[^\\d零一二两三四五六七八九十百千]?\\s*其\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)").find(
                     cleanTitle
@@ -200,9 +190,7 @@ class MangaTitleCleaner {
             if (baseNum == -1f) {
                 baseNum = 0f
             }
-            // ==========================================
             // 第三步：合并主副话数并严格限制浮点精度
-            // ==========================================
             return Math.round((baseNum + subModifier) * 1000) / 1000f
         }
 
@@ -218,7 +206,6 @@ class MangaTitleCleaner {
          * 将中文数字/阿拉伯数字统一解析为 Float 浮点数
          */
         private fun parseNumber(numStr: String): Float {
-            // 如果本来就是阿拉伯数字，直接返回
             numStr.toFloatOrNull()?.let { return it }
 
             var total = 0f
@@ -237,7 +224,7 @@ class MangaTitleCleaner {
                         '十' -> 10f; '百' -> 100f; '千' -> 1000f; else -> 0f
                     }
                     if (unit > 0) {
-                        if (number == -1f) number = 1f // 处理如 "十一" 的情况 (隐去了一十)
+                        if (number == -1f) number = 1f
                         total += number * unit
                         number = -1f
                     }

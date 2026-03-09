@@ -423,11 +423,9 @@ fun OtherWebPage(
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 super.onPageFinished(view, finishedUrl)
                 isLoading = false
-                // 1. 提取当前页面的 TID 和 初始传入 URL 的 TID
                 val currentTid = MangaTitleCleaner.extractTidFromUrl(finishedUrl ?: "")
                 val originalTid = MangaTitleCleaner.extractTidFromUrl(url)
 
-                // 2. 如果用户已经跳到了别的帖子，就停止保存书签
                 if (currentTid != null && originalTid != null && currentTid != originalTid) {
                     return
                 }
@@ -447,10 +445,10 @@ fun OtherWebPage(
                     }
                     page
                 }
-                // 3. 只有 TID 一致（或者是同一个帖子），才执行后续的页码提取和保存逻辑
+                // 3. 只有TID一致（或者是同一个帖子），才执行后续的页码提取和保存逻辑
                 val currentPageNum = extractPage(finishedUrl)
 
-                // 核心：即使是“其他”页面，加载完也做一次解析
+                // 即使是“其他”页面，加载完也做一次解析
                 val checkTypeJs = """
                     (function() {
                         var sectionHeader = document.querySelector('.header h2 a');
@@ -480,13 +478,13 @@ fun OtherWebPage(
                                     changed = true
                                 }
 
-                                // 更新阅读进度（网页页数）
+                                // 更新阅读进度
                                 if (fav.lastView != currentPageNum) {
                                     newFav = newFav.copy(lastView = currentPageNum)
                                     changed = true
                                 }
 
-                                // 只有发生改变时才写入 DataStore
+                                // 只有发生改变时才写入DataStore
                                 if (changed) {
                                     FavoriteUtil.updateFavorite(newFav)
                                 }
@@ -554,7 +552,6 @@ fun OtherWebPage(
         }
     }
 
-    // 1. 监听大图退出状态，执行积压的跳转任务
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             pendingNavigateUrl?.let { navigateUrl ->
@@ -567,7 +564,6 @@ fun OtherWebPage(
         }
     }
 
-    // 2. 页面加载完成注入自动点击 JS (针对可能是漫画帖的情况)
     LaunchedEffect(isLoading) {
         if (!isLoading && autoOpenMangaMode) {
             val clickJs = """
@@ -683,7 +679,6 @@ fun OtherWebPage(
             }
         )
 
-        // 阅读模式按钮 (OtherWebPage 需保留)
         ReaderModeFAB(
             visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
             onClick = {
@@ -740,7 +735,6 @@ fun OtherWebPage(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 if (isMangaSection) {
-                    // 原有的目录按钮
                     Button(
                         onClick = {
                             showChapterList = true

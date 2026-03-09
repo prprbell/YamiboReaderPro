@@ -1,6 +1,7 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,6 +22,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
@@ -52,6 +55,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -85,75 +90,170 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
  */
 @Composable
 fun FavoritePage(
-    favoriteVM: FavoriteVM = viewModel(
-        factory = ViewModelFactory(LocalContext.current.applicationContext)
-    ),
+    favoriteVM: FavoriteVM = viewModel(factory = ViewModelFactory(LocalContext.current.applicationContext)),
     navController: NavController
 ) {
     val uiState by favoriteVM.uiState.collectAsState()
-    // 获取收藏列表 (已根据管理模式过滤)
     val favoriteList = uiState.favoriteList
-    // 获取收藏列表的刷新状态
     val isRefreshing = uiState.isRefreshing
-    // 获取管理模式状态
     val isInManageMode = uiState.isInManageMode
-    // 获取选中项
     val selectedItems = uiState.selectedItems
-    // 缓存信息
     var cacheInfoMap = uiState.cacheInfoMap
     var showCacheManagement by remember { mutableStateOf(false) }
-    // 加载缓存信息
-    LaunchedEffect(Unit) {
-        favoriteVM.refreshCacheInfo()
-    }
+
+    LaunchedEffect(Unit) { favoriteVM.refreshCacheInfo() }
+
     var showBookmarkManagement by remember { mutableStateOf(false) }
     var showDirectoryManagement by remember { mutableStateOf(false) }
     var directoryList by remember { mutableStateOf<List<MangaDirectory>>(emptyList()) }
 
     SetStatusBarColor(YamiboColors.onSurface)
 
-    // 监听生命周期，在onResume时只刷新网络列表
-    // 本地列表的更新由FavoriteVM中的Flow collector自动处理
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 favoriteVM.refreshList(showLoading = false)
-                favoriteVM.getCacheInfo { info ->
-                    cacheInfoMap = info
-                }
+                favoriteVM.getCacheInfo { info -> cacheInfoMap = info }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    // 长按触觉反馈
+
     val hapticFeedback = LocalHapticFeedback.current
-    // implementation("sh.calvin.reorderable:reorderable:3.0.0")
     val lazyListState = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(
         lazyListState = lazyListState,
         onMove = { from, to ->
-            // 仅在非管理模式下允许拖拽排序
-            if (!isInManageMode) {
-                favoriteVM.moveFavorite(from.index, to.index)
-            }
+            if (!isInManageMode) favoriteVM.moveFavorite(from.index, to.index)
         }
     )
+
+    // 分类数据
+    val categoryOptions = listOf(
+        Triple(-1, "全部", Color.Transparent),
+        Triple(1, "小说", Color(0xFF4CAF50)),
+        Triple(2, "漫画", Color(0xFF2196F3)),
+        Triple(3, "帖子", Color(0xFFFF9800)),
+        Triple(0, "未定", Color(0xFF9E9E9E))
+    )
+    val currentCat =
+        categoryOptions.find { it.first == favoriteVM.currentCategory } ?: categoryOptions[0]
+
     Column {
-        // TopBar
-        TopBar(title = if (isInManageMode) "管理收藏 (${selectedItems.size})" else "收藏") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // 保持间距 (这是 'if' 分支的)
-                Spacer(modifier = Modifier.width(12.dp))
+        TopBar(title = "") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // =============== 左半部：标题或分类切换 ===============
                 if (isInManageMode) {
-                    // 管理模式 (保持不变)
+                    Text(
+                        text = "管理收藏 (${selectedItems.size})",
+                        fontSize = 20.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(start = 16.dp)
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                } else {
+                    var categoryMenuExpanded by remember { mutableStateOf(false) }
+                    val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
+                        targetValue = if (categoryMenuExpanded) 180f else 0f,
+                        label = "arrow_rotation_animation"
+                    )
+                    Box(modifier = Modifier.padding(start = 4.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { categoryMenuExpanded = true }
+                                .padding(horizontal = 4.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "收藏栏/${currentCat.second}",
+                                fontSize = 20.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Icon(
+                                imageVector = Icons.Filled.ArrowDropDown,
+                                contentDescription = if (categoryMenuExpanded) "收起分类" else "展开分类",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .offset(y = 4.dp)
+                                    .graphicsLayer {
+                                        transformOrigin = TransformOrigin(
+                                            pivotFractionX = 0.5f,
+                                            pivotFractionY = 0.5f
+                                        )
+                                        rotationZ = arrowRotation
+                                    }
+                            )
+                        }
+
+                        // 下拉菜单
+                        DropdownMenu(
+                            expanded = categoryMenuExpanded,
+                            onDismissRequest = { categoryMenuExpanded = false },
+                            offset = DpOffset(x = 0.dp, y = 16.dp),
+                            modifier = Modifier
+                                .width(140.dp)
+                                .background(Color(0xFFFFFCF0))
+                                .clip(RoundedCornerShape(12.dp))
+                        ) {
+                            categoryOptions.forEach { (typeId, name, color) ->
+                                DropdownMenuItem(
+                                    contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
+                                    text = {
+                                        Text(
+                                            text = name,
+                                            fontSize = 16.sp,
+                                            modifier = Modifier.padding(start = 16.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        favoriteVM.setCategory(typeId)
+                                        categoryMenuExpanded = false
+                                    },
+                                    leadingIcon = {
+                                        Box(
+                                            modifier = Modifier.size(32.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (typeId == -1) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.List,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(10.dp)
+                                                        .background(
+                                                            color,
+                                                            androidx.compose.foundation.shape.CircleShape
+                                                        )
+                                                )
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+
+                // =============== 右半部：操作菜单区域 ===============
+                if (isInManageMode) {
                     Button(
                         onClick = { favoriteVM.hideSelectedItems() },
                         enabled = selectedItems.isNotEmpty(),
-                        // 使用较小的内边距
                         contentPadding = ButtonDefaults.TextButtonContentPadding,
                         colors = ButtonDefaults.buttonColors(
                             disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -161,9 +261,7 @@ fun FavoritePage(
                                 alpha = 0.67f
                             )
                         )
-                    ) {
-                        Text("隐藏")
-                    }
+                    ) { Text("隐藏") }
                     Spacer(modifier = Modifier.width(20.dp))
                     Button(
                         onClick = { favoriteVM.unhideSelectedItems() },
@@ -175,19 +273,11 @@ fun FavoritePage(
                                 alpha = 0.67f
                             )
                         )
-                    ) {
-                        Text("显示")
-                    }
+                    ) { Text("显示") }
                     Spacer(modifier = Modifier.width(10.dp))
-                    Button(onClick = { favoriteVM.toggleManageMode() }) {
-                        Text("完成")
-                    }
+                    Button(onClick = { favoriteVM.toggleManageMode() }) { Text("完成") }
                 } else {
-                    // 非管理模式
-                    Spacer(modifier = Modifier.weight(1f))
-
                     var menuExpanded by remember { mutableStateOf(false) }
-
                     Box {
                         IconButton(
                             onClick = { menuExpanded = true },
@@ -200,8 +290,6 @@ fun FavoritePage(
                                 tint = YamiboColors.primary
                             )
                         }
-
-                        // 4. 下拉菜单本身
                         DropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false },
@@ -210,109 +298,62 @@ fun FavoritePage(
                                 .background(Color(0xFFFFFCF0))
                                 .clip(RoundedCornerShape(12.dp))
                         ) {
-                            // 菜单项 1: 缓存管理
+                            // 此处的五个原有选项代码不变：管理缓存、管理书签、管理目录、管理收藏、刷新列表
                             DropdownMenuItem(
                                 text = { Text("管理缓存") },
-                                onClick = {
-                                    showCacheManagement = true
-                                    menuExpanded = false
-                                },
+                                onClick = { showCacheManagement = true; menuExpanded = false },
                                 leadingIcon = {
                                     Icon(
-                                        painter = painterResource(id = R.drawable.ic_download),
-                                        contentDescription = "缓存管理",
-                                        modifier = Modifier.size(24.dp)
+                                        painterResource(R.drawable.ic_download),
+                                        null,
+                                        Modifier.size(24.dp)
                                     )
-                                },
-                                contentPadding = PaddingValues(
-                                    start = 12.dp,
-                                    end = 96.dp
-                                )
-                            )
-                            // 菜单项 2: 管理书签
+                                })
                             DropdownMenuItem(
                                 text = { Text("管理书签") },
-                                onClick = {
-                                    showBookmarkManagement = true
-                                    menuExpanded = false
-                                },
+                                onClick = { showBookmarkManagement = true; menuExpanded = false },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = Icons.Default.DateRange, // 需要导入
-                                        contentDescription = "书签管理",
-                                        modifier = Modifier.size(24.dp)
+                                        Icons.Default.DateRange,
+                                        null,
+                                        Modifier.size(24.dp)
                                     )
-                                },
-                                contentPadding = PaddingValues(
-                                    start = 12.dp,
-                                    end = 96.dp
-                                )
-                            )
-                            // 菜单项 3: 管理目录
+                                })
                             DropdownMenuItem(
                                 text = { Text("管理目录") },
                                 onClick = {
                                     favoriteVM.getDirectoryList { dirs ->
-                                        directoryList = dirs
-                                        showDirectoryManagement = true
-                                    }
-                                    menuExpanded = false
+                                        directoryList = dirs; showDirectoryManagement = true
+                                    }; menuExpanded = false
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.List,
-                                        contentDescription = "管理目录",
-                                        modifier = Modifier.size(24.dp)
+                                        Icons.AutoMirrored.Filled.List,
+                                        null,
+                                        Modifier.size(24.dp)
                                     )
-                                },
-                                contentPadding = PaddingValues(
-                                    start = 12.dp,
-                                    end = 96.dp
-                                )
-                            )
-                            // 菜单项 4: 管理收藏
+                                })
                             DropdownMenuItem(
                                 text = { Text("管理收藏") },
-                                onClick = {
-                                    favoriteVM.toggleManageMode()
-                                    menuExpanded = false
-                                },
+                                onClick = { favoriteVM.toggleManageMode(); menuExpanded = false },
                                 leadingIcon = {
                                     Icon(
-                                        painter = painterResource(id = R.drawable.ic_visibility),
-                                        contentDescription = "管理收藏",
-                                        modifier = Modifier.size(24.dp)
+                                        painterResource(R.drawable.ic_visibility),
+                                        null,
+                                        Modifier.size(24.dp)
                                     )
-                                },
-                                contentPadding = PaddingValues(
-                                    start = 12.dp,
-                                    end = 96.dp
-                                )
-                            )
-
-                            // 菜单项 4: 刷新列表
+                                })
                             DropdownMenuItem(
                                 text = { Text("刷新列表") },
-                                onClick = {
-                                    favoriteVM.refreshList()
-                                    menuExpanded = false
-                                },
-                                enabled = !isRefreshing, // 正在刷新时禁用
+                                onClick = { favoriteVM.refreshList(); menuExpanded = false },
+                                enabled = !isRefreshing,
                                 leadingIcon = {
-                                    if (isRefreshing) {
-                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                    } else {
-                                        Icon(
-                                            Icons.Filled.Refresh,
-                                            contentDescription = "刷新列表",
-                                            modifier = Modifier.size(24.dp)
+                                    if (isRefreshing) CircularProgressIndicator(
+                                        Modifier.size(
+                                            24.dp
                                         )
-                                    }
-                                },
-                                contentPadding = PaddingValues(
-                                    start = 12.dp,
-                                    end = 96.dp
-                                )
+                                    ) else Icon(Icons.Default.Refresh, null, Modifier.size(24.dp))
+                                }
                             )
                         }
                     }

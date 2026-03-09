@@ -30,6 +30,9 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private val logTag = "FavoriteVM"
     private var allFavorites: List<Favorite> = listOf()
 
+    var currentCategory: Int = -1
+        private set
+
     // 本地缓存工具
     private val localCache by lazy { LocalCacheUtil.getInstance(applicationContext) }
 
@@ -37,28 +40,40 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         viewModelScope.launch {
             FavoriteUtil.getFavoriteFlow().collect { fullList ->
                 allFavorites = fullList
-                val currentUiState = _uiState.value
-                _uiState.value = currentUiState.copy(
-                    favoriteList = if (currentUiState.isInManageMode) {
-                        allFavorites
-                    } else {
-                        allFavorites.filter { !it.isHidden }
-                    }
-                )
-                // 当收藏列表变化时，也刷新缓存信息
+                updateUiList()
                 refreshCacheInfo(localCache.index.value)
             }
         }
 
-        // 监听缓存版本变化
         viewModelScope.launch {
             localCache.index.collect { index ->
-                // 每当内存索引变化时，都重新计算统计信息
                 if (allFavorites.isNotEmpty()) {
                     refreshCacheInfo(index)
                 }
             }
         }
+    }
+
+    fun setCategory(category: Int) {
+        currentCategory = category
+        updateUiList()
+    }
+
+    private fun updateUiList() {
+        val currentState = _uiState.value
+        val baseList = if (currentState.isInManageMode) {
+            allFavorites
+        } else {
+            allFavorites.filter { !it.isHidden }
+        }
+
+        val filteredList = if (currentCategory == -1) {
+            baseList
+        } else {
+            baseList.filter { it.type == currentCategory }
+        }
+
+        _uiState.value = currentState.copy(favoriteList = filteredList)
     }
 
     fun refreshList(showLoading: Boolean = true) {
@@ -83,12 +98,9 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                                 val url = li.child(1).attribute("href").value
                                 objList.add(Favorite(title, url))
                             }
-                            FavoriteUtil.addFavorite(objList) { filteredList ->
+                            FavoriteUtil.addFavorite(objList) {
                                 viewModelScope.launch(Dispatchers.Main) {
-                                    _uiState.value =
-                                        _uiState.value.copy(
-                                            isRefreshing = false
-                                        )
+                                    _uiState.value = _uiState.value.copy(isRefreshing = false)
                                 }
                             }
                         } else {
@@ -109,8 +121,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         }
     }
 
-    // novel/ui/vm/FavoriteVM.kt
-
     fun clickHandler(favorite: Favorite, navController: NavController) {
         val urlEncoded = URLEncoder.encode(favorite.url, "utf-8")
         when (favorite.type) {
@@ -128,12 +138,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         }
     }
 
-    /**
-     * 更新漫画阅读进度
-     * @param favoriteUrl  收藏项的原始 URL（唯一标识，不变）
-     * @param chapterUrl   当前跳转的章节 URL（书签）
-     * @param chapterTitle 章节标题（显示在收藏列表副标题）
-     */
     fun updateMangaProgress(favoriteUrl: String, chapterUrl: String, chapterTitle: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val updated = allFavorites.map { fav ->
@@ -143,27 +147,20 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                     fav
                 }
             }
-
-            val matched = updated.any { it.lastMangaUrl == chapterUrl }
-
             allFavorites = updated
             FavoriteUtil.saveFavoriteOrder(updated)
-
-            val currentUiState = _uiState.value
-            _uiState.value = currentUiState.copy(
-                favoriteList = if (currentUiState.isInManageMode) updated
-                else updated.filter { !it.isHidden }
-            )
+            viewModelScope.launch(Dispatchers.Main) {
+                updateUiList()
+            }
         }
     }
 
+    // 3. 拖拽排序
     fun moveFavorite(from: Int, to: Int) {
         if (_uiState.value.isInManageMode) return
 
         val currentUiList = _uiState.value.favoriteList.toMutableList()
-        if (from < 0 || from >= currentUiList.size || to < 0 || to >= currentUiList.size || from == to) {
-            return
-        }
+        if (from < 0 || from >= currentUiList.size || to < 0 || to >= currentUiList.size || from == to) return
 
         val item = currentUiList.removeAt(from)
         currentUiList.add(to, item)
@@ -171,10 +168,16 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         _uiState.value = _uiState.value.copy(favoriteList = currentUiList.toList())
 
         viewModelScope.launch(Dispatchers.IO) {
-            val newOrderedUiUrls = currentUiList.map { it.url }.toSet()
-            val newOrderedUiList = currentUiList.toList()
-            val hiddenItems = allFavorites.filter { it.isHidden }
-            val newListToSave = newOrderedUiList + hiddenItems
+            val categoryUrls = currentUiList.map { it.url }.toSet()
+            val newQueue = java.util.LinkedList(currentUiList)
+
+            val newListToSave = allFavorites.map { fav ->
+                if (categoryUrls.contains(fav.url)) {
+                    newQueue.poll() ?: fav
+                } else {
+                    fav
+                }
+            }
 
             allFavorites = newListToSave
             FavoriteUtil.saveFavoriteOrder(newListToSave)
@@ -182,35 +185,26 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     }
 
     fun toggleManageMode() {
-        val newState = !_uiState.value.isInManageMode
-        val newList = if (newState) {
-            allFavorites
-        } else {
-            allFavorites.filter { !it.isHidden }
-        }
         _uiState.value = _uiState.value.copy(
-            isInManageMode = newState,
-            favoriteList = newList,
+            isInManageMode = !_uiState.value.isInManageMode,
             selectedItems = emptySet()
         )
+        updateUiList()
     }
 
     fun toggleItemSelection(url: String) {
         if (!_uiState.value.isInManageMode) return
 
         val newSelections = _uiState.value.selectedItems.toMutableSet()
-        if (newSelections.contains(url)) {
-            newSelections.remove(url)
-        } else {
-            newSelections.add(url)
-        }
+        if (newSelections.contains(url)) newSelections.remove(url)
+        else newSelections.add(url)
+
         _uiState.value = _uiState.value.copy(selectedItems = newSelections)
     }
 
     fun hideSelectedItems() {
         val itemsToHide = _uiState.value.selectedItems
         if (itemsToHide.isEmpty()) return
-
         viewModelScope.launch {
             FavoriteUtil.updateHiddenStatus(itemsToHide, true) {
                 viewModelScope.launch(Dispatchers.Main) {
@@ -223,7 +217,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     fun unhideSelectedItems() {
         val itemsToUnhide = _uiState.value.selectedItems
         if (itemsToUnhide.isEmpty()) return
-
         viewModelScope.launch {
             FavoriteUtil.updateHiddenStatus(itemsToUnhide, false) {
                 viewModelScope.launch(Dispatchers.Main) {
@@ -236,35 +229,24 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private fun refreshCacheInfo(index: Map<String, LocalCacheUtil.CacheIndex>) {
         try {
             val cacheInfoMap = mutableMapOf<String, CacheInfo>()
-            // 遍历缓存索引
             index.forEach { (url, novelCache) ->
-                // 如果在索引中，并且有缓存页面
                 if (novelCache.pages.isNotEmpty()) {
                     val totalPages = novelCache.pages.size
-                    // 直接从内存中的CachePageInfo对象求和
                     val totalSize = novelCache.pages.values.sumOf { it.fileSize }
                     val pagesWithImages = novelCache.pages.values.count { it.hasImages }
 
-                    cacheInfoMap[url] = CacheInfo(
-                        url = url,
-                        totalPages = totalPages,
-                        totalSize = totalSize,
-                        pagesWithImages = pagesWithImages
-                    )
+                    cacheInfoMap[url] = CacheInfo(url, totalPages, totalSize, pagesWithImages)
                 }
             }
-
-            // 更新UI状态
             _uiState.value = _uiState.value.copy(cacheInfoMap = cacheInfoMap)
-
         } catch (e: Exception) {
             Log.e(logTag, "从内存索引刷新缓存信息失败", e)
             _uiState.value = _uiState.value.copy(cacheInfoMap = emptyMap())
         }
     }
-    // ==================== 缓存管理功能 ====================
 
-    // 缓存统计信息
+    // ==================== 缓存/书签/目录等管理功能保持不变 ====================
+
     data class CacheInfo(
         val url: String,
         val totalPages: Int,
@@ -272,30 +254,23 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         val pagesWithImages: Int
     )
 
-    // 刷新缓存信息的复用函数
-    fun refreshCacheInfo() {
-        refreshCacheInfo(localCache.index.value)
-    }
+    fun refreshCacheInfo() = refreshCacheInfo(localCache.index.value)
 
-    // 获取所有收藏的缓存信息
-    fun getCacheInfo(callback: (Map<String, FavoriteVM.CacheInfo>) -> Unit) {
+    fun getCacheInfo(callback: (Map<String, CacheInfo>) -> Unit) {
         refreshCacheInfo(localCache.index.value)
         callback(_uiState.value.cacheInfoMap)
     }
 
-    // 删除指定收藏的所有缓存
     fun deleteFavoriteCache(url: String) {
         viewModelScope.launch {
             try {
                 localCache.deleteNovel(url)
-                // 不需要回调，localCache.index.collect 会自动触发刷新
             } catch (e: Exception) {
                 Log.e(logTag, "删除 $url 的缓存失败", e)
             }
         }
     }
 
-    // 清理所有缓存
     fun clearAllCache() {
         viewModelScope.launch {
             try {
@@ -305,101 +280,58 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             }
         }
     }
-    // ==================== 书签/进度管理功能 ====================
 
-    /**
-     * 清除单个收藏的书签和阅读进度
-     */
     fun clearBookmark(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val updated = allFavorites.map { fav ->
-                if (fav.url == url) {
-                    // 重置该项的所有进度相关字段
-                    fav.copy(
-                        lastPage = 0,
-                        lastView = 1,
-                        lastChapter = null,
-                        lastMangaUrl = null
-                    )
-                } else {
-                    fav
-                }
-            }
-
-            allFavorites = updated
-            FavoriteUtil.saveFavoriteOrder(updated) // 保存回 DataStore
-
-            val currentUiState = _uiState.value
-            viewModelScope.launch(Dispatchers.Main) {
-                _uiState.value = currentUiState.copy(
-                    favoriteList = if (currentUiState.isInManageMode) updated
-                    else updated.filter { !it.isHidden }
-                )
-            }
-        }
-    }
-
-    /**
-     * 清空所有收藏的书签和阅读进度
-     */
-    fun clearAllBookmarks() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val updated = allFavorites.map { fav ->
-                fav.copy(
+                if (fav.url == url) fav.copy(
                     lastPage = 0,
                     lastView = 1,
                     lastChapter = null,
                     lastMangaUrl = null
-                )
+                ) else fav
             }
-
             allFavorites = updated
             FavoriteUtil.saveFavoriteOrder(updated)
-
-            val currentUiState = _uiState.value
-            viewModelScope.launch(Dispatchers.Main) {
-                _uiState.value = currentUiState.copy(
-                    favoriteList = if (currentUiState.isInManageMode) updated
-                    else updated.filter { !it.isHidden }
-                )
-            }
+            viewModelScope.launch(Dispatchers.Main) { updateUiList() }
         }
     }
-    // ==================== 目录管理功能 ====================
+
+    fun clearAllBookmarks() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = allFavorites.map { fav ->
+                fav.copy(lastPage = 0, lastView = 1, lastChapter = null, lastMangaUrl = null)
+            }
+            allFavorites = updated
+            FavoriteUtil.saveFavoriteOrder(updated)
+            viewModelScope.launch(Dispatchers.Main) { updateUiList() }
+        }
+    }
 
     fun getDirectoryList(callback: (List<org.shirakawatyu.yamibo.novel.bean.MangaDirectory>) -> Unit) {
         viewModelScope.launch {
             val repo = org.shirakawatyu.yamibo.novel.repository.DirectoryRepository.getInstance(
                 applicationContext
             )
-            val dirs = repo.getAllDirectories()
-            viewModelScope.launch(Dispatchers.Main) {
-                callback(dirs)
-            }
+            viewModelScope.launch(Dispatchers.Main) { callback(repo.getAllDirectories()) }
         }
     }
 
     fun deleteDirectory(cleanName: String, callback: () -> Unit) {
         viewModelScope.launch {
-            val repo = org.shirakawatyu.yamibo.novel.repository.DirectoryRepository.getInstance(
+            org.shirakawatyu.yamibo.novel.repository.DirectoryRepository.getInstance(
                 applicationContext
-            )
-            repo.deleteDirectory(cleanName)
-            viewModelScope.launch(Dispatchers.Main) {
-                callback()
-            }
+            ).deleteDirectory(cleanName)
+            viewModelScope.launch(Dispatchers.Main) { callback() }
         }
     }
 
     fun clearAllDirectories(callback: () -> Unit) {
         viewModelScope.launch {
-            val repo = org.shirakawatyu.yamibo.novel.repository.DirectoryRepository.getInstance(
+            org.shirakawatyu.yamibo.novel.repository.DirectoryRepository.getInstance(
                 applicationContext
-            )
-            repo.clearAllDirectories()
-            viewModelScope.launch(Dispatchers.Main) {
-                callback()
-            }
+            ).clearAllDirectories()
+            viewModelScope.launch(Dispatchers.Main) { callback() }
         }
     }
 }

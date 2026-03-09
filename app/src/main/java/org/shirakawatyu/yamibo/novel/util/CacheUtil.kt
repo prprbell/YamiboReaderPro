@@ -18,8 +18,7 @@ class CacheUtil {
     companion object {
         private const val logTag = "CacheUtil"
 
-        // 定义缓存的总大小
-        // 根据需要调整（50mb）
+        // 定义缓存的总大小 50mb
         private const val CACHE_SIZE_IN_MIB = 50
         private val cacheSizeInBytes = CACHE_SIZE_IN_MIB * 1024 * 1024
 
@@ -36,11 +35,8 @@ class CacheUtil {
                  * 告诉 LruCache 存入的每一项 (CacheData) 占用了多少内存。
                  */
                 override fun sizeOf(key: String, value: CacheData): Int {
-                    // 估算内存占用 (字节)
-                    // 字符串在Java/Kotlin中每个字符占2字节 (UTF-16)
                     val htmlSize = value.htmlContent.length * 2
                     val keySize = key.length * 2
-                    // 加上其他字段和对象开销的粗略估算 (例如 256 字节)
                     val totalSize = htmlSize + keySize + 256
                     return totalSize
                 }
@@ -104,7 +100,7 @@ class CacheUtil {
             if (!isHtmlContentValid(data.htmlContent)) {
                 Log.w(logTag, "Validation FAILED. Not caching invalid content for key: $key")
                 inMemoryCache.remove(key)
-                return // 不缓存
+                return
             }
             inMemoryCache.put(key, data)
         }

@@ -135,7 +135,7 @@ class TextUtil {
                         }
                         contentLinesOnThisPage++ // 计入内容行
                     }
-                    // else: 这是一个 "" 标记行, 我们总是把它包含在当前页, 且不计入 maxLine
+                    // else: 这是一个 "" 标记行, 把它包含在当前页, 且不计入maxLine
 
                     lastIndexForThisPage++ // 将这行包含在当前页
                 }
@@ -284,7 +284,7 @@ class TextUtil {
                         if (line.isBlank()) {
                             // 这是一个段落分隔符
                             if (resultLines.isNotEmpty()) {
-                                // 添加一个空的 TEXT Content 作为段落标记
+                                // 添加一个空的TEXT Content作为段落标记
                                 val lastContent = resultLines.last()
                                 // 避免连续添加空行
                                 if (lastContent.type != ContentType.TEXT || lastContent.data.isNotEmpty()) {

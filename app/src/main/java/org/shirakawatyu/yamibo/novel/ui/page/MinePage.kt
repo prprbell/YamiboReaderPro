@@ -128,7 +128,7 @@ fun MinePage(
 ) {
     SetStatusBarColor(YamiboColors.primary)
     val mineUrl = "https://bbs.yamibo.com/home.php?mod=space&do=profile&mycenter=1&mobile=2"
-    val bbsUrl = "https://bbs.yamibo.com/?mobile=2" // 你原来的定义
+    val bbsUrl = "https://bbs.yamibo.com/?mobile=2"
     val baseBbsUrl = "https://bbs.yamibo.com/"      // 根URL
     val indexUrl = "https://bbs.yamibo.com/forum.php" // 论坛主页
 
@@ -210,8 +210,6 @@ fun MinePage(
         }
 
         onDispose {
-            // 页面彻底销毁时解除引用，防止内存泄漏
-            // 【修改点】：同样将下面全部替换为 FullscreenApiMine
             FullscreenApiMine.onStateChange = null
             FullscreenApiMine.onUiStateChange = null
             FullscreenApiMine.onMangaActionDone = null
@@ -256,7 +254,6 @@ fun MinePage(
             this.webChromeClient = webChromeClient
         }
     }
-    // 1. 专门控制系统 UI 显隐（合并了全屏状态和无缝切换的黑屏状态）
     LaunchedEffect(isFullscreenState.value, autoOpenMangaMode) {
         val window = activity?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, view)
@@ -264,14 +261,12 @@ fun MinePage(
         val shouldBeFullscreen = isFullscreenState.value || autoOpenMangaMode
 
         if (shouldBeFullscreen) {
-            // 确保全屏时打破窗口限制
             WindowCompat.setDecorFitsSystemWindows(window, false)
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             bottomNavBarVM.setBottomNavBarVisibility(false)
         } else {
-            // 退出时恢复限制
             WindowCompat.setDecorFitsSystemWindows(window, true)
             controller.show(WindowInsetsCompat.Type.systemBars())
             bottomNavBarVM.setBottomNavBarVisibility(true)
@@ -279,7 +274,6 @@ fun MinePage(
         }
     }
 
-    // 2. 统一处理全屏状态变化时的核心业务逻辑（脱下隐身衣、网页跳转、解析目录）
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             mineWebView.evaluateJavascript(
@@ -292,18 +286,15 @@ fun MinePage(
                 """.trimIndent(),
                 null
             )
-            // 处理积压的“下一话”跳转任务
             pendingNavigateUrl?.let { url ->
                 isLoading = true
                 mineWebView.loadUrl(url)
                 pendingNavigateUrl = null
             }
         } else {
-            // 大图成功打开，关闭 Compose 层的黑屏遮罩
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
             }
-            // 【新增】：只要进入全屏，立刻注入页码监听器！
             val observerJs = """
                 setTimeout(function() {
                     var counter = document.querySelector('.pswp__counter');
@@ -326,7 +317,6 @@ fun MinePage(
                 }, 500);
             """.trimIndent()
             mineWebView.evaluateJavascript(observerJs, null)
-            // 大图模式下，抓取并解析当前页面的目录
             currentUrl?.let { url ->
                 if (url.contains("mod=viewthread") && url.contains("tid=")) {
                     val pageTitle = mineWebView.title ?: ""
@@ -409,7 +399,6 @@ fun MinePage(
                     }
                 }
                 canGoBack = view?.canGoBack() ?: false
-                // 放在 onPageCommitVisible 和 onPageFinished 内部
                 view?.evaluateJavascript(
                     """
                     (function(){
@@ -478,18 +467,13 @@ fun MinePage(
     // 1. 监听大图退出状态，执行积压的跳转任务
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
-            // 大图已彻底关闭，可以安全加载新URL了
             pendingNavigateUrl?.let { url ->
-                // 【核心修复】：在加载新 URL 前，必须手动将状态置为 true！
-                // 这样新网页加载到 onPageCommitVisible 时，isLoading 变回 false，
-                // 就能完美唤醒下面那个负责注入 JS 的 LaunchedEffect。
                 isLoading = true
 
                 mineWebView.loadUrl(url)
                 pendingNavigateUrl = null
             }
         } else if (isFullscreenState.value && autoOpenMangaMode) {
-            // 新页面的大图被成功打开了！关闭黑屏过渡层
             autoOpenMangaMode = false
         }
     }
@@ -618,8 +602,6 @@ fun MinePage(
 
             mineWebView.evaluateJavascript(clickJs, null)
 
-            // Compose 层的安全网：防止极端情况下 JS 引擎崩溃或报错导致黑屏无法解除
-            // 给它比 JS 多 1 秒的宽限期
             delay(6000)
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
@@ -786,14 +768,9 @@ fun MinePage(
                                 .weight(1f)
                                 .padding(horizontal = 12.dp),
                             colors = SliderDefaults.colors(
-                                // 滑块和已看过的进度条颜色（保持应用的主题高亮色，或者你也可以改为 Color.White）
                                 thumbColor = YamiboColors.secondary.copy(alpha = 0.8f),
                                 activeTrackColor = YamiboColors.secondary.copy(alpha = 0.5f),
-
-                                // 【关键修改】：让未看部分的轨道变成极低透明度的白色，彻底弱化它的存在感
                                 inactiveTrackColor = Color.White.copy(alpha = 0.1f),
-
-                                // 隐藏所有分段刻度点，让整个滑动条看起来更干净、纯粹
                                 inactiveTickColor = Color.Transparent,
                                 activeTickColor = Color.Transparent
                             )
@@ -848,13 +825,11 @@ fun MinePage(
             )
         }
 
-        // 无缝切换漫画章节的黑屏遮罩层
         if (autoOpenMangaMode) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black) // 使用纯黑色，和 PhotoSwipe 完美衔接
-                    // 拦截手势，防止用户在页面跳转切换期间乱点网页
+                    .background(Color.Black)
                     .pointerInput(Unit) {
                         detectTapGestures { }
                         detectVerticalDragGestures { _, _ -> }

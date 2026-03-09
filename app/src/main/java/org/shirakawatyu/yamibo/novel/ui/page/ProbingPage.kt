@@ -35,14 +35,12 @@ import java.net.URLEncoder
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ProbingPage(url: String, navController: NavController) {
-    // 1. 强制将状态栏设为黑色，防止白顶
     SetStatusBarColor(Color.Black)
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isRedirecting by remember { mutableStateOf(false) }
 
-    // 2. 使用 Surface 确保背景色彻底覆盖 Material 主题背景
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -53,19 +51,16 @@ fun ProbingPage(url: String, navController: NavController) {
             AndroidView(
                 factory = {
                     WebView(context).apply {
-                        // 1. 核心修复：设置透明背景，防止底层白板闪烁
                         setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
                         settings.apply {
                             javaScriptEnabled = true
                             domStorageEnabled = true
-                            // 2. 性能优化：拦截网络图片加载，极速完成 DOM 探测
                             blockNetworkImage = true
                         }
                         webViewClient = object : WebViewClient() {
                             override fun onPageFinished(view: WebView, loadedUrl: String) {
                                 if (isRedirecting) return
-                                // 注入探测脚本
                                 val checkJs = """
                                 (function() {
                                     var sectionHeader = document.querySelector('.header h2 a');
@@ -100,7 +95,6 @@ fun ProbingPage(url: String, navController: NavController) {
                                                 else -> "OtherWebPage/$encoded"
                                             }
                                             navController.navigate(route) {
-                                                // 弹出 ProbingPage 本身，确保回退是正常的
                                                 popUpTo("ProbingPage/{url}") { inclusive = true }
                                             }
                                         }

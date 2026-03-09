@@ -150,7 +150,6 @@ fun BBSPage(
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
     val isFullscreenUiVisible = remember { mutableStateOf(true) }
-    // 【新增】：BBSPage 进入或返回时，动态绑定当前最新的 Compose 状态，防止状态脱节
     DisposableEffect(Unit) {
         FullscreenApi.onStateChange = { isFullscreen ->
             isFullscreenState.value = isFullscreen
@@ -183,7 +182,7 @@ fun BBSPage(
     )
 
     // 监听全屏状态并切换UI
-    // 1. 专门控制系统 UI 显隐（合并了全屏状态和无缝切换的黑屏状态）
+    // 1. 专门控制系统 UI 显隐
     LaunchedEffect(isFullscreenState.value, autoOpenMangaMode) {
         val window = activity?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, view)
@@ -191,7 +190,6 @@ fun BBSPage(
         val shouldBeFullscreen = isFullscreenState.value || autoOpenMangaMode
 
         if (shouldBeFullscreen) {
-            // 【新增】：进入大图模式时，强制关闭系统窗口适应，允许内容沉浸到系统栏区域
             WindowCompat.setDecorFitsSystemWindows(window, false)
 
             controller.hide(WindowInsetsCompat.Type.systemBars())
@@ -199,7 +197,6 @@ fun BBSPage(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             bottomNavBarVM.setBottomNavBarVisibility(false)
         } else {
-            // 【新增】：退出大图模式时，恢复窗口适应，避免遮挡网页顶部
             WindowCompat.setDecorFitsSystemWindows(window, true)
 
             controller.show(WindowInsetsCompat.Type.systemBars())
@@ -208,10 +205,9 @@ fun BBSPage(
         }
     }
 
-    // 2. 统一处理全屏状态变化时的核心业务逻辑（脱下隐身衣、网页跳转、解析目录）
+    // 2. 统一处理全屏状态变化时的核心业务逻辑
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
-            // 退出大图时，务必撕掉网页的纯黑隐身衣！让原帖重新显示出来！
             webView.evaluateJavascript(
                 """
                 (function() {
@@ -541,10 +537,8 @@ fun BBSPage(
             override fun onPageCommitVisible(view: WebView?, url: String?) {
                 super.onPageCommitVisible(view, url)
 
-                // 页面只要一吐出内容，Title 就绝对已经存在了，立刻抓取原生 Title
                 pageTitle = view?.title ?: ""
 
-                // 页面内容已可见，立即停止加载圈
                 if (isLoading) {
                     timeoutJob?.cancel()
                     retryCount = 0
@@ -834,7 +828,6 @@ fun BBSPage(
                                 currentImageIndex = newValue
                             },
                             onValueChangeFinished = {
-                                // 拖动结束后，通知 WebView 的 PhotoSwipe 跳转
                                 val targetIndex = currentImageIndex.toInt() - 1
                                 val js = """
                                     (function() {
@@ -853,14 +846,11 @@ fun BBSPage(
                                 .weight(1f)
                                 .padding(horizontal = 12.dp),
                             colors = SliderDefaults.colors(
-                                // 滑块和已看过的进度条颜色（保持应用的主题高亮色，或者你也可以改为 Color.White）
                                 thumbColor = YamiboColors.secondary.copy(alpha = 0.8f),
                                 activeTrackColor = YamiboColors.secondary.copy(alpha = 0.5f),
 
-                                // 【关键修改】：让未看部分的轨道变成极低透明度的白色，彻底弱化它的存在感
                                 inactiveTrackColor = Color.White.copy(alpha = 0.1f),
 
-                                // 隐藏所有分段刻度点，让整个滑动条看起来更干净、纯粹
                                 inactiveTickColor = Color.Transparent,
                                 activeTickColor = Color.Transparent
                             )
@@ -920,8 +910,7 @@ fun BBSPage(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black) // 使用纯黑色，和 PhotoSwipe 完美衔接
-                    // 拦截手势，防止用户在页面跳转切换期间乱点网页
+                    .background(Color.Black)
                     .pointerInput(Unit) {
                         detectTapGestures { }
                         detectVerticalDragGestures { _, _ -> }

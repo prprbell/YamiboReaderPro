@@ -133,17 +133,16 @@ fun JustifiedText(
                     // 6. 绘制文本
                     drawContext.canvas.nativeCanvas.drawText(
                         line,
-                        0f, // X=0，因为父 Composable 已处理了左边距
+                        0f,
                         currentY,
                         textPaint
                     )
 
-                    // 移至下一行
                     currentY += lineHeightPx
                 }
             }
 
-            // 清理 Paint 状态
+            // 清理Paint状态
             textPaint.letterSpacing = 0f
         }
     }
