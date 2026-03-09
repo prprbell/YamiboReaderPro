@@ -61,7 +61,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -256,15 +255,50 @@ fun BBSPage(
             // 大图模式下，抓取并解析当前页面的目录
             currentUrl?.let { url ->
                 if (url.contains("mod=viewthread") && url.contains("tid=")) {
-                    val pageTitle = webView.title ?: ""
-                    webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
-                        val cleanHtml = try {
-                            JSON.parse(htmlResult) as? String ?: ""
+                    // 注入 JS 探测当前页面的版块名称
+                    val checkSectionJs = """
+                        (function() {
+                            var sectionHeader = document.querySelector('.header h2 a');
+                            if (sectionHeader) return sectionHeader.innerText.trim();
+                            var nav = document.querySelector('.z, .nav, .mz, .thread_nav, .sq_nav');
+                            if (nav) return nav.innerText.trim();
+                            return '';
+                        })();
+                    """.trimIndent()
+
+                    webView.evaluateJavascript(checkSectionJs) { result ->
+                        val sectionName = try {
+                            com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
                         } catch (e: Exception) {
-                            htmlResult.trim('"').replace("\\u003C", "<").replace("\\\"", "\"")
+                            result?.replace("\"", "") ?: ""
                         }
-                        if (cleanHtml.isNotBlank()) {
-                            mangaDirVM.initDirectoryFromWeb(url, cleanHtml, pageTitle)
+
+                        val allowedSections = listOf(
+                            "中文百合漫画区",
+                            "貼圖區",
+                            "贴图区",
+                            "原创图作区",
+                            "百合漫画图源区"
+                        )
+                        val isCrossForum = sectionName.isNotBlank() && allowedSections.none {
+                            sectionName.contains(it)
+                        }
+
+                        if (!isCrossForum) {
+                            val pageTitle = webView.title ?: ""
+                            webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
+                                val cleanHtml = try {
+                                    com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+                                } catch (e: Exception) {
+                                    htmlResult.trim('"').replace("\\u003C", "<")
+                                        .replace("\\\"", "\"")
+                                }
+                                if (cleanHtml.isNotBlank()) {
+                                    mangaDirVM.initDirectoryFromWeb(url, cleanHtml, pageTitle)
+                                }
+                            }
+                        } else {
+                            Log.i("BBSPage", "非图区帖子(${sectionName})，跳过本地目录生成与缓存")
                         }
                     }
                 }

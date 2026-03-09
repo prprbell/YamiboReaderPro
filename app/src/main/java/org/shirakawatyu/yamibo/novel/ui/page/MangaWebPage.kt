@@ -63,7 +63,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -327,17 +326,55 @@ fun MangaWebPage(
             mangaWebView.evaluateJavascript(observerJs, null)
 
             // 解析目录
+            // 解析目录：增加区名限制检查
             currentUrl?.let { threadUrl ->
                 if (MangaTitleCleaner.extractTidFromUrl(threadUrl) != null) {
-                    val pageTitle = mangaWebView.title ?: ""
-                    mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
-                        val cleanHtml = try {
-                            JSON.parse(htmlResult) as? String ?: ""
+                    // 注入 JS 探测当前页面的版块名称
+                    val checkSectionJs = """
+                        (function() {
+                            var sectionHeader = document.querySelector('.header h2 a');
+                            if (sectionHeader) return sectionHeader.innerText.trim();
+                            var nav = document.querySelector('.z, .nav, .mz, .thread_nav, .sq_nav');
+                            if (nav) return nav.innerText.trim();
+                            return '';
+                        })();
+                    """.trimIndent()
+
+                    mangaWebView.evaluateJavascript(checkSectionJs) { result ->
+                        // 解析 JS 返回的字符串
+                        val sectionName = try {
+                            com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
                         } catch (e: Exception) {
-                            htmlResult
+                            result?.replace("\"", "") ?: ""
                         }
-                        if (cleanHtml.isNotBlank()) {
-                            mangaDirVM.initDirectoryFromWeb(threadUrl, cleanHtml, pageTitle)
+
+                        // 允许的白名单
+                        val allowedSections = listOf(
+                            "中文百合漫画区",
+                            "貼圖區",
+                            "贴图区",
+                            "原创图作区",
+                            "百合漫画图源区"
+                        )
+
+                        // 判断条件：如果抓到了非空的版块名，且不在白名单内，说明是跨区帖
+                        val isCrossForum = sectionName.isNotBlank() && allowedSections.none {
+                            sectionName.contains(it)
+                        }
+
+                        if (!isCrossForum) {
+                            // 只有在合法的漫画/图区内，才抓取庞大的网页源码并初始化目录
+                            val pageTitle = mangaWebView.title ?: ""
+                            mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
+                                val cleanHtml = try {
+                                    com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+                                } catch (e: Exception) {
+                                    htmlResult
+                                }
+                                if (cleanHtml.isNotBlank()) {
+                                    mangaDirVM.initDirectoryFromWeb(threadUrl, cleanHtml, pageTitle)
+                                }
+                            }
                         }
                     }
                 }

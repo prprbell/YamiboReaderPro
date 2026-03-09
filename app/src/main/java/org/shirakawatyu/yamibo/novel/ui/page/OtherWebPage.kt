@@ -63,7 +63,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -358,15 +357,51 @@ fun OtherWebPage(
 
             currentUrl?.let { threadUrl ->
                 if (threadUrl.contains("mod=viewthread") && threadUrl.contains("tid=")) {
-                    val pageTitle = otherWebView.title ?: ""
-                    otherWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
-                        val cleanHtml = try {
-                            JSON.parse(htmlResult) as? String ?: ""
+                    val checkSectionJs = """
+                        (function() {
+                            var sectionHeader = document.querySelector('.header h2 a');
+                            if (sectionHeader) return sectionHeader.innerText.trim();
+                            var nav = document.querySelector('.z, .nav, .mz, .thread_nav, .sq_nav');
+                            if (nav) return nav.innerText.trim();
+                            return '';
+                        })();
+                    """.trimIndent()
+
+                    otherWebView.evaluateJavascript(checkSectionJs) { result ->
+                        val sectionName = try {
+                            com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
                         } catch (e: Exception) {
-                            htmlResult
+                            result?.replace("\"", "") ?: ""
                         }
-                        if (cleanHtml.isNotBlank()) {
-                            mangaDirVM.initDirectoryFromWeb(threadUrl, cleanHtml, pageTitle)
+
+                        val allowedSections = listOf(
+                            "中文百合漫画区",
+                            "貼圖區",
+                            "贴图区",
+                            "原创图作区",
+                            "百合漫画图源区"
+                        )
+                        val isCrossForum = sectionName.isNotBlank() && allowedSections.none {
+                            sectionName.contains(it)
+                        }
+
+                        if (!isCrossForum) {
+                            val pageTitle = otherWebView.title ?: ""
+                            otherWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
+                                val cleanHtml = try {
+                                    com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+                                } catch (e: Exception) {
+                                    htmlResult
+                                }
+                                if (cleanHtml.isNotBlank()) {
+                                    mangaDirVM.initDirectoryFromWeb(threadUrl, cleanHtml, pageTitle)
+                                }
+                            }
+                        } else {
+                            Log.i(
+                                "OtherWebPage",
+                                "非图区帖子(${sectionName})，跳过本地目录生成与缓存"
+                            )
                         }
                     }
                 }
