@@ -154,10 +154,10 @@ fun FavoritePage(
                 if (isInManageMode) {
                     Text(
                         text = "管理收藏 (${selectedItems.size})",
-                        fontSize = 20.sp,
+                        fontSize = 18.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = 16.dp)
+                        modifier = Modifier.padding(start = 12.dp)
                     )
                     Spacer(modifier = Modifier.weight(1f))
                 } else {
@@ -267,7 +267,7 @@ fun FavoritePage(
                             )
                         )
                     ) { Text("隐藏") }
-                    Spacer(modifier = Modifier.width(20.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
                     Button(
                         onClick = { favoriteVM.unhideSelectedItems() },
                         enabled = selectedItems.isNotEmpty(),
