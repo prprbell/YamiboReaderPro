@@ -32,7 +32,6 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.shirakawatyu.yamibo.novel.R
@@ -147,11 +146,11 @@ fun FavoriteItem(
                         fontSize = 16.sp,
                         color = Color.Black,
                         maxLines = 3,
-                        text = title,
+                        text = title.replace(Regex("\\r?\\n"), "").trim(),
                         fontWeight = FontWeight.Medium,
-//                        style = TextStyle(
-//                            textIndent = TextIndent(firstLine = firstLineOffset)
-//                        )
+                        style = TextStyle(
+                            lineBreak = LineBreak.Anywhere
+                        )
                     )
                     // 显示最近阅读章节名
                     if (lastChapter != null && lastChapter.isNotBlank()) {
@@ -209,50 +208,5 @@ fun FavoriteItem(
                 }
             }
         }
-    }
-}
-
-@Preview
-@Composable
-fun FavoriteItemPreview() {
-    FavoriteItem(
-        title = "一周一次买下同班同学的那些事",
-        lastView = 1,
-        lastPage = 2,
-        lastChapter = "episode 397 宫城志绪理",
-        onClick = {},
-        cacheInfo = FavoriteVM.CacheInfo(
-            url = "test",
-            totalPages = 15,
-            totalSize = 2048000, // 2MB
-            pagesWithImages = 5
-        )
-    )
-}
-
-@Preview
-@Composable
-fun FavoriteItemManageModePreview() {
-    Column {
-        FavoriteItem(
-            title = "正常项目",
-            lastView = 1, lastPage = 2, lastChapter = "Chapter 1",
-            onClick = {}, isManageMode = true, isSelected = false, isHidden = false
-        )
-        FavoriteItem(
-            title = "选中项目",
-            lastView = 1, lastPage = 2, lastChapter = "Chapter 2",
-            onClick = {}, isManageMode = true, isSelected = true, isHidden = false
-        )
-        FavoriteItem(
-            title = "隐藏项目",
-            lastView = 1, lastPage = 2, lastChapter = "Chapter 3",
-            onClick = {}, isManageMode = true, isSelected = false, isHidden = true
-        )
-        FavoriteItem(
-            title = "选中的隐藏项目",
-            lastView = 1, lastPage = 2, lastChapter = "Chapter 4",
-            onClick = {}, isManageMode = true, isSelected = true, isHidden = true
-        )
     }
 }
