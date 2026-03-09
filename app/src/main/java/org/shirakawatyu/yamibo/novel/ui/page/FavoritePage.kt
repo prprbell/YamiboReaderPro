@@ -165,7 +165,7 @@ fun FavoritePage(
                     val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
                         targetValue = if (categoryMenuExpanded) 180f else 0f,
                         animationSpec = tween(
-                            durationMillis = 300,
+                            durationMillis = 250,
                             easing = FastOutSlowInEasing
                         ),
                         label = "arrow_rotation_animation"
