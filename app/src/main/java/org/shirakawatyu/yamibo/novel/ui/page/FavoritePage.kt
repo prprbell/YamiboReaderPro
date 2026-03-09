@@ -1,5 +1,7 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +24,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
@@ -135,7 +136,7 @@ fun FavoritePage(
         Triple(-1, "全部", Color.Transparent),
         Triple(1, "小说", Color(0xFF4CAF50)),
         Triple(2, "漫画", Color(0xFF2196F3)),
-        Triple(3, "帖子", Color(0xFFFF9800)),
+        Triple(3, "其他", Color(0xFFFF9800)),
         Triple(0, "未定", Color(0xFF9E9E9E))
     )
     val currentCat =
@@ -163,6 +164,10 @@ fun FavoritePage(
                     var categoryMenuExpanded by remember { mutableStateOf(false) }
                     val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
                         targetValue = if (categoryMenuExpanded) 180f else 0f,
+                        animationSpec = tween(
+                            durationMillis = 300,
+                            easing = FastOutSlowInEasing
+                        ),
                         label = "arrow_rotation_animation"
                     )
                     Box(modifier = Modifier.padding(start = 4.dp)) {
@@ -180,7 +185,7 @@ fun FavoritePage(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Icon(
-                                imageVector = Icons.Filled.ArrowDropDown,
+                                painterResource(R.drawable.ic_arrow_down),
                                 contentDescription = if (categoryMenuExpanded) "收起分类" else "展开分类",
                                 tint = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier
