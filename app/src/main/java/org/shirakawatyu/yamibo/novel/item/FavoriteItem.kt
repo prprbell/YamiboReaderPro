@@ -146,11 +146,9 @@ fun FavoriteItem(
                         fontSize = 16.sp,
                         color = Color.Black,
                         maxLines = 3,
-                        text = title.replace(Regex("\\r?\\n"), "").trim(),
-                        fontWeight = FontWeight.Medium,
-                        style = TextStyle(
-                            lineBreak = LineBreak.Anywhere
-                        )
+                        text = title.replace(Regex("\\r?\\n"), "").replace(Regex("\\s+"), " ")
+                            .trim(),
+                        fontWeight = FontWeight.Medium
                     )
                     // 显示最近阅读章节名
                     if (lastChapter != null && lastChapter.isNotBlank()) {
