@@ -30,7 +30,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -142,13 +144,17 @@ fun FavoriteItem(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        modifier = Modifier.padding(bottom = 6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
                         fontSize = 16.sp,
                         color = Color.Black,
                         maxLines = 3,
-                        text = title.replace(Regex("\\r?\\n"), "").replace(Regex("\\s+"), " ")
-                            .trim(),
-                        fontWeight = FontWeight.Medium
+                        text = title,
+                        fontWeight = FontWeight.Medium,
+                        style = TextStyle(
+                            lineBreak = LineBreak.Simple
+                        )
                     )
                     // 显示最近阅读章节名
                     if (lastChapter != null && lastChapter.isNotBlank()) {
