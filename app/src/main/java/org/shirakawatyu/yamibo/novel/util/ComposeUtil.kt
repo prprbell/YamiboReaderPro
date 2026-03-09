@@ -1,6 +1,8 @@
 package org.shirakawatyu.yamibo.novel.util
 
 import android.app.Activity
+import android.webkit.WebView
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
@@ -51,6 +53,39 @@ class ComposeUtil {
                     lifecycleOwner.lifecycle.removeObserver(observer)
                 }
             }
+        }
+    }
+}
+
+/**
+ * 宿主级别的 WebView 生命周期观察者。
+ * 只有当整个 App 切换到后台/前台时，才会全局暂停/恢复 JS 引擎和 WebView 渲染。
+ */
+@Composable
+fun ActivityWebViewLifecycleObserver(webView: WebView) {
+    val context = LocalContext.current
+    DisposableEffect(context, webView) {
+        val activity = context as? ComponentActivity
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    webView.onResume()
+                    webView.resumeTimers()
+                }
+
+                Lifecycle.Event.ON_PAUSE -> {
+                    webView.onPause()
+                    webView.pauseTimers()
+                }
+
+                else -> {}
+            }
+        }
+        // 直接绑定宿主 Activity 的 lifecycle，而不是 Compose 局部的 NavBackStackEntry
+        activity?.lifecycle?.addObserver(observer)
+
+        onDispose {
+            activity?.lifecycle?.removeObserver(observer)
         }
     }
 }

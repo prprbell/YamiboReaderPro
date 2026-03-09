@@ -73,6 +73,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
+import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
@@ -253,6 +254,7 @@ fun MinePage(
             this.webChromeClient = webChromeClient
         }
     }
+    ActivityWebViewLifecycleObserver(mineWebView)
     LaunchedEffect(isFullscreenState.value, autoOpenMangaMode) {
         val window = activity?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, view)
@@ -660,9 +662,14 @@ fun MinePage(
             },
             onRelease = {
                 timeoutJob?.cancel()
-                (it.parent as? ViewGroup)?.removeView(it)
-                it.stopLoading()
-                it.destroy() // 销毁实例
+                it.apply {
+                    onPause()
+                    stopLoading()
+                    webViewClient = android.webkit.WebViewClient()
+                    setWebChromeClient(null) // <--- 改用这种写法
+                    (parent as? ViewGroup)?.removeView(this)
+                    destroy()
+                }
             }
         )
         ReaderModeFAB(

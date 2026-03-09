@@ -666,8 +666,14 @@ fun MangaWebPage(
             },
             onRelease = {
                 timeoutJob?.cancel()
-                it.stopLoading()
-                it.destroy()
+                it.apply {
+                    onPause()
+                    stopLoading()
+                    webViewClient = android.webkit.WebViewClient()
+                    setWebChromeClient(null) // <--- 改用这种写法
+                    (parent as? ViewGroup)?.removeView(this)
+                    destroy()
+                }
             }
         )
 
