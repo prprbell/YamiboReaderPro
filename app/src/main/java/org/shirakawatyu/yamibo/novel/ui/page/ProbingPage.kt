@@ -107,6 +107,16 @@ fun ProbingPage(url: String, navController: NavController) {
                         post { loadUrl(finalUrl) }
                     }
                 },
+                onRelease = { webView ->
+                    webView.apply {
+                        onPause()
+                        stopLoading()
+                        webViewClient = WebViewClient() 
+                        setWebChromeClient(null)
+                        (parent as? ViewGroup)?.removeView(this)
+                        destroy()
+                    }
+                },
                 modifier = Modifier
                     .size(1.dp)
                     .alpha(0f)
