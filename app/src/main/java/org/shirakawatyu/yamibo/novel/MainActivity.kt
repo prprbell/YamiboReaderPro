@@ -56,6 +56,7 @@ import org.shirakawatyu.yamibo.novel.ui.page.BBSPage
 import org.shirakawatyu.yamibo.novel.ui.page.FavoritePage
 import org.shirakawatyu.yamibo.novel.ui.page.MangaWebPage
 import org.shirakawatyu.yamibo.novel.ui.page.MinePage
+import org.shirakawatyu.yamibo.novel.ui.page.NativeMangaPage
 import org.shirakawatyu.yamibo.novel.ui.page.OtherWebPage
 import org.shirakawatyu.yamibo.novel.ui.page.ProbingPage
 import org.shirakawatyu.yamibo.novel.ui.page.ReaderPage
@@ -280,10 +281,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                             }
                             // 2. 漫画阅读页 (新增)
                             composable(
-                                "MangaWebPage/{url}/{originalUrl}",
+                                "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}",
                                 arguments = listOf(
                                     navArgument("url") { type = NavType.StringType },
-                                    navArgument("originalUrl") { type = NavType.StringType }
+                                    navArgument("originalUrl") { type = NavType.StringType },
+                                    navArgument("fastForward") {
+                                        type = NavType.BoolType; defaultValue = false
+                                    }
                                 )
                             ) {
                                 val loadUrl =
@@ -292,15 +296,17 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     it.arguments?.getString("originalUrl") ?: "",
                                     "utf-8"
                                 )
+                                val fastForward = it.arguments?.getBoolean("fastForward") ?: false
                                 MangaWebPage(
                                     url = loadUrl,
                                     originalFavoriteUrl = originalUrl,
                                     navController = navController,
-                                    webChromeClient = webChromeClient
+                                    webChromeClient = webChromeClient,
+                                    isFastForward = fastForward // 传入标记
                                 )
                             }
 
-                            // 3. 其他/探测网页 (新增)
+                            // 3. 其他/探测网页
                             composable(
                                 "OtherWebPage/{url}",
                                 arguments = listOf(navArgument("url") { type = NavType.StringType })
@@ -321,14 +327,22 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
                                 ProbingPage(url, navController)
                             }
+                            composable(
+                                "NativeMangaPage?url={url}",
+                                arguments = listOf(navArgument("url") { type = NavType.StringType })
+                            ) { backStackEntry ->
+                                val url = backStackEntry.arguments?.getString("url") ?: ""
+                                NativeMangaPage(url = url, navController = navController)
+                            }
                         }
 
                         // 修改判断逻辑：如果当前路由是阅读类页面，则不显示底部导航栏
                         val hideBottomNavRoutes = listOf(
                             "ReaderPage/{passageUrl}",
                             "ProbingPage/{url}",
-                            "MangaWebPage/{url}/{originalUrl}",  // ← 改这行
-                            "OtherWebPage/{url}"
+                            "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}",  // ← 改这行
+                            "OtherWebPage/{url}",
+                            "NativeMangaPage?url={url}"
                         )
                         if (currentRoute !in hideBottomNavRoutes) {
                             BottomNavBar(navController, currentRoute, bottomNavBarVM)

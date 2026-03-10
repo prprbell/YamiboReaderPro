@@ -14,33 +14,27 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,7 +67,6 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
-import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import java.net.URLEncoder
 
@@ -83,31 +76,44 @@ object BBSPageState {
     var hasSuccessfullyLoaded: Boolean = false
 }
 
-// 用于接收大图打开/关闭的通知（改为单例，避免 WebView 旧页面不识别新对象）
-object FullscreenApi {
-    var onStateChange: ((Boolean) -> Unit)? = null
-    var onUiStateChange: ((Boolean) -> Unit)? = null
-    var onMangaActionDone: (() -> Unit)? = null
-    var onImageProgressChange: ((Int, Int) -> Unit)? = null
-
+// 用于接收大图打开/关闭的通知
+class FullscreenApi(
+    private val onStateChange: ((Boolean) -> Unit)?,
+    private val onMangaActionDone: (() -> Unit)?
+) {
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
         Handler(Looper.getMainLooper()).post { onStateChange?.invoke(isFullscreen) }
     }
 
     @JavascriptInterface
-    fun notifyUi(isUiVisible: Boolean) {
-        Handler(Looper.getMainLooper()).post { onUiStateChange?.invoke(isUiVisible) }
-    }
-
-    @JavascriptInterface
     fun notifyMangaActionDone() {
         Handler(Looper.getMainLooper()).post { onMangaActionDone?.invoke() }
     }
+}
 
+class NativeMangaJSInterface(
+    private val navController: NavController,
+    private val getCurrentUrl: () -> String?,
+    private val onActionDone: () -> Unit
+) {
     @JavascriptInterface
-    fun updateImageProgress(current: Int, total: Int) {
-        Handler(Looper.getMainLooper()).post { onImageProgressChange?.invoke(current, total) }
+    fun openNativeManga(urlsJoined: String, clickedIndex: Int, html: String, title: String) {
+        val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+        Handler(Looper.getMainLooper()).post {
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaUrls = urls
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex = clickedIndex
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempHtml = html
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle = title
+
+            // 通知 Compose 层关闭黑屏遮罩
+            onActionDone()
+
+            // 跳转到原生漫画页面
+            val passUrl = getCurrentUrl() ?: "https://bbs.yamibo.com/forum.php"
+            val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
+            navController.navigate("NativeMangaPage?url=$encodedUrl")
+        }
     }
 }
 
@@ -135,11 +141,8 @@ fun BBSPage(
     var currentUrl by remember { mutableStateOf<String?>(null) }
     var pageTitle by remember { mutableStateOf("") }
 
-    var showChapterList by remember { mutableStateOf(false) }
     var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
-    var currentImageIndex by remember { mutableFloatStateOf(1f) }
-    var totalImageCount by remember { mutableFloatStateOf(1f) }
     var isMangaSection by remember { mutableStateOf(false) }
 
     val canConvertToReader = remember(currentUrl, pageTitle) {
@@ -148,31 +151,6 @@ fun BBSPage(
     // ----- 全屏状态控制 -----
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
-    val isFullscreenUiVisible = remember { mutableStateOf(true) }
-    DisposableEffect(Unit) {
-        FullscreenApi.onStateChange = { isFullscreen ->
-            isFullscreenState.value = isFullscreen
-            if (!isFullscreen) isFullscreenUiVisible.value = true
-        }
-        FullscreenApi.onUiStateChange = { isUiVisible ->
-            isFullscreenUiVisible.value = isUiVisible
-        }
-        FullscreenApi.onMangaActionDone = {
-            autoOpenMangaMode = false
-        }
-        FullscreenApi.onImageProgressChange = { current, total ->
-            currentImageIndex = current.toFloat()
-            totalImageCount = total.toFloat()
-        }
-
-        onDispose {
-            // 页面彻底销毁时解除引用，防止内存泄漏
-            FullscreenApi.onStateChange = null
-            FullscreenApi.onUiStateChange = null
-            FullscreenApi.onMangaActionDone = null
-            FullscreenApi.onImageProgressChange = null
-        }
-    }
     // 强制获取ViewModel
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
@@ -200,7 +178,6 @@ fun BBSPage(
 
             controller.show(WindowInsetsCompat.Type.systemBars())
             bottomNavBarVM.setBottomNavBarVisibility(true)
-            showChapterList = false
         }
     }
 
@@ -229,29 +206,6 @@ fun BBSPage(
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
             }
-            // 只要进入全屏，立刻注入页码监听器！
-            val observerJs = """
-                setTimeout(function() {
-                    var counter = document.querySelector('.pswp__counter');
-                    if (counter) {
-                        var updateProgress = function() {
-                            var text = counter.innerText || '';
-                            var parts = text.split('/');
-                            if (parts.length === 2) {
-                                var current = parseInt(parts[0].trim());
-                                var total = parseInt(parts[1].trim());
-                                if (!isNaN(current) && !isNaN(total) && window.AndroidFullscreen && window.AndroidFullscreen.updateImageProgress) {
-                                    window.AndroidFullscreen.updateImageProgress(current, total);
-                                }
-                            }
-                        };
-                        updateProgress();
-                        var observer = new MutationObserver(updateProgress);
-                        observer.observe(counter, { childList: true, characterData: true, subtree: true });
-                    }
-                }, 500);
-            """.trimIndent()
-            webView.evaluateJavascript(observerJs, null)
             // 大图模式下，抓取并解析当前页面的目录
             currentUrl?.let { url ->
                 if (url.contains("mod=viewthread") && url.contains("tid=")) {
@@ -388,26 +342,6 @@ fun BBSPage(
                             if (window.AndroidFullscreen) {
                                 window.AndroidFullscreen.notify(true);
                                 window.AndroidFullscreen.notifyMangaActionDone();
-                                
-                                // 【新增】监听 pswp__counter 提取页码进度
-                                var counter = document.querySelector('.pswp__counter');
-                                if (counter) {
-                                    var updateProgress = function() {
-                                        var text = counter.innerText || ''; // 例如 "1 / 3"
-                                        var parts = text.split('/');
-                                        if (parts.length === 2) {
-                                            var current = parseInt(parts[0].trim());
-                                            var total = parseInt(parts[1].trim());
-                                            if (!isNaN(current) && !isNaN(total)) {
-                                                window.AndroidFullscreen.updateImageProgress(current, total);
-                                            }
-                                        }
-                                    };
-                                    updateProgress(); // 初始化调用一次
-                                    // 监听文本变化
-                                    var observer = new MutationObserver(updateProgress);
-                                    observer.observe(counter, { childList: true, characterData: true, subtree: true });
-                                }
                             }
                             return;
                         }
@@ -427,7 +361,21 @@ fun BBSPage(
                         }
                         
                         if (targetEl) {
-                            targetEl.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+                            if (window.NativeMangaApi) {
+                                var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                                var urls = [];
+                                for (var i = 0; i < allImgs.length; i++) {
+                                    var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
+                                    if (rawSrc) {
+                                        urls.push(new URL(rawSrc, document.baseURI).href);
+                                    }
+                                }
+                                window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.documentElement.outerHTML, document.title);
+                                clearInterval(timer);
+                                return;
+                            } else {
+                                targetEl.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+                            }
                         }
 
                         // 步骤 C: 终极防死锁兜底
@@ -631,6 +579,7 @@ fun BBSPage(
                         }
                     }
                 }
+                // 【新增重构逻辑】：探测漫画版块，并注入拦截器
                 view?.evaluateJavascript(
                     """
                     (function(){
@@ -645,6 +594,39 @@ fun BBSPage(
                     """.trimIndent()
                 ) { result ->
                     isMangaSection = result == "true"
+                    // 如果是图区，拦截图片点击，发送给原生 NativeMangaApi
+                    if (isMangaSection) {
+                        val injectJs = """
+                            javascript:(function() {
+                                document.addEventListener('click', function(e) {
+                                    var targetImg = e.target.closest('.img_one img, .message img');
+                                    // 过滤表情包
+                                    if (targetImg && targetImg.src.indexOf('smiley') === -1) { 
+                                        e.preventDefault(); 
+                                        e.stopPropagation();
+                                        
+                                        var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                                        var urls = [];
+                                        var clickedIndex = 0;
+                                        for (var i = 0; i < allImgs.length; i++) {
+                                            var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
+                                            if (rawSrc) {
+                                                // 强制转换为绝对路径
+                                                var absoluteUrl = new URL(rawSrc, document.baseURI).href;
+                                                urls.push(absoluteUrl);
+                                                if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
+                                            }
+                                        }
+                                        if (window.NativeMangaApi) {
+                                            var html = document.documentElement.outerHTML;
+                                            window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, html, document.title);
+                                        }
+                                    }
+                                }, true); 
+                            })();
+                        """.trimIndent()
+                        view.evaluateJavascript(injectJs, null)
+                    }
                 }
             }
 
@@ -731,8 +713,17 @@ fun BBSPage(
                     javaScriptEnabled = true
                 }
                 webView.addJavascriptInterface(
-                    FullscreenApi, "AndroidFullscreen"
+                    FullscreenApi(
+                        onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen },
+                        onMangaActionDone = { autoOpenMangaMode = false }
+                    ),
+                    "AndroidFullscreen"
                 )
+                val nativeApi = NativeMangaJSInterface(
+                    navController,
+                    { currentUrl },
+                    { autoOpenMangaMode = false })
+                webView.addJavascriptInterface(nativeApi, "NativeMangaApi")
                 webView
             },
             update = { view ->
@@ -802,143 +793,6 @@ fun BBSPage(
                 .align(Alignment.BottomEnd)
                 .padding(bottom = 80.dp)
         )
-
-        AnimatedVisibility(
-            visible = isFullscreenState.value && isFullscreenUiVisible.value,
-            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(
-                initialOffsetY = { it / 2 }),
-            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(
-                targetOffsetY = { it / 2 }),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 24.dp)
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                // 增加这层 if 判断
-                if (isMangaSection) {
-                    // 原有的目录按钮
-                    Button(
-                        onClick = {
-                            showChapterList = true
-                        },
-                        modifier = Modifier.fillMaxWidth(0.4f),
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                            containerColor = Color.Black.copy(alpha = 0.6f),
-                            contentColor = Color.White
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Menu,
-                            contentDescription = "目录",
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text("目录")
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
-
-                // 图片滑动条组件 (仅在图片总数 > 1 时显示)
-                if (totalImageCount > 1f) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth(0.85f)
-                            .background(
-                                Color.Black.copy(alpha = 0.6f),
-                                androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
-                            )
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                    ) {
-                        Text("${currentImageIndex.toInt()}", color = Color.White, fontSize = 12.sp)
-
-                        androidx.compose.material3.Slider(
-                            value = currentImageIndex,
-                            onValueChange = { newValue ->
-                                currentImageIndex = newValue
-                            },
-                            onValueChangeFinished = {
-                                val targetIndex = currentImageIndex.toInt() - 1
-                                val js = """
-                                    (function() {
-                                        // 尝试获取常见的 PhotoSwipe 实例变量
-                                        var pswpObj = window.pswp || window.gallery || (document.querySelector('.pswp') ? document.querySelector('.pswp').PhotoSwipe : null);
-                                        if (pswpObj && typeof pswpObj.goTo === 'function') {
-                                            pswpObj.goTo($targetIndex);
-                                        }
-                                    })();
-                                """.trimIndent()
-                                webView.evaluateJavascript(js, null)
-                            },
-                            valueRange = 1f..totalImageCount,
-                            steps = if (totalImageCount > 2f) (totalImageCount - 2f).toInt() else 0,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 12.dp),
-                            colors = SliderDefaults.colors(
-                                thumbColor = YamiboColors.secondary.copy(alpha = 0.8f),
-                                activeTrackColor = YamiboColors.secondary.copy(alpha = 0.5f),
-
-                                inactiveTrackColor = Color.White.copy(alpha = 0.1f),
-
-                                inactiveTickColor = Color.Transparent,
-                                activeTickColor = Color.Transparent
-                            )
-                        )
-
-                        Text("${totalImageCount.toInt()}", color = Color.White, fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-        if (showChapterList) {
-            val currentDir = mangaDirVM.currentDirectory
-            val currentTid = remember(currentUrl) {
-                currentUrl?.let { MangaTitleCleaner.extractTidFromUrl(it) }
-            }
-            // 将底层数据转换为 UI 需要的展示格式
-            val displayChapters = currentDir?.chapters?.map { item ->
-                MangaChapter(
-                    index = item.chapterNum,
-                    title = item.rawTitle,
-                    url = item.url,
-                    isCurrent = item.tid == currentTid,
-                    isRead = false
-                )
-            } ?: emptyList()
-
-            MangaChapterPanel(
-                modifier = Modifier.align(Alignment.BottomCenter),
-                title = currentDir?.cleanBookName ?: "加载中...",
-                chapters = displayChapters,
-                isUpdating = mangaDirVM.isUpdatingDirectory,
-                cooldownSeconds = mangaDirVM.directoryCooldown,
-                strategy = currentDir?.strategy,
-                showSearchShortcut = mangaDirVM.showSearchShortcut,
-                searchShortcutCountdown = mangaDirVM.searchShortcutCountdown,
-                onUpdateClick = { isForced ->
-                    mangaDirVM.updateMangaDirectory(isForced)
-                },
-                onDismiss = { showChapterList = false },
-                onChapterClick = { chapter ->
-                    showChapterList = false
-                    val targetUrl = chapter.url
-
-                    if (targetUrl.isNotEmpty()) {
-                        val finalUrl =
-                            if (targetUrl.startsWith("http")) targetUrl else "https://bbs.yamibo.com/$targetUrl"
-                        autoOpenMangaMode = true
-                        pendingNavigateUrl = finalUrl
-                        webView.evaluateJavascript("window.history.back();", null)
-                    }
-                }
-            )
-
-        }
         // 无缝切换漫画章节的黑屏遮罩层
         if (autoOpenMangaMode) {
             Box(

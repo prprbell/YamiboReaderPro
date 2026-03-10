@@ -62,23 +62,41 @@ fun ProbingPage(url: String, navController: NavController) {
                         webViewClient = object : WebViewClient() {
                             override fun onPageFinished(view: WebView, loadedUrl: String) {
                                 if (isRedirecting) return
+                                // 优化点1：在探测版块的同时，如果是漫画区，直接把图片链接顺手抓取！
                                 val checkJs = """
-                                (function() {
-                                    var sectionHeader = document.querySelector('.header h2 a');
-                                    var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
-                                    var currentUrl = window.location.href;
-                                    var mangaSections = ['中文百合漫画区', '贴图区', '貼圖區', '原创图作区', '百合漫画图源区'];
-                                    var isManga = mangaSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=30') !== -1;
-                                    var novelSections = ['文學區', '文学区', '轻小说/译文区', 'TXT小说区'];
-                                    var isNovel = novelSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=55') !== -1;
-                                    if (isNovel) return 1;
-                                    if (isManga) return 2;
-                                    return 3; // 其他页面
-                                })();
-                            """.trimIndent()
+                                    (function() {
+                                        var sectionHeader = document.querySelector('.header h2 a');
+                                        var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
+                                        var currentUrl = window.location.href;
+                                        var mangaSections = ['中文百合漫画区', '贴图区', '貼圖區', '原创图作区', '百合漫画图源区'];
+                                        var isManga = mangaSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=30') !== -1;
+                                        var novelSections = ['文學區', '文学区', '轻小说/译文区', 'TXT小说区'];
+                                        var isNovel = novelSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=55') !== -1;
+                                        
+                                        var type = 3;
+                                        if (isNovel) type = 1;
+                                        else if (isManga) type = 2;
+                                        
+                                        if (type === 2) {
+                                            var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                                            var urls = [];
+                                            for (var i = 0; i < allImgs.length; i++) {
+                                                var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
+                                                if (rawSrc) urls.push(new URL(rawSrc, document.baseURI).href);
+                                            }
+                                            return "2:::" + document.title + ":::" + urls.join('|||');
+                                        }
+                                        return type.toString();
+                                    })();
+                                """.trimIndent()
 
                                 view.evaluateJavascript(checkJs) { result ->
-                                    val type = result?.toIntOrNull() ?: 3
+                                    val cleanResult =
+                                        result?.removeSurrounding("\"")?.replace("\\\"", "\"")
+                                            ?: "3"
+                                    val parts = cleanResult.split(":::")
+                                    val type = parts[0].toIntOrNull() ?: 3
+
                                     scope.launch(Dispatchers.IO) {
                                         FavoriteUtil.getFavoriteMap { map ->
                                             map[url]?.let { fav ->
@@ -90,13 +108,39 @@ fun ProbingPage(url: String, navController: NavController) {
                                             if (isRedirecting) return@withContext
                                             isRedirecting = true
                                             val encoded = URLEncoder.encode(url, "utf-8")
-                                            val route = when (type) {
-                                                1 -> "ReaderPage/$encoded"
-                                                2 -> "MangaWebPage/$encoded/$encoded"
-                                                else -> "OtherWebPage/$encoded"
-                                            }
-                                            navController.navigate(route) {
-                                                popUpTo("ProbingPage/{url}") { inclusive = true }
+
+                                            if (type == 2) {
+                                                // 提取到漫画数据
+                                                val title = parts.getOrNull(1) ?: ""
+                                                val urlsJoined = parts.getOrNull(2) ?: ""
+                                                val urlsList = urlsJoined.split("|||")
+                                                    .filter { it.isNotBlank() }
+
+                                                org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaUrls =
+                                                    urlsList
+                                                org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle =
+                                                    title
+                                                org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex =
+                                                    0
+
+
+                                                // 双重压栈
+                                                navController.navigate("MangaWebPage/$encoded/$encoded?fastForward=true") {
+                                                    popUpTo("ProbingPage/{url}") {
+                                                        inclusive = true
+                                                    }
+                                                }
+                                                navController.navigate("NativeMangaPage?url=$encoded")
+                                            } else {
+                                                val route = when (type) {
+                                                    1 -> "ReaderPage/$encoded"
+                                                    else -> "OtherWebPage/$encoded"
+                                                }
+                                                navController.navigate(route) {
+                                                    popUpTo("ProbingPage/{url}") {
+                                                        inclusive = true
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -112,7 +156,7 @@ fun ProbingPage(url: String, navController: NavController) {
                     webView.apply {
                         onPause()
                         stopLoading()
-                        webViewClient = WebViewClient() 
+                        webViewClient = WebViewClient()
                         setWebChromeClient(null)
                         (parent as? ViewGroup)?.removeView(this)
                         destroy()

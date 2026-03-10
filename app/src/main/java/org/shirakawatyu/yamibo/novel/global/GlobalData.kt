@@ -25,5 +25,9 @@ class GlobalData {
             CookieUtil.getCookieFlow()
         }
         val lastSearchTimestamp = AtomicLong(0L)
+        var tempMangaUrls: List<String> = emptyList()
+        var tempMangaIndex: Int = 0
+        var tempHtml: String = ""
+        var tempTitle: String = ""
     }
 }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -49,8 +50,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +74,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
@@ -124,6 +128,45 @@ fun FavoritePage(
 
     val hapticFeedback = LocalHapticFeedback.current
     val lazyListState = rememberLazyListState()
+    // =========== 处理插入动画与轻量提示 ===========
+    var previousListSize by remember { mutableIntStateOf(favoriteList.size) }
+    var wasAtTop by remember { mutableStateOf(true) }
+    // 气泡控制状态
+    var showTopToast by remember { mutableStateOf(false) }
+    var newItemsCount by remember { mutableIntStateOf(0) }
+
+    // 1. 实时追踪更新前用户是否停留在列表最顶部（50 像素作为滑动容差）
+    LaunchedEffect(lazyListState) {
+        androidx.compose.runtime.snapshotFlow {
+            lazyListState.firstVisibleItemIndex to lazyListState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            wasAtTop = (index == 0 && offset <= 50)
+        }
+    }
+
+    // 2. 监听列表数据变化，触发对应的滚动或提示
+    LaunchedEffect(favoriteList) {
+        val addedCount = favoriteList.size - previousListSize
+        if (addedCount > 0) {
+            if (wasAtTop) {
+                // 如果刷新前在顶部，则平滑滚动到最新的第 0 项。
+                lazyListState.animateScrollToItem(0)
+            } else {
+                // 如果在底部或中间，弹出顶部气泡
+                newItemsCount = addedCount
+                showTopToast = true
+            }
+        }
+        previousListSize = favoriteList.size
+    }
+    // 3. 气泡自动消失倒计时 (2.5秒后消失)
+    LaunchedEffect(showTopToast) {
+        if (showTopToast) {
+            kotlinx.coroutines.delay(2500)
+            showTopToast = false
+        }
+    }
+    // ====================================================
     val reorderableState = rememberReorderableLazyListState(
         lazyListState = lazyListState,
         onMove = { from, to ->
@@ -141,7 +184,7 @@ fun FavoritePage(
     )
     val currentCat =
         categoryOptions.find { it.first == favoriteVM.currentCategory } ?: categoryOptions[0]
-
+    val coroutineScope = rememberCoroutineScope()
     Column {
         TopBar(title = "") {
             Row(
@@ -366,64 +409,98 @@ fun FavoritePage(
             }
         }
 
-        // LazyColumn (收藏列表)
-        LazyColumn(
-            state = lazyListState,
-            modifier = Modifier.padding(0.dp, 3.dp)
-        ) {
+        Box(modifier = Modifier.weight(1f)) {
 
-            itemsIndexed(
-                items = favoriteList,
-                key = { _, item -> item.url }
-            ) { index, item ->
-                // 使用ReorderableItem包装item以支持拖动排序
-                ReorderableItem(
-                    state = reorderableState,
-                    key = item.url,
-                ) { isDragging ->
-                    val isSelected = selectedItems.contains(item.url)
-                    FavoriteItem(
-                        item.title,
-                        item.lastView,
-                        item.lastPage,
-                        item.lastChapter,
-                        onClick = {
-                            if (isInManageMode) {
-                                favoriteVM.toggleItemSelection(item.url)
-                            } else {
-                                // 传入 item.type
-                                favoriteVM.clickHandler(item, navController)
+            // 1. LazyColumn (收藏列表)
+            LazyColumn(
+                state = lazyListState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(0.dp, 3.dp)
+            ) {
+                itemsIndexed(
+                    items = favoriteList,
+                    key = { _, item -> item.url }
+                ) { index, item ->
+                    ReorderableItem(
+                        state = reorderableState,
+                        key = item.url,
+                    ) { isDragging ->
+                        val isSelected = selectedItems.contains(item.url)
+                        FavoriteItem(
+                            item.title,
+                            item.lastView,
+                            item.lastPage,
+                            item.lastChapter,
+                            onClick = {
+                                if (isInManageMode) {
+                                    favoriteVM.toggleItemSelection(item.url)
+                                } else {
+                                    favoriteVM.clickHandler(item, navController)
+                                }
+                            },
+                            modifier = Modifier
+                                .animateItem()
+                                .longPressDraggableHandle(
+                                    enabled = !isInManageMode,
+                                    onDragStarted = {
+                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    }
+                                ),
+                            isDragging = isDragging,
+                            isManageMode = isInManageMode,
+                            isSelected = isSelected,
+                            isHidden = item.isHidden,
+                            type = item.type,
+                            cacheInfo = cacheInfoMap[item.url],
+                            dragHandle = {
+                                if (!isInManageMode) {
+                                    Icon(
+                                        Icons.Filled.Menu,
+                                        contentDescription = "Reorder",
+                                        tint = YamiboColors.primary
+                                    )
+                                }
                             }
-                        },
-                        // 拖拽手柄只在非管理模式下启用
-                        modifier = Modifier.longPressDraggableHandle(
-                            enabled = !isInManageMode,
-                            onDragStarted = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            }
-                        ),
-                        isDragging = isDragging,
-                        // 传递管理状态
-                        isManageMode = isInManageMode,
-                        isSelected = isSelected,
-                        isHidden = item.isHidden,
-                        type = item.type,
-                        cacheInfo = cacheInfoMap[item.url],
-                        // 拖拽手柄只在非管理模式下显示
-                        dragHandle = {
-                            if (!isInManageMode) {
-                                Icon(
-                                    Icons.Filled.Menu,
-                                    contentDescription = "Reorder",
-                                    tint = YamiboColors.primary
-                                )
-                            }
+                        )
+                    }
+                }
+            }
+
+            // 2. 悬浮气泡
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showTopToast,
+                enter = androidx.compose.animation.slideInVertically(initialOffsetY = { -it }) +
+                        androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }) +
+                        androidx.compose.animation.fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+            ) {
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                    modifier = Modifier.clickable {
+                        showTopToast = false
+                        coroutineScope.launch {
+                            lazyListState.animateScrollToItem(0)
                         }
+                    }
+                ) {
+                    Text(
+                        text = "发现了 $newItemsCount 条新收藏 (点击查看)",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        fontSize = 14.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
                     )
                 }
             }
         }
-
         // 缓存管理对话框
         if (showCacheManagement) {
             CacheManagementDialog(

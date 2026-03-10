@@ -17,33 +17,27 @@ import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,30 +83,18 @@ private val hideCommand = """
     })()
 """.trimIndent()
 
-object FullscreenApiOther {
-    var onStateChange: ((Boolean) -> Unit)? = null
-    var onUiStateChange: ((Boolean) -> Unit)? = null
-    var onMangaActionDone: (() -> Unit)? = null
-    var onImageProgressChange: ((Int, Int) -> Unit)? = null
-
+class FullscreenApiOther(
+    private val onStateChange: ((Boolean) -> Unit)?,
+    private val onMangaActionDone: (() -> Unit)?
+) {
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
         Handler(Looper.getMainLooper()).post { onStateChange?.invoke(isFullscreen) }
     }
 
     @JavascriptInterface
-    fun notifyUi(isUiVisible: Boolean) {
-        Handler(Looper.getMainLooper()).post { onUiStateChange?.invoke(isUiVisible) }
-    }
-
-    @JavascriptInterface
     fun notifyMangaActionDone() {
         Handler(Looper.getMainLooper()).post { onMangaActionDone?.invoke() }
-    }
-
-    @JavascriptInterface
-    fun updateImageProgress(current: Int, total: Int) {
-        Handler(Looper.getMainLooper()).post { onImageProgressChange?.invoke(current, total) }
     }
 }
 
@@ -138,11 +120,8 @@ fun OtherWebPage(
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
-    var showChapterList by remember { mutableStateOf(false) }
     var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
-    var currentImageIndex by remember { mutableFloatStateOf(1f) }
-    var totalImageCount by remember { mutableFloatStateOf(1f) }
     var isMangaSection by remember { mutableStateOf(false) }
 
     val canConvertToReader = remember(currentUrl) {
@@ -238,30 +217,9 @@ fun OtherWebPage(
 
     // ----- 全屏状态控制 -----
     val isFullscreenState = remember { mutableStateOf(false) }
-    val isFullscreenUiVisible = remember { mutableStateOf(true) }
 
     DisposableEffect(Unit) {
-        FullscreenApiOther.onStateChange = { isFullscreen ->
-            isFullscreenState.value = isFullscreen
-            if (!isFullscreen) isFullscreenUiVisible.value = true
-        }
-        FullscreenApiOther.onUiStateChange = { isUiVisible ->
-            isFullscreenUiVisible.value = isUiVisible
-        }
-        FullscreenApiOther.onMangaActionDone = {
-            autoOpenMangaMode = false
-        }
-        FullscreenApiOther.onImageProgressChange = { current, total ->
-            currentImageIndex = current.toFloat()
-            totalImageCount = total.toFloat()
-        }
-
         onDispose {
-            FullscreenApiOther.onStateChange = null
-            FullscreenApiOther.onUiStateChange = null
-            FullscreenApiOther.onMangaActionDone = null
-            FullscreenApiOther.onImageProgressChange = null
-
             activity?.window?.let { window ->
                 WindowCompat.getInsetsController(window, view)
                     .show(WindowInsetsCompat.Type.systemBars())
@@ -287,7 +245,13 @@ fun OtherWebPage(
                 textZoom = 100
                 domStorageEnabled = true
             }
-            addJavascriptInterface(FullscreenApiOther, "AndroidFullscreen")
+            addJavascriptInterface(
+                FullscreenApiOther(
+                    onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen },
+                    onMangaActionDone = { autoOpenMangaMode = false }
+                ),
+                "AndroidFullscreen"
+            )
             this.webChromeClient = webChromeClient
         }
     }
@@ -308,7 +272,6 @@ fun OtherWebPage(
             WindowCompat.setDecorFitsSystemWindows(window, true)
             controller.show(WindowInsetsCompat.Type.systemBars())
             bottomNavBarVM.setBottomNavBarVisibility(true)
-            showChapterList = false
         }
     }
 
@@ -332,29 +295,6 @@ fun OtherWebPage(
             }
         } else {
             if (autoOpenMangaMode) autoOpenMangaMode = false
-
-            val observerJs = """
-                setTimeout(function() {
-                    var counter = document.querySelector('.pswp__counter');
-                    if (counter) {
-                        var updateProgress = function() {
-                            var text = counter.innerText || ''; 
-                            var parts = text.split('/');
-                            if (parts.length === 2) {
-                                var current = parseInt(parts[0].trim());
-                                var total = parseInt(parts[1].trim());
-                                if (!isNaN(current) && !isNaN(total) && window.AndroidFullscreen && window.AndroidFullscreen.updateImageProgress) {
-                                    window.AndroidFullscreen.updateImageProgress(current, total);
-                                }
-                            }
-                        };
-                        updateProgress();
-                        var observer = new MutationObserver(updateProgress);
-                        observer.observe(counter, { childList: true, characterData: true, subtree: true });
-                    }
-                }, 500);
-            """.trimIndent()
-            otherWebView.evaluateJavascript(observerJs, null)
 
             currentUrl?.let { threadUrl ->
                 if (threadUrl.contains("mod=viewthread") && threadUrl.contains("tid=")) {
@@ -650,21 +590,6 @@ fun OtherWebPage(
                             if (window.AndroidFullscreen) {
                                 window.AndroidFullscreen.notify(true);
                                 window.AndroidFullscreen.notifyMangaActionDone();
-                                var counter = document.querySelector('.pswp__counter');
-                                if (counter) {
-                                    var updateProgress = function() {
-                                        var text = counter.innerText || '';
-                                        var parts = text.split('/');
-                                        if (parts.length === 2) {
-                                            var current = parseInt(parts[0].trim());
-                                            var total = parseInt(parts[1].trim());
-                                            if (!isNaN(current) && !isNaN(total)) window.AndroidFullscreen.updateImageProgress(current, total);
-                                        }
-                                    };
-                                    updateProgress();
-                                    var observer = new MutationObserver(updateProgress);
-                                    observer.observe(counter, { childList: true, characterData: true, subtree: true });
-                                }
                             }
                             return;
                         }
@@ -763,118 +688,6 @@ fun OtherWebPage(
                 color = YamiboColors.secondary
             )
         }
-
-        AnimatedVisibility(
-            visible = isFullscreenState.value && isFullscreenUiVisible.value,
-            enter = androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 24.dp)
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (isMangaSection) {
-                    Button(
-                        onClick = {
-                            showChapterList = true
-                        },
-                        modifier = Modifier.fillMaxWidth(0.4f),
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                            containerColor = Color.Black.copy(alpha = 0.6f),
-                            contentColor = Color.White
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Menu,
-                            contentDescription = "目录",
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text("目录")
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
-
-                if (totalImageCount > 1f) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth(0.85f)
-                            .background(
-                                Color.Black.copy(alpha = 0.6f),
-                                androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
-                            )
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                    ) {
-                        Text("${currentImageIndex.toInt()}", color = Color.White, fontSize = 12.sp)
-                        androidx.compose.material3.Slider(
-                            value = currentImageIndex,
-                            onValueChange = { currentImageIndex = it },
-                            onValueChangeFinished = {
-                                val targetIndex = currentImageIndex.toInt() - 1
-                                val js =
-                                    "var pswpObj = window.pswp || window.gallery || (document.querySelector('.pswp') ? document.querySelector('.pswp').PhotoSwipe : null); if (pswpObj && typeof pswpObj.goTo === 'function') pswpObj.goTo($targetIndex);"
-                                otherWebView.evaluateJavascript(js, null)
-                            },
-                            valueRange = 1f..totalImageCount,
-                            steps = if (totalImageCount > 2f) (totalImageCount - 2f).toInt() else 0,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 12.dp),
-                            colors = SliderDefaults.colors(
-                                thumbColor = YamiboColors.secondary.copy(
-                                    alpha = 0.8f
-                                ),
-                                activeTrackColor = YamiboColors.secondary.copy(alpha = 0.5f),
-                                inactiveTrackColor = Color.White.copy(alpha = 0.1f)
-                            )
-                        )
-                        Text("${totalImageCount.toInt()}", color = Color.White, fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-
-        if (showChapterList) {
-            val currentDir = mangaDirVM.currentDirectory
-            val currentTid =
-                remember(currentUrl) { currentUrl?.let { MangaTitleCleaner.extractTidFromUrl(it) } }
-            val displayChapters = currentDir?.chapters?.map { item ->
-                MangaChapter(
-                    index = item.chapterNum,
-                    title = item.rawTitle,
-                    url = item.url,
-                    isCurrent = item.tid == currentTid,
-                    isRead = false
-                )
-            } ?: emptyList()
-
-            MangaChapterPanel(
-                modifier = Modifier.align(Alignment.BottomCenter),
-                title = currentDir?.cleanBookName ?: "加载中...",
-                chapters = displayChapters,
-                isUpdating = mangaDirVM.isUpdatingDirectory,
-                cooldownSeconds = mangaDirVM.directoryCooldown,
-                onUpdateClick = { mangaDirVM.updateMangaDirectory() },
-                onDismiss = { showChapterList = false },
-                onChapterClick = { chapter ->
-                    showChapterList = false
-                    val target = chapter.url
-                    if (target.isNotEmpty()) {
-                        val finalUrl =
-                            if (target.startsWith("http")) target else "https://bbs.yamibo.com/$target"
-                        autoOpenMangaMode = true
-                        pendingNavigateUrl = finalUrl
-                        otherWebView.evaluateJavascript("window.history.back();", null)
-                    }
-                }
-            )
-        }
-
         if (autoOpenMangaMode) {
             Box(
                 modifier = Modifier

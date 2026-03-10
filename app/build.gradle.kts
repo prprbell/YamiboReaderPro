@@ -75,6 +75,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
     implementation("sh.calvin.reorderable:reorderable:3.0.0")
+    implementation("io.coil-kt:coil-compose:2.5.0")
+    implementation("me.saket.telephoto:zoomable-image-coil:0.6.2")
     
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

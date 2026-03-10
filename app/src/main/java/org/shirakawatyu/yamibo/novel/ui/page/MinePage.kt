@@ -17,33 +17,27 @@ import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,7 +69,6 @@ import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
-import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import java.net.URLEncoder
 
@@ -87,30 +80,41 @@ private val hideCommand = """
     })()
 """.trimIndent()
 
-object FullscreenApiMine {
-    var onStateChange: ((Boolean) -> Unit)? = null
-    var onUiStateChange: ((Boolean) -> Unit)? = null
-    var onMangaActionDone: (() -> Unit)? = null
-    var onImageProgressChange: ((Int, Int) -> Unit)? = null
-
+class FullscreenApiMine(
+    private val onStateChange: ((Boolean) -> Unit)?,
+    private val onMangaActionDone: (() -> Unit)?
+) {
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
         Handler(Looper.getMainLooper()).post { onStateChange?.invoke(isFullscreen) }
     }
 
     @JavascriptInterface
-    fun notifyUi(isUiVisible: Boolean) {
-        Handler(Looper.getMainLooper()).post { onUiStateChange?.invoke(isUiVisible) }
-    }
-
-    @JavascriptInterface
     fun notifyMangaActionDone() {
         Handler(Looper.getMainLooper()).post { onMangaActionDone?.invoke() }
     }
+}
 
+class NativeMangaMineJSInterface(
+    private val navController: NavController,
+    private val getCurrentUrl: () -> String?,
+    private val onActionDone: () -> Unit
+) {
     @JavascriptInterface
-    fun updateImageProgress(current: Int, total: Int) {
-        Handler(Looper.getMainLooper()).post { onImageProgressChange?.invoke(current, total) }
+    fun openNativeManga(urlsJoined: String, clickedIndex: Int, html: String, title: String) {
+        val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+        Handler(Looper.getMainLooper()).post {
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaUrls = urls
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex = clickedIndex
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempHtml = html
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle = title
+
+            onActionDone()
+
+            val passUrl = getCurrentUrl() ?: "https://bbs.yamibo.com/forum.php"
+            val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
+            navController.navigate("NativeMangaPage?url=$encodedUrl")
+        }
     }
 }
 
@@ -140,11 +144,8 @@ fun MinePage(
     var retryCount by remember { mutableIntStateOf(0) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
     var pageTitle by remember { mutableStateOf("") }
-    var showChapterList by remember { mutableStateOf(false) }
     var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
-    var currentImageIndex by remember { mutableFloatStateOf(1f) }
-    var totalImageCount by remember { mutableFloatStateOf(1f) }
     var isMangaSection by remember { mutableStateOf(false) }
 
     val canConvertToReader = remember(currentUrl, pageTitle) {
@@ -191,34 +192,8 @@ fun MinePage(
     val view = LocalView.current
     // ----- 全屏状态控制 -----
     val isFullscreenState = remember { mutableStateOf(false) }
-    val isFullscreenUiVisible = remember { mutableStateOf(true) }
-    DisposableEffect(Unit) {
-        // 【修改点】：将下面所有的 FullscreenApi 替换为 FullscreenApiMine
-        FullscreenApiMine.onStateChange = { isFullscreen ->
-            isFullscreenState.value = isFullscreen
-            if (!isFullscreen) isFullscreenUiVisible.value = true
-        }
-        FullscreenApiMine.onUiStateChange = { isUiVisible ->
-            isFullscreenUiVisible.value = isUiVisible
-        }
-        FullscreenApiMine.onMangaActionDone = {
-            autoOpenMangaMode = false
-        }
-        FullscreenApiMine.onImageProgressChange = { current, total ->
-            currentImageIndex = current.toFloat()
-            totalImageCount = total.toFloat()
-        }
-
-        onDispose {
-            FullscreenApiMine.onStateChange = null
-            FullscreenApiMine.onUiStateChange = null
-            FullscreenApiMine.onMangaActionDone = null
-            FullscreenApiMine.onImageProgressChange = null
-        }
-    }
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
-
     DisposableEffect(Unit) {
         onDispose {
             activity?.window?.let { window ->
@@ -248,7 +223,10 @@ fun MinePage(
                 javaScriptEnabled = true
             }
             addJavascriptInterface(
-                FullscreenApiMine,
+                FullscreenApiMine(
+                    onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen },
+                    onMangaActionDone = { autoOpenMangaMode = false }
+                ),
                 "AndroidFullscreen"
             )
             this.webChromeClient = webChromeClient
@@ -271,7 +249,6 @@ fun MinePage(
             WindowCompat.setDecorFitsSystemWindows(window, true)
             controller.show(WindowInsetsCompat.Type.systemBars())
             bottomNavBarVM.setBottomNavBarVisibility(true)
-            showChapterList = false
         }
     }
 
@@ -296,28 +273,6 @@ fun MinePage(
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
             }
-            val observerJs = """
-                setTimeout(function() {
-                    var counter = document.querySelector('.pswp__counter');
-                    if (counter) {
-                        var updateProgress = function() {
-                            var text = counter.innerText || '';
-                            var parts = text.split('/');
-                            if (parts.length === 2) {
-                                var current = parseInt(parts[0].trim());
-                                var total = parseInt(parts[1].trim());
-                                if (!isNaN(current) && !isNaN(total) && window.AndroidFullscreen && window.AndroidFullscreen.updateImageProgress) {
-                                    window.AndroidFullscreen.updateImageProgress(current, total);
-                                }
-                            }
-                        };
-                        updateProgress();
-                        var observer = new MutationObserver(updateProgress);
-                        observer.observe(counter, { childList: true, characterData: true, subtree: true });
-                    }
-                }, 500);
-            """.trimIndent()
-            mineWebView.evaluateJavascript(observerJs, null)
             currentUrl?.let { url ->
                 if (url.contains("mod=viewthread") && url.contains("tid=")) {
                     val checkSectionJs = """
@@ -448,6 +403,37 @@ fun MinePage(
                     """.trimIndent()
                 ) { result ->
                     isMangaSection = result == "true"
+                    // 【新增】：如果是漫画/图区，拦截图片点击事件发送给 NativeMangaApi
+                    if (isMangaSection) {
+                        val injectJs = """
+                            javascript:(function() {
+                                document.addEventListener('click', function(e) {
+                                    var targetImg = e.target.closest('.img_one img, .message img');
+                                    if (targetImg && targetImg.src.indexOf('smiley') === -1) { 
+                                        e.preventDefault(); 
+                                        e.stopPropagation();
+                                        
+                                        var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                                        var urls = [];
+                                        var clickedIndex = 0;
+                                        for (var i = 0; i < allImgs.length; i++) {
+                                            var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
+                                            if (rawSrc) {
+                                                var absoluteUrl = new URL(rawSrc, document.baseURI).href;
+                                                urls.push(absoluteUrl);
+                                                if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
+                                            }
+                                        }
+                                        if (window.NativeMangaApi) {
+                                            var html = document.documentElement.outerHTML;
+                                            window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, html, document.title);
+                                        }
+                                    }
+                                }, true); 
+                            })();
+                        """.trimIndent()
+                        view.evaluateJavascript(injectJs, null)
+                    }
                 }
             }
 
@@ -575,33 +561,13 @@ fun MinePage(
                         attempts++;
 
                         // 步骤 A: 检查 PhotoSwipe 的全屏容器 (.pswp) 是否已经生成
-                        var pswp = document.querySelector('.pswp');
+                       var pswp = document.querySelector('.pswp');
                         if (pswp) {
                             isDone = true;
                             clearInterval(timer);
                             if (window.AndroidFullscreen) {
                                 window.AndroidFullscreen.notify(true);
                                 window.AndroidFullscreen.notifyMangaActionDone();
-                                
-                                // 【新增】监听 pswp__counter 提取页码进度
-                                var counter = document.querySelector('.pswp__counter');
-                                if (counter) {
-                                    var updateProgress = function() {
-                                        var text = counter.innerText || ''; // 例如 "1 / 3"
-                                        var parts = text.split('/');
-                                        if (parts.length === 2) {
-                                            var current = parseInt(parts[0].trim());
-                                            var total = parseInt(parts[1].trim());
-                                            if (!isNaN(current) && !isNaN(total)) {
-                                                window.AndroidFullscreen.updateImageProgress(current, total);
-                                            }
-                                        }
-                                    };
-                                    updateProgress(); // 初始化调用一次
-                                    // 监听文本变化
-                                    var observer = new MutationObserver(updateProgress);
-                                    observer.observe(counter, { childList: true, characterData: true, subtree: true });
-                                }
                             }
                             return;
                         }
@@ -621,7 +587,22 @@ fun MinePage(
                         }
                         
                         if (targetEl) {
-                            targetEl.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+                            if (window.NativeMangaApi) {
+                                var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                                var urls = [];
+                                for (var i = 0; i < allImgs.length; i++) {
+                                    var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
+                                    if (rawSrc) {
+                                        urls.push(new URL(rawSrc, document.baseURI).href);
+                                    }
+                                }
+                                window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.documentElement.outerHTML, document.title);
+                                clearInterval(timer);
+                                return;
+                            } else {
+                                // 兜底降级方案
+                                targetEl.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+                            }
                         }
 
                         // 步骤 C: 终极防死锁兜底
@@ -655,7 +636,15 @@ fun MinePage(
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
-            factory = { mineWebView },
+            factory = {
+                val nativeApi = NativeMangaJSInterface(
+                    navController,
+                    { currentUrl },
+                    { autoOpenMangaMode = false }
+                )
+                mineWebView.addJavascriptInterface(nativeApi, "NativeMangaApi")
+                mineWebView
+            },
             update = {
                 canGoBack = it.canGoBack()
                 currentUrl = it.url
@@ -728,140 +717,6 @@ fun MinePage(
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
                 color = YamiboColors.secondary
-            )
-        }
-
-        AnimatedVisibility(
-            visible = isFullscreenState.value && isFullscreenUiVisible.value,
-            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(
-                initialOffsetY = { it / 2 }),
-            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(
-                targetOffsetY = { it / 2 }),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 24.dp)
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (isMangaSection) {
-                    // 原有的目录按钮
-                    Button(
-                        onClick = {
-                            showChapterList = true
-                        },
-                        modifier = Modifier.fillMaxWidth(0.4f),
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                            containerColor = Color.Black.copy(alpha = 0.6f),
-                            contentColor = Color.White
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Menu,
-                            contentDescription = "目录",
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text("目录")
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
-
-                // 图片滑动条组件 (仅在图片总数 > 1 时显示)
-                if (totalImageCount > 1f) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth(0.85f)
-                            .background(
-                                Color.Black.copy(alpha = 0.6f),
-                                androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
-                            )
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                    ) {
-                        Text("${currentImageIndex.toInt()}", color = Color.White, fontSize = 12.sp)
-
-                        androidx.compose.material3.Slider(
-                            value = currentImageIndex,
-                            onValueChange = { newValue ->
-                                currentImageIndex = newValue
-                            },
-                            onValueChangeFinished = {
-                                // 拖动结束后，通知 WebView 的 PhotoSwipe 跳转
-                                val targetIndex = currentImageIndex.toInt() - 1
-                                val js = """
-                                    (function() {
-                                        // 尝试获取常见的 PhotoSwipe 实例变量
-                                        var pswpObj = window.pswp || window.gallery || (document.querySelector('.pswp') ? document.querySelector('.pswp').PhotoSwipe : null);
-                                        if (pswpObj && typeof pswpObj.goTo === 'function') {
-                                            pswpObj.goTo($targetIndex);
-                                        }
-                                    })();
-                                """.trimIndent()
-                                mineWebView.evaluateJavascript(js, null)
-                            },
-                            valueRange = 1f..totalImageCount,
-                            steps = if (totalImageCount > 2f) (totalImageCount - 2f).toInt() else 0,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 12.dp),
-                            colors = SliderDefaults.colors(
-                                thumbColor = YamiboColors.secondary.copy(alpha = 0.8f),
-                                activeTrackColor = YamiboColors.secondary.copy(alpha = 0.5f),
-                                inactiveTrackColor = Color.White.copy(alpha = 0.1f),
-                                inactiveTickColor = Color.Transparent,
-                                activeTickColor = Color.Transparent
-                            )
-                        )
-
-                        Text("${totalImageCount.toInt()}", color = Color.White, fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-        // 在 MinePage.kt 的 Box 组件中添加以下代码
-        if (showChapterList) {
-            val currentDir = mangaDirVM.currentDirectory
-            val currentTid = remember(currentUrl) {
-                currentUrl?.let { MangaTitleCleaner.extractTidFromUrl(it) }
-            }
-
-            val displayChapters = currentDir?.chapters?.map { item ->
-                MangaChapter(
-                    index = item.chapterNum,
-                    title = item.rawTitle,
-                    url = item.url,
-                    isCurrent = item.tid == currentTid,
-                    isRead = false
-                )
-            } ?: emptyList()
-
-            MangaChapterPanel(
-                modifier = Modifier.align(Alignment.BottomCenter),
-                title = currentDir?.cleanBookName ?: "加载中...",
-                chapters = displayChapters,
-                isUpdating = mangaDirVM.isUpdatingDirectory,
-                cooldownSeconds = mangaDirVM.directoryCooldown,
-                strategy = currentDir?.strategy,
-                showSearchShortcut = mangaDirVM.showSearchShortcut,
-                searchShortcutCountdown = mangaDirVM.searchShortcutCountdown,
-                onUpdateClick = { isForced ->
-                    mangaDirVM.updateMangaDirectory(isForced)
-                },
-                onDismiss = { showChapterList = false },
-                onChapterClick = { chapter ->
-                    showChapterList = false
-                    val targetUrl = chapter.url
-                    if (targetUrl.isNotEmpty()) {
-                        val finalUrl =
-                            if (targetUrl.startsWith("http")) targetUrl else "https://bbs.yamibo.com/$targetUrl"
-                        autoOpenMangaMode = true
-                        pendingNavigateUrl = finalUrl
-                        mineWebView.evaluateJavascript("window.history.back();", null)
-                    }
-                }
             )
         }
 
