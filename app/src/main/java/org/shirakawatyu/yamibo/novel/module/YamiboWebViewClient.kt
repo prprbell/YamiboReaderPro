@@ -71,48 +71,6 @@ open class YamiboWebViewClient : WebViewClient() {
             (function() {
                 if (window.__historyHooked) return;
                 window.__historyHooked = true;
-                
-                var uiObserver = null;
-
-                function startUiObserver() {
-                    var pswp = document.querySelector('.pswp');
-                    if (!pswp) {
-                        setTimeout(startUiObserver, 50);
-                        return;
-                    }
-
-                    // 判断pswp--ui-visible
-                    function notifyState() {
-                        var isVisible = pswp.classList.contains('pswp--ui-visible');
-                        
-                        if (window.__lastUiState !== isVisible) {
-                            window.__lastUiState = isVisible;
-                            if (window.AndroidFullscreen) {
-                                window.AndroidFullscreen.notifyUi(isVisible);
-                            }
-                        }
-                    }
-
-                    if (uiObserver) {
-                        uiObserver.disconnect();
-                    }
-
-                    uiObserver = new MutationObserver(function(mutations) {
-                        notifyState();
-                    });
-
-                    // 监听pswp容器的'class'属性变化
-                    uiObserver.observe(pswp, { attributes: true, attributeFilter: ['class'] });
-                    
-                    notifyState();
-                }
-
-                function stopUiObserver() {
-                    if (uiObserver) {
-                        uiObserver.disconnect();
-                        uiObserver = null;
-                    }
-                }
 
                 function checkState() {
                     var state = window.history.state;
@@ -120,13 +78,6 @@ open class YamiboWebViewClient : WebViewClient() {
                     
                     if (window.AndroidFullscreen) {
                         window.AndroidFullscreen.notify(!!isFullscreen);
-                    }
-                    
-                    if (isFullscreen) {
-                        window.__lastUiState = null; 
-                        startUiObserver();
-                    } else {
-                        stopUiObserver();
                     }
                 }
 

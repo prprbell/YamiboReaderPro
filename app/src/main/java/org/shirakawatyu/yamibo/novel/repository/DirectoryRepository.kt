@@ -101,7 +101,10 @@ class DirectoryRepository private constructor(private val context: Context) {
         mobileHtml: String
     ): MangaDirectory {
         val threadTitle = MangaTitleCleaner.getCleanThreadTitle(rawTitle)
-        val cleanName = MangaTitleCleaner.getCleanBookName(rawTitle)
+        val allDirs = getAllDirectories()
+        val existingDir = allDirs.find { dir -> dir.chapters.any { it.tid == tid } }
+
+        val cleanName = existingDir?.cleanBookName ?: MangaTitleCleaner.getCleanBookName(rawTitle)
 
         return getFileLock(cleanName).withLock {
             val cachedDir = loadDirectory(cleanName)
@@ -316,6 +319,12 @@ class DirectoryRepository private constructor(private val context: Context) {
         val newChapters = mutableListOf<MangaChapterItem>()
         var searchPerformed = false
         try {
+            val firstRawTitle =
+                currentDir.chapters.firstOrNull()?.rawTitle ?: currentDir.cleanBookName
+            val autoCleanName = MangaTitleCleaner.getCleanBookName(firstRawTitle)
+            val exactKeyword =
+                if (currentDir.cleanBookName != autoCleanName) currentDir.cleanBookName else null
+
             if (!forceSearch && currentDir.strategy == DirectoryStrategy.TAG) {
                 val tagIdList = currentDir.sourceKey.split(",")
                 for ((index, tagId) in tagIdList.withIndex()) {
@@ -340,7 +349,6 @@ class DirectoryRepository private constructor(private val context: Context) {
                     }
                 }
 
-                // TAG 爬取完毕后，应用时间线兜底排序机制！
                 if (newChapters.isNotEmpty()) {
                     val fixedChapters = fixChaptersByTimeline(newChapters, isSearchDesc = false)
                     newChapters.clear()
@@ -349,17 +357,13 @@ class DirectoryRepository private constructor(private val context: Context) {
 
                 if (newChapters.isEmpty()) {
                     searchPerformed = true
-                    val rawTitleForSearch =
-                        currentDir.chapters.firstOrNull()?.rawTitle ?: currentDir.cleanBookName
-                    val res = performSearch(rawTitleForSearch)
+                    val res = performSearch(firstRawTitle, exactKeyword)
                     if (res.isFailure) return@withContext Result.failure(res.exceptionOrNull()!!)
                     newChapters.addAll(res.getOrNull()!!)
                 }
             } else {
                 searchPerformed = true
-                val rawTitleForSearch =
-                    currentDir.chapters.firstOrNull()?.rawTitle ?: currentDir.cleanBookName
-                val res = performSearch(rawTitleForSearch)
+                val res = performSearch(firstRawTitle, exactKeyword)
                 if (res.isFailure) return@withContext Result.failure(res.exceptionOrNull()!!)
                 newChapters.addAll(res.getOrNull()!!)
             }
@@ -381,34 +385,37 @@ class DirectoryRepository private constructor(private val context: Context) {
         }
     }
 
-    private suspend fun performSearch(rawTitle: String): Result<List<MangaChapterItem>> {
+    // 接收 exactKeyword 参数
+    private suspend fun performSearch(
+        rawTitle: String,
+        exactKeyword: String? = null
+    ): Result<List<MangaChapterItem>> {
         val now = System.currentTimeMillis()
-        if (now - GlobalData.lastSearchTimestamp.get() < 30_000L) return Result.failure(Exception("搜索冷却中"))
+        if (now - GlobalData.lastSearchTimestamp.get() < 30_000L) return Result.failure(Exception("搜索冷却中，请等待30秒"))
         GlobalData.lastSearchTimestamp.set(now)
 
-        val safeKeyword = MangaTitleCleaner.getSearchKeyword(rawTitle)
+        // 如果有精确词（用户手修的），就用精确词；否则用正则洗出来的
+        val safeKeyword = exactKeyword ?: MangaTitleCleaner.getSearchKeyword(rawTitle)
 
         // 1. 获取第一页数据
         val firstPageHtml = mangaApi.searchForum(keyword = safeKeyword).string()
-        if (MangaHtmlParser.isFloodControlOrError(firstPageHtml)) return Result.failure(Exception("防灌水限制"))
+        if (MangaHtmlParser.isFloodControlOrError(firstPageHtml)) return Result.failure(Exception("触发论坛防灌水限制，请稍后再试"))
 
         val allItems = mutableListOf<MangaChapterItem>()
         allItems.addAll(MangaHtmlParser.parseListHtml(firstPageHtml))
 
-        // 2. 【翻页逻辑】：如果有更多页，拿到 searchId 把后面所有的帖子全拉下来
+        // 2. 翻页逻辑
         val totalPages = MangaHtmlParser.extractTotalPages(firstPageHtml)
         val searchId = MangaHtmlParser.extractSearchId(firstPageHtml)
 
         if (searchId != null && totalPages > 1) {
             for (p in 2..totalPages) {
-                // 翻页使用的是 searchid，基本不会触发 30秒搜索冷却机制
                 val pageHtml = mangaApi.searchForumPage(searchid = searchId, page = p).string()
                 allItems.addAll(MangaHtmlParser.parseListHtml(pageHtml))
             }
         }
 
         val fixedItems = fixChaptersByTimeline(allItems, isSearchDesc = true)
-
         return Result.success(fixedItems)
     }
 
@@ -478,5 +485,57 @@ class DirectoryRepository private constructor(private val context: Context) {
             if (!file.delete()) allDeleted = false
         }
         allDeleted
+    }
+
+    suspend fun renameAndMergeDirectory(
+        currentDir: MangaDirectory,
+        newCleanName: String
+    ): MangaDirectory = withContext(Dispatchers.IO) {
+        val oldName = currentDir.cleanBookName
+        if (oldName == newCleanName) return@withContext currentDir
+
+        // 按字母顺序获取锁，彻底杜绝死锁风险
+        val lock1 = getFileLock(if (oldName < newCleanName) oldName else newCleanName)
+        val lock2 = getFileLock(if (oldName < newCleanName) newCleanName else oldName)
+
+        lock1.withLock {
+            lock2.withLock {
+                val targetDir = loadDirectory(newCleanName)
+
+                // 1. 合并章节（如果目标目录存在）
+                val mergedChapters = if (targetDir != null) {
+                    mergeAndSortChapters(targetDir.chapters, currentDir.chapters)
+                } else {
+                    currentDir.chapters
+                }
+
+                // 2. 关键：保留正确的 sourceKey 和 strategy
+                val newStrategy = targetDir?.strategy ?: currentDir.strategy
+                val newSourceKey = if (targetDir != null) {
+                    targetDir.sourceKey
+                } else {
+                    if (currentDir.strategy == DirectoryStrategy.TAG) currentDir.sourceKey else newCleanName
+                }
+
+                // 3. 组装新目录对象
+                val mergedDir = MangaDirectory(
+                    cleanBookName = newCleanName,
+                    strategy = newStrategy,
+                    sourceKey = newSourceKey,
+                    chapters = mergedChapters,
+                    lastUpdateTime = System.currentTimeMillis()
+                )
+
+                // 4. 保存新目录
+                saveDirectory(mergedDir)
+
+                // 5. 彻底删除旧的错名残骸目录文件
+                val oldFile = getDirectoryFile(oldName)
+                if (oldFile.exists()) oldFile.delete()
+                memoryCache.remove(oldName)
+
+                return@withLock mergedDir
+            }
+        }
     }
 }

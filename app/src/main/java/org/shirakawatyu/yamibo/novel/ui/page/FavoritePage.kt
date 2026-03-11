@@ -414,6 +414,7 @@ fun FavoritePage(
             // 1. LazyColumn (收藏列表)
             LazyColumn(
                 state = lazyListState,
+                contentPadding = PaddingValues(bottom = 40.dp),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(0.dp, 3.dp)

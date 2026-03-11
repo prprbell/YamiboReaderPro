@@ -27,10 +27,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,6 +56,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy
+import org.shirakawatyu.yamibo.novel.bean.MangaSettings
 
 private val BgSheet = Color(0xFF111318)
 private val BgItem = Color(0xFF1C2028)
@@ -82,11 +88,15 @@ fun MangaChapterPanel(
     searchShortcutCountdown: Int = 0,
     onUpdateClick: (isForced: Boolean) -> Unit,
     onDismiss: () -> Unit,
-    onChapterClick: (MangaChapter) -> Unit
+    onChapterClick: (MangaChapter) -> Unit,
+    onTitleEdit: (String) -> Unit
 ) {
-    var ascending by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    var ascending by remember { mutableStateOf(MangaSettings.getSettings(context).isAscending) }
     // 顶部标题的展开状态
     var isTitleExpanded by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
+    var editTitleText by remember { mutableStateOf(title) }
 
     val sorted = remember(chapters, ascending) {
         if (ascending) chapters else chapters.reversed()
@@ -112,7 +122,45 @@ fun MangaChapterPanel(
         isSearchMode -> Color(0xFF6366F1) // 全局搜索：蓝色/紫色
         else -> Accent // 普通更新：原有橙色
     }
-
+    if (showEditDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditDialog = false },
+            containerColor = BgItem,
+            titleContentColor = TextPri,
+            textContentColor = TextPri,
+            title = { Text("修改漫画名称", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = editTitleText,
+                    onValueChange = { editTitleText = it },
+                    singleLine = true,
+                    label = { Text("输入正确的漫画名", color = TextSec) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Accent,     // 输入状态下的文字颜色
+                        unfocusedTextColor = Accent,   // 未输入状态下的文字颜色
+                        cursorColor = Accent,          // 光标颜色
+                        focusedBorderColor = Accent,   // 聚焦时的边框颜色
+                        unfocusedBorderColor = TextSec // 未聚焦时的边框颜色保持暗色
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (editTitleText.isNotBlank() && editTitleText != title) {
+                        onTitleEdit(editTitleText)
+                    }
+                    showEditDialog = false
+                }) {
+                    Text("保存修改", color = Accent, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditDialog = false }) {
+                    Text("取消", color = TextSec)
+                }
+            }
+        )
+    }
     LaunchedEffect(sorted) {
         val index = sorted.indexOfFirst { it.isCurrent }
         if (index != -1) {
@@ -244,18 +292,39 @@ fun MangaChapterPanel(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable { ascending = !ascending }
-                                .background(Color(0xFF1C2028))
-                                .padding(horizontal = 12.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = if (ascending) "正序" else "倒序",
-                                color = TextSec,
-                                fontSize = 12.sp
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable {
+                                        ascending = !ascending
+                                        MangaSettings.saveIsAscending(context, ascending)
+                                    }
+                                    .background(Color(0xFF1C2028))
+                                    .padding(horizontal = 12.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = if (ascending) "正序" else "倒序",
+                                    color = TextSec,
+                                    fontSize = 12.sp
+                                )
+                            }
+
+                            Spacer(Modifier.width(8.dp))
+
+                            // 修改名称按钮
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable {
+                                        editTitleText = title
+                                        showEditDialog = true
+                                    }
+                                    .background(Color(0xFF1C2028))
+                                    .padding(horizontal = 12.dp, vertical = 5.dp)
+                            ) {
+                                Text(text = "矫正漫画名称", color = Accent, fontSize = 12.sp)
+                            }
                         }
 
                         // 右侧区域：最新话数 + 更新按钮

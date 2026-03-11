@@ -46,6 +46,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,9 +63,11 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
@@ -112,9 +115,11 @@ class MangaWebNativeJSInterface(
         Handler(Looper.getMainLooper()).post {
             org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaUrls = urls
 
-            val targetIndex = if (getInitialPage() > 0 && clickedIndex == 0) getInitialPage() else clickedIndex
+            val targetIndex =
+                if (getInitialPage() > 0 && clickedIndex == 0) getInitialPage() else clickedIndex
 
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex = targetIndex.coerceIn(0, maxOf(0, urls.size - 1))
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex =
+                targetIndex.coerceIn(0, maxOf(0, urls.size - 1))
 
             org.shirakawatyu.yamibo.novel.global.GlobalData.tempHtml = html
             org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle = title
@@ -158,6 +163,7 @@ fun MangaWebPage(
     var retryCount by remember { mutableIntStateOf(0) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
     var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
+
     // 1. 负责控制是否执行自动探测 JS
     var autoOpenMangaMode by rememberSaveable { mutableStateOf(!isFastForward) }
     // 2. 负责在原生阅读器跳回时，暂时维持黑屏掩护（避免闪现网页）
@@ -165,6 +171,8 @@ fun MangaWebPage(
 
     // 3. 最终决定是否显示黑屏的聚合状态
     val showBlackScreen = autoOpenMangaMode || isWaitingForNativeReturn
+
+    val currentAutoOpenMode by rememberUpdatedState(autoOpenMangaMode)
 
     // 生命周期监听。当从原生阅读器返回此页面时，撤销黑屏掩护
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -226,9 +234,9 @@ fun MangaWebPage(
         }
         webView.loadUrl(loadUrl)
     }
-
     // ----- 全屏状态控制 -----
     val isFullscreenState = remember { mutableStateOf(false) }
+
     SetStatusBarColor(if (showBlackScreen || isFullscreenState.value) Color.Black else YamiboColors.primary)
     DisposableEffect(Unit) {
         onDispose {
@@ -273,7 +281,8 @@ fun MangaWebPage(
         if (shouldBeFullscreen) {
             WindowCompat.setDecorFitsSystemWindows(window, false)
             controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             bottomNavBarVM.setBottomNavBarVisibility(false)
         } else {
             WindowCompat.setDecorFitsSystemWindows(window, true)
@@ -343,13 +352,22 @@ fun MangaWebPage(
                             // 只有在合法的漫画/图区内，才抓取庞大的网页源码并初始化目录
                             val pageTitle = mangaWebView.title ?: ""
                             mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
-                                val cleanHtml = try {
-                                    com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
-                                } catch (e: Exception) {
-                                    htmlResult
-                                }
-                                if (cleanHtml.isNotBlank()) {
-                                    mangaDirVM.initDirectoryFromWeb(threadUrl, cleanHtml, pageTitle)
+                                scope.launch(Dispatchers.Default) {
+                                    val cleanHtml = try {
+                                        com.alibaba.fastjson2.JSON.parse(htmlResult) as? String
+                                            ?: ""
+                                    } catch (e: Exception) {
+                                        htmlResult
+                                    }
+                                    if (cleanHtml.isNotBlank()) {
+                                        withContext(Dispatchers.Main) {
+                                            mangaDirVM.initDirectoryFromWeb(
+                                                threadUrl,
+                                                cleanHtml,
+                                                pageTitle
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -412,7 +430,7 @@ fun MangaWebPage(
                     })()
                     """.trimIndent()
                 ) { result ->
-                    if (result == "true") {
+                    if (result == "true" && !currentAutoOpenMode) {
                         val injectJs = """
                             javascript:(function() {
                                 document.addEventListener('click', function(e) {

@@ -5,7 +5,8 @@ import android.graphics.Color
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +34,9 @@ fun PassageWebView(
     val passageWebViewClient = remember { PassageWebViewClient(onFinished) }
     var lastLoadedUrl by remember { mutableStateOf<String?>(null) }
     AndroidView(
-        modifier = Modifier.height(0.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .offset(x = (-10000).dp),
         factory = { context ->
             WebView(context).apply {
                 layoutParams = ViewGroup.LayoutParams(

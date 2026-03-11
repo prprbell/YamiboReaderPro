@@ -53,6 +53,7 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
             }
         }
     }
+
     fun loadDirectoryByUrl(currentUrl: String) {
         viewModelScope.launch {
             val tid = MangaTitleCleaner.extractTidFromUrl(currentUrl) ?: return@launch
@@ -64,6 +65,7 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
             }
         }
     }
+
     /**
      * 触发目录更新 (连接到 MangaChapterBottomSheet 的更新按钮)
      */
@@ -117,6 +119,16 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
                 delay(1000)
                 directoryCooldown--
             }
+        }
+    }
+
+    fun renameDirectory(newTitle: String) {
+        val dir = currentDirectory ?: return
+        if (dir.cleanBookName == newTitle || isUpdatingDirectory) return
+
+        viewModelScope.launch {
+            val mergedDir = repo.renameAndMergeDirectory(dir, newTitle)
+            currentDirectory = mergedDir
         }
     }
 }

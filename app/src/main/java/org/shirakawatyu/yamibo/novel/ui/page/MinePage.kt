@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -98,7 +99,8 @@ class FullscreenApiMine(
 class NativeMangaMineJSInterface(
     private val navController: NavController,
     private val getCurrentUrl: () -> String?,
-    private val onActionDone: () -> Unit
+    private val onActionDone: () -> Unit,
+    private val onSaveUrl: (String) -> Unit
 ) {
     @JavascriptInterface
     fun openNativeManga(urlsJoined: String, clickedIndex: Int, html: String, title: String) {
@@ -110,10 +112,13 @@ class NativeMangaMineJSInterface(
             org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle = title
 
             onActionDone()
-
             val passUrl = getCurrentUrl() ?: "https://bbs.yamibo.com/forum.php"
+
+            onSaveUrl(passUrl)
+
             val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
-            navController.navigate("NativeMangaPage?url=$encodedUrl")
+            val encodedOriginal = java.net.URLEncoder.encode(passUrl, "utf-8")
+            navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedOriginal")
         }
     }
 }
@@ -123,7 +128,7 @@ class NativeMangaMineJSInterface(
  *
  * @param isSelected 表示当前页面是否被选中，用于控制页面加载逻辑和状态更新。
  */
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun MinePage(
     isSelected: Boolean,
@@ -142,11 +147,13 @@ fun MinePage(
     val scope = rememberCoroutineScope()
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
-    var currentUrl by remember { mutableStateOf<String?>(null) }
+    var currentUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var pageTitle by remember { mutableStateOf("") }
     var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
     var isMangaSection by remember { mutableStateOf(false) }
+    var savedMangaUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var needFallbackToHome by rememberSaveable { mutableStateOf(false) }
 
     val canConvertToReader = remember(currentUrl, pageTitle) {
         ReaderModeDetector.canConvertToReaderMode(currentUrl, pageTitle)
@@ -473,7 +480,15 @@ fun MinePage(
         }
 
         if (isSelected && mineWebView.url == null) {
-            startLoading(mineWebView, mineUrl)
+            // 从漫画返回
+            if (savedMangaUrl != null) {
+                startLoading(mineWebView, savedMangaUrl!!)
+                savedMangaUrl = null
+                needFallbackToHome = true
+            } else {
+                // 如果不是从漫画返回的，回到首页
+                startLoading(mineWebView, mineUrl)
+            }
         } else {
             canGoBack = mineWebView.canGoBack()
         }
@@ -630,17 +645,23 @@ fun MinePage(
             }
         }
     }
-    BackHandler(enabled = canGoBack) {
-        mineWebView.goBack()
+    BackHandler(enabled = canGoBack || needFallbackToHome) {
+        if (canGoBack) {
+            mineWebView.goBack()
+        } else if (needFallbackToHome) {
+            needFallbackToHome = false
+            startLoading(mineWebView, mineUrl)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = {
-                val nativeApi = NativeMangaJSInterface(
+                val nativeApi = NativeMangaMineJSInterface(
                     navController,
                     { currentUrl },
-                    { autoOpenMangaMode = false }
+                    { autoOpenMangaMode = false },
+                    { savedMangaUrl = it }
                 )
                 mineWebView.addJavascriptInterface(nativeApi, "NativeMangaApi")
                 mineWebView
@@ -655,7 +676,7 @@ fun MinePage(
                     onPause()
                     stopLoading()
                     webViewClient = android.webkit.WebViewClient()
-                    setWebChromeClient(null) // <--- 改用这种写法
+                    setWebChromeClient(null)
                     (parent as? ViewGroup)?.removeView(this)
                     destroy()
                 }

@@ -111,13 +111,13 @@ class NativeMangaJSInterface(
 
             // 跳转到原生漫画页面
             val passUrl = getCurrentUrl() ?: "https://bbs.yamibo.com/forum.php"
-            val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
+            val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
             navController.navigate("NativeMangaPage?url=$encodedUrl")
         }
     }
 }
 
-@SuppressLint("RestrictedApi")
+@SuppressLint("RestrictedApi", "JavascriptInterface")
 @Composable
 fun BBSPage(
     webView: WebView,
@@ -151,6 +151,20 @@ fun BBSPage(
     // ----- 全屏状态控制 -----
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
+    val fullscreenApi = remember<FullscreenApi> {
+        FullscreenApi(
+            onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen },
+            onMangaActionDone = { autoOpenMangaMode = false }
+        )
+    }
+
+    val nativeMangaApi = remember<NativeMangaJSInterface> {
+        NativeMangaJSInterface(
+            navController = navController,
+            getCurrentUrl = { currentUrl },
+            onActionDone = { autoOpenMangaMode = false }
+        )
+    }
     // 强制获取ViewModel
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
@@ -579,7 +593,7 @@ fun BBSPage(
                         }
                     }
                 }
-                // 【新增重构逻辑】：探测漫画版块，并注入拦截器
+                // 探测漫画版块，并注入拦截器
                 view?.evaluateJavascript(
                     """
                     (function(){
@@ -712,18 +726,9 @@ fun BBSPage(
                     // 启用JavaScript
                     javaScriptEnabled = true
                 }
-                webView.addJavascriptInterface(
-                    FullscreenApi(
-                        onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen },
-                        onMangaActionDone = { autoOpenMangaMode = false }
-                    ),
-                    "AndroidFullscreen"
-                )
-                val nativeApi = NativeMangaJSInterface(
-                    navController,
-                    { currentUrl },
-                    { autoOpenMangaMode = false })
-                webView.addJavascriptInterface(nativeApi, "NativeMangaApi")
+
+                webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
+                webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
                 webView
             },
             update = { view ->
@@ -731,7 +736,6 @@ fun BBSPage(
                 currentUrl = view.url
             },
             onRelease = {
-                it.stopLoading()
                 it.onPause()
             }
         )

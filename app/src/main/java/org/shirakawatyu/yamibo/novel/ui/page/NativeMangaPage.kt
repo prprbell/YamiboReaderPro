@@ -14,6 +14,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
@@ -63,9 +64,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -80,6 +88,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -96,16 +105,6 @@ import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
-import androidx.compose.foundation.focusable
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -119,7 +118,8 @@ fun NativeMangaPage(
     val activity = context as? Activity
     val scope = rememberCoroutineScope()
 
-    val mangaDirVM: MangaDirectoryVM = viewModel(factory = ViewModelFactory(context.applicationContext))
+    val mangaDirVM: MangaDirectoryVM =
+        viewModel(factory = ViewModelFactory(context.applicationContext))
     val favoriteVM: FavoriteVM = viewModel(
         viewModelStoreOwner = context as ComponentActivity,
         factory = ViewModelFactory(context.applicationContext)
@@ -285,7 +285,8 @@ fun NativeMangaPage(
                 controller.isAppearanceLightStatusBars = false
             } else {
                 controller.hide(WindowInsetsCompat.Type.systemBars())
-                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
         }
     }
@@ -298,7 +299,8 @@ fun NativeMangaPage(
             WindowCompat.setDecorFitsSystemWindows(window, false)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 window.attributes = window.attributes.apply {
-                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                 }
             }
 
@@ -307,7 +309,8 @@ fun NativeMangaPage(
 
             if (!showUi) {
                 controller.hide(WindowInsetsCompat.Type.systemBars())
-                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             } else {
                 controller.show(WindowInsetsCompat.Type.systemBars())
             }
@@ -324,7 +327,8 @@ fun NativeMangaPage(
         if (imageUrls.isNotEmpty()) {
             val cookie = CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
             val lazyListState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
-            val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { imageUrls.size })
+            val pagerState =
+                rememberPagerState(initialPage = initialIndex, pageCount = { imageUrls.size })
 
             val currentIndex by remember(isVerticalMode, lazyListState, pagerState) {
                 derivedStateOf {
@@ -350,7 +354,7 @@ fun NativeMangaPage(
                 }
             }
 
-            LaunchedEffect(currentIndex) {
+            LaunchedEffect(currentIndex, mangaDirVM.currentDirectory) {
                 val currentTid = MangaTitleCleaner.extractTidFromUrl(url) ?: return@LaunchedEffect
                 val chapter = mangaDirVM.currentDirectory?.chapters?.find { it.tid == currentTid }
                 if (chapter != null) {
@@ -361,32 +365,44 @@ fun NativeMangaPage(
                 }
             }
 
-            // ====== 横屏点击的独立稳定闭包，彻底阻断闪图 ======
-            val horizontalPagerClick: (Offset) -> Unit = remember(screenWidthPx, isRtl, pagerState) {
-                { offset ->
-                    if (showUi) {
-                        showUi = false
-                        showSettingsPanel = false
-                    } else {
-                        val isLeftTap = offset.x < screenWidthPx * 0.2f
-                        val isRightTap = offset.x > screenWidthPx * 0.8f
-
-                        if (isLeftTap) {
-                            scope.launch {
-                                val targetPage = if (isRtl) pagerState.currentPage + 1 else pagerState.currentPage - 1
-                                pagerState.animateScrollToPage(targetPage.coerceIn(0, pagerState.pageCount - 1))
-                            }
-                        } else if (isRightTap) {
-                            scope.launch {
-                                val targetPage = if (isRtl) pagerState.currentPage - 1 else pagerState.currentPage + 1
-                                pagerState.animateScrollToPage(targetPage.coerceIn(0, pagerState.pageCount - 1))
-                            }
+            val horizontalPagerClick: (Offset) -> Unit =
+                remember(screenWidthPx, isRtl, pagerState) {
+                    { offset ->
+                        if (showUi) {
+                            showUi = false
+                            showSettingsPanel = false
                         } else {
-                            showUi = true
+                            val isLeftTap = offset.x < screenWidthPx * 0.2f
+                            val isRightTap = offset.x > screenWidthPx * 0.8f
+
+                            if (isLeftTap) {
+                                scope.launch {
+                                    val targetPage =
+                                        if (isRtl) pagerState.currentPage + 1 else pagerState.currentPage - 1
+                                    pagerState.animateScrollToPage(
+                                        targetPage.coerceIn(
+                                            0,
+                                            pagerState.pageCount - 1
+                                        )
+                                    )
+                                }
+                            } else if (isRightTap) {
+                                scope.launch {
+                                    val targetPage =
+                                        if (isRtl) pagerState.currentPage - 1 else pagerState.currentPage + 1
+                                    pagerState.animateScrollToPage(
+                                        targetPage.coerceIn(
+                                            0,
+                                            pagerState.pageCount - 1
+                                        )
+                                    )
+                                }
+                            } else {
+                                showUi = true
+                            }
                         }
                     }
                 }
-            }
             // 音量键焦点请求器
             val focusRequester = remember { FocusRequester() }
             LaunchedEffect(showUi) {
@@ -394,7 +410,10 @@ fun NativeMangaPage(
                     view.isFocusableInTouchMode = true
                     view.requestFocus()
                     kotlinx.coroutines.delay(50)
-                    try { focusRequester.requestFocus() } catch (e: Exception) {}
+                    try {
+                        focusRequester.requestFocus()
+                    } catch (e: Exception) {
+                    }
                 }
             }
             // 图片渲染区
@@ -412,11 +431,23 @@ fun NativeMangaPage(
                                 if (event.type == KeyEventType.KeyDown) {
                                     scope.launch {
                                         if (isVerticalMode) {
-                                            val target = if (isVolDown) lazyListState.firstVisibleItemIndex + 1 else lazyListState.firstVisibleItemIndex - 1
-                                            lazyListState.animateScrollToItem(target.coerceIn(0, imageUrls.size - 1))
+                                            val target =
+                                                if (isVolDown) lazyListState.firstVisibleItemIndex + 1 else lazyListState.firstVisibleItemIndex - 1
+                                            lazyListState.animateScrollToItem(
+                                                target.coerceIn(
+                                                    0,
+                                                    imageUrls.size - 1
+                                                )
+                                            )
                                         } else {
-                                            val target = if (isVolDown) pagerState.currentPage + 1 else pagerState.currentPage - 1
-                                            pagerState.animateScrollToPage(target.coerceIn(0, pagerState.pageCount - 1))
+                                            val target =
+                                                if (isVolDown) pagerState.currentPage + 1 else pagerState.currentPage - 1
+                                            pagerState.animateScrollToPage(
+                                                target.coerceIn(
+                                                    0,
+                                                    pagerState.pageCount - 1
+                                                )
+                                            )
                                         }
                                     }
                                 }
@@ -442,16 +473,38 @@ fun NativeMangaPage(
                                             launch { globalOffsetX.animateTo(0f, tween(300)) }
                                             launch { globalOffsetY.animateTo(0f, tween(300)) }
                                         } else {
-                                            val targetScale = 1.5f
-                                            val centerPx = Offset(screenWidthPx / 2f, screenHeightPx / 2f)
-                                            val targetOffsetX = (centerPx.x - tapOffset.x) * (targetScale - 1f)
-                                            val targetOffsetY = (centerPx.y - tapOffset.y) * (targetScale - 1f)
+                                            val targetScale = 1.65f
+                                            val centerPx =
+                                                Offset(screenWidthPx / 2f, screenHeightPx / 2f)
+                                            val targetOffsetX =
+                                                (centerPx.x - tapOffset.x) * (targetScale - 1f)
+                                            val targetOffsetY =
+                                                (centerPx.y - tapOffset.y) * (targetScale - 1f)
                                             val maxX = (screenWidthPx * (targetScale - 1)) / 2f
                                             val maxY = (screenHeightPx * (targetScale - 1)) / 2f
 
-                                            launch { globalScale.animateTo(targetScale, tween(300)) }
-                                            launch { globalOffsetX.animateTo(targetOffsetX.coerceIn(-maxX, maxX), tween(300)) }
-                                            launch { globalOffsetY.animateTo(targetOffsetY.coerceIn(-maxY, maxY), tween(300)) }
+                                            launch {
+                                                globalScale.animateTo(
+                                                    targetScale,
+                                                    tween(300)
+                                                )
+                                            }
+                                            launch {
+                                                globalOffsetX.animateTo(
+                                                    targetOffsetX.coerceIn(
+                                                        -maxX,
+                                                        maxX
+                                                    ), tween(300)
+                                                )
+                                            }
+                                            launch {
+                                                globalOffsetY.animateTo(
+                                                    targetOffsetY.coerceIn(
+                                                        -maxY,
+                                                        maxY
+                                                    ), tween(300)
+                                                )
+                                            }
                                         }
                                     }
                                 },
@@ -552,7 +605,10 @@ fun NativeMangaPage(
                     ) {
                         Text(
                             mangaDirVM.currentDirectory?.cleanBookName ?: "漫画阅读",
-                            color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         val chap = mangaDirVM.currentDirectory?.chapters?.find {
                             it.tid == MangaTitleCleaner.extractTidFromUrl(url)
@@ -600,7 +656,9 @@ fun NativeMangaPage(
                                             readMode = index
 
                                             scope.launch {
-                                                if (index == 0) lazyListState.scrollToItem(targetPage)
+                                                if (index == 0) lazyListState.scrollToItem(
+                                                    targetPage
+                                                )
                                                 else pagerState.scrollToPage(targetPage)
                                             }
                                         },
@@ -609,7 +667,10 @@ fun NativeMangaPage(
                                         ),
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
-                                        Text(title, color = if (readMode == index) Color.Black else Color.White)
+                                        Text(
+                                            title,
+                                            color = if (readMode == index) Color.Black else Color.White
+                                        )
                                     }
                                 }
                             }
@@ -625,7 +686,11 @@ fun NativeMangaPage(
                         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                             if (imageUrls.size > 1) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("${currentIndex + 1}", color = Color.White, fontSize = 12.sp)
+                                    Text(
+                                        "${currentIndex + 1}",
+                                        color = Color.White,
+                                        fontSize = 12.sp
+                                    )
                                     Slider(
                                         value = currentIndex.toFloat(),
                                         valueRange = 0f..(imageUrls.size - 1).toFloat(),
@@ -669,7 +734,13 @@ fun NativeMangaPage(
             if (showChapterList) {
                 val currentTid = MangaTitleCleaner.extractTidFromUrl(url)
                 val displayChapters = mangaDirVM.currentDirectory?.chapters?.map {
-                    MangaChapter(it.chapterNum, it.rawTitle, it.url, isCurrent = it.tid == currentTid, isRead = false)
+                    MangaChapter(
+                        it.chapterNum,
+                        it.rawTitle,
+                        it.url,
+                        isCurrent = it.tid == currentTid,
+                        isRead = false
+                    )
                 } ?: emptyList()
                 MangaChapterPanel(
                     modifier = Modifier.align(Alignment.BottomCenter),
@@ -682,11 +753,15 @@ fun NativeMangaPage(
                     searchShortcutCountdown = mangaDirVM.searchShortcutCountdown,
                     onUpdateClick = { mangaDirVM.updateMangaDirectory(it) },
                     onDismiss = { showChapterList = false },
+                    onTitleEdit = { newTitle ->
+                        mangaDirVM.renameDirectory(newTitle)
+                    },
                     onChapterClick = { chapter ->
                         showChapterList = false
                         if (chapter.url.isNotEmpty()) {
                             val encodedChapterUrl = java.net.URLEncoder.encode(chapter.url, "utf-8")
-                            val encodedOriginalUrl = java.net.URLEncoder.encode(originalUrl, "utf-8")
+                            val encodedOriginalUrl =
+                                java.net.URLEncoder.encode(originalUrl, "utf-8")
                             navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
                                 popUpTo("FavoritePage") { inclusive = false }
                             }
@@ -695,7 +770,10 @@ fun NativeMangaPage(
                 )
             }
         } else {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = YamiboColors.primary)
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color = YamiboColors.primary
+            )
         }
     }
 }

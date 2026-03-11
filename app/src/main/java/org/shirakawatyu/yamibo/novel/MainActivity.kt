@@ -18,10 +18,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -240,7 +238,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                             navController = navController,
                             startDestination = "FavoritePage"
                         ) {
-                            composable("FavoritePage",popEnterTransition = {
+                            composable("FavoritePage", popEnterTransition = {
                                 if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
                                     EnterTransition.None
                                 } else {
@@ -255,7 +253,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     navController
                                 )
                             }
-                            composable("BBSPage",popEnterTransition = {
+                            composable("BBSPage", popEnterTransition = {
                                 if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
                                     EnterTransition.None
                                 } else {
@@ -278,7 +276,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     }
                                 }
                             }
-                            composable("MinePage",popEnterTransition = {
+                            composable("MinePage", popEnterTransition = {
                                 if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
                                     EnterTransition.None
                                 } else {
@@ -312,10 +310,15 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     navArgument("fastForward") {
                                         type = NavType.BoolType; defaultValue = false
                                     },
-                                    navArgument("initialPage") { type = NavType.IntType; defaultValue = 0 }
+                                    navArgument("initialPage") {
+                                        type = NavType.IntType; defaultValue = 0
+                                    }
                                 ),
                                 enterTransition = {
-                                    if (initialState.destination.route?.startsWith("ProbingPage") == true || initialState.destination.route?.startsWith("FavoritePage") == true ) {
+                                    if (initialState.destination.route?.startsWith("ProbingPage") == true || initialState.destination.route?.startsWith(
+                                            "FavoritePage"
+                                        ) == true
+                                    ) {
                                         EnterTransition.None
                                     } else {
                                         fadeIn(tween(150))
@@ -335,7 +338,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                         fadeIn(tween(150))
                                     }
                                 }
-                            ){
+                            ) {
                                 val loadUrl =
                                     URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
                                 val originalUrl = URLDecoder.decode(
@@ -398,9 +401,14 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 }
                             ) { backStackEntry ->
                                 val url = backStackEntry.arguments?.getString("url") ?: ""
-                                val originalUrl = backStackEntry.arguments?.getString("originalUrl")?.takeIf { it.isNotBlank() } ?: url
+                                val originalUrl = backStackEntry.arguments?.getString("originalUrl")
+                                    ?.takeIf { it.isNotBlank() } ?: url
 
-                                NativeMangaPage(url = url, originalUrl = originalUrl, navController = navController)
+                                NativeMangaPage(
+                                    url = url,
+                                    originalUrl = originalUrl,
+                                    navController = navController
+                                )
                             }
                         }
 
@@ -415,8 +423,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
 
                         AnimatedVisibility(
                             visible = showBottomBar,
-                            enter = expandVertically(animationSpec = tween(350)),
-                            exit = shrinkVertically(animationSpec = tween(350))
+                            enter = EnterTransition.None,
+                            exit = ExitTransition.None
                         ) {
                             BottomNavBar(navController, currentRoute, bottomNavBarVM)
                         }

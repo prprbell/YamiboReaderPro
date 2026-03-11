@@ -81,43 +81,63 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             _uiState.value = _uiState.value.copy(isRefreshing = true)
         }
         CookieUtil.getCookie {
-            val favoriteApi = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
-            favoriteApi.getFavoritePage().enqueue(object : Callback<ResponseBody> {
-                override fun onResponse(
-                    call: Call<ResponseBody>,
-                    response: Response<ResponseBody>
-                ) {
-                    viewModelScope.launch(Dispatchers.IO) {
-                        val respHTML = response.body()?.string()
-                        if (respHTML != null) {
-                            val parse = Jsoup.parse(respHTML)
-                            val favList = parse.getElementsByClass("sclist")
-                            val objList = ArrayList<Favorite>()
-                            favList.forEach { li ->
-                                val title = li.text()
-                                val url = li.child(1).attribute("href").value
-                                objList.add(Favorite(title, url))
-                            }
-                            FavoriteUtil.addFavorite(objList) {
-                                viewModelScope.launch(Dispatchers.Main) {
-                                    _uiState.value = _uiState.value.copy(isRefreshing = false)
-                                }
-                            }
-                        } else {
-                            viewModelScope.launch(Dispatchers.Main) {
-                                _uiState.value = _uiState.value.copy(isRefreshing = false)
+            // 从第 1 页开始递归拉取，并传入一个空的列表来累加数据
+            fetchAllFavorites(page = 1, accumulatedList = ArrayList())
+        }
+    }
+
+    private fun fetchAllFavorites(page: Int, accumulatedList: ArrayList<Favorite>) {
+        val favoriteApi = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
+
+        favoriteApi.getFavoritePage(page).enqueue(object : Callback<ResponseBody> {
+            override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    val respHTML = response.body()?.string()
+                    if (respHTML != null) {
+                        val parse = Jsoup.parse(respHTML)
+                        val favList = parse.getElementsByClass("sclist")
+
+                        favList.forEach { li ->
+                            val aTag = li.select("a").last()
+                            if (aTag != null) {
+                                val title = aTag.text()
+                                val url = aTag.attr("href")
+                                accumulatedList.add(Favorite(title, url))
                             }
                         }
-                    }
-                }
 
-                override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
-                    t.printStackTrace()
-                    viewModelScope.launch(Dispatchers.Main) {
-                        _uiState.value = _uiState.value.copy(isRefreshing = false)
+                        val nextPageLink = parse.select(".page a, .pg a").find {
+                            it.text().contains("下一页") || it.hasClass("nxt")
+                        }
+                        if (nextPageLink != null && nextPageLink.attr("href").isNotBlank()) {
+                            fetchAllFavorites(page + 1, accumulatedList)
+                        } else {
+                            finishRefresh(accumulatedList)
+                        }
+                    } else {
+                        finishRefresh(accumulatedList)
                     }
                 }
-            })
+            }
+
+            override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
+                t.printStackTrace()
+                finishRefresh(accumulatedList)
+            }
+        })
+    }
+
+    private fun finishRefresh(accumulatedList: ArrayList<Favorite>) {
+        if (accumulatedList.isNotEmpty()) {
+            FavoriteUtil.addFavorite(accumulatedList) {
+                viewModelScope.launch(Dispatchers.Main) {
+                    _uiState.value = _uiState.value.copy(isRefreshing = false)
+                }
+            }
+        } else {
+            viewModelScope.launch(Dispatchers.Main) {
+                _uiState.value = _uiState.value.copy(isRefreshing = false)
+            }
         }
     }
 
@@ -137,11 +157,20 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         }
     }
 
-    fun updateMangaProgress(favoriteUrl: String, chapterUrl: String, chapterTitle: String, pageIndex: Int = 0) {
+    fun updateMangaProgress(
+        favoriteUrl: String,
+        chapterUrl: String,
+        chapterTitle: String,
+        pageIndex: Int = 0
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val updated = allFavorites.map { fav ->
                 if (fav.url == favoriteUrl) {
-                    fav.copy(lastMangaUrl = chapterUrl, lastChapter = chapterTitle, lastPage = pageIndex)
+                    fav.copy(
+                        lastMangaUrl = chapterUrl,
+                        lastChapter = chapterTitle,
+                        lastPage = pageIndex
+                    )
                 } else {
                     fav
                 }
