@@ -240,7 +240,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                             navController = navController,
                             startDestination = "FavoritePage"
                         ) {
-                            composable("FavoritePage") {
+                            composable("FavoritePage",popEnterTransition = {
+                                if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                    EnterTransition.None
+                                } else {
+                                    fadeIn(tween(150))
+                                }
+                            }) {
                                 FavoritePage(
                                     viewModel(
                                         stateOwner,
@@ -249,7 +255,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     navController
                                 )
                             }
-                            composable("BBSPage") {
+                            composable("BBSPage",popEnterTransition = {
+                                if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                    EnterTransition.None
+                                } else {
+                                    fadeIn(tween(150))
+                                }
+                            }) {
                                 if (bbsWebView != null) {
                                     BBSPage(
                                         webView = bbsWebView,
@@ -266,14 +278,19 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     }
                                 }
                             }
-                            composable("MinePage") {
+                            composable("MinePage",popEnterTransition = {
+                                if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                    EnterTransition.None
+                                } else {
+                                    fadeIn(tween(150))
+                                }
+                            }) {
                                 MinePage(
                                     isSelected = selectedItemIndex == 2,
                                     navController = navController,
                                     webChromeClient = webChromeClient
                                 )
                             }
-                            // 1. 小说阅读页
                             composable(
                                 "ReaderPage/{passageUrl}",
                                 arguments = listOf(navArgument("passageUrl") {
@@ -287,35 +304,35 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     )
                                 }
                             }
-                            // 2. 漫画阅读页 (新增)
                             composable(
-                                "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}",
+                                "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}&initialPage={initialPage}",
                                 arguments = listOf(
                                     navArgument("url") { type = NavType.StringType },
                                     navArgument("originalUrl") { type = NavType.StringType },
                                     navArgument("fastForward") {
                                         type = NavType.BoolType; defaultValue = false
-                                    }
+                                    },
+                                    navArgument("initialPage") { type = NavType.IntType; defaultValue = 0 }
                                 ),
                                 enterTransition = {
                                     if (initialState.destination.route?.startsWith("ProbingPage") == true || initialState.destination.route?.startsWith("FavoritePage") == true ) {
                                         EnterTransition.None
                                     } else {
-                                        fadeIn(tween(300))
+                                        fadeIn(tween(150))
                                     }
                                 },
                                 exitTransition = {
                                     if (targetState.destination.route?.startsWith("NativeMangaPage") == true) {
                                         ExitTransition.None
                                     } else {
-                                        fadeOut(tween(300))
+                                        fadeOut(tween(150))
                                     }
                                 },
                                 popEnterTransition = {
                                     if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
                                         EnterTransition.None
                                     } else {
-                                        fadeIn(tween(300))
+                                        fadeIn(tween(150))
                                     }
                                 }
                             ){
@@ -326,12 +343,15 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     "utf-8"
                                 )
                                 val fastForward = it.arguments?.getBoolean("fastForward") ?: false
+                                val initialPage = it.arguments?.getInt("initialPage") ?: 0
+
                                 MangaWebPage(
                                     url = loadUrl,
                                     originalFavoriteUrl = originalUrl,
                                     navController = navController,
                                     webChromeClient = webChromeClient,
-                                    isFastForward = fastForward // 传入标记
+                                    isFastForward = fastForward,
+                                    initialPage = initialPage
                                 )
                             }
 
@@ -357,20 +377,39 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 ProbingPage(url, navController)
                             }
                             composable(
-                                "NativeMangaPage?url={url}",
-                                arguments = listOf(navArgument("url") { type = NavType.StringType })
+                                route = "NativeMangaPage?url={url}&originalUrl={originalUrl}",
+                                arguments = listOf(
+                                    navArgument("url") { defaultValue = "" },
+                                    navArgument("originalUrl") { defaultValue = "" }
+                                ),
+                                // 覆盖默认的长延迟淡出动画
+                                enterTransition = {
+                                    // 进入原生漫画页时，保留一点平滑的淡入
+                                    fadeIn(tween(150))
+                                },
+                                exitTransition = {
+                                    ExitTransition.None
+                                },
+                                popEnterTransition = {
+                                    EnterTransition.None
+                                },
+                                popExitTransition = {
+                                    ExitTransition.None
+                                }
                             ) { backStackEntry ->
                                 val url = backStackEntry.arguments?.getString("url") ?: ""
-                                NativeMangaPage(url = url, navController = navController)
+                                val originalUrl = backStackEntry.arguments?.getString("originalUrl")?.takeIf { it.isNotBlank() } ?: url
+
+                                NativeMangaPage(url = url, originalUrl = originalUrl, navController = navController)
                             }
                         }
 
                         val hideBottomNavRoutes = listOf(
                             "ReaderPage/{passageUrl}",
                             "ProbingPage/{url}",
-                            "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}",
+                            "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}&initialPage={initialPage}",
                             "OtherWebPage/{url}",
-                            "NativeMangaPage?url={url}"
+                            "NativeMangaPage?url={url}&originalUrl={originalUrl}"
                         )
                         val showBottomBar = currentRoute !in hideBottomNavRoutes
 

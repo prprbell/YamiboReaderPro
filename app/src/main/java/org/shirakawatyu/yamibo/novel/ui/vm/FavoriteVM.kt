@@ -127,10 +127,9 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             1 -> navController.navigate("ReaderPage/$urlEncoded")
             2 -> {
                 val targetUrl = favorite.lastMangaUrl ?: favorite.url
-                Log.d("MangaProgress", "最终跳转到: $targetUrl")
                 val encodedTarget = URLEncoder.encode(targetUrl, "utf-8")
                 val encodedOriginal = URLEncoder.encode(favorite.url, "utf-8")
-                navController.navigate("MangaWebPage/$encodedTarget/$encodedOriginal")
+                navController.navigate("MangaWebPage/$encodedTarget/$encodedOriginal?fastForward=false&initialPage=${favorite.lastPage}")
             }
 
             3 -> navController.navigate("OtherWebPage/$urlEncoded")
@@ -138,11 +137,11 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         }
     }
 
-    fun updateMangaProgress(favoriteUrl: String, chapterUrl: String, chapterTitle: String) {
+    fun updateMangaProgress(favoriteUrl: String, chapterUrl: String, chapterTitle: String, pageIndex: Int = 0) {
         viewModelScope.launch(Dispatchers.IO) {
             val updated = allFavorites.map { fav ->
                 if (fav.url == favoriteUrl) {
-                    fav.copy(lastMangaUrl = chapterUrl, lastChapter = chapterTitle)
+                    fav.copy(lastMangaUrl = chapterUrl, lastChapter = chapterTitle, lastPage = pageIndex)
                 } else {
                     fav
                 }

@@ -111,6 +111,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 @Composable
 fun NativeMangaPage(
     url: String,
+    originalUrl: String = url,
     navController: NavController
 ) {
     val context = LocalContext.current
@@ -227,6 +228,10 @@ fun NativeMangaPage(
             GlobalData.tempMangaUrls = emptyList()
             GlobalData.tempHtml = ""
             GlobalData.tempMangaIndex = 0
+        } else {
+            if (mangaDirVM.currentDirectory == null) {
+                mangaDirVM.loadDirectoryByUrl(url)
+            }
         }
     }
 
@@ -243,9 +248,9 @@ fun NativeMangaPage(
 
         bottomNavBarVM.setBottomNavBarVisibility(true)
         val previousRoute = navController.previousBackStackEntry?.destination?.route
+
         if (previousRoute?.startsWith("MangaWebPage") == true) {
-            navController.popBackStack()
-            navController.popBackStack()
+            navController.popBackStack(route = previousRoute, inclusive = true)
         } else {
             navController.navigateUp()
         }
@@ -351,7 +356,8 @@ fun NativeMangaPage(
                 if (chapter != null) {
                     val shortTitle =
                         if (chapter.chapterNum % 1f == 0f) "读至第 ${chapter.chapterNum.toInt()} 话 - ${currentIndex + 1}页" else "读至第 ${chapter.chapterNum} 话 - ${currentIndex + 1}页"
-                    favoriteVM.updateMangaProgress(url, url, shortTitle)
+
+                    favoriteVM.updateMangaProgress(originalUrl, url, shortTitle, currentIndex)
                 }
             }
 
@@ -680,8 +686,8 @@ fun NativeMangaPage(
                         showChapterList = false
                         if (chapter.url.isNotEmpty()) {
                             val encodedChapterUrl = java.net.URLEncoder.encode(chapter.url, "utf-8")
-                            val encodedOriginalUrl = java.net.URLEncoder.encode(url, "utf-8")
-                            navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false") {
+                            val encodedOriginalUrl = java.net.URLEncoder.encode(originalUrl, "utf-8")
+                            navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
                                 popUpTo("FavoritePage") { inclusive = false }
                             }
                         }

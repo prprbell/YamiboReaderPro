@@ -53,7 +53,17 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
             }
         }
     }
+    fun loadDirectoryByUrl(currentUrl: String) {
+        viewModelScope.launch {
+            val tid = MangaTitleCleaner.extractTidFromUrl(currentUrl) ?: return@launch
+            val allDirs = repo.getAllDirectories()
+            val targetDir = allDirs.find { dir -> dir.chapters.any { it.tid == tid } }
 
+            if (targetDir != null) {
+                currentDirectory = targetDir
+            }
+        }
+    }
     /**
      * 触发目录更新 (连接到 MangaChapterBottomSheet 的更新按钮)
      */

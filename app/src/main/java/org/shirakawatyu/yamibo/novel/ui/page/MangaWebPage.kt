@@ -102,24 +102,29 @@ class FullscreenApiManga(
 class MangaWebNativeJSInterface(
     private val navController: NavController,
     private val getCurrentUrl: () -> String?,
-    private val onNavigateStart: () -> Unit // 改名，语义变为：准备跳转原生
+    private val getOriginalUrl: () -> String,
+    private val getInitialPage: () -> Int, // <--- 新增
+    private val onNavigateStart: () -> Unit
 ) {
     @JavascriptInterface
     fun openNativeManga(urlsJoined: String, clickedIndex: Int, html: String, title: String) {
         val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
         Handler(Looper.getMainLooper()).post {
             org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaUrls = urls
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex = clickedIndex
+
+            val targetIndex = if (getInitialPage() > 0 && clickedIndex == 0) getInitialPage() else clickedIndex
+
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex = targetIndex.coerceIn(0, maxOf(0, urls.size - 1))
+
             org.shirakawatyu.yamibo.novel.global.GlobalData.tempHtml = html
             org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle = title
 
-            // 1. 触发回调，告诉 MangaWebPage：“我要跳了，你给我保持黑屏别动！”
             onNavigateStart()
 
-            // 2. 直接发起跳转
             val passUrl = getCurrentUrl() ?: "https://bbs.yamibo.com/forum.php"
             val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
-            navController.navigate("NativeMangaPage?url=$encodedUrl")
+            val encodedOriginal = java.net.URLEncoder.encode(getOriginalUrl(), "utf-8")
+            navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedOriginal")
         }
     }
 }
@@ -138,7 +143,8 @@ fun MangaWebPage(
     navController: NavController,
     webChromeClient: WebChromeClient,
     originalFavoriteUrl: String = url,
-    isFastForward: Boolean = false
+    isFastForward: Boolean = false,
+    initialPage: Int = 0
 ) {
 
     val finalUrl = remember(url) {
@@ -615,6 +621,8 @@ fun MangaWebPage(
                 val nativeApi = MangaWebNativeJSInterface(
                     navController = navController,
                     getCurrentUrl = { currentUrl },
+                    getOriginalUrl = { originalFavoriteUrl },
+                    getInitialPage = { initialPage },
                     onNavigateStart = {
                         autoOpenMangaMode = false
                         isWaitingForNativeReturn = true
@@ -671,7 +679,7 @@ fun MangaWebPage(
         AnimatedVisibility(
             visible = showBlackScreen,
             enter = fadeIn(tween(0)),
-            exit = fadeOut(tween(400))
+            exit = fadeOut(tween(100))
         ) {
             Box(
                 modifier = Modifier
