@@ -17,6 +17,10 @@ import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -151,7 +155,7 @@ fun MangaWebPage(
     // 1. 负责控制是否执行自动探测 JS
     var autoOpenMangaMode by rememberSaveable { mutableStateOf(!isFastForward) }
     // 2. 负责在原生阅读器跳回时，暂时维持黑屏掩护（避免闪现网页）
-    var isWaitingForNativeReturn by rememberSaveable { mutableStateOf(false) }
+    var isWaitingForNativeReturn by rememberSaveable { mutableStateOf(isFastForward) }
 
     // 3. 最终决定是否显示黑屏的聚合状态
     val showBlackScreen = autoOpenMangaMode || isWaitingForNativeReturn
@@ -160,7 +164,7 @@ fun MangaWebPage(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            // 当页面回到前台时 (ON_RESUME)，解除掩护
+            // 只有当页面完全结束动画、重新处于前台时，才撤销黑屏状态
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 if (isWaitingForNativeReturn) {
                     isWaitingForNativeReturn = false
@@ -181,19 +185,8 @@ fun MangaWebPage(
         factory = ViewModelFactory(LocalContext.current.applicationContext)
     )
     val view = LocalView.current
-    // 1. 新增：在页面刚组合时，瞬间记住上一页（收藏页）的黄色和亮色图标状态
-    val originalStatusBarColor =
-        remember { mutableIntStateOf(activity?.window?.statusBarColor ?: 0) }
-    val originalLightStatusBars = remember {
-        mutableStateOf(activity?.window?.let {
-            WindowCompat.getInsetsController(
-                it,
-                view
-            ).isAppearanceLightStatusBars
-        } ?: false)
-    }
-    // 新增：标记是否正在退出
-    var isExiting by remember { mutableStateOf(false) }
+
+    // 标记是否正在退出
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
 
@@ -230,15 +223,9 @@ fun MangaWebPage(
 
     // ----- 全屏状态控制 -----
     val isFullscreenState = remember { mutableStateOf(false) }
-    if (!isExiting) {
-        SetStatusBarColor(if (showBlackScreen || isFullscreenState.value) Color.Black else YamiboColors.primary)
-    }
+    SetStatusBarColor(if (showBlackScreen || isFullscreenState.value) Color.Black else YamiboColors.primary)
     DisposableEffect(Unit) {
         onDispose {
-            activity?.window?.let { window ->
-                WindowCompat.getInsetsController(window, view)
-                    .show(WindowInsetsCompat.Type.systemBars())
-            }
             bottomNavBarVM.setBottomNavBarVisibility(true)
         }
     }
@@ -272,16 +259,15 @@ fun MangaWebPage(
     }
     ActivityWebViewLifecycleObserver(mangaWebView)
     // 1. 系统 UI 显隐控制
-    LaunchedEffect(isFullscreenState.value, autoOpenMangaMode) {
+    LaunchedEffect(isFullscreenState.value) {
         val window = activity?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, view)
-        val shouldBeFullscreen = isFullscreenState.value || showBlackScreen
+        val shouldBeFullscreen = isFullscreenState.value
 
         if (shouldBeFullscreen) {
             WindowCompat.setDecorFitsSystemWindows(window, false)
             controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             bottomNavBarVM.setBottomNavBarVisibility(false)
         } else {
             WindowCompat.setDecorFitsSystemWindows(window, true)
@@ -559,24 +545,8 @@ fun MangaWebPage(
     }
     // 3. 完善快速退出逻辑
     val performExit = {
-        isExiting = true // 阻止 Compose 继续刷红色
-        val window = activity?.window
-        if (window != null) {
-            val controller = WindowCompat.getInsetsController(window, view)
-            WindowCompat.setDecorFitsSystemWindows(window, true)
-
-            // 把状态栏颜色和图标颜色完美恢复成进入前（即 FavoritePage）的样子
-            window.statusBarColor = originalStatusBarColor.intValue
-            controller.isAppearanceLightStatusBars = originalLightStatusBars.value
-
-            controller.show(WindowInsetsCompat.Type.systemBars())
-            bottomNavBarVM.setBottomNavBarVisibility(true)
-
-            view.post { navController.navigateUp() }
-        } else {
-            bottomNavBarVM.setBottomNavBarVisibility(true)
-            navController.navigateUp()
-        }
+        bottomNavBarVM.setBottomNavBarVisibility(true)
+        view.post { navController.navigateUp() }
     }
     BackHandler(enabled = true) {
         performExit()
@@ -698,16 +668,23 @@ fun MangaWebPage(
             )
         }
 
-        if (showBlackScreen) {
+        AnimatedVisibility(
+            visible = showBlackScreen,
+            enter = fadeIn(tween(0)),
+            exit = fadeOut(tween(400))
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black)
-                    .pointerInput(Unit) { detectTapGestures { }; detectVerticalDragGestures { _, _ -> } }) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center),
-                    color = Color.White
-                )
+                    .pointerInput(Unit) { detectTapGestures { }; detectVerticalDragGestures { _, _ -> } }
+            ) {
+                if (autoOpenMangaMode) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                        color = Color.White
+                    )
+                }
             }
         }
     }

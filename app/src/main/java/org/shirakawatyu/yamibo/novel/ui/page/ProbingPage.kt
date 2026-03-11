@@ -28,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
@@ -84,16 +85,16 @@ fun ProbingPage(url: String, navController: NavController) {
                                                 var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
                                                 if (rawSrc) urls.push(new URL(rawSrc, document.baseURI).href);
                                             }
-                                            return "2:::" + document.title + ":::" + urls.join('|||');
+                                            var encodedTitle = encodeURIComponent(document.title);
+                                            var encodedHtml = encodeURIComponent(document.documentElement.outerHTML);
+                                            return "2:::" + encodedTitle + ":::" + urls.join('|||') + ":::" + encodedHtml;
                                         }
                                         return type.toString();
                                     })();
                                 """.trimIndent()
 
                                 view.evaluateJavascript(checkJs) { result ->
-                                    val cleanResult =
-                                        result?.removeSurrounding("\"")?.replace("\\\"", "\"")
-                                            ?: "3"
+                                    val cleanResult = result?.removeSurrounding("\"") ?: "3"
                                     val parts = cleanResult.split(":::")
                                     val type = parts[0].toIntOrNull() ?: 3
 
@@ -110,21 +111,26 @@ fun ProbingPage(url: String, navController: NavController) {
                                             val encoded = URLEncoder.encode(url, "utf-8")
 
                                             if (type == 2) {
-                                                // 提取到漫画数据
-                                                val title = parts.getOrNull(1) ?: ""
+                                                // 解码并赋值tempHtml
+                                                val title = java.net.URLDecoder.decode(
+                                                    parts.getOrNull(1) ?: "", "UTF-8"
+                                                )
                                                 val urlsJoined = parts.getOrNull(2) ?: ""
+                                                val htmlContent = java.net.URLDecoder.decode(
+                                                    parts.getOrNull(3) ?: "", "UTF-8"
+                                                )
                                                 val urlsList = urlsJoined.split("|||")
                                                     .filter { it.isNotBlank() }
 
-                                                org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaUrls =
+                                                GlobalData.tempMangaUrls =
                                                     urlsList
-                                                org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle =
+                                                GlobalData.tempTitle =
                                                     title
-                                                org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex =
+                                                GlobalData.tempHtml =
+                                                    htmlContent // 目录初始化所需的 HTML
+                                                GlobalData.tempMangaIndex =
                                                     0
 
-
-                                                // 双重压栈
                                                 navController.navigate("MangaWebPage/$encoded/$encoded?fastForward=true") {
                                                     popUpTo("ProbingPage/{url}") {
                                                         inclusive = true

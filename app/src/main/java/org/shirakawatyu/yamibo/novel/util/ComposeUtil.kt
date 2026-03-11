@@ -20,35 +20,43 @@ class ComposeUtil {
         fun SetStatusBarColor(color: Color) {
             val context = LocalContext.current as? Activity ?: return
             val view = LocalView.current
-
             val window = context.window
             val targetArgb = color.toArgb()
             val lightColor =
                 color.red * 0.299 + color.green * 0.578 + color.blue * 0.114 >= 192.0 / 255.0
 
-            if (window.statusBarColor != targetArgb) {
-                val insetsController = WindowCompat.getInsetsController(window, view)
-                insetsController.isAppearanceLightStatusBars = lightColor
-                window.statusBarColor = targetArgb
+            val lifecycleOwner = LocalLifecycleOwner.current
+
+            // 提取设置状态栏的核心逻辑
+            val applyInsets = {
+                try {
+                    val insetsController = WindowCompat.getInsetsController(window, view)
+                    insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                    insetsController.isAppearanceLightStatusBars = lightColor
+                    window.statusBarColor = targetArgb
+                    WindowCompat.setDecorFitsSystemWindows(window, true)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
 
-            val lifecycleOwner = LocalLifecycleOwner.current
+            // 1. 使用 SideEffect：每次页面组合完成时立即触发，消除导航动画带来的 300ms 延迟。
+            // 关键：严格判断 isAtLeast(STARTED)，防止压在后台的不可见页面（CREATED状态）偷偷重组抢夺状态栏颜色
+            androidx.compose.runtime.SideEffect {
+                if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    applyInsets()
+                }
+            }
+
+            // 2. 生命周期的兜底观察：应用从后台切回前台时，保证颜色正确恢复
+            // 这里同样将时机从 ON_RESUME 提前到了 ON_START，让系统层面的切换更加无缝
             DisposableEffect(lifecycleOwner, color) {
                 val observer = LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_RESUME) {
-                        try {
-                            val insetsController = WindowCompat.getInsetsController(window, view)
-                            insetsController.isAppearanceLightStatusBars = lightColor
-                            window.statusBarColor = targetArgb
-                            WindowCompat.setDecorFitsSystemWindows(window, true)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
+                    if (event == Lifecycle.Event.ON_START) {
+                        applyInsets()
                     }
                 }
-
                 lifecycleOwner.lifecycle.addObserver(observer)
-
                 onDispose {
                     lifecycleOwner.lifecycle.removeObserver(observer)
                 }

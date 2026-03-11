@@ -14,6 +14,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -288,8 +296,29 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     navArgument("fastForward") {
                                         type = NavType.BoolType; defaultValue = false
                                     }
-                                )
-                            ) {
+                                ),
+                                enterTransition = {
+                                    if (initialState.destination.route?.startsWith("ProbingPage") == true || initialState.destination.route?.startsWith("FavoritePage") == true ) {
+                                        EnterTransition.None
+                                    } else {
+                                        fadeIn(tween(300))
+                                    }
+                                },
+                                exitTransition = {
+                                    if (targetState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                        ExitTransition.None
+                                    } else {
+                                        fadeOut(tween(300))
+                                    }
+                                },
+                                popEnterTransition = {
+                                    if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                        EnterTransition.None
+                                    } else {
+                                        fadeIn(tween(300))
+                                    }
+                                }
+                            ){
                                 val loadUrl =
                                     URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
                                 val originalUrl = URLDecoder.decode(
@@ -336,15 +365,20 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                             }
                         }
 
-                        // 修改判断逻辑：如果当前路由是阅读类页面，则不显示底部导航栏
                         val hideBottomNavRoutes = listOf(
                             "ReaderPage/{passageUrl}",
                             "ProbingPage/{url}",
-                            "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}",  // ← 改这行
+                            "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}",
                             "OtherWebPage/{url}",
                             "NativeMangaPage?url={url}"
                         )
-                        if (currentRoute !in hideBottomNavRoutes) {
+                        val showBottomBar = currentRoute !in hideBottomNavRoutes
+
+                        AnimatedVisibility(
+                            visible = showBottomBar,
+                            enter = expandVertically(animationSpec = tween(350)),
+                            exit = shrinkVertically(animationSpec = tween(350))
+                        ) {
                             BottomNavBar(navController, currentRoute, bottomNavBarVM)
                         }
                     }
