@@ -102,8 +102,8 @@ fun MangaChapterPanel(
         if (ascending) chapters else chapters.reversed()
     }
     val listState = rememberLazyListState()
-    val offsetY = remember { Animatable(0f) }
-    val scrimAlpha = remember { Animatable(0.6f) }
+    val offsetY = remember { Animatable(2000f) }
+    val scrimAlpha = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
     var dragJob by remember { mutableStateOf<Job?>(null) }
@@ -121,6 +121,20 @@ fun MangaChapterPanel(
         !canUpdate -> Color(0xFF2A2D35) // 禁用色
         isSearchMode -> Color(0xFF6366F1) // 全局搜索：蓝色/紫色
         else -> Accent // 普通更新：原有橙色
+    }
+    LaunchedEffect(Unit) {
+        launch {
+            offsetY.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 350)
+            )
+        }
+        launch {
+            scrimAlpha.animateTo(
+                targetValue = 0.6f,
+                animationSpec = tween(durationMillis = 350)
+            )
+        }
     }
     if (showEditDialog) {
         AlertDialog(
@@ -175,13 +189,13 @@ fun MangaChapterPanel(
             val slideOut = launch {
                 offsetY.animateTo(
                     targetValue = 2000f,
-                    animationSpec = tween(durationMillis = 480)
+                    animationSpec = tween(durationMillis = 400)
                 )
             }
             val fadeOut = launch {
                 scrimAlpha.animateTo(
                     targetValue = 0f,
-                    animationSpec = tween(durationMillis = 464)
+                    animationSpec = tween(durationMillis = 380)
                 )
             }
             slideOut.join()
@@ -265,14 +279,14 @@ fun MangaChapterPanel(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 20.dp, end = 20.dp, bottom = 6.dp)
+                            .padding(start = 20.dp, end = 20.dp, bottom = 18.dp)
                             .animateContentSize(), // 添加平滑展开动画
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = title,
                             color = TextPri,
-                            fontSize = 15.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = if (isTitleExpanded) Int.MAX_VALUE else 1,
                             overflow = TextOverflow.Ellipsis,

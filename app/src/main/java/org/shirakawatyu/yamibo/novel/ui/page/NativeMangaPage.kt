@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.Orientation
@@ -24,6 +25,7 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -33,6 +35,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -41,8 +44,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +59,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +68,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -81,6 +86,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -88,6 +94,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -95,7 +102,10 @@ import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 import org.shirakawatyu.yamibo.novel.bean.MangaSettings
 import org.shirakawatyu.yamibo.novel.global.GlobalData
@@ -105,8 +115,9 @@ import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
+import java.net.URLEncoder
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NativeMangaPage(
     url: String,
@@ -129,7 +140,7 @@ fun NativeMangaPage(
     // 持久化读取偏好
     var readMode by rememberSaveable { mutableIntStateOf(MangaSettings.getSettings(context).readMode) }
     val isVerticalMode = readMode == 0
-
+    var imageBrightness by rememberSaveable { mutableFloatStateOf(1f) }
     var imageUrls by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var initialIndex by rememberSaveable { mutableIntStateOf(0) }
     var showUi by rememberSaveable { mutableStateOf(false) }
@@ -281,7 +292,7 @@ fun NativeMangaPage(
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(showUi, lifecycleOwner.lifecycle.currentState) {
         val window = activity?.window
-        if (window != null && lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+        if (window != null && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
             val controller = WindowCompat.getInsetsController(window, view)
             if (showUi) {
                 controller.show(WindowInsetsCompat.Type.systemBars())
@@ -343,9 +354,17 @@ fun NativeMangaPage(
             val imageLoader = context.imageLoader
             LaunchedEffect(currentIndex, imageUrls) {
                 if (imageUrls.isEmpty()) return@LaunchedEffect
-                val prefetchRange = (currentIndex - 2)..(currentIndex + 3)
-                for (i in prefetchRange) {
-                    if (i in imageUrls.indices) {
+                // 1. 智能让步：微小延迟，确保 UI 层的 AsyncImage 优先构建并发起网络请求，独占首发带宽
+                delay(150)
+
+                // 2. 激进且定向的预加载范围：由于用户主要向后阅读，往前只需防抖 (保留1页)，往后激进预加载 (增加到5页)
+                val prefetchRange = (currentIndex - 1)..(currentIndex + 5)
+                // 切入 IO 线程池执行耗时预加载任务
+                withContext(Dispatchers.IO) {
+                    for (i in prefetchRange) {
+                        // 跳过当前页：当前页的加载任务已经交给了 UI 层，避免重复构建请求
+                        if (i == currentIndex || i !in imageUrls.indices) continue
+
                         val request = ImageRequest.Builder(context.applicationContext)
                             .data(imageUrls[i])
                             .addHeader("Cookie", cookie)
@@ -353,7 +372,10 @@ fun NativeMangaPage(
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .diskCachePolicy(CachePolicy.ENABLED)
                             .build()
-                        imageLoader.enqueue(request)
+
+                        imageLoader.execute(request)
+
+                        delay(100)
                     }
                 }
             }
@@ -413,7 +435,7 @@ fun NativeMangaPage(
                 if (!showUi) {
                     view.isFocusableInTouchMode = true
                     view.requestFocus()
-                    kotlinx.coroutines.delay(50)
+                    delay(50)
                     try {
                         focusRequester.requestFocus()
                     } catch (e: Exception) {
@@ -581,10 +603,16 @@ fun NativeMangaPage(
                     }
                 }
             }
-
+            if (imageBrightness < 1f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 1f - imageBrightness))
+                )
+            }
             // 顶部栏
             AnimatedVisibility(
-                visible = showUi && !showChapterList,
+                visible = showUi && !showChapterList && !showSettingsPanel,
                 enter = fadeIn() + slideInVertically { -it },
                 exit = fadeOut() + slideOutVertically { -it },
                 modifier = Modifier.align(Alignment.TopCenter)
@@ -593,7 +621,6 @@ fun NativeMangaPage(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color.Black.copy(alpha = 0.75f))
-                        // 【拦截穿透】防止点击状态栏的空白处意外触发底层图片事件
                         .pointerInput(Unit) { detectTapGestures {} }
                         .statusBarsPadding()
                         .padding(horizontal = 4.dp, vertical = 8.dp),
@@ -623,112 +650,172 @@ fun NativeMangaPage(
                         )
                     }
                     TextButton(onClick = returnToOriginalPost) {
-                        Text("回到原帖", color = YamiboColors.secondary)
+                        Text("去往原帖", color = YamiboColors.tertiary)
                     }
                 }
             }
 
-            // 底部栏
+            // 底部悬浮菜单栏
             AnimatedVisibility(
-                visible = showUi && !showChapterList,
-                enter = fadeIn() + slideInVertically { it },
-                exit = fadeOut() + slideOutVertically { it },
-                modifier = Modifier.align(Alignment.BottomCenter)
+                visible = showUi && !showChapterList && !showSettingsPanel,
+                enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 },
+                exit = fadeOut(tween(300)) + slideOutVertically(tween(300)) { it / 2 },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp) // 先设置左右悬浮边距
+                    .padding(bottom = 6.dp)     // 再设置底部悬浮边距
             ) {
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.75f))
-                        // 【拦截穿透】
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color(0xFF1E1E22).copy(alpha = 0.95f))
                         .pointerInput(Unit) { detectTapGestures {} }
-                        .navigationBarsPadding()
                 ) {
-                    if (showSettingsPanel) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("阅读方向", color = Color.White, fontSize = 14.sp)
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                val modes = listOf("下滑翻页", "左滑翻页", "右滑翻页")
-                                modes.forEachIndexed { index, title ->
-                                    Button(
-                                        onClick = {
-                                            val targetPage = currentIndex
-                                            MangaSettings.saveReadMode(context, index)
-                                            readMode = index
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally // 让内部元素整体居中
+                    ) {
+                        // 1. 进度条区域
+                        if (imageUrls.size > 1) {
+                            // 计算上一话和下一话
+                            val currentTid = MangaTitleCleaner.extractTidFromUrl(url)
+                            val sortedChapters = remember(mangaDirVM.currentDirectory?.chapters) {
+                                mangaDirVM.currentDirectory?.chapters?.sortedBy { it.chapterNum }
+                            }
+                            val currentChapIndex = remember(sortedChapters, currentTid) {
+                                sortedChapters?.indexOfFirst { it.tid == currentTid } ?: -1
+                            }
 
-                                            scope.launch {
-                                                if (index == 0) lazyListState.scrollToItem(
-                                                    targetPage
-                                                )
-                                                else pagerState.scrollToPage(targetPage)
-                                            }
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (readMode == index) YamiboColors.secondary else Color.DarkGray
-                                        ),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Text(
-                                            title,
-                                            color = if (readMode == index) Color.Black else Color.White
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            TextButton(
-                                onClick = { showSettingsPanel = false },
-                                modifier = Modifier.align(Alignment.End)
-                            ) {
-                                Text("完成", color = YamiboColors.secondary, fontSize = 16.sp)
-                            }
-                        }
-                    } else {
-                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                            if (imageUrls.size > 1) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "${currentIndex + 1}",
-                                        color = Color.White,
-                                        fontSize = 12.sp
-                                    )
-                                    Slider(
-                                        value = currentIndex.toFloat(),
-                                        valueRange = 0f..(imageUrls.size - 1).toFloat(),
-                                        onValueChange = { target ->
-                                            scope.launch {
-                                                if (isVerticalMode) {
-                                                    lazyListState.scrollToItem(target.toInt())
-                                                } else {
-                                                    pagerState.scrollToPage(target.toInt())
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .padding(horizontal = 12.dp),
-                                        colors = SliderDefaults.colors(
-                                            thumbColor = YamiboColors.secondary,
-                                            activeTrackColor = YamiboColors.secondary,
-                                            inactiveTrackColor = Color.DarkGray
-                                        )
-                                    )
-                                    Text("${imageUrls.size}", color = Color.White, fontSize = 12.sp)
-                                }
-                            }
+                            val prevChapter =
+                                if (currentChapIndex > 0) sortedChapters?.get(currentChapIndex - 1) else null
+                            val nextChapter =
+                                if (currentChapIndex != -1 && sortedChapters != null && currentChapIndex < sortedChapters.size - 1) sortedChapters[currentChapIndex + 1] else null
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                TextButton(onClick = { showChapterList = true }) {
-                                    Text("目录", color = Color.White, fontSize = 16.sp)
+                                // 左侧：上一话箭头按钮
+                                IconButton(
+                                    onClick = {
+                                        prevChapter?.url?.let { targetUrl ->
+                                            showUi = false // 跳转前先收起当前UI界面
+                                            val encodedChapterUrl =
+                                                URLEncoder.encode(targetUrl, "utf-8")
+                                            val encodedOriginalUrl =
+                                                URLEncoder.encode(originalUrl, "utf-8")
+                                            navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
+                                                popUpTo("FavoritePage") { inclusive = false }
+                                            }
+                                        }
+                                    },
+                                    enabled = prevChapter != null
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                        contentDescription = "上一话",
+                                        tint = if (prevChapter != null) Color.White else Color.DarkGray
+                                    )
                                 }
-                                TextButton(onClick = { showSettingsPanel = true }) {
-                                    Text("设置", color = Color.White, fontSize = 16.sp)
+
+                                // 中间：进度条
+                                Slider(
+                                    value = currentIndex.toFloat(),
+                                    valueRange = 0f..(imageUrls.size - 1).toFloat(),
+                                    onValueChange = { target ->
+                                        scope.launch {
+                                            if (isVerticalMode) {
+                                                lazyListState.scrollToItem(target.toInt())
+                                            } else {
+                                                pagerState.scrollToPage(target.toInt())
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 4.dp)
+                                        .height(24.dp),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color.White,
+                                        activeTrackColor = Color.White,
+                                        inactiveTrackColor = Color(0xFF4A4A52)
+                                    )
+                                )
+
+                                // 右侧：下一话箭头按钮
+                                IconButton(
+                                    onClick = {
+                                        nextChapter?.url?.let { targetUrl ->
+                                            showUi = false
+                                            val encodedChapterUrl =
+                                                URLEncoder.encode(targetUrl, "utf-8")
+                                            val encodedOriginalUrl =
+                                                URLEncoder.encode(originalUrl, "utf-8")
+                                            navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
+                                                popUpTo("FavoritePage") { inclusive = false }
+                                            }
+                                        }
+                                    },
+                                    enabled = nextChapter != null
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "下一话",
+                                        tint = if (nextChapter != null) Color.White else Color.DarkGray
+                                    )
                                 }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        // 2. 底部操作栏（设置 - 页码 - 目录）
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // 左侧：设置
+                            TextButton(
+                                onClick = { showSettingsPanel = true },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    "设置",
+                                    color = Color.LightGray,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(50.dp))
+                            // 中间：页码胶囊指示器
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0x552C2C32)) // 微微凸显的底色块
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${currentIndex + 1} / ${imageUrls.size}",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(50.dp))
+                            // 右侧：目录
+                            TextButton(
+                                onClick = { showChapterList = true },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    "目录",
+                                    color = Color.LightGray,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
                         }
                     }
@@ -756,21 +843,46 @@ fun NativeMangaPage(
                     showSearchShortcut = mangaDirVM.showSearchShortcut,
                     searchShortcutCountdown = mangaDirVM.searchShortcutCountdown,
                     onUpdateClick = { mangaDirVM.updateMangaDirectory(it) },
-                    onDismiss = { showChapterList = false },
+                    onDismiss = {
+                        showChapterList = false
+                        showUi = false
+                    },
                     onTitleEdit = { newTitle ->
                         mangaDirVM.renameDirectory(newTitle)
                     },
                     onChapterClick = { chapter ->
                         showChapterList = false
                         if (chapter.url.isNotEmpty()) {
-                            val encodedChapterUrl = java.net.URLEncoder.encode(chapter.url, "utf-8")
+                            val encodedChapterUrl = URLEncoder.encode(chapter.url, "utf-8")
                             val encodedOriginalUrl =
-                                java.net.URLEncoder.encode(originalUrl, "utf-8")
+                                URLEncoder.encode(originalUrl, "utf-8")
                             navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
                                 popUpTo("FavoritePage") { inclusive = false }
                             }
                         }
                     }
+                )
+            }
+            if (showSettingsPanel) {
+                MangaSettingsPanel(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    currentMode = readMode,
+                    brightness = imageBrightness,
+                    onModeChange = { index ->
+                        val targetPage = currentIndex
+                        MangaSettings.saveReadMode(context, index)
+                        readMode = index
+
+                        scope.launch {
+                            if (index == 0) lazyListState.scrollToItem(targetPage)
+                            else pagerState.scrollToPage(targetPage)
+                        }
+                    },
+                    onBrightnessChange = { imageBrightness = it },
+                    onDismiss = {
+                        showSettingsPanel = false
+                        showUi = false
+                    },
                 )
             }
         } else {
