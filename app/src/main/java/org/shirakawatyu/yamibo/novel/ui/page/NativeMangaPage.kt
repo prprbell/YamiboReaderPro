@@ -210,25 +210,28 @@ fun NativeMangaPage(
             }
         }
     }
+    // 通过安全的官方 API 检查上一级页面是谁
+    val previousRoute = navController.previousBackStackEntry?.destination?.route
 
-    val handleHorizontalClick: (Offset) -> Unit = remember(screenWidthPx, isRtl) {
-        { offset ->
-            if (showUi) {
-                showUi = false
-                showSettingsPanel = false
+    // 统一定义跳转章节的逻辑
+    val navigateToChapter = { targetUrl: String ->
+        showUi = false
+        showChapterList = false
+        val encodedChapterUrl = URLEncoder.encode(targetUrl, "utf-8")
+        val encodedOriginalUrl = URLEncoder.encode(originalUrl, "utf-8")
+
+        navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
+            if (previousRoute?.startsWith("MangaWebPage") == true) {
+                // 如果是从 BBS 帖子进入的，切换章节时，把旧的那一话 MangaWebPage 连带干掉，防止无限堆栈
+                popUpTo(previousRoute) { inclusive = true }
             } else {
-                val isLeftTap = offset.x < screenWidthPx * 0.2f
-                val isRightTap = offset.x > screenWidthPx * 0.8f
-
-                if (isLeftTap) {
-                    scope.launch {
-                        // TODO: 需在后续获取 pagerState, 此处为了稳定剥离会通过外层传入，见下方横屏调用处
-                    }
+                // 如果是从收藏夹进入的，直接干掉当前的 NativeMangaPage 即可
+                navController.currentDestination?.id?.let { currentId ->
+                    popUpTo(currentId) { inclusive = true }
                 }
             }
         }
     }
-
     LaunchedEffect(Unit) {
         if (GlobalData.tempMangaUrls.isNotEmpty()) {
             imageUrls = GlobalData.tempMangaUrls
@@ -254,18 +257,15 @@ fun NativeMangaPage(
     val performExit = {
         val window = activity?.window
         if (window != null) {
-            // WindowCompat.setDecorFitsSystemWindows(window, true)
             WindowCompat.getInsetsController(window, view).apply {
                 show(WindowInsetsCompat.Type.systemBars())
-                isAppearanceLightStatusBars = true // 提前切回暗色图标，防看不见
+                isAppearanceLightStatusBars = true
             }
         }
-
         bottomNavBarVM.setBottomNavBarVisibility(true)
-        val previousRoute = navController.previousBackStackEntry?.destination?.route
-
-        if (previousRoute?.startsWith("MangaWebPage") == true) {
-            navController.popBackStack(route = previousRoute, inclusive = true)
+        val prevEntry = navController.previousBackStackEntry
+        if (prevEntry?.destination?.route?.startsWith("MangaWebPage") == true) {
+            navController.popBackStack(prevEntry.destination.id, inclusive = true)
         } else {
             navController.navigateUp()
         }
@@ -275,15 +275,26 @@ fun NativeMangaPage(
     val returnToOriginalPost = {
         val window = activity?.window
         if (window != null) {
-            //WindowCompat.setDecorFitsSystemWindows(window, true)
             WindowCompat.getInsetsController(window, view).apply {
                 show(WindowInsetsCompat.Type.systemBars())
                 isAppearanceLightStatusBars = true
             }
         }
-
         bottomNavBarVM.setBottomNavBarVisibility(true)
-        navController.popBackStack()
+
+        val previousRoute = navController.previousBackStackEntry?.destination?.route
+
+        if (previousRoute?.startsWith("MangaWebPage") == true) {
+            navController.navigateUp()
+        } else {
+            val encodedChapterUrl = URLEncoder.encode(url, "utf-8")
+            val encodedOriginalUrl = URLEncoder.encode(originalUrl, "utf-8")
+            navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
+                navController.currentDestination?.id?.let { currentId ->
+                    popUpTo(currentId) { inclusive = true }
+                }
+            }
+        }
         Unit
     }
 
@@ -603,6 +614,7 @@ fun NativeMangaPage(
                         .background(Color.Black.copy(alpha = 1f - imageBrightness))
                 )
             }
+
             // 顶部栏
             AnimatedVisibility(
                 visible = showUi && !showChapterList && !showSettingsPanel,
@@ -694,14 +706,7 @@ fun NativeMangaPage(
                                 IconButton(
                                     onClick = {
                                         prevChapter?.url?.let { targetUrl ->
-                                            showUi = false // 跳转前先收起当前UI界面
-                                            val encodedChapterUrl =
-                                                URLEncoder.encode(targetUrl, "utf-8")
-                                            val encodedOriginalUrl =
-                                                URLEncoder.encode(originalUrl, "utf-8")
-                                            navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
-                                                popUpTo("FavoritePage") { inclusive = false }
-                                            }
+                                            navigateToChapter(targetUrl)
                                         }
                                     },
                                     enabled = prevChapter != null
@@ -741,14 +746,7 @@ fun NativeMangaPage(
                                 IconButton(
                                     onClick = {
                                         nextChapter?.url?.let { targetUrl ->
-                                            showUi = false
-                                            val encodedChapterUrl =
-                                                URLEncoder.encode(targetUrl, "utf-8")
-                                            val encodedOriginalUrl =
-                                                URLEncoder.encode(originalUrl, "utf-8")
-                                            navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
-                                                popUpTo("FavoritePage") { inclusive = false }
-                                            }
+                                            navigateToChapter(targetUrl)
                                         }
                                     },
                                     enabled = nextChapter != null
@@ -844,14 +842,8 @@ fun NativeMangaPage(
                         mangaDirVM.renameDirectory(newTitle)
                     },
                     onChapterClick = { chapter ->
-                        showChapterList = false
                         if (chapter.url.isNotEmpty()) {
-                            val encodedChapterUrl = URLEncoder.encode(chapter.url, "utf-8")
-                            val encodedOriginalUrl =
-                                URLEncoder.encode(originalUrl, "utf-8")
-                            navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
-                                popUpTo("FavoritePage") { inclusive = false }
-                            }
+                            navigateToChapter(chapter.url)
                         }
                     }
                 )
