@@ -87,10 +87,10 @@ private val hideCommand = """
     })()
 """.trimIndent()
 
-class FullscreenApiManga(
-    private val onStateChange: ((Boolean) -> Unit)?,
-    private val onMangaActionDone: (() -> Unit)?
-) {
+class FullscreenApiManga {
+    var onStateChange: ((Boolean) -> Unit)? = null
+    var onMangaActionDone: (() -> Unit)? = null
+
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
         Handler(Looper.getMainLooper()).post { onStateChange?.invoke(isFullscreen) }
@@ -102,34 +102,18 @@ class FullscreenApiManga(
     }
 }
 
-class MangaWebNativeJSInterface(
-    private val navController: NavController,
-    private val getCurrentUrl: () -> String?,
-    private val getOriginalUrl: () -> String,
-    private val getInitialPage: () -> Int, // <--- 新增
-    private val onNavigateStart: () -> Unit
-) {
+class MangaWebNativeJSInterface {
+    var onTriggerManga: ((String, Int, String) -> Unit)? = null
+    private var lastNavTime = 0L
+
     @JavascriptInterface
-    fun openNativeManga(urlsJoined: String, clickedIndex: Int, html: String, title: String) {
-        val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+    fun openNativeManga(urlsJoined: String, clickedIndex: Int, title: String) {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastNavTime < 1000) return
+        lastNavTime = currentTime
+
         Handler(Looper.getMainLooper()).post {
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaUrls = urls
-
-            val targetIndex =
-                if (getInitialPage() > 0 && clickedIndex == 0) getInitialPage() else clickedIndex
-
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex =
-                targetIndex.coerceIn(0, maxOf(0, urls.size - 1))
-
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempHtml = html
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle = title
-
-            onNavigateStart()
-
-            val passUrl = getCurrentUrl() ?: "https://bbs.yamibo.com/forum.php"
-            val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
-            val encodedOriginal = java.net.URLEncoder.encode(getOriginalUrl(), "utf-8")
-            navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedOriginal")
+            onTriggerManga?.invoke(urlsJoined, clickedIndex, title)
         }
     }
 }
@@ -141,7 +125,7 @@ class MangaWebNativeJSInterface(
  * @param navController 导航控制器
  * @param webChromeClient 共享的 WebChromeClient
  */
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun MangaWebPage(
     url: String,
@@ -237,12 +221,10 @@ fun MangaWebPage(
     // ----- 全屏状态控制 -----
     val isFullscreenState = remember { mutableStateOf(false) }
 
-    SetStatusBarColor(if (showBlackScreen || isFullscreenState.value) Color.Black else YamiboColors.primary)
-    DisposableEffect(Unit) {
-        onDispose {
-            bottomNavBarVM.setBottomNavBarVisibility(true)
-        }
-    }
+    val fullscreenApi = remember { FullscreenApiManga() }
+    fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
+    fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
+    val nativeMangaApi = remember { MangaWebNativeJSInterface() }
 
     val mangaWebView = remember {
         WebView(context).apply {
@@ -261,16 +243,48 @@ fun MangaWebPage(
                 textZoom = 100
                 domStorageEnabled = true
             }
-            addJavascriptInterface(
-                FullscreenApiManga(
-                    onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen },
-                    onMangaActionDone = { autoOpenMangaMode = false }
-                ),
-                "AndroidFullscreen"
-            )
+            addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
+            addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
             this.webChromeClient = webChromeClient
         }
     }
+
+    nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
+        mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
+            val cleanHtml = try {
+                com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+            } catch (e: Exception) {
+                htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
+            }
+
+            val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaUrls = urls
+
+            val initPage = initialPage
+            val targetIndex = if (initPage > 0 && clickedIndex == 0) initPage else clickedIndex
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex =
+                targetIndex.coerceIn(0, maxOf(0, urls.size - 1))
+
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempHtml = cleanHtml
+            org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle = title
+
+            autoOpenMangaMode = false
+            isWaitingForNativeReturn = true
+
+            val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
+
+            val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
+            val encodedOriginal = java.net.URLEncoder.encode(originalFavoriteUrl, "utf-8")
+            navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedOriginal")
+        }
+    }
+    SetStatusBarColor(if (showBlackScreen || isFullscreenState.value) Color.Black else YamiboColors.primary)
+    DisposableEffect(Unit) {
+        onDispose {
+            bottomNavBarVM.setBottomNavBarVisibility(true)
+        }
+    }
+
     ActivityWebViewLifecycleObserver(mangaWebView)
     // 1. 系统 UI 显隐控制
     LaunchedEffect(isFullscreenState.value) {
@@ -450,8 +464,7 @@ fun MangaWebPage(
                                             }
                                         }
                                         if (window.NativeMangaApi) {
-                                            var html = document.documentElement.outerHTML;
-                                            window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, html, document.title);
+                                            window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
                                         }
                                     }
                                 }, true); 
@@ -551,8 +564,8 @@ fun MangaWebPage(
                         }
                         
                         if (urls.length > 0) {
-                            window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.documentElement.outerHTML, document.title);
-                            return true; // 提取成功
+                            window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.title);
+                            return true;
                         }
                         return false;
                     }
@@ -667,16 +680,6 @@ fun MangaWebPage(
         AndroidView(
             factory = {
                 (mangaWebView.parent as? ViewGroup)?.removeView(mangaWebView)
-                val nativeApi = MangaWebNativeJSInterface(
-                    navController = navController,
-                    getCurrentUrl = { currentUrl },
-                    getOriginalUrl = { originalFavoriteUrl },
-                    getInitialPage = { initialPage },
-                    onNavigateStart = {
-                        autoOpenMangaMode = false
-                        isWaitingForNativeReturn = true
-                    })
-                mangaWebView.addJavascriptInterface(nativeApi, "NativeMangaApi")
                 mangaWebView
             },
             update = {

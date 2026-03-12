@@ -80,7 +80,7 @@ object BBSPageState {
 }
 
 // 用于接收大图打开/关闭的通知
-// 用于接收大图打开/关闭的通知
+
 class FullscreenApi {
     var onStateChange: ((Boolean) -> Unit)? = null
     var onMangaActionDone: (() -> Unit)? = null
@@ -97,29 +97,18 @@ class FullscreenApi {
 }
 
 class NativeMangaJSInterface {
-    var navController: NavController? = null
-    var getCurrentUrl: (() -> String?)? = null
-    var onActionDone: (() -> Unit)? = null
+    var onTriggerManga: ((String, Int, String) -> Unit)? = null
 
     private var lastNavTime = 0L
 
     @JavascriptInterface
-    fun openNativeManga(urlsJoined: String, clickedIndex: Int, html: String, title: String) {
+    fun openNativeManga(urlsJoined: String, clickedIndex: Int, title: String) {
         val currentTime = System.currentTimeMillis()
         if (currentTime - lastNavTime < 1000) return
         lastNavTime = currentTime
 
-        val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
         Handler(Looper.getMainLooper()).post {
-            GlobalData.tempMangaUrls = urls
-            GlobalData.tempMangaIndex = clickedIndex
-            GlobalData.tempHtml = html
-            GlobalData.tempTitle = title
-
-            // onActionDone?.invoke()
-            val passUrl = getCurrentUrl?.invoke() ?: "https://bbs.yamibo.com/forum.php"
-            val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
-            navController?.navigate("NativeMangaPage?url=$encodedUrl")
+            onTriggerManga?.invoke(urlsJoined, clickedIndex, title)
         }
     }
 }
@@ -174,10 +163,28 @@ fun BBSPage(
         }
         BBSPageState.nativeMangaApi!!
     }
-    // 每次重组更新最新状态
-    nativeMangaApi.navController = navController
-    nativeMangaApi.getCurrentUrl = { currentUrl }
-    nativeMangaApi.onActionDone = { autoOpenMangaMode = false }
+    // 【核心修复】每次重组更新最新状态，并在回调中主动向 WebView 请求全量 HTML
+    nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
+        webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
+            // 安全解析回传的 JSON 字符串
+            val cleanHtml = try {
+                com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+            } catch (e: Exception) {
+                htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
+            }
+
+            val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+            GlobalData.tempMangaUrls = urls
+            GlobalData.tempMangaIndex = clickedIndex
+            GlobalData.tempHtml = cleanHtml
+            GlobalData.tempTitle = title
+
+            autoOpenMangaMode = false
+            val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
+            val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
+            navController.navigate("NativeMangaPage?url=$encodedUrl")
+        }
+    }
     // 强制获取ViewModel
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
@@ -364,7 +371,7 @@ fun BBSPage(
                                 }
                             }
                             if (urls.length > 0) {
-                                window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.documentElement.outerHTML, document.title);
+                                window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.title);
                                 return; // 提取成功，彻底终止后续逻辑
                             }
                         }
@@ -672,7 +679,7 @@ fun BBSPage(
                                         }
                                     }
                                     if (window.NativeMangaApi) {
-                                        window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, "", document.title);
+                                        window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
                                     }
                                 }
                             }, true); 

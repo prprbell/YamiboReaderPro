@@ -63,6 +63,7 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -82,10 +83,10 @@ private val hideCommand = """
     })()
 """.trimIndent()
 
-class FullscreenApiMine(
-    private val onStateChange: ((Boolean) -> Unit)?,
-    private val onMangaActionDone: (() -> Unit)?
-) {
+class FullscreenApiMine {
+    var onStateChange: ((Boolean) -> Unit)? = null
+    var onMangaActionDone: (() -> Unit)? = null
+
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
         Handler(Looper.getMainLooper()).post { onStateChange?.invoke(isFullscreen) }
@@ -97,29 +98,19 @@ class FullscreenApiMine(
     }
 }
 
-class NativeMangaMineJSInterface(
-    private val navController: NavController,
-    private val getCurrentUrl: () -> String?,
-    private val onActionDone: () -> Unit,
-    private val onSaveUrl: (String) -> Unit
-) {
+class NativeMangaMineJSInterface {
+    var onTriggerManga: ((String, Int, String) -> Unit)? = null
+
+    private var lastNavTime = 0L
+
     @JavascriptInterface
-    fun openNativeManga(urlsJoined: String, clickedIndex: Int, html: String, title: String) {
-        val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+    fun openNativeManga(urlsJoined: String, clickedIndex: Int, title: String) {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastNavTime < 1000) return
+        lastNavTime = currentTime
+
         Handler(Looper.getMainLooper()).post {
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaUrls = urls
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex = clickedIndex
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempHtml = html
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle = title
-
-            // onActionDone()
-            val passUrl = getCurrentUrl() ?: "https://bbs.yamibo.com/forum.php"
-
-            onSaveUrl(passUrl)
-
-            val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
-            val encodedOriginal = java.net.URLEncoder.encode(passUrl, "utf-8")
-            navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedOriginal")
+            onTriggerManga?.invoke(urlsJoined, clickedIndex, title)
         }
     }
 }
@@ -173,6 +164,7 @@ fun MinePage(
             }
         }
     }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -228,9 +220,15 @@ fun MinePage(
         }
     }
     // ----- 全屏状态控制结束 -----
+    val fullscreenApi = remember { FullscreenApiMine() }
+    fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
+    fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
+
+    val nativeMangaApi = remember { NativeMangaMineJSInterface() }
+
     val mineWebView = remember {
         WebView(context).apply {
-             layoutParams = ViewGroup.LayoutParams(
+            layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
@@ -244,16 +242,35 @@ fun MinePage(
                 displayZoomControls = false
                 textZoom = 100
                 domStorageEnabled = true
-                javaScriptEnabled = true
             }
-            addJavascriptInterface(
-                FullscreenApiMine(
-                    onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen },
-                    onMangaActionDone = { autoOpenMangaMode = false }
-                ),
-                "AndroidFullscreen"
-            )
+            addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
+            addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
             this.webChromeClient = webChromeClient
+        }
+    }
+
+    nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
+        mineWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
+            val cleanHtml = try {
+                com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+            } catch (e: Exception) {
+                htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
+            }
+
+            val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+            GlobalData.tempMangaUrls = urls
+            GlobalData.tempMangaIndex = clickedIndex
+            GlobalData.tempHtml = cleanHtml
+            GlobalData.tempTitle = title
+
+            autoOpenMangaMode = false
+
+            val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
+            savedMangaUrl = passUrl // 保存以便返回时重载
+
+            val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
+            val encodedOriginal = java.net.URLEncoder.encode(passUrl, "utf-8")
+            navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedOriginal")
         }
     }
     ActivityWebViewLifecycleObserver(mineWebView)
@@ -458,8 +475,7 @@ fun MinePage(
                                             }
                                         }
                                         if (window.NativeMangaApi) {
-                                            var html = document.documentElement.outerHTML;
-                                            window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, html, document.title);
+                                            window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
                                         }
                                     }
                                 }, true); 
@@ -605,8 +621,8 @@ fun MinePage(
                                 }
                             }
                             if (urls.length > 0) {
-                                window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.documentElement.outerHTML, document.title);
-                                return; // 提取成功，彻底终止后续逻辑
+                                window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.title);
+                                return;
                             }
                         }
                     }
@@ -707,13 +723,6 @@ fun MinePage(
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = {
-                val nativeApi = NativeMangaMineJSInterface(
-                    navController,
-                    { currentUrl },
-                    { autoOpenMangaMode = false },
-                    { savedMangaUrl = it }
-                )
-                mineWebView.addJavascriptInterface(nativeApi, "NativeMangaApi")
                 mineWebView
             },
             update = {

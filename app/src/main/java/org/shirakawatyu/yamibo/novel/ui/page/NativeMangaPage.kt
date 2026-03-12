@@ -224,7 +224,7 @@ fun NativeMangaPage(
             initialIndex = GlobalData.tempMangaIndex
             if (GlobalData.tempHtml.isNotBlank()) {
                 mangaDirVM.initDirectoryFromWeb(url, GlobalData.tempHtml, GlobalData.tempTitle)
-            }else {
+            } else {
                 if (mangaDirVM.currentDirectory == null) {
                     mangaDirVM.loadDirectoryByUrl(url)
                 }
@@ -376,8 +376,8 @@ fun NativeMangaPage(
                             showUi = false
                             showSettingsPanel = false
                         } else {
-                            val isLeftTap = offset.x < screenWidthPx * 0.2f
-                            val isRightTap = offset.x > screenWidthPx * 0.8f
+                            val isLeftTap = offset.x < screenWidthPx * 0.15f
+                            val isRightTap = offset.x > screenWidthPx * 0.85f
 
                             if (isLeftTap) {
                                 scope.launch {
