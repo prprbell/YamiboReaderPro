@@ -224,6 +224,10 @@ fun NativeMangaPage(
             initialIndex = GlobalData.tempMangaIndex
             if (GlobalData.tempHtml.isNotBlank()) {
                 mangaDirVM.initDirectoryFromWeb(url, GlobalData.tempHtml, GlobalData.tempTitle)
+            }else {
+                if (mangaDirVM.currentDirectory == null) {
+                    mangaDirVM.loadDirectoryByUrl(url)
+                }
             }
             GlobalData.tempMangaUrls = emptyList()
             GlobalData.tempHtml = ""

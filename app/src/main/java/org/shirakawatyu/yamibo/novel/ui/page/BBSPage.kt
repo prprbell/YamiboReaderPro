@@ -60,6 +60,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -74,13 +75,16 @@ import java.net.URLEncoder
 object BBSPageState {
     var lastLoginState: Boolean? = null
     var hasSuccessfullyLoaded: Boolean = false
+    var fullscreenApi: FullscreenApi? = null
+    var nativeMangaApi: NativeMangaJSInterface? = null
 }
 
 // 用于接收大图打开/关闭的通知
-class FullscreenApi(
-    private val onStateChange: ((Boolean) -> Unit)?,
-    private val onMangaActionDone: (() -> Unit)?
-) {
+// 用于接收大图打开/关闭的通知
+class FullscreenApi {
+    var onStateChange: ((Boolean) -> Unit)? = null
+    var onMangaActionDone: (() -> Unit)? = null
+
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
         Handler(Looper.getMainLooper()).post { onStateChange?.invoke(isFullscreen) }
@@ -92,27 +96,30 @@ class FullscreenApi(
     }
 }
 
-class NativeMangaJSInterface(
-    private val navController: NavController,
-    private val getCurrentUrl: () -> String?,
-    private val onActionDone: () -> Unit
-) {
+class NativeMangaJSInterface {
+    var navController: NavController? = null
+    var getCurrentUrl: (() -> String?)? = null
+    var onActionDone: (() -> Unit)? = null
+
+    private var lastNavTime = 0L
+
     @JavascriptInterface
     fun openNativeManga(urlsJoined: String, clickedIndex: Int, html: String, title: String) {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastNavTime < 1000) return
+        lastNavTime = currentTime
+
         val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
         Handler(Looper.getMainLooper()).post {
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaUrls = urls
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex = clickedIndex
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempHtml = html
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle = title
+            GlobalData.tempMangaUrls = urls
+            GlobalData.tempMangaIndex = clickedIndex
+            GlobalData.tempHtml = html
+            GlobalData.tempTitle = title
 
-            // 通知 Compose 层关闭黑屏遮罩
-            onActionDone()
-
-            // 跳转到原生漫画页面
-            val passUrl = getCurrentUrl() ?: "https://bbs.yamibo.com/forum.php"
+            // onActionDone?.invoke()
+            val passUrl = getCurrentUrl?.invoke() ?: "https://bbs.yamibo.com/forum.php"
             val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
-            navController.navigate("NativeMangaPage?url=$encodedUrl")
+            navController?.navigate("NativeMangaPage?url=$encodedUrl")
         }
     }
 }
@@ -151,20 +158,26 @@ fun BBSPage(
     // ----- 全屏状态控制 -----
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
-    val fullscreenApi = remember<FullscreenApi> {
-        FullscreenApi(
-            onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen },
-            onMangaActionDone = { autoOpenMangaMode = false }
-        )
+    val fullscreenApi = remember {
+        if (BBSPageState.fullscreenApi == null) {
+            BBSPageState.fullscreenApi = FullscreenApi()
+        }
+        BBSPageState.fullscreenApi!!
     }
+    // 每次重组更新回调
+    fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
+    fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
 
-    val nativeMangaApi = remember<NativeMangaJSInterface> {
-        NativeMangaJSInterface(
-            navController = navController,
-            getCurrentUrl = { currentUrl },
-            onActionDone = { autoOpenMangaMode = false }
-        )
+    val nativeMangaApi = remember {
+        if (BBSPageState.nativeMangaApi == null) {
+            BBSPageState.nativeMangaApi = NativeMangaJSInterface()
+        }
+        BBSPageState.nativeMangaApi!!
     }
+    // 每次重组更新最新状态
+    nativeMangaApi.navController = navController
+    nativeMangaApi.getCurrentUrl = { currentUrl }
+    nativeMangaApi.onActionDone = { autoOpenMangaMode = false }
     // 强制获取ViewModel
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
@@ -292,6 +305,7 @@ fun BBSPage(
         if (!isLoading && autoOpenMangaMode) {
             val clickJs = """
                 (function() {
+                    // 1. 检查版块白名单
                     var sectionHeader = document.querySelector('.header h2 a');
                     var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
                     if (sectionName !== '') {
@@ -303,7 +317,6 @@ fun BBSPage(
                                 break;
                             }
                         }
-                        // 如果当前版块不在白名单中，立刻取消自动进大图模式
                         if (!isAllowedSection) {
                             if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
                                 window.AndroidFullscreen.notifyMangaActionDone();
@@ -312,15 +325,16 @@ fun BBSPage(
                         }
                     }
                     
+                    // 2. 检查公告帖拦截
                     var typeLabel = document.querySelector('.view_tit em');
                     if (typeLabel && typeLabel.innerText.indexOf('公告') !== -1) {
-                        // 如果是公告帖，立刻通知 Android 取消漫画黑屏模式，不执行后续点击逻辑
                         if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
                             window.AndroidFullscreen.notifyMangaActionDone();
                         }
                         return; 
                     }
-                    // 1. 穿上隐身衣，防止穿帮
+
+                    // 3. 注入过渡黑屏样式 (防止闪白)
                     if (!document.getElementById('manga-transition-style')) {
                         var style = document.createElement('style');
                         style.id = 'manga-transition-style';
@@ -336,70 +350,93 @@ fun BBSPage(
                         }
                     }
 
-                    var isDone = false;
-                    var attempts = 0;
-                    var maxAttempts = 25; // 探测上限：5秒 (25 * 200ms)
-
-                    // 2. 改用高频探测：每 200 毫秒检查一次状态
-                    var timer = setInterval(function() {
-                        if (isDone) {
-                            clearInterval(timer);
-                            return;
+                    // ==========================================
+                    // 轨道 A: NativeMangaApi (原生路径)
+                    // ==========================================
+                    if (window.NativeMangaApi) {
+                        var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                        if (allImgs.length > 0) {
+                            var urls = [];
+                            for (var i = 0; i < allImgs.length; i++) {
+                                var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
+                                if (rawSrc) {
+                                    urls.push(new URL(rawSrc, document.baseURI).href);
+                                }
+                            }
+                            if (urls.length > 0) {
+                                window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.documentElement.outerHTML, document.title);
+                                return; // 提取成功，彻底终止后续逻辑
+                            }
                         }
-                        attempts++;
+                    }
 
-                        // 步骤 A: 检查 PhotoSwipe 的全屏容器 (.pswp) 是否已经生成
-                        var pswp = document.querySelector('.pswp');
-                        if (pswp) {
-                            isDone = true;
-                            clearInterval(timer);
+                    // ==========================================
+                    // 轨道B: PhotoSwipe降级方案
+                    // ==========================================
+                    var clickTimer = null;
+                    var timeoutTimer = null;
+                    
+                    var observer = new MutationObserver(function(mutations, obs) {
+                        if (document.querySelector('.pswp')) {
+                            obs.disconnect(); // 立即停止监听
+                            clearTimeout(timeoutTimer); // 取消 5 秒兜底
+                            if (clickTimer) clearInterval(clickTimer); // 成功后立刻停止点击重试
+                            
                             if (window.AndroidFullscreen) {
                                 window.AndroidFullscreen.notify(true);
                                 window.AndroidFullscreen.notifyMangaActionDone();
                             }
                             return;
                         }
+                    });
 
-                        // 步骤 B: 还没弹出来？继续尝试点击图片
-                        // 因为我们不知道网页自带的 JS 到底在什么时候绑定完成，所以要持续“叩门”
+                    // 开始监听 body 的子节点变化
+                    observer.observe(document.body, { childList: true, subtree: true });
+
+                    var clickAttempts = 0;
+                    var maxClicks = 10;
+
+                    function tryClickTarget() {
+                        if (clickAttempts >= maxClicks) {
+                            if (clickTimer) clearInterval(clickTimer);
+                            return;
+                        }
+                        // 双重保险：如果在定时器触发瞬间 .pswp 已经存在，放弃本次点击防止动画错乱
+                        if (document.querySelector('.pswp')) return; 
+                        
+                        clickAttempts++;
                         var links = document.querySelectorAll('a[data-pswp-width], .img_one a.orange, .message a.orange, .postmessage a.orange');
-                        var targetEl = null;
+                        var clicked = false;
                         for (var i = 0; i < links.length; i++) {
                             var href = links[i].getAttribute('href') || '';
                             var innerHtml = links[i].innerHTML || '';
-                            // 核心过滤：跳过所有 .gif 后缀的链接，以及属于论坛静态资源(表情/分割线)的链接
                             if (href.toLowerCase().indexOf('.gif') === -1 && href.indexOf('static/image/') === -1 && innerHtml.indexOf('static/image/') === -1) {
-                                targetEl = links[i];
-                                break; // 找到第一张真正的正文图片，跳出循环
-                            }
-                        }
-                        
-                        if (targetEl) {
-                            if (window.NativeMangaApi) {
-                                var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                                var urls = [];
-                                for (var i = 0; i < allImgs.length; i++) {
-                                    var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
-                                    if (rawSrc) {
-                                        urls.push(new URL(rawSrc, document.baseURI).href);
-                                    }
-                                }
-                                window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.documentElement.outerHTML, document.title);
-                                clearInterval(timer);
-                                return;
-                            } else {
-                                targetEl.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+                                links[i].dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+                                clicked = true;
+                                break; 
                             }
                         }
 
-                        // 步骤 C: 终极防死锁兜底
-                        // 不管有图没图，只要 5 秒了还没看到 .pswp 出现，无条件放弃并恢复网页
-                        if (attempts >= maxAttempts) {
-                            isDone = true;
-                            clearInterval(timer);
-                            abortAndNotify();
+                        if (!clicked) {
+                            var fallbackImgs = document.querySelectorAll('.img_one img');
+                            if(fallbackImgs.length > 0 && fallbackImgs[0].parentElement && fallbackImgs[0].parentElement.tagName === 'A'){
+                                fallbackImgs[0].parentElement.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+                            }
                         }
-                    }, 200);
+                    }
+
+                    // 1. 立即执行第 1 次点击（如果网页加载够快，这次直接就成了）
+                    tryClickTarget();
+
+                    // 2. 如果第 1 次被网页忽略，开启后备隐藏重试（每 250ms 一次）
+                    clickTimer = setInterval(tryClickTarget, 250);
+
+                    // 3. 5 秒超时终极防死锁清理
+                    timeoutTimer = setTimeout(function() {
+                        observer.disconnect();
+                        if (clickTimer) clearInterval(clickTimer);
+                        abortAndNotify();
+                    }, 5000);
                 })();
             """.trimIndent()
 
@@ -419,14 +456,16 @@ fun BBSPage(
             }
         }
     }
-    // 防止退出BBS页面时导航栏消失
     DisposableEffect(Unit) {
         onDispose {
-            activity?.window?.let { window ->
-                WindowCompat.getInsetsController(window, view)
-                    .show(WindowInsetsCompat.Type.systemBars())
+            val currentRoute = navController.currentDestination?.route ?: ""
+            if (!currentRoute.startsWith("NativeMangaPage")) {
+                activity?.window?.let { window ->
+                    WindowCompat.getInsetsController(window, view)
+                        .show(WindowInsetsCompat.Type.systemBars())
+                }
+                bottomNavBarVM.setBottomNavBarVisibility(true)
             }
-            bottomNavBarVM.setBottomNavBarVisibility(true)
         }
     }
     // ----- 全屏状态控制结束 -----
@@ -611,34 +650,34 @@ fun BBSPage(
                     // 如果是图区，拦截图片点击，发送给原生 NativeMangaApi
                     if (isMangaSection) {
                         val injectJs = """
-                            javascript:(function() {
-                                document.addEventListener('click', function(e) {
-                                    var targetImg = e.target.closest('.img_one img, .message img');
-                                    // 过滤表情包
-                                    if (targetImg && targetImg.src.indexOf('smiley') === -1) { 
-                                        e.preventDefault(); 
-                                        e.stopPropagation();
-                                        
-                                        var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                                        var urls = [];
-                                        var clickedIndex = 0;
-                                        for (var i = 0; i < allImgs.length; i++) {
-                                            var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
-                                            if (rawSrc) {
-                                                // 强制转换为绝对路径
-                                                var absoluteUrl = new URL(rawSrc, document.baseURI).href;
-                                                urls.push(absoluteUrl);
-                                                if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
-                                            }
-                                        }
-                                        if (window.NativeMangaApi) {
-                                            var html = document.documentElement.outerHTML;
-                                            window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, html, document.title);
+                        javascript:(function() {
+                            if (window._mangaClickInjected) return;
+                            window._mangaClickInjected = true;
+                            
+                            document.addEventListener('click', function(e) {
+                                var targetImg = e.target.closest('.img_one img, .message img');
+                                if (targetImg && targetImg.src.indexOf('smiley') === -1) { 
+                                    e.preventDefault(); 
+                                    e.stopPropagation();
+                                                                        
+                                    var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                                    var urls = [];
+                                    var clickedIndex = 0;
+                                    for (var i = 0; i < allImgs.length; i++) {
+                                        var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
+                                        if (rawSrc) {
+                                            var absoluteUrl = new URL(rawSrc, document.baseURI).href;
+                                            urls.push(absoluteUrl);
+                                            if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
                                         }
                                     }
-                                }, true); 
-                            })();
-                        """.trimIndent()
+                                    if (window.NativeMangaApi) {
+                                        window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, "", document.title);
+                                    }
+                                }
+                            }, true); 
+                        })();
+                    """.trimIndent()
                         view.evaluateJavascript(injectJs, null)
                     }
                 }

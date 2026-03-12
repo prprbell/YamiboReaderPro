@@ -154,5 +154,46 @@ class FavoriteUtil {
             }
             return map
         }
+        // 渐进式合并：新数据追加到头部，有新内容返回 true
+        fun mergeFavoritesProgressive(pageList: List<Favorite>, callback: (hasNewItems: Boolean) -> Unit) {
+            getFavoriteMap { oldMap ->
+                var hasNewItems = false
+                val newMap = LinkedHashMap<String, Favorite>()
+
+                for (netFav in pageList) {
+                    if (!oldMap.containsKey(netFav.url)) {
+                        newMap[netFav.url] = netFav
+                        hasNewItems = true
+                    }
+                }
+
+                for ((url, oldFav) in oldMap) {
+                    newMap[url] = oldFav
+                }
+
+                if (hasNewItems) {
+                    DataStoreUtil.addData(JSON.toJSONString(newMap), key)
+                }
+                callback(hasNewItems)
+            }
+        }
+
+        // 全量垃圾回收：删除本地有但网络上已被移除的收藏
+        fun cleanupDeletedFavorites(fullNetworkList: List<Favorite>) {
+            getFavoriteMap { oldMap ->
+                val networkUrls = fullNetworkList.map { it.url }.toSet()
+                val cleanedMap = LinkedHashMap<String, Favorite>()
+
+                oldMap.forEach { (url, fav) ->
+                    if (networkUrls.contains(url)) {
+                        cleanedMap[url] = fav
+                    }
+                }
+
+                if (cleanedMap.size != oldMap.size) {
+                    DataStoreUtil.addData(JSON.toJSONString(cleanedMap), key)
+                }
+            }
+        }
     }
 }

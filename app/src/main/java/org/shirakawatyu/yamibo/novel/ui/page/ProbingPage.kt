@@ -75,9 +75,19 @@ fun ProbingPage(url: String, navController: NavController) {
                                         var isNovel = novelSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=55') !== -1;
                                         
                                         var type = 3;
-                                        if (isNovel) type = 1;
+                                        var authorId = "";
+                                        if (isNovel) {
+                                            type = 1;
+                                            var onlyOpBtn = document.querySelector('.nav-more-item');
+                                            if (onlyOpBtn && onlyOpBtn.href) {
+                                                var match = onlyOpBtn.href.match(/authorid=(\d+)/);
+                                                if (match) authorId = match[1];
+                                            }
+                                        }
                                         else if (isManga) type = 2;
-                                        
+                                        if (type === 1) {
+                                            return "1:::" + authorId;
+                                        }
                                         if (type === 2) {
                                             var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
                                             var urls = [];
@@ -101,7 +111,12 @@ fun ProbingPage(url: String, navController: NavController) {
                                     scope.launch(Dispatchers.IO) {
                                         FavoriteUtil.getFavoriteMap { map ->
                                             map[url]?.let { fav ->
-                                                FavoriteUtil.updateFavorite(fav.copy(type = type))
+                                                if (type == 1) {
+                                                    val authorId = parts.getOrNull(1)
+                                                    FavoriteUtil.updateFavorite(fav.copy(type = 1, authorId = authorId))
+                                                } else {
+                                                    FavoriteUtil.updateFavorite(fav.copy(type = type))
+                                                }
                                             }
                                         }
 

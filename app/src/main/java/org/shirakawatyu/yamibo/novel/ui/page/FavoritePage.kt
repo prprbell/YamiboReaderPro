@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
@@ -114,11 +115,24 @@ fun FavoritePage(
 
     SetStatusBarColor(YamiboColors.onSurface)
 
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                favoriteVM.refreshList(showLoading = false)
+
+                // 根据VM中记录的策略决定如何刷新列表
+                when (favoriteVM.nextResumeStrategy) {
+                    FavoriteVM.RefreshStrategy.SKIP -> {
+                        // 什么都不做
+                    }
+                    FavoriteVM.RefreshStrategy.SMART -> {
+                        favoriteVM.refreshList(showLoading = false, isSmartSync = true)
+                    }
+                    FavoriteVM.RefreshStrategy.FULL -> {
+                        favoriteVM.refreshList(showLoading = false, isSmartSync = false)
+                    }
+                }
+                favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.FULL
                 favoriteVM.getCacheInfo { info -> cacheInfoMap = info }
             }
         }
@@ -393,7 +407,10 @@ fun FavoritePage(
                                 })
                             DropdownMenuItem(
                                 text = { Text("刷新列表") },
-                                onClick = { favoriteVM.refreshList(); menuExpanded = false },
+                                onClick = {
+                                    favoriteVM.refreshList(showLoading = true, isSmartSync = false)
+                                    menuExpanded = false
+                                },
                                 enabled = !isRefreshing,
                                 leadingIcon = {
                                     if (isRefreshing) CircularProgressIndicator(

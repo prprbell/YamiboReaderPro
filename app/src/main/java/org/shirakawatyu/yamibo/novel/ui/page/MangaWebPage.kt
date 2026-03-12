@@ -311,7 +311,6 @@ fun MangaWebPage(
             }
         } else {
             if (autoOpenMangaMode) autoOpenMangaMode = false
-
             // 解析目录
             currentUrl?.let { threadUrl ->
                 if (MangaTitleCleaner.extractTidFromUrl(threadUrl) != null) {
@@ -512,10 +511,12 @@ fun MangaWebPage(
     }
 
     // 2. 页面加载完成注入自动点击 JS
+    // 2. 页面加载完成注入自动提取 JS (带有限重试机制)
     LaunchedEffect(isLoading) {
         if (!isLoading && autoOpenMangaMode) {
             val clickJs = """
                 (function() {
+                    // 1. 版块与公告检查
                     var sectionHeader = document.querySelector('.header h2 a');
                     var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
                     if (sectionName !== '') {
@@ -536,23 +537,53 @@ fun MangaWebPage(
                         return; 
                     }
 
-                    if (window.NativeMangaApi) {
+                    // 2. 提取图片的逻辑函数
+                    function extractAndOpenNative() {
+                        if (!window.NativeMangaApi) return false;
+                        
                         var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                        if (allImgs.length === 0) return false;
+                        
                         var urls = [];
                         for (var i = 0; i < allImgs.length; i++) {
                             var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
                             if (rawSrc) urls.push(new URL(rawSrc, document.baseURI).href);
                         }
+                        
                         if (urls.length > 0) {
                             window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.documentElement.outerHTML, document.title);
+                            return true; // 提取成功
+                        }
+                        return false;
+                    }
+
+                    // 3. 执行立刻提取
+                    if (extractAndOpenNative()) {
+                        return; // 如果第一次就成功了，直接结束
+                    }
+
+                    // 4. 如果第一次没找到图，开启有限重试 (处理 DOM 渲染延迟)
+                    var extractAttempts = 0;
+                    var maxExtracts = 10;
+                    
+                    var extractTimer = setInterval(function() {
+                        extractAttempts++;
+                        
+                        if (extractAndOpenNative()) {
+                            clearInterval(extractTimer); // 成功则立刻清除定时器
                             return;
                         }
-                    }
-                    
-                    // 兜底策略：如果没图，取消黑屏
-                    if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
-                        window.AndroidFullscreen.notifyMangaActionDone();
-                    }
+                        
+                        // 次数耗尽，彻底放弃
+                        if (extractAttempts >= maxExtracts) {
+                            clearInterval(extractTimer);
+                            // 兜底策略：如果真的没图，取消黑屏
+                            if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
+                                window.AndroidFullscreen.notifyMangaActionDone();
+                            }
+                        }
+                    }, 250);
+
                 })();
             """.trimIndent()
 

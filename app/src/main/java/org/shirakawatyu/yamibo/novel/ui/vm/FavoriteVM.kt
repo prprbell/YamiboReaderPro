@@ -14,6 +14,7 @@ import org.jsoup.Jsoup
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.FavoriteApi
+import org.shirakawatyu.yamibo.novel.parser.MangaHtmlParser
 import org.shirakawatyu.yamibo.novel.ui.state.FavoriteState
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
@@ -22,14 +23,32 @@ import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import java.net.URLEncoder
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+
+enum class FetchState { IDLE, BACKGROUND, MANUAL }
 
 class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private val _uiState = MutableStateFlow(FavoriteState())
     val uiState = _uiState.asStateFlow()
-
+    // 记录当前的刷新状态，默认为空闲
+    private val currentFetchState = AtomicReference(FetchState.IDLE)
+    // 请求世代ID，用于打断旧的递归任务
+    private val fetchGeneration = AtomicLong(0)
     private val logTag = "FavoriteVM"
     private var allFavorites: List<Favorite> = listOf()
-
+    // 记录最后一次成功触发刷新的时间戳
+    private var lastSmartSyncTime = 0L
+    // 冷却时间，5秒内不重复发起后台同步
+    private val SMART_SYNC_COOLDOWN = 5_000L
+    // 等待队列：保存正在倒计时的那个任务
+    private var pendingSyncJob: kotlinx.coroutines.Job? = null
+    enum class RefreshStrategy {
+        FULL,   // 全量刷新
+        SMART,  // 增量刷新
+        SKIP    // 跳过刷新
+    }
+    var nextResumeStrategy = RefreshStrategy.FULL
     var currentCategory: Int = -1
         private set
 
@@ -76,23 +95,125 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         _uiState.value = currentState.copy(favoriteList = filteredList)
     }
 
-    fun refreshList(showLoading: Boolean = true) {
+    fun refreshList(showLoading: Boolean = true, isSmartSync: Boolean = false) {
+        if (isSmartSync) {
+            val currentTime = System.currentTimeMillis()
+            val timeSinceLast = currentTime - lastSmartSyncTime
+
+            if (timeSinceLast < SMART_SYNC_COOLDOWN) {
+                // 尝试进入等待队列
+
+                // 队列里已经有排队任务了 (容量为1)，直接丢弃本次请求
+                if (pendingSyncJob?.isActive == true) {
+                    Log.d(logTag, "后台同步冷却中，且已有排队任务，丢弃本次请求")
+                    return
+                }
+
+                // 计算还需要等待多久
+                val waitTime = SMART_SYNC_COOLDOWN - timeSinceLast
+                Log.d(logTag, "后台同步进入等待队列，将于 ${waitTime}ms 后执行")
+
+                // 占用队列，开始倒计时
+                pendingSyncJob = viewModelScope.launch {
+                    kotlinx.coroutines.delay(waitTime)
+                    // 睡醒后，更新时间戳并真正执行请求
+                    lastSmartSyncTime = System.currentTimeMillis()
+                    executeActualRefresh(showLoading, isSmartSync = true)
+                }
+                return // 排队完毕，直接返回
+
+            } else {
+                // 更新时间，立刻放行
+                lastSmartSyncTime = currentTime
+            }
+        } else {
+            // 手动刷新：最高优先级！
+            // 1. 如果有后台任务正在排队倒计时，立刻取消它（清空队列）
+            pendingSyncJob?.cancel()
+            // 2. 更新时间戳，让接下来的后台任务重新计算冷却
+            lastSmartSyncTime = System.currentTimeMillis()
+        }
+
+        // 立即执行真正的刷新逻辑
+        executeActualRefresh(showLoading, isSmartSync)
+    }
+
+    private fun executeActualRefresh(showLoading: Boolean, isSmartSync: Boolean) {
+        val requestedState = if (isSmartSync) FetchState.BACKGROUND else FetchState.MANUAL
+
+        // 状态判定与拦截逻辑
+        while (true) {
+            val currentState = currentFetchState.get()
+
+            // 1. 同级拦截：手动拦截手动，后台拦截后台
+            if (currentState == requestedState) {
+                Log.d(logTag, "同类型任务正在运行，已拦截 ($requestedState)")
+                return
+            }
+
+            // 2. 越级拦截：正在手动刷新时，拒绝后台刷新的介入
+            if (currentState == FetchState.MANUAL && requestedState == FetchState.BACKGROUND) {
+                Log.d(logTag, "手动刷新正在进行，已拦截后台请求")
+                return
+            }
+
+            // 3. 状态变更：如果是IDLE，或者BACKGROUND被MANUAL覆盖
+            if (currentFetchState.compareAndSet(currentState, requestedState)) {
+                if (currentState == FetchState.BACKGROUND && requestedState == FetchState.MANUAL) {
+                    Log.d(logTag, "手动刷新触发，即将覆盖并打断后台任务")
+                }
+                break
+            }
+        }
+
+        // 每次放行新请求，生成一个新的“世代 ID”
+        val currentGen = fetchGeneration.incrementAndGet()
+
         if (showLoading) {
             _uiState.value = _uiState.value.copy(isRefreshing = true)
         }
+
         CookieUtil.getCookie {
-            // 从第 1 页开始递归拉取，并传入一个空的列表来累加数据
-            fetchAllFavorites(page = 1, accumulatedList = ArrayList())
+            fetchAllFavorites(
+                page = 1,
+                accumulatedList = ArrayList(),
+                isSmartSync = isSmartSync,
+                isBackground = isSmartSync,
+                totalPages = 1,
+                generation = currentGen
+            )
         }
     }
 
-    private fun fetchAllFavorites(page: Int, accumulatedList: ArrayList<Favorite>) {
+    private fun releaseStateIfCurrent(generation: Long) {
+        if (fetchGeneration.get() == generation) {
+            currentFetchState.set(FetchState.IDLE)
+        }
+    }
+    private fun fetchAllFavorites(
+        page: Int,
+        accumulatedList: ArrayList<Favorite>,
+        isSmartSync: Boolean,
+        isBackground: Boolean,
+        totalPages: Int,
+        generation: Long
+    ) {
+        // 进入递归前，检查自己是不是已经被覆盖的旧任务
+        if (generation != fetchGeneration.get()) return
+
         val favoriteApi = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
 
         favoriteApi.getFavoritePage(page).enqueue(object : Callback<ResponseBody> {
             override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
+                // 网络请求回来后，检查自己是不是已经被覆盖的旧任务
+                if (generation != fetchGeneration.get()) return
                 viewModelScope.launch(Dispatchers.IO) {
+                    // 切入协程后，最后检查一次
+                    if (generation != fetchGeneration.get()) return@launch
+
                     val respHTML = response.body()?.string()
+                    val pageList = mutableListOf<Favorite>()
+
                     if (respHTML != null) {
                         val parse = Jsoup.parse(respHTML)
                         val favList = parse.getElementsByClass("sclist")
@@ -100,49 +221,113 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                         favList.forEach { li ->
                             val aTag = li.select("a").last()
                             if (aTag != null) {
-                                val title = aTag.text()
-                                val url = aTag.attr("href")
-                                accumulatedList.add(Favorite(title, url))
+                                pageList.add(Favorite(aTag.text(), aTag.attr("href")))
                             }
                         }
+                    }
 
-                        val nextPageLink = parse.select(".page a, .pg a").find {
-                            it.text().contains("下一页") || it.hasClass("nxt")
-                        }
-                        if (nextPageLink != null && nextPageLink.attr("href").isNotBlank()) {
-                            fetchAllFavorites(page + 1, accumulatedList)
-                        } else {
-                            finishRefresh(accumulatedList)
+                    if (pageList.isNotEmpty()) {
+                        accumulatedList.addAll(pageList)
+
+                        FavoriteUtil.mergeFavoritesProgressive(pageList) { hasNewItems ->
+                            // 数据库合并回调回来后检查
+                            if (generation != fetchGeneration.get()) return@mergeFavoritesProgressive
+
+                            // 第一页出结果，解除UI锁定
+                            if (page == 1) {
+                                viewModelScope.launch(Dispatchers.Main) {
+                                    _uiState.value = _uiState.value.copy(isRefreshing = false)
+                                }
+                            }
+
+                            val parse = Jsoup.parse(respHTML!!)
+                            val nextPageLink = parse.select(".page a, .pg a").find {
+                                it.text().contains("下一页") || it.hasClass("nxt")
+                            }
+                            val hasNextPage = nextPageLink != null && nextPageLink.attr("href").isNotBlank()
+
+                            var currentTotalPages = totalPages
+                            var currentIsSmartSync = isSmartSync
+
+                            // 在第1页进行智能研判
+                            if (page == 1) {
+                                // 提取真实的线上总页数
+                                currentTotalPages = MangaHtmlParser.extractTotalPages(respHTML)
+                                val maxPossibleRemoteItems = currentTotalPages * 20
+
+                                // 1. 容量检测：如果本地列表数量大于线上最大容量，说明网页端发生了大量删除
+                                if (allFavorites.size > maxPossibleRemoteItems) {
+                                    currentIsSmartSync = false // 动态打破阻断机制，强制转为全量刷新！
+                                }
+                                // 2. 单页检测：如果总共只有一页，干脆转全量以便结束时顺手执行GC
+                                else if (!hasNextPage) {
+                                    currentIsSmartSync = false
+                                }
+                            }
+
+                            // 决定是否继续拉取
+                            val shouldContinue = if (currentIsSmartSync) {
+                                // 智能接轨模式：有新内容且有下一页才继续，否则直接阻断休息
+                                hasNewItems && hasNextPage
+                            } else {
+                                // 强制全量模式：无脑拉到底
+                                hasNextPage
+                            }
+
+                            if (shouldContinue) {
+                                viewModelScope.launch(Dispatchers.IO) {
+                                    if (generation != fetchGeneration.get()) return@launch
+
+                                    if (isBackground) {
+                                        // 页数越多请求越快，页数越少请求越慢
+                                        // 基础公式：1200ms 减去 (页数-1 * 200ms)
+                                        val dynamicDelay = (1200L - ((currentTotalPages-1) * 150L)).coerceIn(600L, 1050L)
+                                        kotlinx.coroutines.delay(dynamicDelay)
+                                    } else {
+                                        // 手动刷新保持激进
+                                        kotlinx.coroutines.delay(100L)
+                                    }
+                                    fetchAllFavorites(page + 1, accumulatedList, currentIsSmartSync, isBackground, currentTotalPages, generation)
+                                }
+                            } else {
+                                // 仅在全量模式结束时（含被强行打破阻断转为全量的），执行本地垃圾清理
+                                if (!currentIsSmartSync) {
+                                    FavoriteUtil.cleanupDeletedFavorites(accumulatedList)
+                                }
+                                // 正常结束，释放锁
+                                releaseStateIfCurrent(generation)
+                            }
                         }
                     } else {
-                        finishRefresh(accumulatedList)
+                        if (page == 1) {
+                            viewModelScope.launch(Dispatchers.Main) {
+                                _uiState.value = _uiState.value.copy(isRefreshing = false)
+                            }
+                        }
+                        // 第一页没数据，释放锁
+                        releaseStateIfCurrent(generation)
                     }
                 }
             }
 
             override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
-                t.printStackTrace()
-                finishRefresh(accumulatedList)
-            }
-        })
-    }
+                // 哪怕失败了，如果已经是旧任务了，也别去动UI
+                if (generation != fetchGeneration.get()) return
 
-    private fun finishRefresh(accumulatedList: ArrayList<Favorite>) {
-        if (accumulatedList.isNotEmpty()) {
-            FavoriteUtil.addFavorite(accumulatedList) {
+                t.printStackTrace()
                 viewModelScope.launch(Dispatchers.Main) {
                     _uiState.value = _uiState.value.copy(isRefreshing = false)
                 }
+                // 网络失败，释放锁
+                releaseStateIfCurrent(generation)
             }
-        } else {
-            viewModelScope.launch(Dispatchers.Main) {
-                _uiState.value = _uiState.value.copy(isRefreshing = false)
-            }
-        }
+        })
     }
-
     fun clickHandler(favorite: Favorite, navController: NavController) {
         val urlEncoded = URLEncoder.encode(favorite.url, "utf-8")
+
+        nextResumeStrategy = RefreshStrategy.SMART
+
         when (favorite.type) {
             1 -> navController.navigate("ReaderPage/$urlEncoded")
             2 -> {
@@ -151,9 +336,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 val encodedOriginal = URLEncoder.encode(favorite.url, "utf-8")
                 navController.navigate("MangaWebPage/$encodedTarget/$encodedOriginal?fastForward=false&initialPage=${favorite.lastPage}")
             }
-
             3 -> navController.navigate("OtherWebPage/$urlEncoded")
-            else -> navController.navigate("ProbingPage/$urlEncoded") // 0 或 未知
+            else -> navController.navigate("ProbingPage/$urlEncoded")
         }
     }
 
