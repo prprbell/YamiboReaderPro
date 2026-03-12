@@ -254,7 +254,7 @@ fun NativeMangaPage(
     val performExit = {
         val window = activity?.window
         if (window != null) {
-            WindowCompat.setDecorFitsSystemWindows(window, true)
+            // WindowCompat.setDecorFitsSystemWindows(window, true)
             WindowCompat.getInsetsController(window, view).apply {
                 show(WindowInsetsCompat.Type.systemBars())
                 isAppearanceLightStatusBars = true // 提前切回暗色图标，防看不见
@@ -275,7 +275,7 @@ fun NativeMangaPage(
     val returnToOriginalPost = {
         val window = activity?.window
         if (window != null) {
-            WindowCompat.setDecorFitsSystemWindows(window, true)
+            //WindowCompat.setDecorFitsSystemWindows(window, true)
             WindowCompat.getInsetsController(window, view).apply {
                 show(WindowInsetsCompat.Type.systemBars())
                 isAppearanceLightStatusBars = true

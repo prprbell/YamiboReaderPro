@@ -414,7 +414,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                             easing = FastOutSlowInEasing
                                         )
                                     ) + fadeOut(
-                                        targetAlpha = 0.1f,
+                                        targetAlpha = 0.01f,
                                         animationSpec = tween(
                                             durationMillis = 250,
                                             easing = FastOutSlowInEasing
