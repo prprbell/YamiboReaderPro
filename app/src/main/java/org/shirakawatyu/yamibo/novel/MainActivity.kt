@@ -17,9 +17,12 @@ import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -387,17 +390,36 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 ),
                                 // 覆盖默认的长延迟淡出动画
                                 enterTransition = {
-                                    // 进入原生漫画页时，保留一点平滑的淡入
-                                    fadeIn(tween(150))
+                                    // 进入时：从 85% 大小开始，带阻尼感地放大至全屏，同时淡入
+                                    scaleIn(
+                                        initialScale = 0.50f,
+                                        animationSpec = tween(
+                                            durationMillis = 300,
+                                            easing = FastOutSlowInEasing
+                                        )
+                                    ) + fadeIn(
+                                        animationSpec = tween(
+                                            durationMillis = 300,
+                                            easing = FastOutSlowInEasing
+                                        )
+                                    )
                                 },
-                                exitTransition = {
-                                    ExitTransition.None
-                                },
-                                popEnterTransition = {
-                                    EnterTransition.None
-                                },
+                                exitTransition = { ExitTransition.None },
+                                popEnterTransition = { EnterTransition.None },
                                 popExitTransition = {
-                                    ExitTransition.None
+                                    scaleOut(
+                                        targetScale = 0.8f,
+                                        animationSpec = tween(
+                                            durationMillis = 250,
+                                            easing = FastOutSlowInEasing
+                                        )
+                                    ) + fadeOut(
+                                        targetAlpha = 0.1f,
+                                        animationSpec = tween(
+                                            durationMillis = 250,
+                                            easing = FastOutSlowInEasing
+                                        )
+                                    )
                                 }
                             ) { backStackEntry ->
                                 val url = backStackEntry.arguments?.getString("url") ?: ""

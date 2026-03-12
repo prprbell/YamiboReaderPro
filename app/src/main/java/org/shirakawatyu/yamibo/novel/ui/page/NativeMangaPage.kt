@@ -404,12 +404,10 @@ fun NativeMangaPage(
                             if (isLeftTap) {
                                 scope.launch {
                                     val targetPage =
-                                        if (isRtl) pagerState.currentPage + 1 else pagerState.currentPage - 1
+                                        if (isRtl) pagerState.targetPage + 1 else pagerState.targetPage - 1
                                     pagerState.animateScrollToPage(
-                                        targetPage.coerceIn(
-                                            0,
-                                            pagerState.pageCount - 1
-                                        )
+                                        page = targetPage.coerceIn(0, pagerState.pageCount - 1),
+                                        animationSpec = tween(durationMillis = 250)
                                     )
                                 }
                             } else if (isRightTap) {
@@ -460,19 +458,14 @@ fun NativeMangaPage(
                                             val target =
                                                 if (isVolDown) lazyListState.firstVisibleItemIndex + 1 else lazyListState.firstVisibleItemIndex - 1
                                             lazyListState.animateScrollToItem(
-                                                target.coerceIn(
-                                                    0,
-                                                    imageUrls.size - 1
-                                                )
+                                                index = target.coerceIn(0, imageUrls.size - 1)
                                             )
                                         } else {
                                             val target =
-                                                if (isVolDown) pagerState.currentPage + 1 else pagerState.currentPage - 1
+                                                if (isVolDown) pagerState.targetPage + 1 else pagerState.targetPage - 1
                                             pagerState.animateScrollToPage(
-                                                target.coerceIn(
-                                                    0,
-                                                    pagerState.pageCount - 1
-                                                )
+                                                page = target.coerceIn(0, pagerState.pageCount - 1),
+                                                animationSpec = tween(durationMillis = 250)
                                             )
                                         }
                                     }

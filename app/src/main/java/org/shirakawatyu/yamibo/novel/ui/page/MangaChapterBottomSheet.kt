@@ -53,7 +53,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy
 import org.shirakawatyu.yamibo.novel.bean.MangaSettings
@@ -178,8 +177,7 @@ fun MangaChapterPanel(
     LaunchedEffect(sorted) {
         val index = sorted.indexOfFirst { it.isCurrent }
         if (index != -1) {
-            delay(200)
-            listState.animateScrollToItem(
+            listState.scrollToItem(
                 index = (index - 2).coerceAtLeast(0)
             )
         }
