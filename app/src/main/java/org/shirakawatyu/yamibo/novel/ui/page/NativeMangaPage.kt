@@ -500,7 +500,6 @@ fun NativeMangaPage(
                                             }
                                         }
                                     }
-                                    // 无论按下还是松开，全部 return true 强行吞掉事件，系统音量条就不会出来了
                                     return@onPreviewKeyEvent true
                                 }
                             }
@@ -514,10 +513,9 @@ fun NativeMangaPage(
                                 val touchSlop = viewConfiguration.touchSlop
 
                                 while (true) {
-                                    val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
                                     val activePointers = event.changes.filter { it.pressed }
 
-                                    // 1. 双指及以上：无条件最高优先级接管，直接计算缩放和平移
                                     if (activePointers.size > 1) {
                                         isPanning = false // 重置单指状态
                                         panOffset = Offset.Zero
@@ -525,14 +523,12 @@ fun NativeMangaPage(
                                         val zoomChange = event.calculateZoom()
                                         val panChange = event.calculatePan()
 
-                                        if (zoomChange != 1f || panChange != androidx.compose.ui.geometry.Offset.Zero) {
-                                            // 强制消费位移，把事件截断在 Initial 阶段，底层的 LazyColumn 永远收不到，杜绝冲突！
+                                        if (zoomChange != 1f || panChange != Offset.Zero) {
                                             activePointers.forEach { if (it.positionChanged()) it.consume() }
 
                                             scope.launch {
                                                 val oldScale = globalScale.value
-                                                // 我稍微调高了这里的阻尼系数 (0.4f -> 0.7f)，让缩放更跟手、更灵敏
-                                                val dampenedZoom = 1f + (zoomChange - 1f) * 0.7f
+                                                val dampenedZoom = 1f + (zoomChange - 1f) * 0.6f
                                                 val newScale = (oldScale * dampenedZoom).coerceIn(1f, 4f)
 
                                                 val scaleDelta = newScale / oldScale
@@ -556,11 +552,9 @@ fun NativeMangaPage(
                                             }
                                         }
                                     }
-                                    // 2. 单指且放大状态下的画面拖拽逻辑
                                     else if (activePointers.size == 1 && globalScale.value > 1f) {
                                         val panChange = event.calculatePan()
                                         if (panChange != Offset.Zero) {
-                                            // 必须先跨越 TouchSlop 才算作拖拽，防止误杀用户的普通点击事件 (Tap)
                                             if (!isPanning) {
                                                 panOffset += panChange
                                                 if (panOffset.getDistance() > touchSlop) {
@@ -594,10 +588,9 @@ fun NativeMangaPage(
                                             }
                                         }
                                     }
-                                    // 3. 所有手指抬起时重置单指拖拽状态
                                     else if (activePointers.isEmpty()) {
                                         isPanning = false
-                                        panOffset = androidx.compose.ui.geometry.Offset.Zero
+                                        panOffset = Offset.Zero
                                     }
                                 }
                             }
