@@ -1,15 +1,14 @@
 package org.shirakawatyu.yamibo.novel.module
 
 import android.graphics.Bitmap
-import android.os.Build
 import android.util.Log
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
-import androidx.annotation.RequiresApi
 import com.alibaba.fastjson2.JSON
 import com.alibaba.fastjson2.JSONException
+import java.io.ByteArrayInputStream
 
 /**
  * 小说界面的 WebViewClient，用于处理小说内容页面的加载逻辑。
@@ -28,6 +27,31 @@ class PassageWebViewClient(
 
     // 用于防止onPageFinished在onReceivedError之后错误地报告成功
     private var hasErrorOccurred = false
+
+    override fun shouldInterceptRequest(
+        view: WebView?,
+        request: WebResourceRequest?
+    ): WebResourceResponse? {
+        val fullUrl = request?.url?.toString()?.lowercase() ?: ""
+
+        // 截取掉 URL 中 "?" 后面的参数 (例如将 ".css?JXg" 变成 ".css")
+        val baseUrl = fullUrl.substringBefore("?")
+
+        // 屏蔽 CSS、字体以及统计脚本
+        if (baseUrl.endsWith(".css") ||
+            baseUrl.endsWith(".woff") ||
+            baseUrl.endsWith(".woff2") ||
+            baseUrl.endsWith(".ttf") ||
+            fullUrl.contains("google-analytics") ||
+            fullUrl.contains("hm.js")
+        ) {
+            // 根据拦截资源类型返回合适的 MimeType
+            val mimeType = if (baseUrl.endsWith(".css")) "text/css" else "text/plain"
+            return WebResourceResponse(mimeType, "utf-8", ByteArrayInputStream(ByteArray(0)))
+        }
+        return super.shouldInterceptRequest(view, request)
+    }
+
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         if (url != null) {
             // Log.i(logTag, url)

@@ -47,13 +47,13 @@ fun PassageWebView(
 
                 settings.javaScriptEnabled = true
                 settings.useWideViewPort = true
-                if (loadImages) {
-                    settings.loadsImagesAutomatically = true
-                    settings.blockNetworkImage = false
-                } else {
-                    settings.loadsImagesAutomatically = false
-                    settings.blockNetworkImage = true
-                }
+//                if (loadImages) {
+//                    settings.loadsImagesAutomatically = true
+//                    settings.blockNetworkImage = false
+//                } else {
+                settings.loadsImagesAutomatically = false
+                settings.blockNetworkImage = true
+
                 webViewClient = passageWebViewClient
                 webChromeClient = GlobalData.webChromeClient
 
