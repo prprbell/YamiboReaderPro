@@ -605,7 +605,7 @@ fun NativeMangaPage(
                                                 launch { globalOffsetX.animateTo(0f, tween(300)) }
                                                 launch { globalOffsetY.animateTo(0f, tween(300)) }
                                             } else {
-                                                val targetScale = 1.75f
+                                                val targetScale = 2.0f
                                                 val centerPx =
                                                     Offset(screenWidthPx / 2f, screenHeightPx / 2f)
                                                 val targetOffsetX =
