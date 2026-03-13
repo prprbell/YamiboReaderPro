@@ -3,6 +3,7 @@ package org.shirakawatyu.yamibo.novel
 import android.app.Application
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.disk.DiskCache
 import coil.memory.MemoryCache
 
 class YamiboApplication : Application(), ImageLoaderFactory {
@@ -12,6 +13,12 @@ class YamiboApplication : Application(), ImageLoaderFactory {
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.40)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("image_cache"))
+                    .maxSizeBytes(168L * 1024 * 1024)
                     .build()
             }
             .crossfade(false)

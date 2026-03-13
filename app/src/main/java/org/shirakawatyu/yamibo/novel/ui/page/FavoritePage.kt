@@ -51,6 +51,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -75,7 +76,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import coil.annotation.ExperimentalCoilApi
+import coil.imageLoader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
@@ -567,7 +572,7 @@ fun FavoritePage(
     }
 }
 
-// 在文件末尾添加缓存管理对话框
+@OptIn(ExperimentalCoilApi::class)
 @Composable
 fun CacheManagementDialog(
     favoriteList: List<Favorite>,
@@ -577,6 +582,18 @@ fun CacheManagementDialog(
     onClearAll: () -> Unit
 ) {
     var showClearAllConfirm by remember { mutableStateOf(false) }
+
+    // 用于图片缓存管理的上下文和协程
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var imageCacheSize by remember { mutableLongStateOf(0L) }
+
+    // 获取Coil图片磁盘缓存的大小
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            imageCacheSize = context.imageLoader.diskCache?.size ?: 0L
+        }
+    }
 
     // 格式化文件大小的辅助函数
     fun formatFileSize(bytes: Long): String {
@@ -602,15 +619,69 @@ fun CacheManagementDialog(
                     .fillMaxWidth()
                     .heightIn(max = 500.dp)
             ) {
-                // 统计信息
-                val totalCached = cacheInfoMap.values.sumOf { it.totalPages }
+                // 图片缓存管理区块
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "图片缓存 (漫画)",
+                                fontSize = 14.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "占用空间: ${formatFileSize(imageCacheSize)}",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    // 清理磁盘缓存和内存缓存
+                                    context.imageLoader.diskCache?.clear()
+                                    context.imageLoader.memoryCache?.clear()
+                                    // 重新读取大小
+                                    imageCacheSize = context.imageLoader.diskCache?.size ?: 0L
+                                }
+                            },
+                            enabled = imageCacheSize > 0
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "清理图片",
+                                tint = if (imageCacheSize > 0) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(bottom = 6.dp))
+
+                // 文本统计信息
+                // val totalCached = cacheInfoMap.values.sumOf { it.totalPages }
                 val totalSize = cacheInfoMap.values.sumOf { it.totalSize }
 
                 if (cacheInfoMap.isNotEmpty()) {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 16.dp),
+                            .padding(bottom = 12.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                         )
@@ -618,18 +689,9 @@ fun CacheManagementDialog(
                         Column(
                             modifier = Modifier.padding(16.dp)
                         ) {
-                            Text(
-                                "总计: ${cacheInfoMap.size} 部作品",
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                "缓存页数: $totalCached 页",
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                "占用空间: ${formatFileSize(totalSize)}",
-                                fontSize = 14.sp
-                            )
+                            Text("文本缓存总计: ${cacheInfoMap.size} 部作品", fontSize = 14.sp)
+                            // Text("缓存页数: $totalCached 页", fontSize = 14.sp)
+                            Text("占用空间: ${formatFileSize(totalSize)}", fontSize = 14.sp)
                         }
                     }
 
@@ -641,14 +703,10 @@ fun CacheManagementDialog(
                     ) {
                         // 分离数据
                         val favoriteUrls = favoriteList.map { it.url }.toSet()
-
                         // 仍在收藏中的缓存 (有标题)
-                        val favoriteCaches =
-                            favoriteList.filter { cacheInfoMap.containsKey(it.url) }
-
+                        val favoriteCaches = favoriteList.filter { cacheInfoMap.containsKey(it.url) }
                         // 已移除的缓存 (孤立的)
-                        val orphanedCaches =
-                            cacheInfoMap.values.filter { !favoriteUrls.contains(it.url) }
+                        val orphanedCaches = cacheInfoMap.values.filter { !favoriteUrls.contains(it.url) }
 
                         items(
                             items = favoriteCaches,
@@ -683,7 +741,6 @@ fun CacheManagementDialog(
                                     )
                                 }
                             }
-                            HorizontalDivider()
                         }
                         // 3. 渲染孤立的缓存
                         if (orphanedCaches.isNotEmpty()) {
@@ -732,7 +789,7 @@ fun CacheManagementDialog(
                         }
                     }
                 } else {
-                    // 无缓存提示
+                    // 无文本缓存提示
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -747,16 +804,9 @@ fun CacheManagementDialog(
                         )
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            "暂无缓存",
+                            "暂无文本缓存",
                             fontSize = 16.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "在阅读页面点击缓存按钮\n即可开始缓存小说",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            textAlign = TextAlign.Center
                         )
                     }
                 }
@@ -770,7 +820,7 @@ fun CacheManagementDialog(
                         contentColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Text("清空所有缓存")
+                    Text("清空所有文本缓存")
                 }
             }
         },
@@ -786,7 +836,7 @@ fun CacheManagementDialog(
         AlertDialog(
             onDismissRequest = { showClearAllConfirm = false },
             title = { Text("确认清空") },
-            text = { Text("确定要清空所有缓存吗？此操作不可撤销。") },
+            text = { Text("确定要清空所有文本缓存吗？此操作不可撤销。") },
             confirmButton = {
                 TextButton(
                     onClick = {

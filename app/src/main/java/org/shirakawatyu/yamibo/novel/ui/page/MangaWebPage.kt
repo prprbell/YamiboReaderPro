@@ -242,13 +242,16 @@ fun MangaWebPage(
                 displayZoomControls = false
                 textZoom = 100
                 domStorageEnabled = true
+                blockNetworkImage = showBlackScreen
             }
             addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
             this.webChromeClient = webChromeClient
         }
     }
-
+    LaunchedEffect(showBlackScreen) {
+        mangaWebView.settings.blockNetworkImage = showBlackScreen
+    }
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
             val cleanHtml = try {
