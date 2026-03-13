@@ -370,7 +370,7 @@ fun MangaChapterPanel(
                                     .background(Color(0xFF1C2028))
                                     .padding(horizontal = 12.dp, vertical = 5.dp)
                             ) {
-                                Text(text = "校正漫画名称", color = Accent, fontSize = 12.sp)
+                                Text(text = "校正漫画信息", color = Accent, fontSize = 12.sp)
                             }
                         }
 
