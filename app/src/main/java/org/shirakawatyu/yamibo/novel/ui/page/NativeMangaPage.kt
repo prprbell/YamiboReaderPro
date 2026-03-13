@@ -23,6 +23,8 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,6 +84,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -100,6 +103,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+
 import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.CachePolicy
@@ -160,37 +164,6 @@ fun NativeMangaPage(
     // 追踪屏幕上的手指数量，用于精准识别多指手势并锁定页面滑动
     var activePointers by remember { mutableIntStateOf(0) }
     val isMultiTouch by remember { derivedStateOf { activePointers > 1 } }
-    // 1. 双指手势：以屏幕中心为原点，等比例缩放平移量
-    val transformableState =
-        rememberTransformableState { zoomChange, panChange, _ ->
-            if (isVerticalMode) {
-                scope.launch {
-                    val oldScale = globalScale.value
-                    val dampenedZoom = 1f + (zoomChange - 1f) * 0.4f
-                    val newScale = (oldScale * dampenedZoom).coerceIn(1f, 4f)
-
-                    val scaleDelta = newScale / oldScale
-                    var newOffsetX = globalOffsetX.value * scaleDelta + panChange.x
-                    var newOffsetY = globalOffsetY.value * scaleDelta + panChange.y
-
-                    val maxX = (screenWidthPx * (newScale - 1)) / 2f
-                    val maxY = (screenHeightPx * (newScale - 1)) / 2f
-
-                    newOffsetX = newOffsetX.coerceIn(-maxX, maxX)
-                    newOffsetY = newOffsetY.coerceIn(-maxY, maxY)
-
-                    globalScale.snapTo(newScale)
-                    if (newScale > 1f) {
-                        globalOffsetX.snapTo(newOffsetX)
-                        globalOffsetY.snapTo(newOffsetY)
-                    } else {
-                        globalOffsetX.snapTo(0f)
-                        globalOffsetY.snapTo(0f)
-                    }
-                }
-            }
-        }
-
 
     // ====== 修复闪图与无响应核心：稳定化点击回调 ======
     // 将 Lambda 包裹在 remember 中，避免因 showUi 的变化导致图片组件无谓重组
@@ -278,7 +251,7 @@ fun NativeMangaPage(
 
         val previousRoute = navController.previousBackStackEntry?.destination?.route
 
-        if (previousRoute?.startsWith("MangaWebPage") == true) {
+        if (previousRoute?.startsWith("MangaWebPage") == true|| previousRoute == "BBSPage" || previousRoute == "MinePage") {
             navController.navigateUp()
         } else {
             val encodedChapterUrl = URLEncoder.encode(url, "utf-8")
@@ -533,45 +506,103 @@ fun NativeMangaPage(
                             }
                             false
                         }
-                        .transformable(transformableState)
-                        .pointerInput(isVerticalMode, globalScale.value > 1f) {
-                            if (isVerticalMode && globalScale.value > 1f) {
-                                detectDragGestures { change, dragAmount ->
-                                    // 如果正在两指缩放，不处理单指平移
-                                    if (isMultiTouch) return@detectDragGestures
+                        .pointerInput(isVerticalMode) {
+                            if (!isVerticalMode) return@pointerInput
+                            awaitPointerEventScope {
+                                var isPanning = false
+                                var panOffset = Offset.Zero
+                                val touchSlop = viewConfiguration.touchSlop
 
-                                    // 消耗掉滑动事件，强行接管 LazyColumn 的原生滑动
-                                    change.consume()
+                                while (true) {
+                                    val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                    val activePointers = event.changes.filter { it.pressed }
 
-                                    scope.launch {
-                                        val scale = globalScale.value
-                                        val maxX = (screenWidthPx * (scale - 1)) / 2f
-                                        val maxY = (screenHeightPx * (scale - 1)) / 2f
+                                    // 1. 双指及以上：无条件最高优先级接管，直接计算缩放和平移
+                                    if (activePointers.size > 1) {
+                                        isPanning = false // 重置单指状态
+                                        panOffset = Offset.Zero
 
-                                        // 1. X 轴：左右平移画面（带边缘限制）
-                                        val newOffsetX = (globalOffsetX.value + dragAmount.x).coerceIn(-maxX, maxX)
-                                        globalOffsetX.snapTo(newOffsetX)
+                                        val zoomChange = event.calculateZoom()
+                                        val panChange = event.calculatePan()
 
-                                        // 2. Y 轴：上下平移画面 + 边缘无缝接力滚动
-                                        val targetOffsetY = globalOffsetY.value + dragAmount.y
+                                        if (zoomChange != 1f || panChange != androidx.compose.ui.geometry.Offset.Zero) {
+                                            // 强制消费位移，把事件截断在 Initial 阶段，底层的 LazyColumn 永远收不到，杜绝冲突！
+                                            activePointers.forEach { if (it.positionChanged()) it.consume() }
 
-                                        if (targetOffsetY > maxY) {
-                                            // 顶到画面上边缘，手指继续往下拉 -> 画面锁定在上边缘，将滑动量等比传给列表，去看上一页
-                                            globalOffsetY.snapTo(maxY)
-                                            lazyListState.dispatchRawDelta(-dragAmount.y / scale)
-                                        } else if (targetOffsetY < -maxY) {
-                                            // 顶到画面下边缘，手指继续往上推 -> 画面锁定在下边缘，将滑动量等比传给列表，去看下一页
-                                            globalOffsetY.snapTo(-maxY)
-                                            lazyListState.dispatchRawDelta(-dragAmount.y / scale)
-                                        } else {
-                                            // 在当前放大画面内部平移，列表保持静止
-                                            globalOffsetY.snapTo(targetOffsetY)
+                                            scope.launch {
+                                                val oldScale = globalScale.value
+                                                // 我稍微调高了这里的阻尼系数 (0.4f -> 0.7f)，让缩放更跟手、更灵敏
+                                                val dampenedZoom = 1f + (zoomChange - 1f) * 0.7f
+                                                val newScale = (oldScale * dampenedZoom).coerceIn(1f, 4f)
+
+                                                val scaleDelta = newScale / oldScale
+                                                var newOffsetX = globalOffsetX.value * scaleDelta + panChange.x
+                                                var newOffsetY = globalOffsetY.value * scaleDelta + panChange.y
+
+                                                val maxX = (screenWidthPx * (newScale - 1)) / 2f
+                                                val maxY = (screenHeightPx * (newScale - 1)) / 2f
+
+                                                newOffsetX = newOffsetX.coerceIn(-maxX, maxX)
+                                                newOffsetY = newOffsetY.coerceIn(-maxY, maxY)
+
+                                                globalScale.snapTo(newScale)
+                                                if (newScale > 1f) {
+                                                    globalOffsetX.snapTo(newOffsetX)
+                                                    globalOffsetY.snapTo(newOffsetY)
+                                                } else {
+                                                    globalOffsetX.snapTo(0f)
+                                                    globalOffsetY.snapTo(0f)
+                                                }
+                                            }
                                         }
+                                    }
+                                    // 2. 单指且放大状态下的画面拖拽逻辑
+                                    else if (activePointers.size == 1 && globalScale.value > 1f) {
+                                        val panChange = event.calculatePan()
+                                        if (panChange != Offset.Zero) {
+                                            // 必须先跨越 TouchSlop 才算作拖拽，防止误杀用户的普通点击事件 (Tap)
+                                            if (!isPanning) {
+                                                panOffset += panChange
+                                                if (panOffset.getDistance() > touchSlop) {
+                                                    isPanning = true
+                                                }
+                                            }
+
+                                            if (isPanning) {
+                                                activePointers.forEach { if (it.positionChanged()) it.consume() }
+
+                                                scope.launch {
+                                                    val scale = globalScale.value
+                                                    val maxX = (screenWidthPx * (scale - 1)) / 2f
+                                                    val maxY = (screenHeightPx * (scale - 1)) / 2f
+
+                                                    val newOffsetX = (globalOffsetX.value + panChange.x).coerceIn(-maxX, maxX)
+                                                    globalOffsetX.snapTo(newOffsetX)
+
+                                                    val targetOffsetY = globalOffsetY.value + panChange.y
+
+                                                    if (targetOffsetY > maxY) {
+                                                        globalOffsetY.snapTo(maxY)
+                                                        lazyListState.dispatchRawDelta(-panChange.y / scale)
+                                                    } else if (targetOffsetY < -maxY) {
+                                                        globalOffsetY.snapTo(-maxY)
+                                                        lazyListState.dispatchRawDelta(-panChange.y / scale)
+                                                    } else {
+                                                        globalOffsetY.snapTo(targetOffsetY)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // 3. 所有手指抬起时重置单指拖拽状态
+                                    else if (activePointers.isEmpty()) {
+                                        isPanning = false
+                                        panOffset = androidx.compose.ui.geometry.Offset.Zero
                                     }
                                 }
                             }
                         }
-                        .pointerInput(isVerticalMode) {
+                            .pointerInput(isVerticalMode) {
                             if (isVerticalMode) {
                                 detectTapGestures(
                                     onDoubleTap = { tapOffset ->
@@ -632,7 +663,7 @@ fun NativeMangaPage(
                                     translationY = globalOffsetY.value
                                 },
                             state = lazyListState,
-                            userScrollEnabled = !isMultiTouch && !transformableState.isTransformInProgress,
+                            userScrollEnabled = true,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             itemsIndexed(imageUrls, key = { index, _ -> index }) { index, imgUrl ->

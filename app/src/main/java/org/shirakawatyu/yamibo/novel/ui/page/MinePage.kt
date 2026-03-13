@@ -165,20 +165,7 @@ fun MinePage(
         }
     }
 
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                if (autoOpenMangaMode) {
-                    autoOpenMangaMode = false
-                }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
+
     startLoading = { webView: WebView, url: String ->
         isLoading = true
         showLoadError = false
@@ -248,7 +235,21 @@ fun MinePage(
             this.webChromeClient = webChromeClient
         }
     }
-
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                if (autoOpenMangaMode) {
+                    autoOpenMangaMode = false
+                }
+                mineWebView.onResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         mineWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
             val cleanHtml = try {
@@ -262,6 +263,10 @@ fun MinePage(
             GlobalData.tempMangaIndex = clickedIndex
             GlobalData.tempHtml = cleanHtml
             GlobalData.tempTitle = title
+
+            mineWebView.evaluateJavascript("window.stop();", null)
+            mineWebView.stopLoading()
+            mineWebView.onPause()
 
             autoOpenMangaMode = false
 
@@ -453,29 +458,42 @@ fun MinePage(
                     """.trimIndent()
                 ) { result ->
                     isMangaSection = result == "true"
-                    // 【新增】：如果是漫画/图区，拦截图片点击事件发送给 NativeMangaApi
+                    // 如果是漫画/图区，拦截图片点击事件发送给 NativeMangaApi
                     if (isMangaSection) {
                         val injectJs = """
                             javascript:(function() {
                                 document.addEventListener('click', function(e) {
-                                    var targetImg = e.target.closest('.img_one img, .message img');
-                                    if (targetImg && targetImg.src.indexOf('smiley') === -1) { 
-                                        e.preventDefault(); 
-                                        e.stopPropagation();
+                                    // 1. 扩大捕获范围：包括 a 标签和 li 标签等容器
+                                    var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
+                                    if (!targetContainer) return;
+                                    
+                                    // 2. 尝试从中找出真正的 img 元素
+                                    var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
+                                    
+                                    // 3. 如果找到了图片，且不是论坛表情，则拦截
+                                    if (targetImg) {
+                                        var imgSrc = targetImg.getAttribute('src') || '';
+                                        var imgZsrc = targetImg.getAttribute('zsrc') || '';
                                         
-                                        var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                                        var urls = [];
-                                        var clickedIndex = 0;
-                                        for (var i = 0; i < allImgs.length; i++) {
-                                            var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
-                                            if (rawSrc) {
-                                                var absoluteUrl = new URL(rawSrc, document.baseURI).href;
-                                                urls.push(absoluteUrl);
-                                                if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
+                                        if (imgSrc.indexOf('smiley') === -1 && imgZsrc.indexOf('smiley') === -1) { 
+                                            e.preventDefault(); 
+                                            e.stopPropagation();
+                                            
+                                            var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                                            var urls = [];
+                                            var clickedIndex = 0;
+                                            for (var i = 0; i < allImgs.length; i++) {
+                                                // 兼容 zsrc, file 和 src
+                                                var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
+                                                if (rawSrc) {
+                                                    var absoluteUrl = new URL(rawSrc, document.baseURI).href;
+                                                    urls.push(absoluteUrl);
+                                                    if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
+                                                }
                                             }
-                                        }
-                                        if (window.NativeMangaApi) {
-                                            window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
+                                            if (window.NativeMangaApi) {
+                                                window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
+                                            }
                                         }
                                     }
                                 }, true); 

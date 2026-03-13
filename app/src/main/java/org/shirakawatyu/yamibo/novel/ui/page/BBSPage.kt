@@ -144,6 +144,16 @@ fun BBSPage(
     val canConvertToReader = remember(currentUrl, pageTitle) {
         ReaderModeDetector.canConvertToReaderMode(currentUrl, pageTitle)
     }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                webView.onResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     // ----- 全屏状态控制 -----
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
@@ -163,7 +173,7 @@ fun BBSPage(
         }
         BBSPageState.nativeMangaApi!!
     }
-    // 【核心修复】每次重组更新最新状态，并在回调中主动向 WebView 请求全量 HTML
+    // 每次重组更新最新状态，并在回调中主动向 WebView 请求全量 HTML
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
             // 安全解析回传的 JSON 字符串
@@ -178,6 +188,10 @@ fun BBSPage(
             GlobalData.tempMangaIndex = clickedIndex
             GlobalData.tempHtml = cleanHtml
             GlobalData.tempTitle = title
+
+            webView.evaluateJavascript("window.stop();", null)
+            webView.stopLoading()
+            webView.onPause()
 
             autoOpenMangaMode = false
             val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
@@ -642,6 +656,7 @@ fun BBSPage(
                 ) { result ->
                     isMangaSection = result == "true"
                     // 如果是图区，拦截图片点击，发送给原生 NativeMangaApi
+                    // 如果是图区，拦截图片点击，发送给原生 NativeMangaApi
                     if (isMangaSection) {
                         val injectJs = """
                         javascript:(function() {
@@ -649,24 +664,37 @@ fun BBSPage(
                             window._mangaClickInjected = true;
                             
                             document.addEventListener('click', function(e) {
-                                var targetImg = e.target.closest('.img_one img, .message img');
-                                if (targetImg && targetImg.src.indexOf('smiley') === -1) { 
-                                    e.preventDefault(); 
-                                    e.stopPropagation();
-                                                                        
-                                    var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                                    var urls = [];
-                                    var clickedIndex = 0;
-                                    for (var i = 0; i < allImgs.length; i++) {
-                                        var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
-                                        if (rawSrc) {
-                                            var absoluteUrl = new URL(rawSrc, document.baseURI).href;
-                                            urls.push(absoluteUrl);
-                                            if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
+                                // 1. 扩大捕获范围：包括 a 标签和 li 标签等容器
+                                var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
+                                if (!targetContainer) return;
+                                
+                                // 2. 尝试从中找出真正的 img 元素
+                                var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
+                                
+                                // 3. 如果找到了图片，且不是论坛表情，则拦截
+                                if (targetImg) {
+                                    var imgSrc = targetImg.getAttribute('src') || '';
+                                    var imgZsrc = targetImg.getAttribute('zsrc') || '';
+                                    
+                                    if (imgSrc.indexOf('smiley') === -1 && imgZsrc.indexOf('smiley') === -1) { 
+                                        e.preventDefault(); 
+                                        e.stopPropagation();
+                                        
+                                        var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                                        var urls = [];
+                                        var clickedIndex = 0;
+                                        for (var i = 0; i < allImgs.length; i++) {
+                                            // 兼容 zsrc, file 和 src
+                                            var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
+                                            if (rawSrc) {
+                                                var absoluteUrl = new URL(rawSrc, document.baseURI).href;
+                                                urls.push(absoluteUrl);
+                                                if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
+                                            }
                                         }
-                                    }
-                                    if (window.NativeMangaApi) {
-                                        window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
+                                        if (window.NativeMangaApi) {
+                                            window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
+                                        }
                                     }
                                 }
                             }, true); 

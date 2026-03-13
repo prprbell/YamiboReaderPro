@@ -69,6 +69,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -158,20 +159,7 @@ fun MangaWebPage(
 
     val currentAutoOpenMode by rememberUpdatedState(autoOpenMangaMode)
 
-    // 生命周期监听。当从原生阅读器返回此页面时，撤销黑屏掩护
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            // 只有当页面完全结束动画、重新处于前台时，才撤销黑屏状态
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                if (isWaitingForNativeReturn) {
-                    isWaitingForNativeReturn = false
-                }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
+
     val mangaDirVM: MangaDirectoryVM = viewModel(
         factory = ViewModelFactory(LocalContext.current.applicationContext)
     )
@@ -249,6 +237,21 @@ fun MangaWebPage(
             this.webChromeClient = webChromeClient
         }
     }
+    // 生命周期监听。当从原生阅读器返回此页面时，撤销黑屏掩护
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            // 只有当页面完全结束动画、重新处于前台时，才撤销黑屏状态
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                if (isWaitingForNativeReturn) {
+                    isWaitingForNativeReturn = false
+                }
+                mangaWebView.onResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(showBlackScreen) {
         mangaWebView.settings.blockNetworkImage = showBlackScreen
     }
@@ -261,15 +264,19 @@ fun MangaWebPage(
             }
 
             val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaUrls = urls
+            GlobalData.tempMangaUrls = urls
 
             val initPage = initialPage
             val targetIndex = if (initPage > 0 && clickedIndex == 0) initPage else clickedIndex
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempMangaIndex =
+            GlobalData.tempMangaIndex =
                 targetIndex.coerceIn(0, maxOf(0, urls.size - 1))
 
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempHtml = cleanHtml
-            org.shirakawatyu.yamibo.novel.global.GlobalData.tempTitle = title
+            GlobalData.tempHtml = cleanHtml
+            GlobalData.tempTitle = title
+
+            mangaWebView.evaluateJavascript("window.stop();", null)
+            mangaWebView.stopLoading()
+            mangaWebView.onPause()
 
             autoOpenMangaMode = false
             isWaitingForNativeReturn = true
@@ -450,24 +457,37 @@ fun MangaWebPage(
                         val injectJs = """
                             javascript:(function() {
                                 document.addEventListener('click', function(e) {
-                                    var targetImg = e.target.closest('.img_one img, .message img');
-                                    if (targetImg && targetImg.src.indexOf('smiley') === -1) { 
-                                        e.preventDefault(); 
-                                        e.stopPropagation();
+                                    // 1. 扩大捕获范围：找到包含图片的最外层包裹器（包括 a 标签和 li 标签）
+                                    var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
+                                    if (!targetContainer) return;
+                                    
+                                    // 2. 尝试从中找出真正的 img 元素
+                                    var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
+                                    
+                                    // 3. 如果找到了图片，且不是论坛的表情包，则实施拦截
+                                    if (targetImg) {
+                                        var imgSrc = targetImg.getAttribute('src') || '';
+                                        var imgZsrc = targetImg.getAttribute('zsrc') || '';
                                         
-                                        var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                                        var urls = [];
-                                        var clickedIndex = 0;
-                                        for (var i = 0; i < allImgs.length; i++) {
-                                            var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
-                                            if (rawSrc) {
-                                                var absoluteUrl = new URL(rawSrc, document.baseURI).href;
-                                                urls.push(absoluteUrl);
-                                                if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
+                                        if (imgSrc.indexOf('smiley') === -1 && imgZsrc.indexOf('smiley') === -1) { 
+                                            e.preventDefault(); 
+                                            e.stopPropagation();
+                                            
+                                            var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                                            var urls = [];
+                                            var clickedIndex = 0;
+                                            for (var i = 0; i < allImgs.length; i++) {
+                                                // Discuz 论坛的图片链接可能存放在 zsrc, file 或 src 中
+                                                var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
+                                                if (rawSrc) {
+                                                    var absoluteUrl = new URL(rawSrc, document.baseURI).href;
+                                                    urls.push(absoluteUrl);
+                                                    if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
+                                                }
                                             }
-                                        }
-                                        if (window.NativeMangaApi) {
-                                            window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
+                                            if (window.NativeMangaApi) {
+                                                window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
+                                            }
                                         }
                                     }
                                 }, true); 
