@@ -217,7 +217,7 @@ fun MangaChapterPanel(
                 .align(Alignment.BottomCenter)
                 .offset(y = offsetY.value.dp)
                 .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                .background(BgSheet)
+                .background(BgSheet.copy(alpha = 0.95f))
         ) {
             Box(
                 modifier = Modifier

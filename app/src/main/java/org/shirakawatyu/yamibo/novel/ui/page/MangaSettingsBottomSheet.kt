@@ -87,7 +87,7 @@ fun MangaSettingsPanel(
                 .align(Alignment.BottomCenter)
                 .offset(y = offsetY.value.dp)
                 .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                .background(BgSheet)
+                .background(BgSheet.copy(alpha = 0.95f))
                 .padding(bottom = 96.dp)
         ) {
             // 顶部拖拽条及事件拦截

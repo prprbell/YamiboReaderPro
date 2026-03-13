@@ -293,19 +293,6 @@ fun BBSPage(
             }
         }
     }
-    // 1. 监听大图退出状态，执行积压的跳转任务
-    LaunchedEffect(isFullscreenState.value) {
-        if (!isFullscreenState.value) {
-            pendingNavigateUrl?.let { url ->
-                isLoading = true
-
-                webView.loadUrl(url)
-                pendingNavigateUrl = null
-            }
-        } else if (isFullscreenState.value && autoOpenMangaMode) {
-            autoOpenMangaMode = false
-        }
-    }
 
     // 2. 监听页面加载完成，注入基于事件驱动的监听 JS
     LaunchedEffect(isLoading) {

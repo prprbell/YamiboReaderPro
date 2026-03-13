@@ -675,7 +675,7 @@ fun NativeMangaPage(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(24.dp))
-                        .background(Color(0xFF1E1E22).copy(alpha = 0.95f))
+                        .background(Color(0xFF1E1E22).copy(alpha = 0.90f))
                         .pointerInput(Unit) { detectTapGestures {} }
                 ) {
                     Column(
@@ -761,19 +761,19 @@ fun NativeMangaPage(
                             Spacer(modifier = Modifier.height(8.dp))
                         }
 
-                        // 2. 底部操作栏（设置 - 页码 - 目录）
+                        // 2. 底部操作栏（目录 - 页码 - 设置）
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // 左侧：设置
+                            // 左侧：目录
                             TextButton(
-                                onClick = { showSettingsPanel = true },
+                                onClick = { showChapterList = true },
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                             ) {
                                 Text(
-                                    "设置",
+                                    "目录",
                                     color = Color.LightGray,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -796,18 +796,19 @@ fun NativeMangaPage(
                                 )
                             }
                             Spacer(modifier = Modifier.width(50.dp))
-                            // 右侧：目录
+                            // 右侧：设置
                             TextButton(
-                                onClick = { showChapterList = true },
+                                onClick = { showSettingsPanel = true },
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                             ) {
                                 Text(
-                                    "目录",
+                                    "设置",
                                     color = Color.LightGray,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
+
                         }
                     }
                 }
