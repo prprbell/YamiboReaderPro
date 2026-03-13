@@ -16,15 +16,9 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -103,7 +97,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-
 import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.CachePolicy
@@ -251,7 +244,7 @@ fun NativeMangaPage(
 
         val previousRoute = navController.previousBackStackEntry?.destination?.route
 
-        if (previousRoute?.startsWith("MangaWebPage") == true|| previousRoute == "BBSPage" || previousRoute == "MinePage") {
+        if (previousRoute?.startsWith("MangaWebPage") == true || previousRoute == "BBSPage" || previousRoute == "MinePage") {
             navController.navigateUp()
         } else {
             val encodedChapterUrl = URLEncoder.encode(url, "utf-8")
@@ -529,11 +522,14 @@ fun NativeMangaPage(
                                             scope.launch {
                                                 val oldScale = globalScale.value
                                                 val dampenedZoom = 1f + (zoomChange - 1f) * 0.6f
-                                                val newScale = (oldScale * dampenedZoom).coerceIn(1f, 4f)
+                                                val newScale =
+                                                    (oldScale * dampenedZoom).coerceIn(1f, 4f)
 
                                                 val scaleDelta = newScale / oldScale
-                                                var newOffsetX = globalOffsetX.value * scaleDelta + panChange.x
-                                                var newOffsetY = globalOffsetY.value * scaleDelta + panChange.y
+                                                var newOffsetX =
+                                                    globalOffsetX.value * scaleDelta + panChange.x
+                                                var newOffsetY =
+                                                    globalOffsetY.value * scaleDelta + panChange.y
 
                                                 val maxX = (screenWidthPx * (newScale - 1)) / 2f
                                                 val maxY = (screenHeightPx * (newScale - 1)) / 2f
@@ -551,8 +547,7 @@ fun NativeMangaPage(
                                                 }
                                             }
                                         }
-                                    }
-                                    else if (activePointers.size == 1 && globalScale.value > 1f) {
+                                    } else if (activePointers.size == 1 && globalScale.value > 1f) {
                                         val panChange = event.calculatePan()
                                         if (panChange != Offset.Zero) {
                                             if (!isPanning) {
@@ -563,39 +558,55 @@ fun NativeMangaPage(
                                             }
 
                                             if (isPanning) {
-                                                activePointers.forEach { if (it.positionChanged()) it.consume() }
+                                                val scale = globalScale.value
+                                                val maxX = (screenWidthPx * (scale - 1)) / 2f
+                                                val maxY = (screenHeightPx * (scale - 1)) / 2f
 
-                                                scope.launch {
-                                                    val scale = globalScale.value
-                                                    val maxX = (screenWidthPx * (scale - 1)) / 2f
-                                                    val maxY = (screenHeightPx * (scale - 1)) / 2f
+                                                val isAtTopLimit = !lazyListState.canScrollBackward
+                                                val isAtBottomLimit =
+                                                    !lazyListState.canScrollForward
 
-                                                    val newOffsetX = (globalOffsetX.value + panChange.x).coerceIn(-maxX, maxX)
-                                                    globalOffsetX.snapTo(newOffsetX)
+                                                val shouldInterceptY =
+                                                    (isAtTopLimit && panChange.y > 0) || (isAtBottomLimit && panChange.y < 0)
 
-                                                    val targetOffsetY = globalOffsetY.value + panChange.y
+                                                if (shouldInterceptY) {
+                                                    activePointers.forEach { if (it.positionChanged()) it.consume() }
 
-                                                    if (targetOffsetY > maxY) {
-                                                        globalOffsetY.snapTo(maxY)
-                                                        lazyListState.dispatchRawDelta(-panChange.y / scale)
-                                                    } else if (targetOffsetY < -maxY) {
-                                                        globalOffsetY.snapTo(-maxY)
-                                                        lazyListState.dispatchRawDelta(-panChange.y / scale)
-                                                    } else {
+                                                    scope.launch {
+                                                        val newOffsetX =
+                                                            (globalOffsetX.value + panChange.x).coerceIn(
+                                                                -maxX,
+                                                                maxX
+                                                            )
+                                                        globalOffsetX.snapTo(newOffsetX)
+
+                                                        val targetOffsetY =
+                                                            (globalOffsetY.value + panChange.y).coerceIn(
+                                                                -maxY,
+                                                                maxY
+                                                            )
                                                         globalOffsetY.snapTo(targetOffsetY)
+                                                    }
+                                                } else {
+                                                    scope.launch {
+                                                        val newOffsetX =
+                                                            (globalOffsetX.value + panChange.x).coerceIn(
+                                                                -maxX,
+                                                                maxX
+                                                            )
+                                                        globalOffsetX.snapTo(newOffsetX)
                                                     }
                                                 }
                                             }
                                         }
-                                    }
-                                    else if (activePointers.isEmpty()) {
+                                    } else if (activePointers.isEmpty()) {
                                         isPanning = false
                                         panOffset = Offset.Zero
                                     }
                                 }
                             }
                         }
-                            .pointerInput(isVerticalMode) {
+                        .pointerInput(isVerticalMode) {
                             if (isVerticalMode) {
                                 detectTapGestures(
                                     onDoubleTap = { tapOffset ->
@@ -719,7 +730,10 @@ fun NativeMangaPage(
                                             onClick = horizontalPagerClick
                                         )
                                     } else {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
                                             CircularProgressIndicator(color = YamiboColors.primary)
                                         }
                                     }
