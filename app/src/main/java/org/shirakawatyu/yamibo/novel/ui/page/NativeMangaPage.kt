@@ -966,9 +966,24 @@ fun NativeMangaPage(
                             isRead = false
                         )
                     } ?: emptyList()
+
+                    // 智能提取初始的作者名，如果用户之前保存过，就从里面抠出来
+                    val initialAuthor = remember(mangaDirVM.currentDirectory) {
+                        val dir = mangaDirVM.currentDirectory
+                        if (dir?.searchKeyword != null && dir.searchKeyword.endsWith(dir.cleanBookName)) {
+                            dir.searchKeyword.removeSuffix(dir.cleanBookName).trim()
+                        } else {
+                            dir?.chapters?.firstNotNullOfOrNull {
+                                MangaTitleCleaner.extractAuthorPrefix(it.rawTitle)
+                                    .takeIf { author -> author.isNotBlank() }
+                            } ?: ""
+                        }
+                    }
+
                     MangaChapterPanel(
                         modifier = Modifier.align(Alignment.BottomCenter),
                         title = mangaDirVM.currentDirectory?.cleanBookName ?: "目录",
+                        initialAuthor = initialAuthor,
                         chapters = displayChapters,
                         isUpdating = mangaDirVM.isUpdatingDirectory,
                         cooldownSeconds = mangaDirVM.directoryCooldown,
@@ -980,8 +995,10 @@ fun NativeMangaPage(
                             showChapterList = false
                             showUi = false
                         },
-                        onTitleEdit = { newTitle ->
-                            mangaDirVM.renameDirectory(newTitle)
+                        onTitleEdit = { newTitle, newAuthor ->
+                            val newSearchKeyword =
+                                if (newAuthor.isNotBlank()) "$newAuthor $newTitle".trim() else newTitle.trim()
+                            mangaDirVM.renameDirectory(newTitle.trim(), newSearchKeyword)
                         },
                         onChapterClick = { chapter ->
                             if (chapter.url.isNotEmpty()) {

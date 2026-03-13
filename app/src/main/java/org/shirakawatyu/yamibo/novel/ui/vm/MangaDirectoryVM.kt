@@ -41,13 +41,9 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
     fun initDirectoryFromWeb(url: String, html: String, title: String) {
         val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: return
         viewModelScope.launch {
-            // 调用我们之前写好的底层解析与降级保底逻辑
             val dir = repo.initDirectoryForThread(tid, url, title, html)
             currentDirectory = dir
 
-            // ==========================================
-            // 如果判定为 TAG 策略（低开销）且从未更新过完整目录，直接触发更新
-            // ==========================================
             if (dir.strategy == DirectoryStrategy.TAG && dir.lastUpdateTime == 0L) {
                 updateMangaDirectory()
             }
@@ -84,14 +80,14 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
 
                 if (updateResult.searchPerformed) {
                     // 如果执行了搜索（无论是强制还是自动降级），进入 30s 冷却
-                    startDirectoryCooldown(30)
+                    startDirectoryCooldown(20)
                 } else {
                     // 如果是 TAG 更新成功，开启 5s 的“全局搜索”窗口期
                     triggerSearchShortcutWindow()
                 }
             }.onFailure { error ->
                 if (error.message?.contains("搜索冷却") == true) {
-                    startDirectoryCooldown(30)
+                    startDirectoryCooldown(20)
                 } else {
                     startDirectoryCooldown(5)
                 }
@@ -122,12 +118,13 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun renameDirectory(newTitle: String) {
+    fun renameDirectory(newTitle: String, newSearchKeyword: String) {
         val dir = currentDirectory ?: return
-        if (dir.cleanBookName == newTitle || isUpdatingDirectory) return
+        if (dir.cleanBookName == newTitle && dir.searchKeyword == newSearchKeyword) return
+        if (isUpdatingDirectory) return
 
         viewModelScope.launch {
-            val mergedDir = repo.renameAndMergeDirectory(dir, newTitle)
+            val mergedDir = repo.renameAndMergeDirectory(dir, newTitle, newSearchKeyword)
             currentDirectory = mergedDir
         }
     }

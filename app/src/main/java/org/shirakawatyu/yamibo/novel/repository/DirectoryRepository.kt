@@ -322,8 +322,7 @@ class DirectoryRepository private constructor(private val context: Context) {
             val firstRawTitle =
                 currentDir.chapters.firstOrNull()?.rawTitle ?: currentDir.cleanBookName
             val autoCleanName = MangaTitleCleaner.getCleanBookName(firstRawTitle)
-            val exactKeyword =
-                if (currentDir.cleanBookName != autoCleanName) currentDir.cleanBookName else null
+            val exactKeyword = currentDir.searchKeyword
 
             if (!forceSearch && currentDir.strategy == DirectoryStrategy.TAG) {
                 val tagIdList = currentDir.sourceKey.split(",")
@@ -391,10 +390,10 @@ class DirectoryRepository private constructor(private val context: Context) {
         exactKeyword: String? = null
     ): Result<List<MangaChapterItem>> {
         val now = System.currentTimeMillis()
-        if (now - GlobalData.lastSearchTimestamp.get() < 30_000L) return Result.failure(Exception("搜索冷却中，请等待30秒"))
+        if (now - GlobalData.lastSearchTimestamp.get() < 20_000L) return Result.failure(Exception("搜索冷却中，请等待20秒"))
         GlobalData.lastSearchTimestamp.set(now)
 
-        // 如果有精确词（用户手修的），就用精确词；否则用正则洗出来的
+        // 如果有精确词，就用精确词；否则用正则洗出来的
         val safeKeyword = exactKeyword ?: MangaTitleCleaner.getSearchKeyword(rawTitle)
 
         // 1. 获取第一页数据
@@ -489,52 +488,55 @@ class DirectoryRepository private constructor(private val context: Context) {
 
     suspend fun renameAndMergeDirectory(
         currentDir: MangaDirectory,
-        newCleanName: String
+        newCleanName: String,
+        newSearchKeyword: String
     ): MangaDirectory = withContext(Dispatchers.IO) {
         val oldName = currentDir.cleanBookName
-        if (oldName == newCleanName) return@withContext currentDir
 
-        // 按字母顺序获取锁，彻底杜绝死锁风险
-        val lock1 = getFileLock(if (oldName < newCleanName) oldName else newCleanName)
-        val lock2 = getFileLock(if (oldName < newCleanName) newCleanName else oldName)
+        if (oldName == newCleanName && currentDir.searchKeyword == newSearchKeyword) return@withContext currentDir
 
-        lock1.withLock {
-            lock2.withLock {
-                val targetDir = loadDirectory(newCleanName)
-
-                // 1. 合并章节（如果目标目录存在）
-                val mergedChapters = if (targetDir != null) {
-                    mergeAndSortChapters(targetDir.chapters, currentDir.chapters)
-                } else {
-                    currentDir.chapters
-                }
-
-                // 2. 关键：保留正确的 sourceKey 和 strategy
-                val newStrategy = targetDir?.strategy ?: currentDir.strategy
-                val newSourceKey = if (targetDir != null) {
-                    targetDir.sourceKey
-                } else {
-                    if (currentDir.strategy == DirectoryStrategy.TAG) currentDir.sourceKey else newCleanName
-                }
-
-                // 3. 组装新目录对象
-                val mergedDir = MangaDirectory(
-                    cleanBookName = newCleanName,
-                    strategy = newStrategy,
-                    sourceKey = newSourceKey,
-                    chapters = mergedChapters,
+        if (oldName == newCleanName) {
+            getFileLock(oldName).withLock {
+                val mergedDir = currentDir.copy(
+                    searchKeyword = newSearchKeyword,
                     lastUpdateTime = System.currentTimeMillis()
                 )
-
-                // 4. 保存新目录
                 saveDirectory(mergedDir)
-
-                // 5. 彻底删除旧的错名残骸目录文件
-                val oldFile = getDirectoryFile(oldName)
-                if (oldFile.exists()) oldFile.delete()
-                memoryCache.remove(oldName)
-
                 return@withLock mergedDir
+            }
+        } else {
+            val lock1 = getFileLock(if (oldName < newCleanName) oldName else newCleanName)
+            val lock2 = getFileLock(if (oldName < newCleanName) newCleanName else oldName)
+
+            lock1.withLock {
+                lock2.withLock {
+                    val targetDir = loadDirectory(newCleanName)
+
+                    val mergedChapters = if (targetDir != null) {
+                        mergeAndSortChapters(targetDir.chapters, currentDir.chapters)
+                    } else currentDir.chapters
+
+                    val newStrategy = targetDir?.strategy ?: currentDir.strategy
+                    val newSourceKey = targetDir?.sourceKey
+                        ?: if (currentDir.strategy == DirectoryStrategy.TAG) currentDir.sourceKey else newCleanName
+
+                    val mergedDir = MangaDirectory(
+                        cleanBookName = newCleanName,
+                        strategy = newStrategy,
+                        sourceKey = newSourceKey,
+                        chapters = mergedChapters,
+                        lastUpdateTime = System.currentTimeMillis(),
+                        searchKeyword = newSearchKeyword
+                    )
+
+                    saveDirectory(mergedDir)
+
+                    val oldFile = getDirectoryFile(oldName)
+                    if (oldFile.exists()) oldFile.delete()
+                    memoryCache.remove(oldName)
+
+                    return@withLock mergedDir
+                }
             }
         }
     }

@@ -23,6 +23,8 @@ data class MangaDirectory @JSONCreator constructor(
     val isOneShot: Boolean = false,           // 启发式判断：是否被判定为短篇/单本
 
     @JSONField(name = "lastUpdateTime")
-    var lastUpdateTime: Long = 0L
+    var lastUpdateTime: Long = 0L,
 
+    @JSONField(name = "searchKeyword")
+    val searchKeyword: String? = null
 )

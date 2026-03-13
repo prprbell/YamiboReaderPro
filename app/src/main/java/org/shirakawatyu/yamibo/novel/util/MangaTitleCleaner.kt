@@ -48,41 +48,38 @@ class MangaTitleCleaner {
         }
 
         /**
+         * 独立提取作者名前缀
+         */
+        fun extractAuthorPrefix(rawTitle: String): String {
+            val prefixMatch = Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+").find(rawTitle)
+
+            if (prefixMatch != null) {
+                val bracketMatch =
+                    Regex("【(.*?)】|\\[(.*?)\\]").findAll(prefixMatch.value).lastOrNull()
+                if (bracketMatch != null) {
+                    return bracketMatch.groupValues[1].ifEmpty { bracketMatch.groupValues[2] }
+                        .trim()
+                }
+            }
+            return ""
+        }
+
+        /**
          * 提取核心搜索词
          */
         fun getSearchKeyword(rawTitle: String): String {
-            // 1. 内部自动获取纯净书名，不用外面传了
             val cleanName = getCleanBookName(rawTitle)
+            val author = extractAuthorPrefix(rawTitle)
 
-            // 2. 提取核心关键词
-            val chunks = cleanName.split(Regex("[-—\\s|｜(（:：！？\\?!]"))
-            var keyword = chunks.firstOrNull { it.isNotBlank() } ?: cleanName
-
-            if (keyword.length < 2) {
-                keyword = if (cleanName.length > 4) cleanName.substring(0, 4) else cleanName
+            val fullKeyword = if (author.isNotBlank()) {
+                "$author $cleanName"
+            } else {
+                cleanName
             }
-            if (keyword.length > 12) {
-                keyword = keyword.substring(0, 12).trim()
+            if (fullKeyword.length > 18) {
+                return fullKeyword.substring(0, 18).trim()
             }
-            val refined = keyword.replace(Regex("\\s*\\d+$"), "").trim()
-            val finalKeyword = refined.ifBlank { keyword }
-
-            // 3. 截取核心关键词前面的“前缀”部分
-            val prefix = rawTitle.substringBefore(finalKeyword)
-
-            // 4. 在前缀中寻找最后一个中文【】或英文[]方括号
-            val bracketMatch = Regex("【(.*?)】|\\[(.*?)\\]").findAll(prefix).lastOrNull()
-
-            if (bracketMatch != null) {
-                val bracketContent =
-                    bracketMatch.groupValues[1].ifEmpty { bracketMatch.groupValues[2] }.trim()
-                if (bracketContent.isNotBlank()) {
-                    // 将 方括号内容 + 空格 + 核心关键词 拼接返回
-                    return "$bracketContent $finalKeyword"
-                }
-            }
-
-            return finalKeyword
+            return fullKeyword
         }
 
         /**
@@ -235,5 +232,6 @@ class MangaTitleCleaner {
             }
             return total
         }
+
     }
 }

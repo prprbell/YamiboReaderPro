@@ -79,6 +79,7 @@ data class MangaChapter(
 fun MangaChapterPanel(
     modifier: Modifier = Modifier,
     title: String,
+    initialAuthor: String,
     chapters: List<MangaChapter>,
     isUpdating: Boolean = false,
     cooldownSeconds: Int = 0,
@@ -88,7 +89,7 @@ fun MangaChapterPanel(
     onUpdateClick: (isForced: Boolean) -> Unit,
     onDismiss: () -> Unit,
     onChapterClick: (MangaChapter) -> Unit,
-    onTitleEdit: (String) -> Unit
+    onTitleEdit: (String, String) -> Unit
 ) {
     val context = LocalContext.current
     var ascending by remember { mutableStateOf(MangaSettings.getSettings(context).isAscending) }
@@ -96,6 +97,7 @@ fun MangaChapterPanel(
     var isTitleExpanded by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var editTitleText by remember { mutableStateOf(title) }
+    var editAuthorText by remember { mutableStateOf(initialAuthor) }
 
     val sorted = remember(chapters, ascending) {
         if (ascending) chapters else chapters.reversed()
@@ -136,57 +138,76 @@ fun MangaChapterPanel(
         }
     }
     if (showEditDialog) {
-        AlertDialog(
-            onDismissRequest = { showEditDialog = false },
-            containerColor = BgItem,
-            titleContentColor = TextPri,
-            textContentColor = TextPri,
-            title = {
-                Column {
-                    Text("修改漫画名称", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "仅作品名，勿含单章标题、话数",
-                        fontSize = 12.sp,
-                        color = TextSec,
-                        fontWeight = FontWeight.Normal
-                    )
-                }
-            },
-            text = {
-                OutlinedTextField(
-                    value = editTitleText,
-                    onValueChange = { editTitleText = it },
-                    singleLine = false,
-                    minLines = 1,
-                    maxLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("输入正确的漫画名", color = TextSec) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Accent,     // 输入状态下的文字颜色
-                        unfocusedTextColor = Accent,   // 未输入状态下的文字颜色
-                        cursorColor = Accent,          // 光标颜色
-                        focusedBorderColor = Accent,   // 聚焦时的边框颜色
-                        unfocusedBorderColor = TextSec // 未聚焦时的边框颜色保持暗色
-                    )
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (editTitleText.isNotBlank() && editTitleText != title) {
-                        onTitleEdit(editTitleText)
+        if (showEditDialog) {
+            AlertDialog(
+                onDismissRequest = { showEditDialog = false },
+                containerColor = BgItem,
+                titleContentColor = TextPri,
+                textContentColor = TextPri,
+                title = {
+                    Column {
+                        Text("校正漫画信息", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "确保书名无任何单章信息",
+                            fontSize = 12.sp,
+                            color = TextSec,
+                            fontWeight = FontWeight.Normal
+                        )
                     }
-                    showEditDialog = false
-                }) {
-                    Text("保存修改", color = Accent, fontWeight = FontWeight.Bold)
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(
+                            value = editAuthorText,
+                            onValueChange = { editAuthorText = it },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("额外关键词", color = TextSec) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Accent,
+                                unfocusedTextColor = Accent,
+                                cursorColor = Accent,
+                                focusedBorderColor = Accent,
+                                unfocusedBorderColor = TextSec
+                            )
+                        )
+                        OutlinedTextField(
+                            value = editTitleText,
+                            onValueChange = { editTitleText = it },
+                            singleLine = false, minLines = 1, maxLines = 2,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("漫画名称", color = TextSec) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Accent,
+                                unfocusedTextColor = Accent,
+                                cursorColor = Accent,
+                                focusedBorderColor = Accent,
+                                unfocusedBorderColor = TextSec
+                            )
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        if (editTitleText.isNotBlank()) {
+                            onTitleEdit(editTitleText.trim(), editAuthorText.trim())
+                        }
+                        showEditDialog = false
+                    }) {
+                        Text("保存并应用", color = Accent, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showEditDialog = false }) {
+                        Text(
+                            "取消",
+                            color = TextSec
+                        )
+                    }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditDialog = false }) {
-                    Text("取消", color = TextSec)
-                }
-            }
-        )
+            )
+        }
     }
     LaunchedEffect(sorted) {
         val index = sorted.indexOfFirst { it.isCurrent }
