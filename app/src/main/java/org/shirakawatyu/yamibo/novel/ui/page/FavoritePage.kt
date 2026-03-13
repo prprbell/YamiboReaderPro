@@ -147,14 +147,14 @@ fun FavoritePage(
 
     val hapticFeedback = LocalHapticFeedback.current
     val lazyListState = rememberLazyListState()
-    // =========== 处理插入动画与轻量提示 ===========
+    // 处理插入动画与轻量提示
     var previousListSize by remember { mutableIntStateOf(favoriteList.size) }
     var wasAtTop by remember { mutableStateOf(true) }
     // 气泡控制状态
     var showTopToast by remember { mutableStateOf(false) }
     var newItemsCount by remember { mutableIntStateOf(0) }
 
-    // 1. 实时追踪更新前用户是否停留在列表最顶部（50 像素作为滑动容差）
+    // 1. 实时追踪更新前用户是否停留在列表最顶部
     LaunchedEffect(lazyListState) {
         androidx.compose.runtime.snapshotFlow {
             lazyListState.firstVisibleItemIndex to lazyListState.firstVisibleItemScrollOffset
@@ -178,14 +178,13 @@ fun FavoritePage(
         }
         previousListSize = favoriteList.size
     }
-    // 3. 气泡自动消失倒计时 (2.5秒后消失)
+    // 3. 气泡自动消失倒计时
     LaunchedEffect(showTopToast) {
         if (showTopToast) {
             kotlinx.coroutines.delay(2500)
             showTopToast = false
         }
     }
-    // ====================================================
     val reorderableState = rememberReorderableLazyListState(
         lazyListState = lazyListState,
         onMove = { from, to ->
@@ -212,7 +211,7 @@ fun FavoritePage(
                     .padding(end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // =============== 左半部：标题或分类切换 ===============
+                // 左半部：标题或分类切换
                 if (isInManageMode) {
                     Text(
                         text = "管理收藏 (${selectedItems.size})",
@@ -316,7 +315,7 @@ fun FavoritePage(
                     Spacer(modifier = Modifier.weight(1f))
                 }
 
-                // =============== 右半部：操作菜单区域 ===============
+                // 右半部：操作菜单区域
                 if (isInManageMode) {
                     Button(
                         onClick = { favoriteVM.hideSelectedItems() },
@@ -365,7 +364,7 @@ fun FavoritePage(
                                 .background(Color(0xFFFFFCF0))
                                 .clip(RoundedCornerShape(12.dp))
                         ) {
-                            // 此处的五个原有选项代码不变：管理缓存、管理书签、管理目录、管理收藏、刷新列表
+                            // 管理缓存、管理书签、管理目录、管理收藏、刷新列表
                             DropdownMenuItem(
                                 text = { Text("管理缓存") },
                                 onClick = { showCacheManagement = true; menuExpanded = false },
@@ -433,7 +432,7 @@ fun FavoritePage(
 
         Box(modifier = Modifier.weight(1f)) {
 
-            // 1. LazyColumn (收藏列表)
+            // 1. 收藏列表
             LazyColumn(
                 state = lazyListState,
                 contentPadding = PaddingValues(bottom = 40.dp),
