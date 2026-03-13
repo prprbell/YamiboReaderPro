@@ -141,12 +141,21 @@ fun MangaChapterPanel(
             containerColor = BgItem,
             titleContentColor = TextPri,
             textContentColor = TextPri,
-            title = { Text("修改漫画名称", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
+            title = {
+                Column {
+                    Text("修改漫画名称", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text("仅作品名，勿含单章标题、话数", fontSize = 12.sp, color = TextSec, fontWeight = FontWeight.Normal)
+                }
+            },
             text = {
                 OutlinedTextField(
                     value = editTitleText,
                     onValueChange = { editTitleText = it },
-                    singleLine = true,
+                    singleLine = false,
+                    minLines = 1,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
                     label = { Text("输入正确的漫画名", color = TextSec) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Accent,     // 输入状态下的文字颜色
