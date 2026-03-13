@@ -43,7 +43,7 @@ class LocalCacheUtil(private val context: Context) {
     init {
         ioScope.launch {
             val loadedIndex = readIndexFromDisk()
-            // [NEW] 修复fileSize为0的情况
+            // 修复fileSize为0的情况
             val fixedIndex = fixFileSizesIfNeeded(loadedIndex)
             _index.value = fixedIndex
         }
@@ -94,7 +94,7 @@ class LocalCacheUtil(private val context: Context) {
         }
     }
 
-    // [NEW] 修复索引中fileSize为0的情况
+    // 修复索引中fileSize为0的情况
     private suspend fun fixFileSizesIfNeeded(
         loadedIndex: Map<String, CacheIndex>
     ): Map<String, CacheIndex> = withContext(Dispatchers.IO) {
@@ -143,10 +143,10 @@ class LocalCacheUtil(private val context: Context) {
 
     // 写入索引：首先更新内存Flow，然后异步写入磁盘
     private fun writeIndex(newIndex: Map<String, CacheIndex>) {
-        // 1. 立即更新内存 (这将通知 FavoriteVM)
+        // 1. 立即更新内存
         _index.value = newIndex
 
-        // 2. 启动一个后台任务将新索引写入磁盘（用于持久化）
+        // 2. 启动一个后台任务将新索引写入磁盘
         ioScope.launch {
             try {
                 val indexFile = getIndexFile()
