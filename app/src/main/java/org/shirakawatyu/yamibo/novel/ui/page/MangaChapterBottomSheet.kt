@@ -145,7 +145,12 @@ fun MangaChapterPanel(
                 Column {
                     Text("修改漫画名称", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text("仅作品名，勿含单章标题、话数", fontSize = 12.sp, color = TextSec, fontWeight = FontWeight.Normal)
+                    Text(
+                        "仅作品名，勿含单章标题、话数",
+                        fontSize = 12.sp,
+                        color = TextSec,
+                        fontWeight = FontWeight.Normal
+                    )
                 }
             },
             text = {
@@ -344,7 +349,7 @@ fun MangaChapterPanel(
                                     .background(Color(0xFF1C2028))
                                     .padding(horizontal = 12.dp, vertical = 5.dp)
                             ) {
-                                Text(text = "矫正漫画名称", color = Accent, fontSize = 12.sp)
+                                Text(text = "校正漫画名称", color = Accent, fontSize = 12.sp)
                             }
                         }
 
