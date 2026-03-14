@@ -765,6 +765,7 @@ fun MinePage(
             onClick = {
                 currentUrl?.let { url ->
                     ReaderModeDetector.extractThreadPath(url)?.let { threadPath ->
+                        savedMangaUrl = url
                         val encodedPath = URLEncoder.encode(threadPath, "utf-8")
                         navController.navigate("ReaderPage/$encodedPath")
                     }
