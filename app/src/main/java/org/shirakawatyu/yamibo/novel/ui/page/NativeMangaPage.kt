@@ -349,22 +349,37 @@ fun NativeMangaPage(
                 LaunchedEffect(currentIndex, imageUrls) {
                     if (imageUrls.isEmpty()) return@LaunchedEffect
 
-                    // 增加一个防抖，避免用户快速滑动时产生的无效请求堆积
+                    // 增加防抖，避免用户快速滑动时产生的无效请求堆积
                     delay(250)
 
-                    // 1. 定义预加载策略
+                    val totalPages = imageUrls.size
+
+                    // 1. 向后固定加载 3 页 (越界会在最后阶段跳过)
                     val nextPages = (1..3).map { currentIndex + it }
-                    val prevLoadCount = (1 + (currentIndex / 5)).coerceAtMost(3)
+
+                    // 2. 根据【总页数占比】与【剩余额度】动态计算向前预加载页数
+                    // 计算当前阅读进度占比 (0.0 ~ 1.0)
+                    val progress = if (totalPages > 1) currentIndex.toFloat() / (totalPages - 1) else 0f
+
+                    // 基础前置名额：进度越深，给的名额越多。
+                    // 0%->1页，25%->2页，50%->3页，75%->4页，100%->5页
+                    var prevLoadCount = (1 + progress * 4).toInt()
+
+                    // 智能补偿名额：如果后面快看完了（剩余不足3页），把省下来的网络请求名额“转移”给前面
+                    val remainingForward = totalPages - 1 - currentIndex
+                    if (remainingForward < 3) {
+                        val unusedQuota = 3 - maxOf(0, remainingForward)
+                        prevLoadCount += unusedQuota
+                    }
+
+                    prevLoadCount = prevLoadCount.coerceAtMost(5)
+
                     val prevPages = (1..prevLoadCount).map { currentIndex - it }
 
-                    // 2. 拉链式合并序列 (保证离当前页越近的，越早加入下载队列)
-                    // 顺序: 当前 -> +1 -> -1 -> +2 -> -2 -> +3 -> -3
                     val loadSequence = mutableListOf(currentIndex)
                     val maxDepth = maxOf(nextPages.size, prevPages.size)
                     for (i in 0 until maxDepth) {
-                        // 优先保证下一页
                         if (i < nextPages.size) loadSequence.add(nextPages[i])
-                        // 紧接着保证上一页
                         if (i < prevPages.size) loadSequence.add(prevPages[i])
                     }
 
@@ -400,7 +415,6 @@ fun NativeMangaPage(
                                 .diskCachePolicy(CachePolicy.ENABLED)
                                 .build()
 
-                            // enqueue 丢进内部线程池异步执行，不再阻塞
                             imageLoader.enqueue(request)
                         }
                     }
