@@ -98,6 +98,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
@@ -347,18 +348,27 @@ fun NativeMangaPage(
                 val imageLoader = context.imageLoader
                 LaunchedEffect(currentIndex, imageUrls) {
                     if (imageUrls.isEmpty()) return@LaunchedEffect
-                    delay(250)
-                    val loadSequence = listOf(
-                        currentIndex,
-                        currentIndex + 1,
-                        currentIndex + 2,
-                        currentIndex + 3,
-                        currentIndex - 1
-                    )
 
-                    // 切入 IO 线程池执行任务
+                    // 增加一个防抖，避免用户快速滑动时产生的无效请求堆积
+                    delay(250)
+
+                    // 1. 定义预加载策略
+                    val nextPages = (1..3).map { currentIndex + it }
+                    val prevLoadCount = (1 + (currentIndex / 5)).coerceAtMost(3)
+                    val prevPages = (1..prevLoadCount).map { currentIndex - it }
+
+                    // 2. 拉链式合并序列 (保证离当前页越近的，越早加入下载队列)
+                    // 顺序: 当前 -> +1 -> -1 -> +2 -> -2 -> +3 -> -3
+                    val loadSequence = mutableListOf(currentIndex)
+                    val maxDepth = maxOf(nextPages.size, prevPages.size)
+                    for (i in 0 until maxDepth) {
+                        // 优先保证下一页
+                        if (i < nextPages.size) loadSequence.add(nextPages[i])
+                        // 紧接着保证上一页
+                        if (i < prevPages.size) loadSequence.add(prevPages[i])
+                    }
+
                     withContext(Dispatchers.IO) {
-                        // 第一步：强制优先执行当前页的下载请求，并挂起协程直到其加载完成
                         if (currentIndex in imageUrls.indices) {
                             withContext(Dispatchers.Main) {
                                 allowedIndices = allowedIndices + currentIndex
@@ -372,16 +382,13 @@ fun NativeMangaPage(
                                 .diskCachePolicy(CachePolicy.ENABLED)
                                 .build()
 
-                            // execute 会阻塞此协程直到本张图片加载完成（缓存命中则瞬间返回）
                             imageLoader.execute(currentRequest)
                         }
 
-                        // 第二步：当前页一旦加载完毕，解锁附近页面的 UI 加载权限
                         withContext(Dispatchers.Main) {
                             allowedIndices = allowedIndices + loadSequence
                         }
 
-                        // 第三步：继续静默预加载其他页面，此时网络带宽不会再影响当前页
                         for (i in loadSequence) {
                             if (i == currentIndex || i !in imageUrls.indices) continue
 
@@ -393,7 +400,8 @@ fun NativeMangaPage(
                                 .diskCachePolicy(CachePolicy.ENABLED)
                                 .build()
 
-                            imageLoader.execute(request)
+                            // enqueue 丢进内部线程池异步执行，不再阻塞
+                            imageLoader.enqueue(request)
                         }
                     }
                 }
@@ -681,13 +689,22 @@ fun NativeMangaPage(
                                             .crossfade(false)
                                             .build()
                                     }
-                                    AsyncImage(
+                                    SubcomposeAsyncImage(
                                         model = request,
                                         contentDescription = null,
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .defaultMinSize(minHeight = 400.dp),
-                                        contentScale = ContentScale.FillWidth
+                                        contentScale = ContentScale.FillWidth,
+                                        loading = {
+                                            // 在图片真实加载完成前，持续显示加载圈
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                CircularProgressIndicator(color = YamiboColors.tertiary)
+                                            }
+                                        }
                                     )
                                 } else {
                                     // 还没轮到它加载，使用标准 Box 占位
@@ -713,6 +730,7 @@ fun NativeMangaPage(
                                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                                     if (page in allowedIndices) {
                                         val imgUrl = imageUrls[page]
+                                        var isImageLoading by remember(imgUrl) { mutableStateOf(true) }
                                         val request = remember(imgUrl) {
                                             ImageRequest.Builder(context.applicationContext)
                                                 .data(imgUrl)
@@ -720,15 +738,31 @@ fun NativeMangaPage(
                                                 .addHeader("Referer", "https://bbs.yamibo.com/")
                                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                                 .crossfade(false)
+                                                .listener(
+                                                    onStart = { isImageLoading = true },
+                                                    onSuccess = { _, _ -> isImageLoading = false },
+                                                    onError = { _, _ -> isImageLoading = false },
+                                                    onCancel = { isImageLoading = false }
+                                                )
                                                 .build()
                                         }
-                                        ZoomableAsyncImage(
-                                            model = request,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Fit,
-                                            onClick = horizontalPagerClick
-                                        )
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            ZoomableAsyncImage(
+                                                model = request,
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Fit,
+                                                onClick = horizontalPagerClick
+                                            )
+
+                                            // 如果图片还在下载中，在这个 Box 的中间显示加载圈
+                                            if (isImageLoading) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.align(Alignment.Center),
+                                                    color = YamiboColors.tertiary
+                                                )
+                                            }
+                                        }
                                     } else {
                                         Box(
                                             modifier = Modifier.fillMaxSize(),
