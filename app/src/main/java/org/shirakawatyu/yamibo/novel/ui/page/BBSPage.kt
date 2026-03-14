@@ -467,7 +467,7 @@ fun BBSPage(
     DisposableEffect(Unit) {
         onDispose {
             val currentRoute = navController.currentDestination?.route ?: ""
-            if (!currentRoute.startsWith("NativeMangaPage")) {
+            if (!currentRoute.startsWith("NativeMangaPage") && !currentRoute.startsWith("ReaderPage")) {
                 activity?.window?.let { window ->
                     WindowCompat.getInsetsController(window, view)
                         .show(WindowInsetsCompat.Type.systemBars())
@@ -795,6 +795,7 @@ fun BBSPage(
             update = { view ->
                 canGoBack = view.canGoBack()
                 currentUrl = view.url
+                pageTitle = view.title ?: ""
             },
             onRelease = {
                 it.onPause()

@@ -197,7 +197,7 @@ fun MinePage(
     DisposableEffect(Unit) {
         onDispose {
             val currentRoute = navController.currentDestination?.route ?: ""
-            if (!currentRoute.startsWith("NativeMangaPage")) {
+            if (!currentRoute.startsWith("NativeMangaPage")&& !currentRoute.startsWith("ReaderPage")) {
                 activity?.window?.let { window ->
                     WindowCompat.getInsetsController(window, view)
                         .show(WindowInsetsCompat.Type.systemBars())
@@ -746,6 +746,7 @@ fun MinePage(
             update = {
                 canGoBack = it.canGoBack()
                 currentUrl = it.url
+                pageTitle = it.title ?: ""
             },
             onRelease = {
                 timeoutJob?.cancel()
