@@ -571,10 +571,53 @@ fun BBSPage(
         }
 
         webView.webViewClient = object : YamiboWebViewClient() {
+            var contentImageCount = 0
+
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                contentImageCount = 0
                 super.onPageStarted(view, url, favicon)
                 currentUrl = url
                 canGoBack = view?.canGoBack() ?: false
+            }
+
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val urlStr = request?.url?.toString() ?: ""
+                val accept = request?.requestHeaders?.get("Accept") ?: ""
+
+                val isImage = accept.contains("image/", ignoreCase = true) ||
+                        urlStr.contains(
+                            Regex(
+                                "\\.(jpg|jpeg|png|webp|gif)",
+                                RegexOption.IGNORE_CASE
+                            )
+                        ) ||
+                        urlStr.contains("attachment")
+
+                if (request?.isForMainFrame == false && isImage) {
+                    if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
+                        !urlStr.contains("common") && !urlStr.contains("static/image")
+                    ) {
+
+                        val count = synchronized(this) { contentImageCount++ }
+
+                        val delayMs = when {
+                            count < 2 -> 0L
+                            count < 7 -> (count - 1) * 400L
+                            else -> 2000L
+                        }
+
+                        if (delayMs > 0L) {
+                            try {
+                                Thread.sleep(delayMs)
+                            } catch (e: Exception) {
+                            }
+                        }
+                    }
+                }
+                return super.shouldInterceptRequest(view, request)
             }
 
             override fun onPageCommitVisible(view: WebView?, url: String?) {

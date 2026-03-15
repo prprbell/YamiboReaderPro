@@ -197,7 +197,7 @@ fun MinePage(
     DisposableEffect(Unit) {
         onDispose {
             val currentRoute = navController.currentDestination?.route ?: ""
-            if (!currentRoute.startsWith("NativeMangaPage")&& !currentRoute.startsWith("ReaderPage")) {
+            if (!currentRoute.startsWith("NativeMangaPage") && !currentRoute.startsWith("ReaderPage")) {
                 activity?.window?.let { window ->
                     WindowCompat.getInsetsController(window, view)
                         .show(WindowInsetsCompat.Type.systemBars())
@@ -373,12 +373,55 @@ fun MinePage(
 
     LaunchedEffect(mineWebView, isSelected) {
         mineWebView.webViewClient = object : YamiboWebViewClient() {
+            var contentImageCount = 0
+
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                contentImageCount = 0
                 super.onPageStarted(view, url, favicon)
                 currentUrl = url
                 canGoBack = view?.canGoBack() ?: false
                 view?.loadUrl(hideCommand)
+            }
+
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val urlStr = request?.url?.toString() ?: ""
+                val accept = request?.requestHeaders?.get("Accept") ?: ""
+
+                val isImage = accept.contains("image/", ignoreCase = true) ||
+                        urlStr.contains(
+                            Regex(
+                                "\\.(jpg|jpeg|png|webp|gif)",
+                                RegexOption.IGNORE_CASE
+                            )
+                        ) ||
+                        urlStr.contains("attachment")
+
+                if (request?.isForMainFrame == false && isImage) {
+                    if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
+                        !urlStr.contains("common") && !urlStr.contains("static/image")
+                    ) {
+
+                        val count = synchronized(this) { contentImageCount++ }
+
+                        val delayMs = when {
+                            count < 2 -> 0L
+                            count < 7 -> (count - 1) * 400L
+                            else -> 2000L
+                        }
+
+                        if (delayMs > 0L) {
+                            try {
+                                Thread.sleep(delayMs)
+                            } catch (e: Exception) {
+                            }
+                        }
+                    }
+                }
+                return super.shouldInterceptRequest(view, request)
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
