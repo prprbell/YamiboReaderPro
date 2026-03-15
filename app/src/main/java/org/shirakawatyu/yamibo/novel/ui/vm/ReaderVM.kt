@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.toColorInt
+import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineScope
@@ -136,7 +137,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private fun extractPageNumFromLoadedUrl(url: String?): Int? {
         if (url == null) return null
         return try {
-            url.substringAfter("page=", "").substringBefore("&").toIntOrNull()
+            url.toUri().getQueryParameter("page")?.toIntOrNull()
         } catch (e: Exception) {
             Log.e(logTag, "Could not extract page number from URL: $url", e)
             null
@@ -473,10 +474,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     fun firstLoad(initUrl: String, initHeight: Dp, initWidth: Dp) {
         viewModelScope.launch {
-            var cleanUrl = initUrl.replace(Regex("(?<=[?&])page=\\d+&?"), "")
-            cleanUrl = cleanUrl.removeSuffix("&").removeSuffix("?")
-
-            url = cleanUrl
+            url = initUrl
             maxWidth = initWidth
             maxHeight = initHeight
 
