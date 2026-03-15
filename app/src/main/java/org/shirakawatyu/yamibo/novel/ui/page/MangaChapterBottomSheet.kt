@@ -119,9 +119,9 @@ fun MangaChapterPanel(
         else -> "更新"
     }
     val buttonBgColor = when {
-        !canUpdate -> Color(0xFF2A2D35) // 禁用色
-        isSearchMode -> Color(0xFF6366F1) // 全局搜索：蓝色/紫色
-        else -> Accent // 普通更新：原有橙色
+        !canUpdate -> Color(0xFF2A2D35)
+        isSearchMode -> Color(0xFF6366F1)
+        else -> Accent
     }
     LaunchedEffect(Unit) {
         launch {
@@ -374,12 +374,9 @@ fun MangaChapterPanel(
                             }
                         }
 
-                        // 右侧区域：最新话数 + 更新按钮
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val latestChapter = chapters.filter {
-                                // 屏蔽时间线算法生成的 3 位小数隐藏章节
                                 it.index.toString().substringAfter(".", "").length < 3 &&
-                                        // 屏蔽所有番外/特典，不让它们抢占“最新进度”
                                         !it.title.contains(
                                             Regex(
                                                 "番外|特典|附录|SP",
@@ -431,8 +428,8 @@ fun MangaChapterPanel(
                                         text = buttonText,
                                         color = when {
                                             !canUpdate -> TextSec
-                                            isSearchMode -> Color.White   // 蓝紫底色配白字
-                                            else -> Color(0xFF111318)     // 橙色底色配深字
+                                            isSearchMode -> Color.White
+                                            else -> Color(0xFF111318)
                                         },
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold
@@ -492,17 +489,14 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
     val displayIndex = when {
         chapter.title.contains(Regex("番外|特典|附录|SP", RegexOption.IGNORE_CASE)) -> "SP"
         chapter.index == 999f -> "终"
-        // 1. 隐藏时间线算法生成的 3 位小数 (如 32.001) -> 显示为 Ex
         chapter.index.toString().substringAfter(".", "").length >= 3 -> "Ex"
 
-        // 2. 隐藏 0f 以及误判的 0.1/0.2：
         chapter.index < 1f && !chapter.title.contains(Regex("0|零|〇")) -> "Ex"
 
         chapter.index % 1f == 0f -> chapter.index.toInt().toString() // 4.0 -> "4"
         else -> chapter.index.toString() // 29.5 -> "29.5"
     }
 
-    // 这样当 LazyColumn 复用这个组件给另一个章节时，这两个状态会“瞬间、同步”地重置为 false，彻底消灭滑动闪烁。
     var isExpanded by remember(chapter.url) { mutableStateOf(false) }
     var isTruncated by remember(chapter.url) { mutableStateOf(false) }
 

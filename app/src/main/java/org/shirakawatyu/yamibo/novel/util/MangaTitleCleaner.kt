@@ -22,7 +22,7 @@ class MangaTitleCleaner {
 
             // 3. 截断章节标记及其后面的所有内容
             val chapterMarkerPattern = Regex(
-                "(?i)(" + // (?i) 表示忽略大小写
+                "(?i)(" +
                         "第\\s*[\\d\\.\\-零一二两三四五六七八九十百千]+|" +
                         "[-—\\s]*[#＃]\\s*\\d+|" +
                         "[-—\\s]*S\\d+(\\s*EP\\d+)?|" +
@@ -32,7 +32,8 @@ class MangaTitleCleaner {
                         "[-—\\s]*(番外|特典|附录|短篇|单行本|最终话|最終話|最终回|最終回|大结局)|" +
                         "[-—\\s]+(前篇|中篇|后篇|上|中|下)|" +
                         "[-—\\s]*[(（]\\s*[\\d\\.\\-零一二两三四五六七八九十百千]+\\s*[)）]|" +
-                        "\\s+\\d+(?:\\.\\d+)?\\s+" +
+                        "\\s+\\d+(?:\\.\\d+)?\\s+|" +
+                        "\\s*(?<!\\d)\\d+(?:\\.\\d+)?\\s*(?=[：:—\\-「【\\[(（《])" +
                         ")"
             )
             val markerMatch = chapterMarkerPattern.find(clean)
@@ -86,14 +87,12 @@ class MangaTitleCleaner {
          * 提取话数，用于排序
          */
         fun extractChapterNum(rawTitle: String): Float {
-            // 先去掉各种括号，防止把 [阅读权限 20] 当成第20话
             val cleanTitle = rawTitle
-                .replace(Regex("【.*?】|\\[.*?\\]|\\(.*?\\)|（.*?）"), "")
+                .replace(Regex("【.*?】|\\[.*?\\]|\\(.*?\\)|（.*?）|「.*?」|《.*?》"), "")
                 .replace(Regex("\\d+\\s*[xX×]\\s*\\d+"), "")
             if (Regex("番外|特典|附录|SP", RegexOption.IGNORE_CASE).containsMatchIn(rawTitle)) {
                 return 0f
             }
-            // 第一步：提取小数修饰符 (前中后/上下)
 
             var subModifier = 0f
             val noDigitAfter = "(?!.*[\\d零一二两三四五六七八九十百千])"
@@ -102,7 +101,6 @@ class MangaTitleCleaner {
             else if (Regex("(中篇|中)$noDigitAfter").containsMatchIn(cleanTitle)) subModifier = 0.2f
             else if (Regex("(后篇|下)$noDigitAfter").containsMatchIn(cleanTitle)) subModifier = 0.3f
 
-            // 第二步：提取主话数
             var baseNum = -1f
             val circleMap = mapOf(
                 '①' to 0.1f, '②' to 0.2f, '③' to 0.3f, '④' to 0.4f, '⑤' to 0.5f,
@@ -147,7 +145,7 @@ class MangaTitleCleaner {
             // 规则 2.8: 孤立数字边界判断法
             if (baseNum == -1f) {
                 val matchIsolated =
-                    Regex("(?:^|\\s)([^\\d\\s部季名次期天卷]?)\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)\\s*([^\\d\\s部季名次期天卷]?)(?=\\s|$)").find(
+                    Regex("(?:^|\\s)([^\\d\\s部季名次期天卷]?)\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)\\s*([^\\d\\s部季名次期天卷]?)(?=\\s|$|(?:[:：—\\-,，.。!！?？|｜]+)(?!\\d))").find(
                         cleanTitle
                     )
 
