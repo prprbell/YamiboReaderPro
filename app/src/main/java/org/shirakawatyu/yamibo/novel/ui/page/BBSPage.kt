@@ -900,7 +900,7 @@ fun BBSPage(
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(bottom = 80.dp)
+                .padding(bottom = 150.dp)
         )
         // 无缝切换漫画章节的黑屏遮罩层
         if (autoOpenMangaMode) {

@@ -11,8 +11,8 @@ android {
         applicationId = "org.shirakawatyu.yamibo.novel"
         minSdk = 24
         targetSdk = 34
-        versionCode = 34
-        versionName = "1.5.6"
+        versionCode = 35
+        versionName = "1.5.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

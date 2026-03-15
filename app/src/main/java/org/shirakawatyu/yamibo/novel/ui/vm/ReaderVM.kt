@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.toColorInt
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineScope
@@ -42,7 +43,6 @@ import org.shirakawatyu.yamibo.novel.util.LocalCacheUtil
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.TextUtil
 import org.shirakawatyu.yamibo.novel.util.ValueUtil
-import androidx.core.graphics.toColorInt
 
 @SuppressLint("SetJavaScriptEnabled")
 class ReaderVM(private val applicationContext: Context) : ViewModel() {
@@ -65,6 +65,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private val rawContentList = ArrayList<Content>()
     private var latestPage: Int = 0
     private var currentAuthorId: String? = null
+        set(value) {
+            field = value
+            _uiState.value = _uiState.value.copy(authorId = value)
+        }
     private var isPreloading = false
     private val PRELOAD_THRESHOLD_VERTICAL = 200
     private val PRELOAD_THRESHOLD_HORIZONTAL = 20

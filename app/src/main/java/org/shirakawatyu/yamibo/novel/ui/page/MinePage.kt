@@ -77,8 +77,14 @@ import java.net.URLEncoder
 
 private val hideCommand = """
     javascript:(function() {
+        if (window.location.href.indexOf('do=pm') !== -1) {
+            return;
+        }
+        if (window.location.href.indexOf('do=blog') !== -1) {
+            return;
+        }
         var style = document.createElement('style');
-        style.innerHTML = '.my { display: none !important; }';
+        style.innerHTML = '.my, .mz { visibility: hidden !important; pointer-events: none !important; }'; 
         document.head.appendChild(style);
     })()
 """.trimIndent()
@@ -816,7 +822,7 @@ fun MinePage(
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(bottom = 80.dp)
+                .padding(bottom = 150.dp)
         )
 
         if (showLoadError) {

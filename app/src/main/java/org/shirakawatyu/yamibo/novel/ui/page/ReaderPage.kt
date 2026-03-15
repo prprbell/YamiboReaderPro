@@ -41,6 +41,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
@@ -52,6 +53,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -92,6 +95,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -200,7 +204,6 @@ fun ReaderPage(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
             onDispose {
-                // 如果不是通过exitReader主动恢复，这里兜底恢复一次
                 if (!hasRestoredSystemUi) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         val layoutParams = window.attributes
@@ -317,6 +320,71 @@ fun ReaderPage(
                 }
             }
         }
+        // 去往原贴
+        val returnToOriginalPost: () -> Unit =
+            remember(window, view, navController, uiState.currentView, url) {
+                {
+                    if (window != null && view != null) {
+                        val controller = WindowCompat.getInsetsController(window, view)
+                        WindowCompat.setDecorFitsSystemWindows(window, true)
+                        if (hasCapturedOriginal) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                val lp = window.attributes
+                                lp.layoutInDisplayCutoutMode = originalCutoutMode.value
+                                window.attributes = lp
+                            }
+                            controller.systemBarsBehavior = originalBehavior.value
+                            window.statusBarColor = originalStatusBarColor.value
+                            controller.isAppearanceLightStatusBars = originalLightStatusBars.value
+                        }
+                        controller.show(WindowInsetsCompat.Type.systemBars())
+                        ViewCompat.requestApplyInsets(view)
+                        hasRestoredSystemUi = true
+                    } else {
+                        hasRestoredSystemUi = true
+                    }
+
+                    val previousRoute = navController.previousBackStackEntry?.destination?.route
+
+                    val navigateAction = {
+                        if (previousRoute == "BBSPage" || previousRoute == "MinePage" || previousRoute?.startsWith(
+                                "OtherWebPage"
+                            ) == true
+                        ) {
+                            navController.navigateUp()
+                        } else {
+                            val baseUrl =
+                                if (url.startsWith("http")) url else "https://bbs.yamibo.com/$url"
+
+                            var targetUrl = baseUrl.replace(Regex("(?<=[?&])page=\\d+&?"), "")
+
+                            targetUrl = targetUrl.removeSuffix("&").removeSuffix("?")
+
+                            if (uiState.authorId != null && !targetUrl.contains("authorid=")) {
+                                val sep = if (targetUrl.contains("?")) "&" else "?"
+                                targetUrl = "$targetUrl${sep}authorid=${uiState.authorId}"
+                            }
+
+                            val separator = if (targetUrl.contains("?")) "&" else "?"
+                            targetUrl = "$targetUrl${separator}page=${uiState.currentView}"
+
+                            val encodedTargetUrl = java.net.URLEncoder.encode(targetUrl, "utf-8")
+
+                            navController.navigate("OtherWebPage/$encodedTargetUrl") {
+                                navController.currentDestination?.id?.let { currentId ->
+                                    popUpTo(currentId) { inclusive = true }
+                                }
+                            }
+                        }
+                    }
+
+                    if (view != null) {
+                        view.post { navigateAction() }
+                    } else {
+                        navigateAction()
+                    }
+                }
+            }
         BackHandler {
             if (showSettings) {
                 showSettings = false
@@ -662,10 +730,53 @@ fun ReaderPage(
                                         onCheckedChange = { readerVM.toggleNightMode(it) })
                                 }
                                 Spacer(Modifier.width(16.dp))
-                                IconButton(onClick = {
-                                    readerVM.forceRefreshCurrentPage(); showSettings = false
-                                }) {
-                                    Icon(Icons.Default.Refresh, "刷新页面")
+                                var moreMenuExpanded by remember { mutableStateOf(false) }
+                                Box {
+                                    IconButton(onClick = { moreMenuExpanded = true }) {
+                                        Icon(
+                                            painterResource(id = R.drawable.ic_more_horiz),
+                                            contentDescription = "更多选项"
+                                        )
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = moreMenuExpanded,
+                                        onDismissRequest = { moreMenuExpanded = false },
+                                        offset = DpOffset(x = 8.dp, y = 8.dp),
+                                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("原贴", fontSize = 16.sp) },
+                                            onClick = {
+                                                returnToOriginalPost()
+                                                showSettings = false
+                                                moreMenuExpanded = false
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.AutoMirrored.Filled.ArrowForward,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        )
+                                        Spacer(Modifier.height(16.dp))
+                                        DropdownMenuItem(
+                                            text = { Text("刷新", fontSize = 16.sp) },
+                                            onClick = {
+                                                readerVM.forceRefreshCurrentPage()
+                                                showSettings = false
+                                                moreMenuExpanded = false
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Default.Refresh,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }

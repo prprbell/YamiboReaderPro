@@ -67,18 +67,16 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
-import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
-import java.net.URLEncoder
 
 private val hideCommand = """
     javascript:(function() {
         var style = document.createElement('style');
-        style.innerHTML = '.my, .mz { visibility: hidden !important; pointer-events: none !important; }';
+        style.innerHTML = '.nav-search, #nav-more-menu .btn-to-pc { display: none !important; }';
         document.head.appendChild(style);
     })()
 """.trimIndent()
@@ -114,7 +112,7 @@ fun OtherWebPage(
         if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
     }
     var canGoBack by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
     var showLoadError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
@@ -355,6 +353,7 @@ fun OtherWebPage(
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, pageUrl, favicon)
+                isLoading = true
                 currentUrl = pageUrl
                 canGoBack = view?.canGoBack() ?: false
                 view?.loadUrl(hideCommand)
@@ -623,7 +622,11 @@ fun OtherWebPage(
     }
 
     BackHandler(enabled = true) {
-        performExit()
+        if (otherWebView.canGoBack()) {
+            otherWebView.goBack()
+        } else {
+            performExit()
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -646,21 +649,6 @@ fun OtherWebPage(
             }
         )
 
-        ReaderModeFAB(
-            visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
-            onClick = {
-                currentUrl?.let { threadUrl ->
-                    ReaderModeDetector.extractThreadPath(threadUrl)?.let { threadPath ->
-                        val encodedPath = URLEncoder.encode(threadPath, "utf-8")
-                        navController.navigate("ReaderPage/$encodedPath")
-                    }
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 80.dp)
-        )
-
         if (showLoadError) {
             Column(
                 modifier = Modifier
@@ -681,12 +669,19 @@ fun OtherWebPage(
                 }) { Text("重试") }
             }
         }
-
         if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center),
-                color = YamiboColors.secondary
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.2f))
+                    .pointerInput(Unit) {
+                        detectTapGestures { }
+                        detectVerticalDragGestures { _, _ -> }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = YamiboColors.secondary)
+            }
         }
         if (autoOpenMangaMode) {
             Box(
