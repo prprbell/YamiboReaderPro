@@ -473,7 +473,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     fun firstLoad(initUrl: String, initHeight: Dp, initWidth: Dp) {
         viewModelScope.launch {
-            url = initUrl
+            var cleanUrl = initUrl.replace(Regex("(?<=[?&])page=\\d+&?"), "")
+            cleanUrl = cleanUrl.removeSuffix("&").removeSuffix("?")
+
+            url = cleanUrl
             maxWidth = initWidth
             maxHeight = initHeight
 
