@@ -8,7 +8,7 @@ import org.shirakawatyu.yamibo.novel.bean.ReaderSettings
 class SettingsUtil {
     companion object {
         private val key = stringPreferencesKey("settings")
-
+        private val dataSaverKey = stringPreferencesKey("data_saver_mode")
         fun saveSettings(settings: ReaderSettings) {
             DataStoreUtil.addData(JSON.toJSONString(settings), key)
         }
@@ -22,6 +22,18 @@ class SettingsUtil {
                     onNull()
                 }
             }, onNull = onNull)
+        }
+
+        fun saveDataSaverMode(isDataSaver: Boolean) {
+            DataStoreUtil.addData(isDataSaver.toString(), dataSaverKey)
+        }
+
+        fun getDataSaverMode(callback: (isDataSaver: Boolean) -> Unit) {
+            DataStoreUtil.getData(dataSaverKey, callback = {
+                callback(it.toBooleanStrictOrNull() ?: false)
+            }, onNull = {
+                callback(false)
+            })
         }
     }
 }

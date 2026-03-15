@@ -97,7 +97,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.imageLoader
 import coil.request.CachePolicy
@@ -354,18 +353,13 @@ fun NativeMangaPage(
 
                     val totalPages = imageUrls.size
 
-                    // 1. 向后固定加载 3 页 (越界会在最后阶段跳过)
-                    val nextPages = (1..3).map { currentIndex + it }
+                    val nextPages = (1..4).map { currentIndex + it }
 
-                    // 2. 根据【总页数占比】与【剩余额度】动态计算向前预加载页数
-                    // 计算当前阅读进度占比 (0.0 ~ 1.0)
-                    val progress = if (totalPages > 1) currentIndex.toFloat() / (totalPages - 1) else 0f
+                    val progress =
+                        if (totalPages > 1) currentIndex.toFloat() / (totalPages - 1) else 0f
 
-                    // 基础前置名额：进度越深，给的名额越多。
-                    // 0%->1页，25%->2页，50%->3页，75%->4页，100%->5页
                     var prevLoadCount = (1 + progress * 4).toInt()
 
-                    // 智能补偿名额：如果后面快看完了（剩余不足3页），把省下来的网络请求名额“转移”给前面
                     val remainingForward = totalPages - 1 - currentIndex
                     if (remainingForward < 3) {
                         val unusedQuota = 3 - maxOf(0, remainingForward)

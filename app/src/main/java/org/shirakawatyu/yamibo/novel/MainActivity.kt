@@ -74,6 +74,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
+import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import java.net.URLDecoder
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cookies")
@@ -213,6 +214,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                 // 如果加载失败，就当用户未登录处理
                 GlobalData.currentCookie = ""
             } finally {
+                SettingsUtil.getDataSaverMode { isDataSaver ->
+                    GlobalData.isDataSaverMode.value = isDataSaver
+                }
                 // 无论成功还是失败，都必须设置为true来解锁UI
                 GlobalData.isAppInitialized = true
             }

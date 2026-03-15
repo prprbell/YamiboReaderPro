@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import java.util.concurrent.atomic.AtomicLong
@@ -29,5 +30,7 @@ class GlobalData {
         var tempMangaIndex: Int = 0
         var tempHtml: String = ""
         var tempTitle: String = ""
+
+        val isDataSaverMode = MutableStateFlow(false)
     }
 }

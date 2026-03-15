@@ -69,6 +69,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
+import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 
 // 用于在WebView外部保存登录状态的单例对象
@@ -602,17 +603,33 @@ fun BBSPage(
                     ) {
 
                         val count = synchronized(this) { contentImageCount++ }
+                        val isHomePage = currentUrl == indexUrl ||
+                                currentUrl == bbsUrl ||
+                                currentUrl == baseBbsUrl ||
+                                (currentUrl?.startsWith("https://bbs.yamibo.com/forum.php") == true && currentUrl?.contains(
+                                    "mod="
+                                ) == false)
 
-                        val delayMs = when {
-                            count < 2 -> 0L
-                            count < 7 -> (count - 1) * 400L
-                            else -> 2000L
-                        }
+                        if (GlobalData.isDataSaverMode.value && !isHomePage) {
+                            if (count >= 3) {
+                                return WebResourceResponse(
+                                    "image/png",
+                                    "UTF-8",
+                                    ByteArrayInputStream(ByteArray(0))
+                                )
+                            }
+                        } else {
+                            val delayMs = when {
+                                count < 2 -> 0L
+                                count < 7 -> (count - 1) * 400L
+                                else -> 2000L
+                            }
 
-                        if (delayMs > 0L) {
-                            try {
-                                Thread.sleep(delayMs)
-                            } catch (e: Exception) {
+                            if (delayMs > 0L) {
+                                try {
+                                    Thread.sleep(delayMs)
+                                } catch (e: Exception) {
+                                }
                             }
                         }
                     }

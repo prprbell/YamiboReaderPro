@@ -84,12 +84,14 @@ import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
+import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -111,6 +113,8 @@ fun FavoritePage(
     val selectedItems = uiState.selectedItems
     var cacheInfoMap = uiState.cacheInfoMap
     var showCacheManagement by remember { mutableStateOf(false) }
+    val isDataSaverMode by GlobalData.isDataSaverMode.collectAsState()
+    var showDataSaverDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { favoriteVM.refreshCacheInfo() }
 
@@ -130,9 +134,11 @@ fun FavoritePage(
                     FavoriteVM.RefreshStrategy.SKIP -> {
                         // 什么都不做
                     }
+
                     FavoriteVM.RefreshStrategy.SMART -> {
                         favoriteVM.refreshList(showLoading = false, isSmartSync = true)
                     }
+
                     FavoriteVM.RefreshStrategy.FULL -> {
                         favoriteVM.refreshList(showLoading = false, isSmartSync = false)
                     }
@@ -410,6 +416,30 @@ fun FavoritePage(
                                     )
                                 })
                             DropdownMenuItem(
+                                text = {
+                                    Text(if (isDataSaverMode) "关闭省流" else "开启省流")
+                                },
+                                onClick = {
+                                    if (isDataSaverMode) {
+                                        GlobalData.isDataSaverMode.value = false
+                                        SettingsUtil.saveDataSaverMode(false)
+                                    } else {
+                                        showDataSaverDialog = true // 开启前显示弹窗
+                                    }
+                                    menuExpanded = false
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (isDataSaverMode) R.drawable.ic_close else R.drawable.ic_check
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                        tint = if (isDataSaverMode) YamiboColors.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("刷新列表") },
                                 onClick = {
                                     favoriteVM.refreshList(showLoading = true, isSmartSync = false)
@@ -568,6 +598,32 @@ fun FavoritePage(
                 }
             )
         }
+        //省流对话框
+        if (showDataSaverDialog) {
+            AlertDialog(
+                onDismissRequest = { showDataSaverDialog = false },
+                title = {
+                    Text("开启省流模式", color = MaterialTheme.colorScheme.primary)
+                },
+                text = {
+                    Text("开启后，系统将强行拦截网络请求，并只显示前三张图片以节省流量。\n\n如需阅读完整漫画，请点击前两张图片进入「漫画阅读模式」。")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        GlobalData.isDataSaverMode.value = true
+                        SettingsUtil.saveDataSaverMode(true)
+                        showDataSaverDialog = false
+                    }) {
+                        Text("确认开启")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDataSaverDialog = false }) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -703,9 +759,11 @@ fun CacheManagementDialog(
                         // 分离数据
                         val favoriteUrls = favoriteList.map { it.url }.toSet()
                         // 仍在收藏中的缓存 (有标题)
-                        val favoriteCaches = favoriteList.filter { cacheInfoMap.containsKey(it.url) }
+                        val favoriteCaches =
+                            favoriteList.filter { cacheInfoMap.containsKey(it.url) }
                         // 已移除的缓存 (孤立的)
-                        val orphanedCaches = cacheInfoMap.values.filter { !favoriteUrls.contains(it.url) }
+                        val orphanedCaches =
+                            cacheInfoMap.values.filter { !favoriteUrls.contains(it.url) }
 
                         items(
                             items = favoriteCaches,
