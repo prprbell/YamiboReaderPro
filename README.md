@@ -1,31 +1,25 @@
 # 300百合会论坛文学阅读器
 
-为百合会论坛小说提供更好的阅读体验，支持常见小说阅读器的功能。
+为百合会论坛小说提供更好的阅读体验，支持常见小说阅读器的功能，支持原生的漫画阅读功能。
 
-最好用来看小说，如果你主要用百合会看漫画或浏览论坛帖子，浏览器直接启动网页比app流畅。
-
-系统要求: Android 7.0（may be higher）及以上
-<br><br><br><br><br>
-关于后续：
-<br>
-以后大概只会修修bug，不太会有功能更新了。
-而且感觉把点子全用上了，因为在仙台告白之前几乎没用过百合会，现在用也几乎只用来看周次，所以也想不到其他的扩展功能了。
+系统要求: Android 7.0 及以上
 
 ## 内容列表
 
 - [已知问题](#已知问题)
 - [软件下载](#软件下载)
-- [开源许可](#开源许可)
+- [软件截图](#软件截图)
+- [相比原项目的重大升级](#相比原项目的重大升级)
+- [第三方开源库](#第三方开源库)
 - [如何贡献](#如何贡献)
 - [使用许可](#使用许可)
 
 ## 已知问题
 
-1. 我没有多个账号，目测换账号登录可能会出问题，出了问题可以把软件数据清除。
-2. 如果你觉得加载卡住了，建议重进一次页面或重启软件，不过大概率是网络问题，建议从wifi换为流量试试。
-3. 首次从“我的”界面进行登录时，由于论坛规则会先跳转到首页，程序会在跳转到首页后，再次加载“我的”界面，这个过程可能会很慢（参考第2条），建议不要等待加载，直接离开“我的界面”，进入其他界面。
-4. 横屏翻页和竖屏下滑切换时可能会有大幅度的页面偏移，不过应该没人经常换这东西<img width="32" height="32" alt="2c4f40113caa2a4fbe3f5f9905492883" src="https://github.com/user-attachments/assets/1b867a2b-1f56-400e-8a15-341664b749d0" />
-5. 从论坛帖子直接进入漫画模式时，会因底层组件缓存隔离而产生少量的图片重复下载流量
+1. 我没有多个账号，换账号使用可能会出问题，优问题可以把软件数据清除。
+2. 如果你觉得加载卡住了，建议重进一次页面或重启软件，不过大概率是网络问题。
+4. 横屏翻页和竖屏下滑切换时可能会有大幅度的页面偏移，但应该没人经常换这东西。<img width="32" height="32" alt="2c4f40113caa2a4fbe3f5f9905492883" src="https://github.com/user-attachments/assets/1b867a2b-1f56-400e-8a15-341664b749d0" />
+5. 从论坛帖子直接进入漫画模式时，会因底层组件缓存隔离而产生少量的图片重复下载流量。
 
 ## 软件下载
 
@@ -40,24 +34,31 @@
 
 <table>
   <tr>
-    <td><img src="screenshots/1.jpg" width="200"></td>
-    <td><img src="screenshots/2.jpg" width="200"></td>
-    <td><img src="screenshots/3.jpg" width="200"></td>
-    <td><img src="screenshots/6.jpg" width="200"></td>
+    <td><img src="screenshots/1.jpg" width="300"></td>
+    <td><img src="screenshots/2.jpg" width="300"></td>
+    <td><img src="screenshots/3.jpg" width="300"></td>
+    <td><img src="screenshots/4.jpg" width="300"></td>
+    <td><img src="screenshots/5.jpg" width="300"></td>
+    <td><img src="screenshots/6.jpg" width="300"></td>
   </tr>
   <tr>
-    <td><img src="screenshots/5.jpg" width="200"></td>
-    <td><img src="screenshots/4.jpg" width="200"></td>
-    <td><img src="screenshots/7.jpg" width="200"></td>
-    <td><img src="screenshots/8.jpg" width="200"></td>
+    <td><img src="screenshots/7.jpg" width="300"></td>
+    <td><img src="screenshots/8.jpg" width="300"></td>
+    <td><img src="screenshots/9.jpg" width="300"></td>
+    <td><img src="screenshots/10.jpg" width="300"></td>
+    <td><img src="screenshots/11.jpg" width="300"></td>
+    <td><img src="screenshots/12.jpg" width="300"></td>
   </tr>
   <tr>
-    <td><img src="screenshots/9.jpg" width="200"></td>
-    <td><img src="screenshots/10.jpg" width="200"></td>
-    <td><img src="screenshots/11.jpg" width="200"></td>
-    <td><img src="screenshots/12.jpg" width="200"></td>
+    <td><img src="screenshots/13.jpg" width="300"></td>
+    <td><img src="screenshots/14.jpg" width="300"></td>
+    <td><img src="screenshots/15.jpg" width="300"></td>
+    <td><img src="screenshots/16.jpg" width="300"></td>
+    <td><img src="screenshots/17.jpg" width="300"></td>
+    <td><img src="screenshots/18.jpg" width="300"></td>
   </tr>
 </table>
+
 
 
 
@@ -66,49 +67,34 @@
 
 本项目在原 [flben233/YamiboReader](https://github.com/flben233/YamiboReader) 的基础上进行了重构与功能增强，旨在提供更流畅、方便的百合会小说阅读体验。主要升级包括：
 
-1. 阅读体验与性能优化
+1. 小说阅读体验与性能优化
 
-- 预加载：快读完当前页面时（还差50页时）自动后台加载下一页内容。
-- 内存缓存：基于 `LruCache` 实现已读页面在内存中缓存（最多缓存50mb，周次一页1mb左右，关闭软件会清除）。
-- 本地缓存：缓存帖子（文本）到本地，告别网络加载。
-
-2. 全新阅读器界面与个性化设置
-
-- 现代化 UI：弹窗设置升级工具栏，操作更现代。
-- 夜间模式：支持深色主题。
-- 图片加载开关：可选是否加载帖子图片，提升加载速度。
-- 阅读模式：横屏翻页 or 竖直下滑
-- 背景颜色改变
-
-3. 章节导航功能
-
+- 预加载：快读完当前页面时，自动后台加载下一页内容。
+- 内存缓存：基于 `LruCache` 实现已读页面在内存中缓存。
+- 本地缓存：缓存小说到本地，告别网络加载。
+- 现代化UI：弹窗设置升级工具栏，操作更现代。
+- 夜间模式：支持小说阅读界面的深色主题。
+- 图片加载开关：可选是否加载帖子图片，提升加载速度。（完全不建议开启）
+- 阅读模式：横屏翻页 or 竖直下滑。
+- 背景颜色改变：可以换小说背景颜色。
 - 自动提取章节目录：识别章节标题（每楼第一行）构建目录。
-- 章节列表：打开章节列表，快速跳转。
+- 刷新按钮：可通过刷新按钮进行网络请求，更新内容与收藏栏标题。
 
-4. “只看楼主”功能自动化
+2. 全新漫画阅读模式
 
-- 自动启用楼主过滤：首次进入某部小说，阅读器加载时间会较长，会先会进入所有人页面，自动模拟点击“只看楼主”。后续会提取并保存作者id，自动拼接 URL，确保始终只看该作者内容。
+- 全新漫画阅读页面：实现原生漫画阅读界面，支持亮度调节、左右滑动、竖屏下滑、手势缩放。
+- 漫画目录与进度记录：在收藏夹自动记录漫画阅读进度，自动抓取漫画标题并根据生成漫画目录，可校正、更新。
 
-5. 收藏夹功能强化
+3. 收藏夹功能强化
 
-- 拖拽排序：长按收藏项即可自由调整顺序。
-- 自动刷新：每次进入收藏夹页面会进行刷新。
-- 隐藏作品：可以选择在收藏栏选中作品进行隐藏/显示
-
-6. 算法与稳定性提升
-
-- 分页算法和两端对齐算法：正确处理段落换行，两端对齐，排版更自然。
-  
-7. 全新漫画阅读模式
-- 进度滑动条：全屏看图模式下新增底部滑动条，可快速滑动跳转至指定图片进度。
-- 漫画专属目录与进度追踪：自动识别并记录当前漫画阅读进度（如“读至第 x 话”）并同步至收藏夹；自动抓取漫画帖子源码生成漫画目录，可点击更新
-  （漫画目录抓取有三种策略：1. 直接抓取当前页面的超链接 2. 如果该漫画有专属标签，做了目录页面，则会自动抓取目录页面 3. 如果有 目录页面 ，则点击更新会再一次抓取目录页面，此时会显示5s的全局搜索按钮，点击可以触发论坛搜索功能进行搜索，如果没有 目录页面，即仅有超链接时，只会显示全局搜索按钮，点击可触发论坛搜索功能进行搜索，冷却时间30s。相较于有目录页面的帖子的更新功能，全局搜索可能会引入脏数据，可以在收藏页面的目录管理功能中进行删除）。
-
-8. 收藏分类
-- 收藏智能分类跳转：点击收藏夹链接时，会自动在后台判断目标页面是小说、漫画还是普通论坛界面，并重定向到最适合的界面
+- 拖拽排序：长按收藏项，可拖拽自由调整顺序。
+- 自动刷新：每次进入收藏夹页面会进行刷新，亦可手动刷新。
+- 隐藏作品：可以选择在收藏栏选中作品进行隐藏/显示。
+- 收藏智能分类：点击收藏夹链接时，会自动在后台判断目标页面是小说、漫画还是普通论坛界面，并重定向到最适合的界面，同时支持分类查看。
+- 书签、目录和缓存管理：可通过收藏页面管理书签、目录和缓存。
 
 
-## 开源许可
+## 第三方开源库
 
 架构: [Jetpack Compose](https://developer.android.com/jetpack/compose)
 
@@ -126,19 +112,17 @@ JSON解析: [FastJSON2](https://github.com/alibaba/fastjson2)
 
 缓存：[LRUCache](https://github.com/nicklockwood/LRUCache)
 
-## 维护者
+## 维护者与鸣谢
 
-[@prprbell](https://github.com/prprbell)
+**维护者：** [@prprbell](https://github.com/prprbell)
 
-## 原项目 
-
-本项目 Fork 自 [flben233/YamiboReader](https://github.com/flben233/YamiboReader)。 感谢原作者 [@flben233](https://github.com/flben233) 的出色工作。
+**鸣谢：** 本项目 Fork 自 [flben233/YamiboReader](https://github.com/flben233/YamiboReader)，感谢原作者 [@flben233](https://github.com/flben233) 的出色框架！
 
 ## 如何贡献
 
-非常欢迎你的加入！[提一个 Issue](https://github.com/prprbell/YamiboReaderPro/issues/new) 或者提交一个 Pull Request。
+[提一个 Issue](https://github.com/prprbell/YamiboReaderPro/issues/new) 
 
 ## 使用许可
 
-[AGPL 3.0](LICENSE) © flben233
+本项目采用 [AGPL 3.0](LICENSE) 许可证进行授权。 © prprbell
 
