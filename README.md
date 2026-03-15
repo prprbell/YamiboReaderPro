@@ -18,7 +18,7 @@
 
 1. 我没有多个账号，换账号使用可能会出问题，优问题可以把软件数据清除。
 2. 如果你觉得加载卡住了，建议重进一次页面或重启软件，不过大概率是网络问题。
-4. 横屏翻页和竖屏下滑切换时可能会有大幅度的页面偏移，但应该没人经常换这东西。<img width="32" height="32" alt="2c4f40113caa2a4fbe3f5f9905492883" src="https://github.com/user-attachments/assets/1b867a2b-1f56-400e-8a15-341664b749d0" />
+4. 横屏翻页和竖屏下滑切换时可能会有大幅度的页面偏移，但应该没人经常换这东西<img width="32" height="32" alt="2c4f40113caa2a4fbe3f5f9905492883" src="https://github.com/user-attachments/assets/1b867a2b-1f56-400e-8a15-341664b749d0" />。
 5. 从论坛帖子直接进入漫画模式时，会因底层组件缓存隔离而产生少量的图片重复下载流量。
 
 ## 软件下载
@@ -65,7 +65,7 @@
 
 ## 相比原项目的重大升级
 
-本项目在原 [flben233/YamiboReader](https://github.com/flben233/YamiboReader) 的基础上进行了重构与功能增强，旨在提供更流畅、方便的百合会小说阅读体验。主要升级包括：
+本项目在原 [flben233/YamiboReader](https://github.com/flben233/YamiboReader) 的基础上进行了重构与功能增强，旨在提供更流畅、方便的百合会小说与漫画阅读体验。主要升级包括：
 
 1. 小说阅读体验与性能优化
 
