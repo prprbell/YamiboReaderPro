@@ -309,8 +309,8 @@ class TextUtil {
                                 targetPixelWidth = targetPixelWidth,
                                 halfWidthPx = halfWidthPx,
                                 fullWidthPx = fullWidthPx,
-                                chapterTitle = chapterTitle, // 传递标题
-                                output = resultLines // 输出到 Content 列表
+                                chapterTitle = chapterTitle,
+                                output = resultLines
                             )
                         }
                     }

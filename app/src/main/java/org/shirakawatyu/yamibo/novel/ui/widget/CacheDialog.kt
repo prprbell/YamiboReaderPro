@@ -89,21 +89,6 @@ fun CacheDialog(
                             modifier = Modifier.padding(end = 2.dp)
                         )
                     }
-                    // 图片开关
-//                    Row(
-//                        verticalAlignment = Alignment.CenterVertically,
-//                        modifier = Modifier.padding(end = 8.dp)
-//                    ) {
-//                        Text(
-//                            "缓存图片",
-//                            fontSize = 14.sp,
-//                            modifier = Modifier.padding(end = 8.dp)
-//                        )
-//                        Switch(
-//                            checked = includeImages,
-//                            onCheckedChange = { includeImages = it }
-//                        )
-//                    }
                 }
 
                 HorizontalDivider()
@@ -300,7 +285,7 @@ fun CacheProgressDialog(
         onDismissRequest = { /* 不允许点击外部关闭 */ },
         title = {
             Text(
-                if (isComplete) "缓存完成" else "正在缓存", // [MODIFIED]
+                if (isComplete) "缓存完成" else "正在缓存",
                 fontSize = 20.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()

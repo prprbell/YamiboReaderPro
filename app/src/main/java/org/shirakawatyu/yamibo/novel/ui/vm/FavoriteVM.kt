@@ -31,23 +31,30 @@ enum class FetchState { IDLE, BACKGROUND, MANUAL }
 class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private val _uiState = MutableStateFlow(FavoriteState())
     val uiState = _uiState.asStateFlow()
+
     // 记录当前的刷新状态，默认为空闲
     private val currentFetchState = AtomicReference(FetchState.IDLE)
+
     // 请求世代ID，用于打断旧的递归任务
     private val fetchGeneration = AtomicLong(0)
     private val logTag = "FavoriteVM"
     private var allFavorites: List<Favorite> = listOf()
+
     // 记录最后一次成功触发刷新的时间戳
     private var lastSmartSyncTime = 0L
+
     // 冷却时间，5秒内不重复发起后台同步
     private val SMART_SYNC_COOLDOWN = 5_000L
+
     // 等待队列：保存正在倒计时的那个任务
     private var pendingSyncJob: kotlinx.coroutines.Job? = null
+
     enum class RefreshStrategy {
         FULL,   // 全量刷新
         SMART,  // 增量刷新
         SKIP    // 跳过刷新
     }
+
     var nextResumeStrategy = RefreshStrategy.FULL
     var currentCategory: Int = -1
         private set
@@ -127,10 +134,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 lastSmartSyncTime = currentTime
             }
         } else {
-            // 手动刷新：最高优先级！
-            // 1. 如果有后台任务正在排队倒计时，立刻取消它（清空队列）
+            // 手动刷新
             pendingSyncJob?.cancel()
-            // 2. 更新时间戳，让接下来的后台任务重新计算冷却
             lastSmartSyncTime = System.currentTimeMillis()
         }
 
@@ -190,6 +195,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             currentFetchState.set(FetchState.IDLE)
         }
     }
+
     private fun fetchAllFavorites(
         page: Int,
         accumulatedList: ArrayList<Favorite>,
@@ -198,17 +204,17 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         totalPages: Int,
         generation: Long
     ) {
-        // 进入递归前，检查自己是不是已经被覆盖的旧任务
+        // 进入递归前，检查是不是已经被覆盖的旧任务
         if (generation != fetchGeneration.get()) return
 
         val favoriteApi = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
 
         favoriteApi.getFavoritePage(page).enqueue(object : Callback<ResponseBody> {
             override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
-                // 网络请求回来后，检查自己是不是已经被覆盖的旧任务
+                // 网络请求回来后，检查
                 if (generation != fetchGeneration.get()) return
                 viewModelScope.launch(Dispatchers.IO) {
-                    // 切入协程后，最后检查一次
+                    // 切入协程后，检查
                     if (generation != fetchGeneration.get()) return@launch
 
                     val respHTML = response.body()?.string()
@@ -244,7 +250,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                             val nextPageLink = parse.select(".page a, .pg a").find {
                                 it.text().contains("下一页") || it.hasClass("nxt")
                             }
-                            val hasNextPage = nextPageLink != null && nextPageLink.attr("href").isNotBlank()
+                            val hasNextPage =
+                                nextPageLink != null && nextPageLink.attr("href").isNotBlank()
 
                             var currentTotalPages = totalPages
                             var currentIsSmartSync = isSmartSync
@@ -255,11 +262,11 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                                 currentTotalPages = MangaHtmlParser.extractTotalPages(respHTML)
                                 val maxPossibleRemoteItems = currentTotalPages * 20
 
-                                // 1. 容量检测：如果本地列表数量大于线上最大容量，说明网页端发生了大量删除
+                                // 容量检测：如果本地列表数量大于线上最大容量，说明网页端发生了大量删除
                                 if (allFavorites.size > maxPossibleRemoteItems) {
-                                    currentIsSmartSync = false // 动态打破阻断机制，强制转为全量刷新！
+                                    currentIsSmartSync = false
                                 }
-                                // 2. 单页检测：如果总共只有一页，干脆转全量以便结束时顺手执行GC
+                                // 单页检测：如果总共只有一页，干脆转全量以便结束时顺手执行GC
                                 else if (!hasNextPage) {
                                     currentIsSmartSync = false
                                 }
@@ -267,10 +274,9 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
                             // 决定是否继续拉取
                             val shouldContinue = if (currentIsSmartSync) {
-                                // 智能接轨模式：有新内容且有下一页才继续，否则直接阻断休息
+                                // 有新内容且有下一页
                                 hasNewItems && hasNextPage
                             } else {
-                                // 强制全量模式：无脑拉到底
                                 hasNextPage
                             }
 
@@ -280,17 +286,27 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
                                     if (isBackground) {
                                         // 页数越多请求越快，页数越少请求越慢
-                                        // 基础公式：1200ms 减去 (页数-1 * 200ms)
-                                        val dynamicDelay = (1200L - ((currentTotalPages-1) * 150L)).coerceIn(600L, 1050L)
+                                        val dynamicDelay =
+                                            (1200L - ((currentTotalPages - 1) * 150L)).coerceIn(
+                                                600L,
+                                                1050L
+                                            )
                                         kotlinx.coroutines.delay(dynamicDelay)
                                     } else {
                                         // 手动刷新保持激进
                                         kotlinx.coroutines.delay(100L)
                                     }
-                                    fetchAllFavorites(page + 1, accumulatedList, currentIsSmartSync, isBackground, currentTotalPages, generation)
+                                    fetchAllFavorites(
+                                        page + 1,
+                                        accumulatedList,
+                                        currentIsSmartSync,
+                                        isBackground,
+                                        currentTotalPages,
+                                        generation
+                                    )
                                 }
                             } else {
-                                // 仅在全量模式结束时（含被强行打破阻断转为全量的），执行本地垃圾清理
+                                // 仅在全量模式结束时，执行本地垃圾清理
                                 if (!currentIsSmartSync) {
                                     FavoriteUtil.cleanupDeletedFavorites(accumulatedList)
                                 }
@@ -311,7 +327,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             }
 
             override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
-                // 哪怕失败了，如果已经是旧任务了，也别去动UI
+                // 已经是旧任务
                 if (generation != fetchGeneration.get()) return
 
                 t.printStackTrace()
@@ -323,6 +339,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             }
         })
     }
+
     fun clickHandler(favorite: Favorite, navController: NavController) {
         val urlEncoded = URLEncoder.encode(favorite.url, "utf-8")
 
@@ -336,6 +353,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 val encodedOriginal = URLEncoder.encode(favorite.url, "utf-8")
                 navController.navigate("MangaWebPage/$encodedTarget/$encodedOriginal?fastForward=false&initialPage=${favorite.lastPage}")
             }
+
             3 -> navController.navigate("OtherWebPage/$urlEncoded")
             else -> navController.navigate("ProbingPage/$urlEncoded")
         }
@@ -456,8 +474,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             _uiState.value = _uiState.value.copy(cacheInfoMap = emptyMap())
         }
     }
-
-    // ==================== 缓存/书签/目录等管理功能保持不变 ====================
 
     data class CacheInfo(
         val url: String,

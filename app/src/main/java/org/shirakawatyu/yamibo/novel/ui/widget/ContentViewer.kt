@@ -64,7 +64,7 @@ fun ContentViewer(
     // 竖屏模式的特殊处理
     if (isVerticalMode) {
         if (data.type == ContentType.IMG) {
-            // [竖屏图片]
+            // 竖屏图片
             val imageRequestBuilder = ImageRequest.Builder(LocalContext.current)
                 .data(data.data)
                 .crossfade(true)

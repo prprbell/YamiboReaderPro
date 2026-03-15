@@ -154,8 +154,12 @@ class FavoriteUtil {
             }
             return map
         }
-        // 渐进式合并：新数据追加到头部，有新内容返回 true
-        fun mergeFavoritesProgressive(pageList: List<Favorite>, callback: (hasNewItems: Boolean) -> Unit) {
+
+        // 渐进式合并：新数据追加到头部，有新内容返回true
+        fun mergeFavoritesProgressive(
+            pageList: List<Favorite>,
+            callback: (hasNewItems: Boolean) -> Unit
+        ) {
             getFavoriteMap { oldMap ->
                 var hasNewItems = false
                 val newMap = LinkedHashMap<String, Favorite>()
@@ -178,7 +182,7 @@ class FavoriteUtil {
             }
         }
 
-        // 全量垃圾回收：删除本地有但网络上已被移除的收藏
+        // 垃圾回收：删除本地有但网络上已被移除的收藏
         fun cleanupDeletedFavorites(fullNetworkList: List<Favorite>) {
             getFavoriteMap { oldMap ->
                 val networkUrls = fullNetworkList.map { it.url }.toSet()

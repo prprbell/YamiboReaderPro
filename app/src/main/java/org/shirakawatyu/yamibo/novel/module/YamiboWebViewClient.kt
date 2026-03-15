@@ -48,7 +48,6 @@ open class YamiboWebViewClient : WebViewClient() {
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         CookieManager.getInstance().setCookie(url, currentCookie)
         CookieManager.getInstance().flush()
-        // 在页面开始加载时就注入 CSS
         view?.loadUrl(hideCssCommand)
         super.onPageStarted(view, url, favicon)
     }

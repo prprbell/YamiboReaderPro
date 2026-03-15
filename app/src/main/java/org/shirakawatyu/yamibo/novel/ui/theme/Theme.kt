@@ -26,23 +26,11 @@ private val LightColorScheme = lightColorScheme(
     tertiary = YellowLightLight,
     background = YellowLightDark,
     surface = YellowLightDark
-
-    /* Other default colors to override
-background = Color(0xFFFFFBFE),
-surface = Color(0xFFFFFBFE),
-onPrimary = Color.White,
-onSecondary = Color.White,
-onTertiary = Color.White,
-onBackground = Color(0xFF1C1B1F),
-onSurface = Color(0xFF1C1B1F),
-*/
 )
 
 @Composable
 fun _300文学Theme(
-//        darkTheme: Boolean = isSystemInDarkTheme(),
-    darkTheme: Boolean = false,    // Not support currently
-    // Dynamic color is available on Android 12+
+    darkTheme: Boolean = false,
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
@@ -59,9 +47,6 @@ fun _300文学Theme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-//            window.statusBarColor = YamiboColors.onSurface.toArgb()
-//            window.statusBarColor = Color.Transparent.toArgb()
-//            WindowCompat.setDecorFitsSystemWindows(window, true)
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
         }
     }
@@ -78,13 +63,13 @@ fun _300文学Theme(
  * 阅读器夜间模式
  */
 private val ReaderNightColorScheme = darkColorScheme(
-    primary = Color(0xFFD0BCFF),      // 强调色 (来自默认的 Purple80)
-    background = Color(0xFF212121),    // 页面背景 (来自 ContentViewer)
+    primary = Color(0xFFD0BCFF),      // 强调色
+    background = Color(0xFF212121),    // 页面背景
     onBackground = Color(0xFFC8C8C8),  // 正文文字
     surface = Color(0xFF333333),      // 设置栏、对话框、抽屉背景
     onSurface = Color(0xFFE0E0E0),      // 设置栏、对话框、抽屉上的文字
     surfaceVariant = Color(0xFF333333),  // 设置栏 Surface 背景
-    onSurfaceVariant = Color(0xFF9E9E9E), // 页脚文字 (来自 ContentViewer 的 757575，稍亮)
+    onSurfaceVariant = Color(0xFF9E9E9E), // 页脚文字
     outline = Color(0xFF757575)       // 分割线
 )
 

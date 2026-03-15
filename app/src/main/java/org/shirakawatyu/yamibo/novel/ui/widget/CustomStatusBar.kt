@@ -137,7 +137,7 @@ fun CustomStatusBar(
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .align(Alignment.Center)
-                .padding(horizontal = 100.dp) // 预留左右空间给时间和电量
+                .padding(horizontal = 100.dp)
         )
 
         // 3. 右侧：电量 + 图标

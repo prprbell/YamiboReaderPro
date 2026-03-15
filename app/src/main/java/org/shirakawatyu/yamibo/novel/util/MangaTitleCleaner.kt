@@ -142,7 +142,7 @@ class MangaTitleCleaner {
                     baseNum = matchSepNum.groupValues[1].toFloatOrNull() ?: 0f
                 }
             }
-            // 规则 2.8: 孤立数字边界判断法
+            // 规则 2.8: 孤立数字边界判断
             if (baseNum == -1f) {
                 val matchIsolated =
                     Regex("(?:^|\\s)([^\\d\\s部季名次期天卷]?)\\s*([\\d\\.]+|[零一二两三四五六七八九十百千]+)\\s*([^\\d\\s部季名次期天卷]?)(?=\\s|$|(?:[:：—\\-,，.。!！?？|｜]+)(?!\\d))").find(

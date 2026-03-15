@@ -129,7 +129,6 @@ fun FavoritePage(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
 
-                // 根据VM中记录的策略决定如何刷新列表
                 when (favoriteVM.nextResumeStrategy) {
                     FavoriteVM.RefreshStrategy.SKIP -> {
                         // 什么都不做
@@ -153,14 +152,11 @@ fun FavoritePage(
 
     val hapticFeedback = LocalHapticFeedback.current
     val lazyListState = rememberLazyListState()
-    // 处理插入动画与轻量提示
     var previousListSize by remember { mutableIntStateOf(favoriteList.size) }
     var wasAtTop by remember { mutableStateOf(true) }
-    // 气泡控制状态
     var showTopToast by remember { mutableStateOf(false) }
     var newItemsCount by remember { mutableIntStateOf(0) }
 
-    // 1. 实时追踪更新前用户是否停留在列表最顶部
     LaunchedEffect(lazyListState) {
         androidx.compose.runtime.snapshotFlow {
             lazyListState.firstVisibleItemIndex to lazyListState.firstVisibleItemScrollOffset
@@ -169,22 +165,18 @@ fun FavoritePage(
         }
     }
 
-    // 2. 监听列表数据变化，触发对应的滚动或提示
     LaunchedEffect(favoriteList) {
         val addedCount = favoriteList.size - previousListSize
         if (addedCount > 0) {
             if (wasAtTop) {
-                // 如果刷新前在顶部，则平滑滚动到最新的第 0 项。
                 lazyListState.animateScrollToItem(0)
             } else {
-                // 如果在底部或中间，弹出顶部气泡
                 newItemsCount = addedCount
                 showTopToast = true
             }
         }
         previousListSize = favoriteList.size
     }
-    // 3. 气泡自动消失倒计时
     LaunchedEffect(showTopToast) {
         if (showTopToast) {
             kotlinx.coroutines.delay(2500)
@@ -779,7 +771,7 @@ fun CacheManagementDialog(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        favorite.title, // 使用收藏标题
+                                        favorite.title,
                                         fontSize = 14.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis

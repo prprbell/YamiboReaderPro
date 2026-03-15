@@ -155,7 +155,6 @@ fun BBSPage(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    // ----- 全屏状态控制 -----
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
     val fullscreenApi = remember {
@@ -164,7 +163,6 @@ fun BBSPage(
         }
         BBSPageState.fullscreenApi!!
     }
-    // 每次重组更新回调
     fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
 
@@ -174,10 +172,8 @@ fun BBSPage(
         }
         BBSPageState.nativeMangaApi!!
     }
-    // 每次重组更新最新状态，并在回调中主动向 WebView 请求全量 HTML
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
-            // 安全解析回传的 JSON 字符串
             val cleanHtml = try {
                 com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
             } catch (e: Exception) {
@@ -200,15 +196,12 @@ fun BBSPage(
             navController.navigate("NativeMangaPage?url=$encodedUrl")
         }
     }
-    // 强制获取ViewModel
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
     val mangaDirVM: MangaDirectoryVM = viewModel(
         factory = ViewModelFactory(LocalContext.current.applicationContext)
     )
 
-    // 监听全屏状态并切换UI
-    // 1. 专门控制系统 UI 显隐
     LaunchedEffect(isFullscreenState.value, autoOpenMangaMode) {
         val window = activity?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, view)
@@ -230,7 +223,6 @@ fun BBSPage(
         }
     }
 
-    // 2. 统一处理全屏状态变化时的核心业务逻辑
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             webView.evaluateJavascript(
@@ -244,21 +236,17 @@ fun BBSPage(
                 null
             )
 
-            // 处理积压的“下一话”跳转任务
             pendingNavigateUrl?.let { url ->
                 isLoading = true
                 webView.loadUrl(url)
                 pendingNavigateUrl = null
             }
         } else {
-            // 大图成功打开，关闭 Compose 层的黑屏遮罩
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
             }
-            // 大图模式下，抓取并解析当前页面的目录
             currentUrl?.let { url ->
                 if (url.contains("mod=viewthread") && url.contains("tid=")) {
-                    // 注入 JS 探测当前页面的版块名称
                     val checkSectionJs = """
                         (function() {
                             var sectionHeader = document.querySelector('.header h2 a');
@@ -309,7 +297,6 @@ fun BBSPage(
         }
     }
 
-    // 2. 监听页面加载完成，注入基于事件驱动的监听 JS
     LaunchedEffect(isLoading) {
         if (!isLoading && autoOpenMangaMode) {
             val clickJs = """
@@ -360,7 +347,7 @@ fun BBSPage(
                     }
 
                     // ==========================================
-                    // 轨道 A: NativeMangaApi (原生路径)
+                    // NativeMangaApi
                     // ==========================================
                     if (window.NativeMangaApi) {
                         var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
@@ -380,7 +367,7 @@ fun BBSPage(
                     }
 
                     // ==========================================
-                    // 轨道B: PhotoSwipe降级方案
+                    // PhotoSwipe
                     // ==========================================
                     var clickTimer = null;
                     var timeoutTimer = null;
@@ -434,13 +421,10 @@ fun BBSPage(
                         }
                     }
 
-                    // 1. 立即执行第 1 次点击（如果网页加载够快，这次直接就成了）
                     tryClickTarget();
 
-                    // 2. 如果第 1 次被网页忽略，开启后备隐藏重试（每 250ms 一次）
                     clickTimer = setInterval(tryClickTarget, 250);
 
-                    // 3. 5 秒超时终极防死锁清理
                     timeoutTimer = setTimeout(function() {
                         observer.disconnect();
                         if (clickTimer) clearInterval(clickTimer);
@@ -451,8 +435,6 @@ fun BBSPage(
 
             webView.evaluateJavascript(clickJs, null)
 
-            // Compose 层的安全网：防止极端情况下 JS 引擎崩溃或报错导致黑屏无法解除
-            // 给它比 JS 多 1 秒的宽限期
             delay(6000)
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
@@ -477,7 +459,6 @@ fun BBSPage(
             }
         }
     }
-    // ----- 全屏状态控制结束 -----
     fun isLoggedIn(cookie: String): Boolean {
         return cookie.contains("EeqY_2132_auth=")
     }
@@ -529,12 +510,6 @@ fun BBSPage(
 
         val currentCookie = cookieFlow.first()
         val currentLoginState = isLoggedIn(currentCookie)
-
-        Log.d("BBSPage", "Page selected. Current cookie: ${currentCookie.take(50)}...")
-        Log.d(
-            "BBSPage",
-            "Current login state: $currentLoginState, Last login state: ${BBSPageState.lastLoginState}, Has loaded: ${BBSPageState.hasSuccessfullyLoaded}"
-        )
 
         val needsLoad = when {
             !BBSPageState.hasSuccessfullyLoaded -> {
@@ -672,22 +647,17 @@ fun BBSPage(
                 showLoadError = false
                 super.onPageFinished(view, url)
                 canGoBack = view?.canGoBack() ?: false
-                // 检查是否加载了首页
                 if (view != null && url != null) {
                     val isHomepage = url == indexUrl || url == bbsUrl || url == baseBbsUrl
                     if (isHomepage) {
-                        // 清除历史记录
                         view.clearHistory()
                     }
                 }
-                // 更新canGoBack状态
                 canGoBack = view?.canGoBack() ?: false
 
-                // 只有在成功加载后才更新状态
                 if (url != null && !url.contains("about:blank")) {
                     BBSPageState.hasSuccessfullyLoaded = true
 
-                    // 在首次成功加载或登录状态变化后的成功加载时，更新lastLoginState
                     scope.launch {
                         val currentCookie = cookieFlow.first()
                         val currentLoginState = isLoggedIn(currentCookie)
@@ -715,8 +685,7 @@ fun BBSPage(
                     """.trimIndent()
                 ) { result ->
                     isMangaSection = result == "true"
-                    // 如果是图区，拦截图片点击，发送给原生 NativeMangaApi
-                    // 如果是图区，拦截图片点击，发送给原生 NativeMangaApi
+                    // 如果是图区，拦截图片点击，发送给原生NativeMangaApi
                     if (isMangaSection) {
                         val injectJs = """
                         javascript:(function() {
@@ -724,14 +693,11 @@ fun BBSPage(
                             window._mangaClickInjected = true;
                             
                             document.addEventListener('click', function(e) {
-                                // 1. 扩大捕获范围：包括 a 标签和 li 标签等容器
                                 var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
                                 if (!targetContainer) return;
                                 
-                                // 2. 尝试从中找出真正的 img 元素
                                 var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
                                 
-                                // 3. 如果找到了图片，且不是论坛表情，则拦截
                                 if (targetImg) {
                                     var imgSrc = targetImg.getAttribute('src') || '';
                                     var imgZsrc = targetImg.getAttribute('zsrc') || '';
@@ -744,7 +710,6 @@ fun BBSPage(
                                         var urls = [];
                                         var clickedIndex = 0;
                                         for (var i = 0; i < allImgs.length; i++) {
-                                            // 兼容 zsrc, file 和 src
                                             var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
                                             if (rawSrc) {
                                                 var absoluteUrl = new URL(rawSrc, document.baseURI).href;
@@ -777,7 +742,6 @@ fun BBSPage(
                     isLoading = false
                     if (retryCount == 0) {
                         showLoadError = true
-                        // 加载失败时，标记为未成功加载
                         BBSPageState.hasSuccessfullyLoaded = false
                     }
                 }
@@ -795,7 +759,6 @@ fun BBSPage(
                     isLoading = false
                     if (retryCount == 0) {
                         showLoadError = true
-                        // 加载失败时，标记为未成功加载
                         BBSPageState.hasSuccessfullyLoaded = false
                     }
                 }
@@ -919,7 +882,7 @@ fun BBSPage(
                 .align(Alignment.BottomEnd)
                 .padding(bottom = 150.dp)
         )
-        // 无缝切换漫画章节的黑屏遮罩层
+        // 切换漫画章节的黑屏遮罩层
         if (autoOpenMangaMode) {
             Box(
                 modifier = Modifier

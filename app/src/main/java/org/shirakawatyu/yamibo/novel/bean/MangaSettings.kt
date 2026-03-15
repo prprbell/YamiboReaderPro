@@ -5,8 +5,8 @@ import android.content.SharedPreferences
 import androidx.core.content.edit
 
 data class MangaSettings(
-    val readMode: Int = 0, // 0: 下滑 (垂直), 1: 左滑 (LTR 横屏), 2: 右滑 (RTL 横屏)
-    val isAscending: Boolean = true // 全局的正序/倒序偏好，默认正序
+    val readMode: Int = 0, // 0: 下滑, 1: 左滑, 2: 右滑
+    val isAscending: Boolean = true // 正序/倒序偏好，默认正序
 ) {
     companion object {
         private const val PREF_NAME = "manga_settings_pref"

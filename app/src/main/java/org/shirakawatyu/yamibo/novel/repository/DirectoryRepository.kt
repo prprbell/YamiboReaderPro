@@ -18,6 +18,7 @@ import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import java.io.File
 import java.io.IOException
 import java.util.Collections
+import kotlin.math.abs
 
 data class DirectoryUpdateResult(val directory: MangaDirectory, val searchPerformed: Boolean)
 
@@ -91,8 +92,8 @@ class DirectoryRepository private constructor(private val context: Context) {
     }
 
     /**
-     * 核心动作 1：初次进入帖子。
-     * 逻辑：无论是否有缓存，都尝试提取当前页超链接并合并，实现“动态补完”目录。
+     * 初次进入帖子。
+     * 无论是否有缓存，都尝试提取当前页超链接并合并
      */
     suspend fun initDirectoryForThread(
         tid: String,
@@ -207,9 +208,9 @@ class DirectoryRepository private constructor(private val context: Context) {
     }
 
     /**
-     * 通用时间线降级补完算法 (双向插值法)
-     * 针对无法提取编号的帖子(0f)以及提取错误/排序差距过大的异常贴，
-     * 严格根据它们在时间线上的真实位置，参考前后的正常编号，动态计算出一个合理的顺位编号。
+     * 补完算法
+     * 针对无法提取编号的帖子以及提取错误/排序差距过大的异常贴，
+     * 根据它们在时间线上的真实位置，参考前后的正常编号，动态计算出一个合理的顺位编号。
      */
     private fun fixChaptersByTimeline(
         items: List<MangaChapterItem>,
@@ -217,7 +218,6 @@ class DirectoryRepository private constructor(private val context: Context) {
     ): List<MangaChapterItem> {
         if (items.isEmpty()) return items
 
-        // 1. 决定基准时间线排序 (最老发帖在前)
         val ascendingItems = if (items.any { it.publishTime > 0L }) {
             items.sortedBy { it.publishTime }
         } else {
@@ -225,27 +225,26 @@ class DirectoryRepository private constructor(private val context: Context) {
         }
 
         // ======================= 阶段一：检测排序差距过大 =======================
-        // 筛选出看起来处于正常区间的编号
         val rawValidItems = ascendingItems.filter { it.chapterNum > 0f && it.chapterNum < 1000f }
         val sortedRawValid = rawValidItems.sortedBy { it.chapterNum }
         val sortedIndexMap = sortedRawValid.mapIndexed { index, item -> item.tid to index }.toMap()
 
-        // 容忍阈值：由于数字提取错乱导致排序偏离超过 3 话，视为提取错误，打入“冷宫”
+        // 容忍阈值：由于数字提取错乱导致排序偏离超过3话，视为提取错误
         val DEVIATION_THRESHOLD = 3
         val anomalyTids = rawValidItems.mapIndexedNotNull { index, item ->
             val sortedIdx = sortedIndexMap[item.tid] ?: index
-            if (Math.abs(index - sortedIdx) >= DEVIATION_THRESHOLD) item.tid else null
+            if (abs(index - sortedIdx) >= DEVIATION_THRESHOLD) item.tid else null
         }.toSet()
 
         // ======================= 阶段二：双向插值法赋予真实位置编号 =======================
 
-        // 辅助函数1：判断是否是需要被赋予新编号的“坑位”
+        // 判断是否是需要被赋予新编号的“坑位”
         fun isHole(item: MangaChapterItem): Boolean {
             val num = item.chapterNum
             return num == 0f || (num > 0f && num < 1000f && anomalyTids.contains(item.tid))
         }
 
-        // 辅助函数2：判断是否是可靠的基准正常编号 (非0，非番外，非异常)
+        // 判断是否是可靠的基准正常编号
         fun isValidNormal(item: MangaChapterItem): Boolean {
             val num = item.chapterNum
             return num > 0f && num < 1000f && !anomalyTids.contains(item.tid)
@@ -258,14 +257,14 @@ class DirectoryRepository private constructor(private val context: Context) {
                 val holeStartIndex = i
                 var holeEndIndex = i
 
-                // 向后试探，找到连续挨在一起的所有“坑位”
+                // 向后试探
                 while (holeEndIndex + 1 < processedItems.size && isHole(processedItems[holeEndIndex + 1])) {
                     holeEndIndex++
                 }
 
                 val holeCount = holeEndIndex - holeStartIndex + 1
 
-                // 向左寻找最近的可靠正常编号 (遇到番外会自动跳过)
+                // 向左寻找
                 var prevValidNum = 0f
                 for (j in holeStartIndex - 1 downTo 0) {
                     if (isValidNormal(processedItems[j])) {
@@ -274,7 +273,7 @@ class DirectoryRepository private constructor(private val context: Context) {
                     }
                 }
 
-                // 向右寻找最近的可靠正常编号 (遇到番外会自动跳过)
+                // 向右寻找
                 var nextValidNum = -1f
                 for (j in holeEndIndex + 1 until processedItems.size) {
                     if (isValidNormal(processedItems[j])) {
@@ -283,27 +282,21 @@ class DirectoryRepository private constructor(private val context: Context) {
                     }
                 }
 
-                // 计算填坑步长
+                // 计算步长
                 val step = if (nextValidNum != -1f) {
-                    // 场景A：被夹在两个正常编号中间，平分这个区间
-                    // 例如夹在 2 和 4 之间，有 1 个坑位：(4 - 2) / 2 = 1.0，坑位将被赋予 3
                     (nextValidNum - prevValidNum) / (holeCount + 1)
                 } else {
-                    // 场景B：右侧已经没有正常编号了（末尾），默认以 1 为步长自增
-                    // 例如上一话是 5，后面跟着两个坑位，则分别赋予 6、7
                     1.0f
                 }
 
-                // 为这一段连续的坑位依次赋予计算出的真实顺位编号
                 for (k in 0 until holeCount) {
                     val assignedNum = prevValidNum + step * (k + 1)
-                    // 保留三位小数，防止浮点精度溢出 (如 2.333333 变为 2.333)
                     val formattedNum = Math.round(assignedNum * 1000) / 1000f
                     processedItems[holeStartIndex + k] =
                         processedItems[holeStartIndex + k].copy(chapterNum = formattedNum)
                 }
 
-                i = holeEndIndex + 1 // 跳过已处理的坑位块
+                i = holeEndIndex + 1
             } else {
                 i++
             }
@@ -384,7 +377,6 @@ class DirectoryRepository private constructor(private val context: Context) {
         }
     }
 
-    // 接收 exactKeyword 参数
     private suspend fun performSearch(
         rawTitle: String,
         exactKeyword: String? = null
@@ -393,17 +385,14 @@ class DirectoryRepository private constructor(private val context: Context) {
         if (now - GlobalData.lastSearchTimestamp.get() < 20_000L) return Result.failure(Exception("搜索冷却中，请等待20秒"))
         GlobalData.lastSearchTimestamp.set(now)
 
-        // 如果有精确词，就用精确词；否则用正则洗出来的
         val safeKeyword = exactKeyword ?: MangaTitleCleaner.getSearchKeyword(rawTitle)
 
-        // 1. 获取第一页数据
         val firstPageHtml = mangaApi.searchForum(keyword = safeKeyword).string()
         if (MangaHtmlParser.isFloodControlOrError(firstPageHtml)) return Result.failure(Exception("触发论坛防灌水限制，请稍后再试"))
 
         val allItems = mutableListOf<MangaChapterItem>()
         allItems.addAll(MangaHtmlParser.parseListHtml(firstPageHtml))
 
-        // 2. 翻页逻辑
         val totalPages = MangaHtmlParser.extractTotalPages(firstPageHtml)
         val searchId = MangaHtmlParser.extractSearchId(firstPageHtml)
 
@@ -431,7 +420,6 @@ class DirectoryRepository private constructor(private val context: Context) {
         new.forEach { map[it.tid] = it }
         return map.values.sortedWith(compareBy({ it.groupIndex }, { it.chapterNum }))
     }
-    // ==================== 目录管理功能 ====================
 
     /**
      * 获取所有本地保存的目录
@@ -445,13 +433,12 @@ class DirectoryRepository private constructor(private val context: Context) {
         files.mapNotNull { file ->
             try {
                 JSON.parseObject(file.readText(), MangaDirectory::class.java).also {
-                    // 同步到内存缓存
                     if (it != null) memoryCache[it.cleanBookName] = it
                 }
             } catch (e: Exception) {
                 null
             }
-        }.sortedByDescending { it.lastUpdateTime } // 按最后更新时间降序排列
+        }.sortedByDescending { it.lastUpdateTime }
     }
 
     /**

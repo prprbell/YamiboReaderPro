@@ -515,11 +515,9 @@ fun OtherWebPage(
 
         if (otherWebView.url == null) {
             FavoriteUtil.getFavoriteMap { map ->
-                // 从 DataStore 拿到该帖子上一次保存的页码
                 val lastSavedPage = map[url]?.lastView ?: 1
                 val startUrl = getPagedUrl(finalUrl, lastSavedPage)
 
-                // 必须回到主线程 loadUrl
                 scope.launch(Dispatchers.Main) {
                     otherWebView.loadUrl(startUrl)
                 }

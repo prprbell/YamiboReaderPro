@@ -296,7 +296,6 @@ fun MangaWebPage(
     }
 
     ActivityWebViewLifecycleObserver(mangaWebView)
-    // 1. 系统 UI 显隐控制
     LaunchedEffect(isFullscreenState.value) {
         val window = activity?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, view)
@@ -315,7 +314,6 @@ fun MangaWebPage(
         }
     }
 
-    // 2. 处理大图模式逻辑与版块探测
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             mangaWebView.evaluateJavascript(
@@ -350,7 +348,6 @@ fun MangaWebPage(
                     """.trimIndent()
 
                     mangaWebView.evaluateJavascript(checkSectionJs) { result ->
-                        // 解析 JS 返回的字符串
                         val sectionName = try {
                             com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
                         } catch (e: Exception) {
@@ -366,13 +363,11 @@ fun MangaWebPage(
                             "百合漫画图源区"
                         )
 
-                        // 判断条件：如果抓到了非空的版块名，且不在白名单内，说明是跨区帖
                         val isCrossForum = sectionName.isNotBlank() && allowedSections.none {
                             sectionName.contains(it)
                         }
 
                         if (!isCrossForum) {
-                            // 只有在合法的漫画/图区内，才抓取庞大的网页源码并初始化目录
                             val pageTitle = mangaWebView.title ?: ""
                             mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
                                 scope.launch(Dispatchers.Default) {
@@ -442,7 +437,7 @@ fun MangaWebPage(
                     mangaWebView.loadUrl(finalUrl)
                 }
 
-                // 探测漫画版块，并注入拦截器（拦截手动点击）
+                // 探测漫画版块，并注入拦截器
                 view?.evaluateJavascript(
                     """
                     (function(){
@@ -457,14 +452,11 @@ fun MangaWebPage(
                         val injectJs = """
                             javascript:(function() {
                                 document.addEventListener('click', function(e) {
-                                    // 1. 扩大捕获范围：找到包含图片的最外层包裹器（包括 a 标签和 li 标签）
                                     var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
                                     if (!targetContainer) return;
                                     
-                                    // 2. 尝试从中找出真正的 img 元素
                                     var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
                                     
-                                    // 3. 如果找到了图片，且不是论坛的表情包，则实施拦截
                                     if (targetImg) {
                                         var imgSrc = targetImg.getAttribute('src') || '';
                                         var imgZsrc = targetImg.getAttribute('zsrc') || '';
@@ -477,7 +469,6 @@ fun MangaWebPage(
                                             var urls = [];
                                             var clickedIndex = 0;
                                             for (var i = 0; i < allImgs.length; i++) {
-                                                // Discuz 论坛的图片链接可能存放在 zsrc, file 或 src 中
                                                 var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
                                                 if (rawSrc) {
                                                     var absoluteUrl = new URL(rawSrc, document.baseURI).href;
@@ -527,13 +518,11 @@ fun MangaWebPage(
             }
         }
 
-        // 首次进入加载
         if (mangaWebView.url == null) {
             startLoading(mangaWebView, finalUrl)
         }
     }
 
-    // 1. 监听大图退出状态，执行积压的跳转任务
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             pendingNavigateUrl?.let { navigateUrl ->
@@ -546,13 +535,11 @@ fun MangaWebPage(
         }
     }
 
-    // 2. 页面加载完成注入自动点击 JS
-    // 2. 页面加载完成注入自动提取 JS (带有限重试机制)
     LaunchedEffect(isLoading) {
         if (!isLoading && autoOpenMangaMode) {
             val clickJs = """
                 (function() {
-                    // 1. 版块与公告检查
+                    // 版块与公告检查
                     var sectionHeader = document.querySelector('.header h2 a');
                     var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
                     if (sectionName !== '') {
@@ -573,7 +560,7 @@ fun MangaWebPage(
                         return; 
                     }
 
-                    // 2. 提取图片的逻辑函数
+                    // 提取图片
                     function extractAndOpenNative() {
                         if (!window.NativeMangaApi) return false;
                         
@@ -593,12 +580,10 @@ fun MangaWebPage(
                         return false;
                     }
 
-                    // 3. 执行立刻提取
                     if (extractAndOpenNative()) {
                         return; // 如果第一次就成功了，直接结束
                     }
 
-                    // 4. 如果第一次没找到图，开启有限重试 (处理 DOM 渲染延迟)
                     var extractAttempts = 0;
                     var maxExtracts = 10;
                     
@@ -606,14 +591,12 @@ fun MangaWebPage(
                         extractAttempts++;
                         
                         if (extractAndOpenNative()) {
-                            clearInterval(extractTimer); // 成功则立刻清除定时器
+                            clearInterval(extractTimer);
                             return;
                         }
                         
-                        // 次数耗尽，彻底放弃
                         if (extractAttempts >= maxExtracts) {
                             clearInterval(extractTimer);
-                            // 兜底策略：如果真的没图，取消黑屏
                             if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
                                 window.AndroidFullscreen.notifyMangaActionDone();
                             }
@@ -649,10 +632,9 @@ fun MangaWebPage(
         val url = currentUrl ?: return@LaunchedEffect
         val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: return@LaunchedEffect
 
-        // 在目录中查找当前页面 TID 对应的章节
+        // 在目录中查找当前页面TID对应的章节
         val currentChapter = dir.chapters.find { it.tid == tid }
         if (currentChapter != null) {
-            // 【新增】：注入 JS 探测面包屑导航中的版块名称
             val checkSectionJs = """
                 (function() {
                     var sectionHeader = document.querySelector('.header h2 a');
@@ -664,23 +646,19 @@ fun MangaWebPage(
             """.trimIndent()
 
             mangaWebView.evaluateJavascript(checkSectionJs) { result ->
-                // 解析 JS 返回的字符串
                 val sectionName = try {
                     com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
                 } catch (e: Exception) {
                     result?.replace("\"", "") ?: ""
                 }
 
-                // 允许的白名单（添加了简体的贴图区做容错）
                 val allowedSections =
                     listOf("中文百合漫画区", "貼圖區", "贴图区", "原创图作区", "百合漫画图源区")
 
-                // 判断条件：如果抓到了非空的版块名，且不在白名单内，说明是跨区帖
                 val isCrossForum =
                     sectionName.isNotBlank() && allowedSections.none { sectionName.contains(it) }
 
                 if (!isCrossForum) {
-                    // 安全的漫画区帖子，正常更新进度
                     val shortTitle = when {
                         currentChapter.chapterNum >= 1000f -> "番外"
                         currentChapter.chapterNum % 1f == 0f -> "读至第 ${currentChapter.chapterNum.toInt()} 话"
@@ -693,7 +671,6 @@ fun MangaWebPage(
                         chapterTitle = shortTitle
                     )
                 } else {
-                    // 拦截跨区帖子的书签记录
                     Log.w("MangaWebPage", "已拦截跨区漫画书签写入！当前版块：${sectionName}")
                 }
             }
@@ -715,14 +692,13 @@ fun MangaWebPage(
                     onPause()
                     stopLoading()
                     webViewClient = android.webkit.WebViewClient()
-                    setWebChromeClient(null) // <--- 改用这种写法
+                    setWebChromeClient(null)
                     (parent as? ViewGroup)?.removeView(this)
                     destroy()
                 }
             }
         )
 
-        // 错误展示
         if (showLoadError) {
             Column(
                 modifier = Modifier

@@ -47,10 +47,6 @@ fun PassageWebView(
 
                 settings.javaScriptEnabled = true
                 settings.useWideViewPort = true
-//                if (loadImages) {
-//                    settings.loadsImagesAutomatically = true
-//                    settings.blockNetworkImage = false
-//                } else {
                 settings.loadsImagesAutomatically = false
                 settings.blockNetworkImage = true
 

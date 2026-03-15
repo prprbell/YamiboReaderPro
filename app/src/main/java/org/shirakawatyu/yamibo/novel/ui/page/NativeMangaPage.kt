@@ -154,12 +154,9 @@ fun NativeMangaPage(
     val screenWidthPx = with(LocalDensity.current) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() }
     val isRtl = readMode == 2
-    // 追踪屏幕上的手指数量，用于精准识别多指手势并锁定页面滑动
     var activePointers by remember { mutableIntStateOf(0) }
     val isMultiTouch by remember { derivedStateOf { activePointers > 1 } }
 
-    // ====== 修复闪图与无响应核心：稳定化点击回调 ======
-    // 将 Lambda 包裹在 remember 中，避免因 showUi 的变化导致图片组件无谓重组
     val handleVerticalClick: () -> Unit = remember {
         {
             if (showUi) {
@@ -170,10 +167,8 @@ fun NativeMangaPage(
             }
         }
     }
-    // 通过安全的官方 API 检查上一级页面是谁
     val previousRoute = navController.previousBackStackEntry?.destination?.route
 
-    // 统一定义跳转章节的逻辑
     val navigateToChapter = { targetUrl: String ->
         showUi = false
         showChapterList = false
@@ -182,10 +177,8 @@ fun NativeMangaPage(
 
         navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
             if (previousRoute?.startsWith("MangaWebPage") == true) {
-                // 如果是从 BBS 帖子进入的，切换章节时，把旧的那一话 MangaWebPage 连带干掉，防止无限堆栈
                 popUpTo(previousRoute) { inclusive = true }
             } else {
-                // 如果是从收藏夹进入的，直接干掉当前的 NativeMangaPage 即可
                 navController.currentDestination?.id?.let { currentId ->
                     popUpTo(currentId) { inclusive = true }
                 }
@@ -859,7 +852,7 @@ fun NativeMangaPage(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally // 让内部元素整体居中
                         ) {
-                            // 1. 进度条区域
+                            // 进度条区域
                             if (imageUrls.size > 1) {
                                 // 计算上一话和下一话
                                 val currentTid = MangaTitleCleaner.extractTidFromUrl(url)
@@ -1009,7 +1002,7 @@ fun NativeMangaPage(
                         )
                     } ?: emptyList()
 
-                    // 智能提取初始的作者名，如果用户之前保存过，就从里面抠出来
+                    // 提取初始的作者名
                     val initialAuthor = remember(mangaDirVM.currentDirectory) {
                         val dir = mangaDirVM.currentDirectory
                         if (dir?.searchKeyword != null && dir.searchKeyword.endsWith(dir.cleanBookName)) {

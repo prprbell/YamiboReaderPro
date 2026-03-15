@@ -197,7 +197,6 @@ fun MinePage(
     val context = LocalContext.current
     val activity = context as? Activity
     val view = LocalView.current
-    // ----- 全屏状态控制 -----
     val isFullscreenState = remember { mutableStateOf(false) }
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
@@ -213,7 +212,6 @@ fun MinePage(
             }
         }
     }
-    // ----- 全屏状态控制结束 -----
     val fullscreenApi = remember { FullscreenApiMine() }
     fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
@@ -278,10 +276,10 @@ fun MinePage(
             autoOpenMangaMode = false
 
             val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
-            savedMangaUrl = passUrl // 保存以便返回时重载
+            savedMangaUrl = passUrl
 
-            val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
-            val encodedOriginal = java.net.URLEncoder.encode(passUrl, "utf-8")
+            val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
+            val encodedOriginal = URLEncoder.encode(passUrl, "utf-8")
             navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedOriginal")
         }
     }
@@ -312,7 +310,7 @@ fun MinePage(
                 (function() {
                     var style = document.getElementById('manga-transition-style');
                     if (style) style.remove();
-                    window.pswpObserverAttached = false; // 重置标记，确保下次进入能重新绑定
+                    window.pswpObserverAttached = false;
                 })();
                 """.trimIndent(),
                 null
@@ -520,19 +518,16 @@ fun MinePage(
                     """.trimIndent()
                 ) { result ->
                     isMangaSection = result == "true"
-                    // 如果是漫画/图区，拦截图片点击事件发送给 NativeMangaApi
+                    // 如果是漫画/图区，拦截图片点击事件发送给NativeMangaApi
                     if (isMangaSection) {
                         val injectJs = """
                             javascript:(function() {
                                 document.addEventListener('click', function(e) {
-                                    // 1. 扩大捕获范围：包括 a 标签和 li 标签等容器
                                     var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
                                     if (!targetContainer) return;
                                     
-                                    // 2. 尝试从中找出真正的 img 元素
                                     var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
                                     
-                                    // 3. 如果找到了图片，且不是论坛表情，则拦截
                                     if (targetImg) {
                                         var imgSrc = targetImg.getAttribute('src') || '';
                                         var imgZsrc = targetImg.getAttribute('zsrc') || '';
@@ -545,7 +540,6 @@ fun MinePage(
                                             var urls = [];
                                             var clickedIndex = 0;
                                             for (var i = 0; i < allImgs.length; i++) {
-                                                // 兼容 zsrc, file 和 src
                                                 var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
                                                 if (rawSrc) {
                                                     var absoluteUrl = new URL(rawSrc, document.baseURI).href;
@@ -623,7 +617,6 @@ fun MinePage(
         }
     }
 
-    // 1. 监听大图退出状态，执行积压的跳转任务
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             pendingNavigateUrl?.let { url ->
@@ -637,12 +630,10 @@ fun MinePage(
         }
     }
 
-    // 2. 监听页面加载完成，注入基于事件驱动的监听 JS
     LaunchedEffect(isLoading) {
         if (!isLoading && autoOpenMangaMode) {
             val clickJs = """
                 (function() {
-                    // 1. 检查版块白名单
                     var sectionHeader = document.querySelector('.header h2 a');
                     var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
                     if (sectionName !== '') {
@@ -662,7 +653,6 @@ fun MinePage(
                         }
                     }
                     
-                    // 2. 检查公告帖拦截
                     var typeLabel = document.querySelector('.view_tit em');
                     if (typeLabel && typeLabel.innerText.indexOf('公告') !== -1) {
                         if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
@@ -671,7 +661,6 @@ fun MinePage(
                         return; 
                     }
 
-                    // 3. 注入过渡黑屏样式 (防止闪白)
                     if (!document.getElementById('manga-transition-style')) {
                         var style = document.createElement('style');
                         style.id = 'manga-transition-style';
@@ -687,9 +676,7 @@ fun MinePage(
                         }
                     }
 
-                    // ==========================================
-                    // 轨道 A: NativeMangaApi (原生路径)
-                    // ==========================================
+                    // NativeMangaApi
                     if (window.NativeMangaApi) {
                         var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
                         if (allImgs.length > 0) {
@@ -707,9 +694,7 @@ fun MinePage(
                         }
                     }
 
-                    // ==========================================
-                    // 轨道B: PhotoSwipe降级方案
-                    // ==========================================
+                    // PhotoSwipe
                     var clickTimer = null;
                     var timeoutTimer = null;
                     
@@ -727,7 +712,6 @@ fun MinePage(
                         }
                     });
 
-                    // 开始监听 body 的子节点变化
                     observer.observe(document.body, { childList: true, subtree: true });
 
                     var clickAttempts = 0;
@@ -738,7 +722,6 @@ fun MinePage(
                             if (clickTimer) clearInterval(clickTimer);
                             return;
                         }
-                        // 双重保险：如果在定时器触发瞬间 .pswp 已经存在，放弃本次点击防止动画错乱
                         if (document.querySelector('.pswp')) return; 
                         
                         clickAttempts++;
@@ -762,13 +745,10 @@ fun MinePage(
                         }
                     }
 
-                    // 1. 立即执行第 1 次点击（如果网页加载够快，这次直接就成了）
                     tryClickTarget();
 
-                    // 2. 如果第 1 次被网页忽略，开启后备隐藏重试（每 250ms 一次）
                     clickTimer = setInterval(tryClickTarget, 250);
 
-                    // 3. 5 秒超时终极防死锁清理
                     timeoutTimer = setTimeout(function() {
                         observer.disconnect();
                         if (clickTimer) clearInterval(clickTimer);

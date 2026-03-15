@@ -79,10 +79,10 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
                 currentDirectory = updateResult.directory
 
                 if (updateResult.searchPerformed) {
-                    // 如果执行了搜索（无论是强制还是自动降级），进入 30s 冷却
+                    // 如果执行了搜索，进入冷却
                     startDirectoryCooldown(20)
                 } else {
-                    // 如果是 TAG 更新成功，开启 5s 的“全局搜索”窗口期
+                    // 如果是TAG更新成功，开启5s的“全局搜索”窗口期
                     triggerSearchShortcutWindow()
                 }
             }.onFailure { error ->

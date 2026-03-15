@@ -22,7 +22,7 @@ fun JustifiedText(
     lineHeight: TextUnit = 24.sp,
     letterSpacing: TextUnit = 0.sp,
     color: Color = Color.Black,
-    isVerticalMode: Boolean = false // [新增]
+    isVerticalMode: Boolean = false
 ) {
     // 创建Paint对象
     val textPaint = remember {

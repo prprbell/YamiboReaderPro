@@ -123,10 +123,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     )
 
     init {
-        // 在ViewModel创建时立即开始监听缓存索引变化
         viewModelScope.launch {
             localCache.index.collect { index ->
-                // 当缓存索引更新时，如果已经有URL，则更新缓存状态
                 if (url.isNotEmpty()) {
                     updateCachedPagesFromIndex(index)
                 }
@@ -175,25 +173,19 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         diskCacheRetries.clear() // 开始新任务时，清空重试计数器
         // 记录这个缓存会话是否应该显示进度条
         currentCacheSessionShowsProgress = showProgressDialog
-        // 初始化后台 WebView
+        // 初始化后台WebView
         viewModelScope.launch(Dispatchers.Main) {
-            // WebView 必须在主线程创建
             if (cacheWebView == null) {
                 cacheWebView = WebView(applicationContext).apply {
                     // 基本设置
                     settings.javaScriptEnabled = true
                     settings.useWideViewPort = true
                     // 应用缓存时选择的图片设置
-//                    if (includeImages) {
-//                        settings.loadsImagesAutomatically = true
-//                        settings.blockNetworkImage = false
-//                    } else {
                     settings.loadsImagesAutomatically = false
                     settings.blockNetworkImage = true
-//                    }
                     webChromeClient = GlobalData.webChromeClient
                 }
-                // 设置专用的 Client 和回调
+                // 设置专用的Client回调
                 cacheWebViewClient = PassageWebViewClient(::handleCacheLoadFinished)
                 cacheWebView?.webViewClient = cacheWebViewClient!!
             }
@@ -230,7 +222,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         return true
     }
 
-    // 后台 WebView 加载完成的回调 (不变)
+    // 后台WebView加载完成的回调
     private fun handleCacheLoadFinished(
         success: Boolean,
         html: String,
@@ -238,17 +230,17 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         maxPage: Int,
         title: String?
     ) {
-        // 从URL中解析出我们刚刚加载的页码
+        // 从URL中解析出页码
         val pageNum = extractPageNumFromLoadedUrl(loadedUrl)
 
-        // 检查这个页码是否在我们期望的队列中
+        // 检查这个页码是否在期望的队列中
         if (pageNum == null || !diskCacheQueue.contains(pageNum)) {
             Log.w(
                 logTag,
                 "DiskCache: WebView loaded $loadedUrl (page $pageNum), which is not the expected page in queue. Ignoring."
             )
 
-            // 检查这是否是一个我们正在等待的重试页面的（可能已超时的）失败回调
+            // 检查这是否是一个正在等待的重试页面的（可能已超时的）失败回调
             if (diskCacheQueue.isNotEmpty() && pageNum == diskCacheQueue.first()) {
                 Log.w(
                     logTag,
@@ -268,9 +260,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         // 检查加载是否成功
         if (isContentValid) {
             diskCacheRetries.remove(pageNum)
-            // 启动一个IO协程来保存
             viewModelScope.launch(Dispatchers.IO) {
-                // 准备数据
                 val cacheData = CacheData(
                     cachedPageNum = pageNum,
                     htmlContent = html,
@@ -279,7 +269,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 )
                 // 保存到磁盘
                 localCache.savePage(url, pageNum, cacheData, diskCacheIncludeImages)
-                // 同时保存到内存 (以便下次读取时更快)
+                // 同时保存到内存
                 CacheUtil.saveCache(url, cacheData)
 
                 // 回到主线程更新状态
@@ -293,23 +283,21 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             // 加载失败
             val currentRetries = diskCacheRetries.getOrDefault(pageNum, 0)
             if (currentRetries < MAX_CACHE_RETRIES) {
-                // 还可以重试
                 diskCacheRetries[pageNum] = currentRetries + 1
                 Log.w(
                     logTag,
                     "DiskCache: Failed to fetch page $pageNum. Retrying in ${CACHE_RETRY_DELAY_MS}ms... (Attempt ${currentRetries + 1}/${MAX_CACHE_RETRIES + 1})"
                 )
 
-                // 重新构建失败的 URL
+                // 重新构建失败的URL
                 var urlToReload = loadedUrl
                 if (urlToReload == null || !urlToReload.contains("page=")) {
-                    // 如果 URL 损坏或丢失，从队列重建
                     urlToReload = "${RequestConfig.BASE_URL}/${this.url}&page=$pageNum"
                     if (currentAuthorId != null) {
                         urlToReload += "&authorid=$currentAuthorId"
                     }
                 }
-                // 启动一个带延迟的新协程来触发 WebView 重新加载
+                // 启动一个带延迟的新协程来触发WebView重新加载
                 viewModelScope.launch(Dispatchers.Main) {
                     delay(CACHE_RETRY_DELAY_MS)
                     // 检查在延迟期间缓存任务是否已被用户取消
@@ -329,7 +317,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 _cachedPages.value -= pageNum // 确保UI上不显示为已缓存
                 diskCacheQueue.remove(pageNum) // 从队列中移除
 
-                // 触发下一页缓存 (跳过失败的)
+                // 触发下一页缓存
                 loadNextPageForDiskCache(false)
             }
         }
@@ -351,7 +339,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         }
 
         val pageNum = diskCacheQueue.first() // 获取下一个要缓存的页码
-        diskCacheCurrentPage++ // 标记我们开始处理这一页
+        diskCacheCurrentPage++
 
         // 更新进度条
         if (currentCacheSessionShowsProgress) {
@@ -383,7 +371,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     }
                 }
             } else {
-                // 内存缓存未命中：触发 [cacheWebView] 加载
+                // 内存缓存未命中
                 var urlToLoad = "${RequestConfig.BASE_URL}/${this.url}&page=${pageNum}"
                 if (currentAuthorId != null) {
                     urlToLoad += "&authorid=$currentAuthorId"
@@ -418,7 +406,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     ) {
         viewModelScope.launch {
             try {
-                // 先删除旧缓存
+                // 删除旧缓存
                 pagesToUpdate.forEach { pageNum ->
                     localCache.deletePage(url, pageNum)
                 }
@@ -1112,16 +1100,15 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
             // 检查用户是否中断了滚动：
             // 1. 滚动已停止 (!isScrollInProgress)
-            // 2. 停止的页面 *不是* 我们期望的 initPage
+            // 2. 停止的页面不是期望的initPage
             val userInterrupted = !curPagerState.isScrollInProgress &&
                     curPagerState.settledPage != _uiState.value.initPage &&
-                    curPagerState.settledPage == newPage // 确保已稳定
+                    curPagerState.settledPage == newPage
 
             if (isSettledAtInit) {
-                // "成功"转场
+                // 成功转场
                 isTransitioning = false
                 latestPage = _uiState.value.initPage
-                // 不能return，需要让下面的逻辑（processPageChange）执行
             } else if (userInterrupted) {
                 // "被用户中断"的转场
                 Log.w(
@@ -1129,7 +1116,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     "User interrupted transition. Settled at page $newPage. Ending transition."
                 )
                 isTransitioning = false
-                latestPage = newPage // 将 'latestPage' 更新为用户选择的页面
+                latestPage = newPage
             } else {
                 // 转场仍在进行中
                 // 此时不应处理页面变更逻辑（如预加载）
@@ -1204,7 +1191,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         }
 
         viewModelScope.launch {
-            // 清理预加载状态 (从 onSetView(forceReload=true) 中提取)
+            // 清理预加载状态
             nextHtmlList = null
             nextChapterList = null
             isPreloading = false

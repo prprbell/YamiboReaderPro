@@ -89,7 +89,6 @@ class MainActivity : ComponentActivity() {
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        // 解析结果并回调给 WebView
         uploadMessage?.onReceiveValue(
             WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
         )

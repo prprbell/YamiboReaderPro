@@ -34,10 +34,9 @@ class PassageWebViewClient(
     ): WebResourceResponse? {
         val fullUrl = request?.url?.toString()?.lowercase() ?: ""
 
-        // 截取掉 URL 中 "?" 后面的参数 (例如将 ".css?JXg" 变成 ".css")
         val baseUrl = fullUrl.substringBefore("?")
 
-        // 屏蔽 CSS、字体以及统计脚本
+        // 屏蔽CSS、字体以及统计脚本
         if (baseUrl.endsWith(".css") ||
             baseUrl.endsWith(".woff") ||
             baseUrl.endsWith(".woff2") ||
@@ -45,7 +44,6 @@ class PassageWebViewClient(
             fullUrl.contains("google-analytics") ||
             fullUrl.contains("hm.js")
         ) {
-            // 根据拦截资源类型返回合适的 MimeType
             val mimeType = if (baseUrl.endsWith(".css")) "text/css" else "text/plain"
             return WebResourceResponse(mimeType, "utf-8", ByteArrayInputStream(ByteArray(0)))
         }
@@ -74,24 +72,20 @@ class PassageWebViewClient(
         return try {
             JSON.parse(jsString) as? String ?: ""
         } catch (e: JSONException) {
-            // 尝试去除 JSON 转义字符
-            Log.w(logTag, "JS result was not a valid JSON string, returning raw: $jsString", e)
             if (jsString.length >= 2 && jsString.startsWith("\"") && jsString.endsWith("\"")) {
                 jsString.substring(1, jsString.length - 1)
             } else {
                 jsString
             }
         } catch (e: Exception) {
-            Log.e(logTag, "Failed to unescape JS result: $jsString", e)
             jsString
         }
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {
         if (hasErrorOccurred) {
-            Log.w(logTag, "onPageFinished called, but an error already occurred. Ignoring.")
             super.onPageFinished(view, url)
-            return // 立即退出
+            return
         }
 
         // 如果URL不包含authorid，说明是“所有人”页面

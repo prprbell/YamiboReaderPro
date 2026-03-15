@@ -3,7 +3,7 @@ package org.shirakawatyu.yamibo.novel.bean;
 public class ReaderSettings {
     private Float fontSizePx;
     private Float lineHeightPx;
-    private Float paddingDp;// 改为了Float
+    private Float paddingDp;
 
     private Boolean nightMode;
     private Boolean loadImages;

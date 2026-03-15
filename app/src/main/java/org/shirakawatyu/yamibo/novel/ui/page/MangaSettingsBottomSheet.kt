@@ -90,7 +90,6 @@ fun MangaSettingsPanel(
                 .background(BgSheet.copy(alpha = 0.95f))
                 .padding(bottom = 96.dp)
         ) {
-            // 顶部拖拽条及事件拦截
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -158,7 +157,7 @@ fun MangaSettingsPanel(
                 }
             }
 
-            // 设置项：同行排列
+            // 设置项
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -171,10 +170,10 @@ fun MangaSettingsPanel(
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
                 )
-                Spacer(Modifier.width(28.dp)) // 留出一点间距
+                Spacer(Modifier.width(28.dp))
                 androidx.compose.material3.Slider(
                     value = brightness,
-                    valueRange = 0.20f..1f, // 最暗0.20，最亮1f
+                    valueRange = 0.20f..1f,
                     onValueChange = onBrightnessChange,
                     modifier = Modifier.weight(1f),
                     colors = SliderDefaults.colors(
@@ -187,7 +186,7 @@ fun MangaSettingsPanel(
 
             Spacer(Modifier.height(32.dp))
 
-            // 2. 阅读方向设置行
+            // 阅读方向设置行
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

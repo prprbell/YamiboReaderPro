@@ -2,7 +2,6 @@ package org.shirakawatyu.yamibo.novel.ui.vm
 
 import android.util.Log
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -38,7 +37,7 @@ class BottomNavBarVM : ViewModel() {
             restoreState = true
         }
         viewModelScope.launch {
-            delay(300) // 300毫秒的防抖窗口
+            delay(300) // 防抖
             isNavigating = false
         }
     }

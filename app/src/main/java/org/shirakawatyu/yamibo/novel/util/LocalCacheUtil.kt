@@ -143,10 +143,10 @@ class LocalCacheUtil(private val context: Context) {
 
     // 写入索引：首先更新内存Flow，然后异步写入磁盘
     private fun writeIndex(newIndex: Map<String, CacheIndex>) {
-        // 1. 立即更新内存
+        // 立即更新内存
         _index.value = newIndex
 
-        // 2. 启动一个后台任务将新索引写入磁盘
+        // 启动一个后台任务将新索引写入磁盘
         ioScope.launch {
             try {
                 val indexFile = getIndexFile()
@@ -182,24 +182,20 @@ class LocalCacheUtil(private val context: Context) {
             // 写入缓存文件
             cacheFile.writeBytes(jsonBytes)
 
-            // 基于内存中的 _index.value 进行更新，而不是从磁盘读取
             val currentIndex = _index.value
             val newIndex = currentIndex.toMutableMap()
             val novelCache = newIndex.getOrPut(novelUrl) { CacheIndex() }
 
-            // 创建一个新的 pages map 来确保 StateFlow 认为对象已改变
             val newPages = novelCache.pages.toMutableMap()
             newPages[pageNum] = CachePageInfo(
                 pageNum = pageNum,
                 hasImages = hasImages,
                 timestamp = System.currentTimeMillis(),
-                fileSize = fileSize // 写入准确的大小
+                fileSize = fileSize
             )
 
-            // 用新的 pages map 更新 index
             newIndex[novelUrl] = novelCache.copy(pages = newPages)
 
-            // 调用新的 writeIndex (它会立即更新Flow)
             writeIndex(newIndex)
             true
         } catch (e: Exception) {
@@ -227,12 +223,12 @@ class LocalCacheUtil(private val context: Context) {
         }
     }
 
-    // 检查页面是否已缓存(从内存读取)
+    // 检查页面是否已缓存
     suspend fun isPageCached(novelUrl: String, pageNum: Int): Boolean {
         return _index.value[novelUrl]?.pages?.containsKey(pageNum) ?: false
     }
 
-    // 获取已缓存的页面列表(从内存读取)
+    // 获取已缓存的页面列表
     suspend fun getCachedPages(novelUrl: String): List<CachePageInfo> {
         return _index.value[novelUrl]?.pages?.values?.sortedBy { it.pageNum } ?: emptyList()
     }
@@ -318,7 +314,7 @@ class LocalCacheUtil(private val context: Context) {
         val pagesWithImages: Int
     )
 
-    // 获取所有已缓存的小说URL列表(从内存读取)
+    // 获取所有已缓存的小说URL列表
     suspend fun getAllCachedNovels(): List<String> {
         return _index.value.keys.toList()
     }
