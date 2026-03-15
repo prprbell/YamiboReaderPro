@@ -6,10 +6,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -37,15 +37,17 @@ fun ReaderModeFAB(
     ) {
         FloatingActionButton(
             onClick = onClick,
-            containerColor = YamiboColors.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
+            containerColor = YamiboColors.secondary.copy(alpha = 0.5f),
+            contentColor = YamiboColors.primary,
             elevation = FloatingActionButtonDefaults.elevation(
                 defaultElevation = 0.dp,
                 pressedElevation = 0.dp,
                 focusedElevation = 0.dp,
                 hoveredElevation = 0.dp
             ),
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier
+                .padding(start = 16.dp, top = 16.dp, end = 8.dp, bottom = 16.dp)
+                .size(48.dp)
         ) {
             Icon(
                 painter = painterResource(id = R.drawable.ic_book),

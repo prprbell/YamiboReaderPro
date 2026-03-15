@@ -431,7 +431,7 @@ fun FavoritePage(
                                 leadingIcon = {
                                     Icon(
                                         painter = painterResource(
-                                            id = if (isDataSaverMode) R.drawable.ic_close else R.drawable.ic_check
+                                            id = if (isDataSaverMode) R.drawable.ic_close else R.drawable.ic_earth
                                         ),
                                         contentDescription = null,
                                         modifier = Modifier.size(24.dp),
