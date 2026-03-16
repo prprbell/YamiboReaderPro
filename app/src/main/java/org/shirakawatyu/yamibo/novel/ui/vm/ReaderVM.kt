@@ -947,8 +947,13 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
             if (_uiState.value.loadImages) {
                 for (element in node.getElementsByTag("img")) {
-                    val src = element.attribute("src").value
-                    if (!src.startsWith("http://") && !src.startsWith("httpsH")) {
+                    var src = element.attr("zoomfile")
+                    if (src.isBlank()) src = element.attr("file")
+                    if (src.isBlank()) src = element.attr("src")
+
+                    if (src.isBlank() || src.contains("smiley/")) continue
+
+                    if (!src.startsWith("http://") && !src.startsWith("https://")) {
                         rawContentList.add(
                             Content(
                                 "${RequestConfig.BASE_URL}/${src}",
