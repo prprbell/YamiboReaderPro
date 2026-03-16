@@ -54,7 +54,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -77,6 +76,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -712,27 +712,23 @@ fun ReaderPage(
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("加载图片", style = MaterialTheme.typography.bodyMedium)
-                                    Spacer(Modifier.width(8.dp))
-                                    Switch(
-                                        checked = uiState.loadImages,
-                                        onCheckedChange = {
-                                            if (it) showImageWarning =
-                                                true else readerVM.toggleLoadImages(false)
-                                        })
-                                }
-                                Spacer(Modifier.width(16.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("夜间模式", style = MaterialTheme.typography.bodyMedium)
-                                    Spacer(Modifier.width(8.dp))
+                                    Text("夜间模式", style = MaterialTheme.typography.bodyLarge)
+                                    Spacer(Modifier.width(12.dp))
                                     Switch(
                                         checked = uiState.nightMode,
                                         onCheckedChange = { readerVM.toggleNightMode(it) })
                                 }
                                 Spacer(Modifier.width(16.dp))
                                 var moreMenuExpanded by remember { mutableStateOf(false) }
+                                var lastMenuClickTime by remember { mutableLongStateOf(0L) }
                                 Box {
-                                    IconButton(onClick = { moreMenuExpanded = true }) {
+                                    IconButton(onClick = {
+                                        val currentTime = System.currentTimeMillis()
+                                        if (currentTime - lastMenuClickTime > 300) {
+                                            moreMenuExpanded = true
+                                            lastMenuClickTime = currentTime
+                                        }
+                                    }) {
                                         Icon(
                                             painterResource(id = R.drawable.ic_more_horiz),
                                             contentDescription = "更多选项"
@@ -745,37 +741,216 @@ fun ReaderPage(
                                         offset = DpOffset(x = 8.dp, y = 8.dp),
                                         modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
                                     ) {
-                                        DropdownMenuItem(
-                                            text = { Text("原贴", fontSize = 16.sp) },
-                                            onClick = {
-                                                returnToOriginalPost()
-                                                showSettings = false
-                                                moreMenuExpanded = false
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    Icons.AutoMirrored.Filled.ArrowForward,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
+                                        Box(
+                                            modifier = Modifier.padding(
+                                                horizontal = 12.dp,
+                                                vertical = 6.dp
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .width(180.dp)
+                                                    .clip(
+                                                        androidx.compose.foundation.shape.RoundedCornerShape(
+                                                            8.dp
+                                                        )
+                                                    )
+                                                    .background(
+                                                        MaterialTheme.colorScheme.onSurface.copy(
+                                                            alpha = 0.1f
+                                                        )
+                                                    )
+                                                    .padding(4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                val options = listOf("原文", "简体", "繁體")
+                                                options.forEachIndexed { index, text ->
+                                                    val isSelected =
+                                                        uiState.translationMode == index
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clip(
+                                                                androidx.compose.foundation.shape.RoundedCornerShape(
+                                                                    6.dp
+                                                                )
+                                                            )
+                                                            .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                                            .clickable {
+                                                                readerVM.setTranslationMode(
+                                                                    index,
+                                                                    currentPageIndex
+                                                                )
+                                                                moreMenuExpanded = false
+                                                                showSettings = false
+                                                            }
+                                                            .padding(vertical = 8.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(
+                                                            text = text,
+                                                            fontSize = 14.sp,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                                            fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                                                        )
+                                                    }
+                                                }
                                             }
+                                        }
+
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(vertical = 4.dp),
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
                                         )
-                                        Spacer(Modifier.height(16.dp))
-                                        DropdownMenuItem(
-                                            text = { Text("刷新", fontSize = 16.sp) },
-                                            onClick = {
-                                                readerVM.forceRefreshCurrentPage()
-                                                showSettings = false
-                                                moreMenuExpanded = false
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    Icons.Default.Refresh,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
+                                        Box(
+                                            modifier = Modifier.padding(
+                                                horizontal = 12.dp,
+                                                vertical = 6.dp
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .width(180.dp)
+                                                    .clip(
+                                                        androidx.compose.foundation.shape.RoundedCornerShape(
+                                                            8.dp
+                                                        )
+                                                    )
+                                                    .background(
+                                                        MaterialTheme.colorScheme.onSurface.copy(
+                                                            alpha = 0.1f
+                                                        )
+                                                    )
+                                                    .padding(4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                val imgOptions = listOf("无图", "有图")
+                                                imgOptions.forEachIndexed { index, text ->
+                                                    val isSelected =
+                                                        if (index == 0) !uiState.loadImages else uiState.loadImages
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clip(
+                                                                androidx.compose.foundation.shape.RoundedCornerShape(
+                                                                    6.dp
+                                                                )
+                                                            )
+                                                            .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                                            .clickable {
+                                                                if (index == 1 && !uiState.loadImages) {
+                                                                    showImageWarning = true
+                                                                    moreMenuExpanded = false
+                                                                } else if (index == 0 && uiState.loadImages) {
+                                                                    readerVM.toggleLoadImages(false)
+                                                                    moreMenuExpanded = false
+                                                                }
+                                                            }
+                                                            .padding(vertical = 8.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(
+                                                            text = text,
+                                                            fontSize = 14.sp,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                                            fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                                                        )
+                                                    }
+                                                }
                                             }
+                                        }
+
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(vertical = 4.dp),
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
                                         )
+                                        Box(
+                                            modifier = Modifier.padding(
+                                                horizontal = 12.dp,
+                                                vertical = 6.dp
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.width(180.dp), // 保持和上面分段器一样的总宽度
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp) // 两个按钮中间留 8.dp 间距
+                                            ) {
+                                                // 原贴按钮
+                                                Row(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clip(
+                                                            androidx.compose.foundation.shape.RoundedCornerShape(
+                                                                8.dp
+                                                            )
+                                                        )
+                                                        .background(
+                                                            MaterialTheme.colorScheme.onSurface.copy(
+                                                                alpha = 0.1f
+                                                            )
+                                                        )
+                                                        .clickable {
+                                                            returnToOriginalPost()
+                                                            showSettings = false
+                                                            moreMenuExpanded = false
+                                                        }
+                                                        .padding(vertical = 10.dp),
+                                                    horizontalArrangement = Arrangement.Center,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        Icons.AutoMirrored.Filled.ArrowForward,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(16.dp),
+                                                        tint = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "原贴",
+                                                        fontSize = 14.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                                    )
+                                                }
+
+                                                // 刷新按钮
+                                                Row(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clip(
+                                                            androidx.compose.foundation.shape.RoundedCornerShape(
+                                                                8.dp
+                                                            )
+                                                        )
+                                                        .background(
+                                                            MaterialTheme.colorScheme.onSurface.copy(
+                                                                alpha = 0.1f
+                                                            )
+                                                        )
+                                                        .clickable {
+                                                            readerVM.forceRefreshCurrentPage()
+                                                            showSettings = false
+                                                            moreMenuExpanded = false
+                                                        }
+                                                        .padding(vertical = 10.dp),
+                                                    horizontalArrangement = Arrangement.Center,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Refresh,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(16.dp),
+                                                        tint = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "刷新",
+                                                        fontSize = 14.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

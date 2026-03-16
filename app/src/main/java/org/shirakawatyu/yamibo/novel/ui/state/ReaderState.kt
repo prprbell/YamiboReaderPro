@@ -65,5 +65,6 @@ data class ReaderState(
     val isVerticalMode: Boolean = false,
     val currentPercentage: Float = 0f,
     val isFavorited: Boolean = false,
-    val authorId: String? = null
+    val authorId: String? = null,
+    val translationMode: Int = 0
 )

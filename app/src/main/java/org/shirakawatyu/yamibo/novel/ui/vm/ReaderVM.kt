@@ -38,6 +38,7 @@ import org.shirakawatyu.yamibo.novel.ui.state.ChapterInfo
 import org.shirakawatyu.yamibo.novel.ui.state.ReaderState
 import org.shirakawatyu.yamibo.novel.util.CacheData
 import org.shirakawatyu.yamibo.novel.util.CacheUtil
+import org.shirakawatyu.yamibo.novel.util.ChineseConvertUtil
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.HTMLUtil
 import org.shirakawatyu.yamibo.novel.util.LocalCacheUtil
@@ -111,6 +112,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     // 进度条当前
     private var diskCacheCurrentPage: Int = 0
+    private var currentRawHtml: String? = null
 
     // 跟踪当前缓存会话是否应显示进度对话框
     private var currentCacheSessionShowsProgress: Boolean = true
@@ -485,7 +487,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     nightMode = settings?.nightMode ?: false,
                     backgroundColor = bgColor,
                     loadImages = settings?.loadImages ?: false,
-                    isVerticalMode = settings?.isVerticalMode ?: false
+                    isVerticalMode = settings?.isVerticalMode ?: false,
+                    translationMode = settings?.translationMode ?: 0
                 )
                 loadWithSettings()
             }
@@ -751,6 +754,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         isFromCache: Boolean = false,
         cacheTargetIndex: Int = 0
     ) {
+        if (success) {
+            currentRawHtml = html
+        }
         viewModelScope.launch {
             val loadedPageNum = if (isFromCache) {
                 _uiState.value.currentView
@@ -922,7 +928,14 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         doc.getElementsByTag("i").forEach { it.remove() }
 
         for (node in doc.getElementsByClass("message")) {
-            val rawText = HTMLUtil.toText(node.html())
+            var rawText = HTMLUtil.toText(node.html())
+            if (rawText.isNotBlank()) {
+                rawText = when (_uiState.value.translationMode) {
+                    1 -> ChineseConvertUtil.toSimplified(rawText, applicationContext)
+                    2 -> ChineseConvertUtil.toTraditional(rawText, applicationContext)
+                    else -> rawText
+                }
+            }
             val chapterTitle: String? = rawText.lines()
                 .firstOrNull { it.isNotBlank() }
                 ?.trim()
@@ -1250,7 +1263,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             state.nightMode,
             backgroundColorString,
             state.loadImages,
-            state.isVerticalMode
+            state.isVerticalMode,
+            state.translationMode
         )
         SettingsUtil.saveSettings(settings)
     }
@@ -1370,11 +1384,65 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     }
 
     fun toggleLoadImages(load: Boolean) {
+        if (_uiState.value.loadImages == load) return
+
         _uiState.value = _uiState.value.copy(loadImages = load)
         saveCurrentSettings()
+
         val currentPage = latestPage
-        _uiState.value = _uiState.value.copy(initPage = currentPage)
-        onSetView(uiState.value.currentView, forceReload = true)
+        val html = currentRawHtml
+
+        if (html != null) {
+            viewModelScope.launch {
+                showLoadingScrim = true
+
+                val oldPageCount = _uiState.value.htmlList.size.coerceAtLeast(1)
+                val oldPercent = currentPage.toFloat() / oldPageCount
+                val (oldChapterTitle, oldItemInChapter) = if (currentPage >= 0 && currentPage < oldPageCount) {
+                    val title = _uiState.value.htmlList[currentPage].chapterTitle
+                    val startIndex =
+                        _uiState.value.chapterList.find { it.title == title }?.startIndex ?: 0
+                    Pair(title, (currentPage - startIndex).coerceAtLeast(0))
+                } else {
+                    Pair(null, 0)
+                }
+
+                val (newPages, newChapters) = withContext(Dispatchers.Default) {
+                    parseHtmlToContent(html)
+                    paginateContent()
+                }
+
+                val newPageCount = newPages.size.coerceAtLeast(1)
+
+                val pageToScrollTo = if (oldChapterTitle != null) {
+                    val newChapterStartIndex =
+                        newChapters.find { it.title == oldChapterTitle }?.startIndex ?: 0
+                    (newChapterStartIndex + oldItemInChapter).coerceIn(
+                        0,
+                        (newPageCount - 1).coerceAtLeast(0)
+                    )
+                } else {
+                    (oldPercent * newPageCount).toInt()
+                        .coerceIn(0, (newPageCount - 1).coerceAtLeast(0))
+                }
+
+                val newPercent = (pageToScrollTo.toFloat() / newPageCount) * 100f
+
+                _uiState.value = _uiState.value.copy(
+                    htmlList = newPages,
+                    chapterList = newChapters,
+                    initPage = pageToScrollTo,
+                    currentPercentage = newPercent,
+                    isError = false
+                )
+
+                showLoadingScrim = false
+                isTransitioning = false
+            }
+        } else {
+            _uiState.value = _uiState.value.copy(initPage = currentPage)
+            onSetView(_uiState.value.currentView, forceReload = true)
+        }
     }
 
     fun onSetBackgroundColor(color: Color?) {
@@ -1401,5 +1469,64 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         }
 
         super.onCleared()
+    }
+
+    fun setTranslationMode(mode: Int, currentPage: Int) {
+        if (_uiState.value.translationMode == mode) return
+
+        _uiState.value = _uiState.value.copy(translationMode = mode)
+        saveCurrentSettings()
+
+        val html = currentRawHtml
+        if (html != null) {
+            viewModelScope.launch {
+                showLoadingScrim = true
+
+                // 记录当前章节和进度，用于转换后恢复位置
+                val oldPageCount = _uiState.value.htmlList.size.coerceAtLeast(1)
+                val oldPercent = currentPage.toFloat() / oldPageCount
+                val (oldChapterTitle, oldItemInChapter) = if (currentPage >= 0 && currentPage < oldPageCount) {
+                    val title = _uiState.value.htmlList[currentPage].chapterTitle
+                    val startIndex =
+                        _uiState.value.chapterList.find { it.title == title }?.startIndex ?: 0
+                    Pair(title, (currentPage - startIndex).coerceAtLeast(0))
+                } else {
+                    Pair(null, 0)
+                }
+
+                // 重新解析和分页
+                val (newPages, newChapters) = withContext(Dispatchers.Default) {
+                    parseHtmlToContent(html) // 这里会走新的繁简状态
+                    paginateContent()        // 重新进行排版分页
+                }
+
+                val newPageCount = newPages.size.coerceAtLeast(1)
+
+                // 计算新的页码位置
+                val pageToScrollTo = if (oldChapterTitle != null) {
+                    val newChapterStartIndex =
+                        newChapters.find { it.title == oldChapterTitle }?.startIndex ?: 0
+                    (newChapterStartIndex + oldItemInChapter).coerceIn(
+                        0,
+                        (newPageCount - 1).coerceAtLeast(0)
+                    )
+                } else {
+                    (oldPercent * newPageCount).toInt()
+                        .coerceIn(0, (newPageCount - 1).coerceAtLeast(0))
+                }
+
+                val newPercent = (pageToScrollTo.toFloat() / newPageCount) * 100f
+
+                _uiState.value = _uiState.value.copy(
+                    htmlList = newPages,
+                    chapterList = newChapters,
+                    initPage = pageToScrollTo,
+                    currentPercentage = newPercent,
+                    isError = false
+                )
+                showLoadingScrim = false
+                isTransitioning = false
+            }
+        }
     }
 }
