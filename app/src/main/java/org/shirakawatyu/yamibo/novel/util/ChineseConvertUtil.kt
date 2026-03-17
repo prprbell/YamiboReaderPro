@@ -22,7 +22,9 @@ object ChineseConvertUtil {
      */
     fun toSimplified(text: String, context: Context): String {
         return try {
-            ChineseConverter.convert(text, ConversionType.TW2SP, context)
+            val tempTrad = ChineseConverter.convert(text, ConversionType.S2TWP, context)
+
+            ChineseConverter.convert(tempTrad, ConversionType.TW2SP, context)
         } catch (e: Exception) {
             text
         }
