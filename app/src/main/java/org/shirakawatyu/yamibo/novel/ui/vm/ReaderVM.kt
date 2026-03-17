@@ -927,15 +927,31 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         val doc = Jsoup.parse(html)
         doc.getElementsByTag("i").forEach { it.remove() }
 
-        for (node in doc.getElementsByClass("message")) {
-            var rawText = HTMLUtil.toText(node.html())
-            if (rawText.isNotBlank()) {
-                rawText = when (_uiState.value.translationMode) {
-                    1 -> ChineseConvertUtil.toSimplified(rawText, applicationContext)
-                    2 -> ChineseConvertUtil.toTraditional(rawText, applicationContext)
-                    else -> rawText
-                }
+        val messageNodes = doc.getElementsByClass("message")
+        if (messageNodes.isEmpty()) return
+
+        val rawTexts = messageNodes.map { HTMLUtil.toText(it.html()) }
+
+        val delimiter = "|||YAMIBO_SEP|||"
+        val combinedText = rawTexts.joinToString(delimiter)
+
+        val convertedCombinedText = if (combinedText.isNotBlank()) {
+            when (_uiState.value.translationMode) {
+                1 -> ChineseConvertUtil.toSimplified(combinedText, applicationContext)
+                2 -> ChineseConvertUtil.toTraditional(combinedText, applicationContext)
+                else -> combinedText
             }
+        } else {
+            combinedText
+        }
+
+        val convertedTexts = convertedCombinedText.split(delimiter)
+
+        for (i in messageNodes.indices) {
+            val node = messageNodes[i]
+
+            val rawText = convertedTexts.getOrElse(i) { rawTexts[i] }
+
             val chapterTitle: String? = rawText.lines()
                 .firstOrNull { it.isNotBlank() }
                 ?.trim()
@@ -945,6 +961,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 rawContentList.add(Content(rawText, ContentType.TEXT, chapterTitle))
             }
 
+            // 处理图片
             if (_uiState.value.loadImages) {
                 for (element in node.getElementsByTag("img")) {
                     var src = element.attr("zoomfile")

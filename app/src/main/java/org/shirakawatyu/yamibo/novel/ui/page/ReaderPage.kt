@@ -541,7 +541,11 @@ fun ReaderPage(
                                     }
                                 }
 
-                                Box(modifier = Modifier.fillMaxSize()) {
+                                Box(modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        alpha = if (isInitialScrollDone) 1f else 0f
+                                    }) {
                                     if (uiState.isVerticalMode) {
                                         LazyColumn(
                                             modifier = Modifier
