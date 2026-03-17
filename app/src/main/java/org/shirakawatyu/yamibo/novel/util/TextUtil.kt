@@ -208,7 +208,48 @@ class TextUtil {
         }
 
         private fun getCharWidth(c: Char, halfWidthPx: Float, fullWidthPx: Float): Float {
-            return if (c.code in ASCII_START..ASCII_END) halfWidthPx else fullWidthPx
+            // 1. CJK 汉字、全角标点及日文「」等拦截
+            if (c.code > 127) return fullWidthPx
+
+            // 2. 基于无衬线字体（Sans-serif）的字距统计学分类
+            return when (c) {
+                // --- [极宽字符] ~95%全宽 ---
+                'M', 'W', 'm', '@', '%' -> fullWidthPx * 0.95f
+
+                // --- [偏宽字符] ~75%全宽 ---
+                // 饱满的圆形大写字母、较宽的小写 w 等
+                'O', 'Q', 'G', 'C', 'D', 'w', '&', '~' -> fullWidthPx * 0.75f
+
+                // --- [普通大写 & 宽数学符号] ~65%全宽 ---
+                // 注意：这里的 in 'A'..'Z' 会被上面的 'O','Q' 等提前拦截，顺序非常重要
+                in 'A'..'Z', '+', '=', '<', '>' -> fullWidthPx * 0.65f
+
+                // --- [极窄字母] ~35%全宽 ---
+                // 带有单竖线特征的字母
+                'i', 'j', 'l', 'f', 't', 'r', 'I' -> fullWidthPx * 0.35f
+
+                // --- [偏窄小写字母] ~50%全宽 (严格的半宽) ---
+                'c', 'k', 's', 'z' -> fullWidthPx * 0.5f
+
+                // --- [常规小写 & 大部分数字] ~58%全宽 ---
+                // 核心修正点：像 e, a, o, n 等字母，实际比半宽(0.5)要胖
+                // 稍微高估一点它们的宽度，遵循“宁可右侧轻微留白，也绝不让文字溢出屏幕”的原则
+                in 'a'..'z', in '2'..'9', '0' -> fullWidthPx * 0.6f
+
+                // 数字 1 单独处理，通常比其他数字窄
+                '1' -> fullWidthPx * 0.45f
+
+                // --- [标点符号] ~30%全宽 ---
+                '.', ',', ':', ';', '\'', '"', '!', '|', '`', '-',
+                '(', ')', '[', ']', '{', '}' -> fullWidthPx * 0.3f
+
+                // --- [半角空格] ~25%全宽 ---
+                ' ' -> fullWidthPx * 0.25f
+
+                // --- [兜底] ---
+                // 漏网的特殊 ASCII 符号（如 $ ^ \ / 等）统一按稍微宽一点的比例处理
+                else -> fullWidthPx * 0.55f
+            }
         }
 
         private fun handlePunctuationOptimized(
