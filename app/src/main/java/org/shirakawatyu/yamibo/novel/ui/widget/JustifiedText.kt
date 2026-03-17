@@ -107,15 +107,20 @@ fun JustifiedText(
                     }
 
                     // 判断是否为段落或页面的最后一行
-                    val isLastLine = index == lines.lastIndex || lines[index + 1].isEmpty()
                     // 重置为基础间距，用于测量
                     textPaint.letterSpacing = baseLetterSpacingMultiplier
                     val originalWidth = textPaint.measureText(line)
                     val remainingSpace = availableWidth - originalWidth
 
+                    val isEndOfParagraph = index < lines.lastIndex && lines[index + 1].isEmpty()
+
+                    val isEndOfChapterShortLine =
+                        index == lines.lastIndex && remainingSpace > fontSizePx * 3f
+
+                    val skipJustification = isEndOfParagraph || isEndOfChapterShortLine
+
                     // 5. 实现两端对齐（Justification）
-                    // 如果不是最后一行，且有剩余空间，且行内多于1个字
-                    if (!isLastLine && remainingSpace > 0 && line.length > 1) {
+                    if (!skipJustification && remainingSpace > 0 && line.length > 1) {
                         val gaps = line.length - 1
                         // 计算需要分配到每个间隙的额外像素
                         val justificationSpacingPx = remainingSpace / gaps
