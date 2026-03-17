@@ -98,21 +98,14 @@
 
 ## 第三方开源库
 
-架构: [Jetpack Compose](https://developer.android.com/jetpack/compose)
-
-网络: [Retrofit](https://github.com/square/retrofit)
-
-网络: [Okhttp3](https://github.com/square/okhttp)
-
-HTML解析: [Jsoup](https://github.com/jhy/jsoup)
-
-JSON解析: [FastJSON2](https://github.com/alibaba/fastjson2)
-
-图片显示: [coil](https://github.com/coil-kt/coil)
-
-拖拽排序: [Reorderable](https://github.com/Calvin-LL/Reorderable)
-
-缓存：[LRUCache](https://github.com/nicklockwood/LRUCache)
+* **UI 架构**: [Jetpack Compose](https://developer.android.com/jetpack/compose)
+* **网络请求**: [Retrofit](https://github.com/square/retrofit) & [OkHttp3](https://github.com/square/okhttp)
+* **HTML 解析**: [Jsoup](https://github.com/jhy/jsoup)
+* **JSON 解析**: [FastJSON2](https://github.com/alibaba/fastjson2)
+* **图片加载**: [Coil](https://github.com/coil-kt/coil)
+* **手势与拖拽排序**: [Reorderable](https://github.com/Calvin-LL/Reorderable)
+* **简繁转换**: [android-opencc](https://github.com/qichuan/android-opencc)
+* **图片手势缩放**: [Telephoto (Zoomable)](https://github.com/saket/telephoto)
 
 ## 维护者与鸣谢
 
