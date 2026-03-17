@@ -57,23 +57,33 @@ fun JustifiedText(
                 // 计算基线(baseline)使其在行高内垂直居中
                 val baselineY = (size.height / 2) + (fontSizePx / 2.8f) // 粗略估算
 
-                // 竖屏模式下，我们假设传来的 text 已经是被 TextUtil 分割好的一行
-                // 判断是否需要对齐
+                // 剥离缩进字符，使用绝对坐标锚定缩进
+                var drawX = 0f
+                var textToDraw = text
 
-                // 重置为基础间距，用于测量
+                // 如果这行是以两个全角空格开头（说明是段落首行）
+                if (text.startsWith("　　")) {
+                    // 截掉前两个空格，只画后面的纯文字
+                    textToDraw = text.substring(2)
+                    // 强制把起点往后推正好 2 个字的像素宽度（在竖排视觉中等于往下推）
+                    drawX = fontSizePx * 2f
+                }
+
+                // 重置为基础间距，用于测量真实文字宽度
                 textPaint.letterSpacing = baseLetterSpacingMultiplier
-                val originalWidth = textPaint.measureText(text)
-                val remainingSpace = availableWidth - originalWidth
+                val originalWidth = textPaint.measureText(textToDraw)
 
-                // 竖屏对齐逻辑
-                // 如果剩余空间大于一个字符宽度（估算），说明这是个短行（如段落末尾），不对齐。
-                val oneCharWidth = fontSizePx
-                if (remainingSpace > oneCharWidth && text.length > 1) {
-                    // 这是个短行（段落末尾），不要对齐
-                    textPaint.letterSpacing = baseLetterSpacingMultiplier
-                } else if (remainingSpace > 0 && text.length > 1) {
-                    // 这是个几乎满的行（被分行或避头尾），需要对齐
-                    val gaps = text.length - 1 // <--- [已修正]
+                // 剩余空间 = 可用总长 - 固定的缩进距离 - 文字本身的宽度
+                val remainingSpace = availableWidth - drawX - originalWidth
+
+                // 竖屏对齐与短行拦截逻辑
+                // 在单行传入模式下，如果剩余空间大于 3 个全角字符的宽度，
+                // 那它100%是段落或者章节的最后一行短句，坚决不对齐。
+                val isShortLine = remainingSpace > fontSizePx * 3f
+
+                // 如果不是短行，且有剩余空间，且行内多于1个字，执行两端对齐
+                if (!isShortLine && remainingSpace > 0 && textToDraw.length > 1) {
+                    val gaps = textToDraw.length - 1
                     // 计算需要分配到每个间隙的额外像素
                     val justificationSpacingPx = remainingSpace / gaps
                     // 转换为 Paint 的乘数
@@ -87,8 +97,8 @@ fun JustifiedText(
 
                 // 绘制文本
                 drawContext.canvas.nativeCanvas.drawText(
-                    text,
-                    0f, // X=0
+                    textToDraw,
+                    drawX, // X = 计算后的绝对缩进坐标（非缩进行则为 0f）
                     baselineY, // Y=居中基线
                     textPaint
                 )
@@ -106,25 +116,38 @@ fun JustifiedText(
                         return@forEachIndexed
                     }
 
-                    // 判断是否为段落或页面的最后一行
-                    // 重置为基础间距，用于测量
+                    // 剥离缩进字符，使用绝对坐标锚定缩进
+                    var drawX = 0f
+                    var textToDraw = line
+
+                    // 如果这行是以两个全角空格开头（说明是段落首行）
+                    if (line.startsWith("　　")) {
+                        // 截掉前两个空格，只画后面的纯文字
+                        textToDraw = line.substring(2)
+                        // 强制把 X 起点往右推正好 2 个字的像素宽度
+                        drawX = fontSizePx * 2f
+                    }
+
+                    // 重置为基础间距，用于测量真实的文字宽度
                     textPaint.letterSpacing = baseLetterSpacingMultiplier
-                    val originalWidth = textPaint.measureText(line)
-                    val remainingSpace = availableWidth - originalWidth
+                    val originalWidth = textPaint.measureText(textToDraw)
+                    // 剩余空间 = 画布总宽 - 固定的缩进X坐标 - 文字本身的宽度
+                    val remainingSpace = availableWidth - drawX - originalWidth
 
+                    // 1. 是否是普通段落的最后一行
                     val isEndOfParagraph = index < lines.lastIndex && lines[index + 1].isEmpty()
-
+                    // 2. 是否是真正的章节末尾短句（基于剩余空间判断）
                     val isEndOfChapterShortLine =
                         index == lines.lastIndex && remainingSpace > fontSizePx * 3f
 
                     val skipJustification = isEndOfParagraph || isEndOfChapterShortLine
 
-                    // 5. 实现两端对齐
-                    if (!skipJustification && remainingSpace > 0 && line.length > 1) {
-                        val gaps = line.length - 1
+                    // 5. 实现两端对齐（Justification）
+                    // 注意这里改为判断 textToDraw.length
+                    if (!skipJustification && remainingSpace > 0 && textToDraw.length > 1) {
+                        val gaps = textToDraw.length - 1
                         // 计算需要分配到每个间隙的额外像素
                         val justificationSpacingPx = remainingSpace / gaps
-                        // 转换为 Paint 的乘数
                         val justificationMultiplier =
                             if (fontSizePx > 0) justificationSpacingPx / fontSizePx else 0f
 
@@ -132,12 +155,12 @@ fun JustifiedText(
                         textPaint.letterSpacing =
                             baseLetterSpacingMultiplier + justificationMultiplier
                     }
-                    // else: 保持基础间距（已在测量前设置）
 
                     // 6. 绘制文本
+                    // 注意：这里传入的是剔除了空格的 textToDraw，以及计算好的 drawX
                     drawContext.canvas.nativeCanvas.drawText(
-                        line,
-                        0f,
+                        textToDraw,
+                        drawX,
                         currentY,
                         textPaint
                     )
