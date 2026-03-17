@@ -174,7 +174,7 @@ class TextUtil {
 
             while (i < lineLength) {
                 val c = line[i]
-                val charWidth = if (c.code in ASCII_START..ASCII_END) halfWidthPx else fullWidthPx
+                val charWidth = getCharWidth(c, halfWidthPx, fullWidthPx)
 
                 if (currentWidth + charWidth > targetPixelWidth && lineBuilder.isNotEmpty()) {
                     val newWidth = handlePunctuationOptimized(
@@ -218,7 +218,7 @@ class TextUtil {
 
                 // --- [偏宽字符] ~75%全宽 ---
                 // 饱满的圆形大写字母、较宽的小写 w 等
-                'O', 'Q', 'G', 'C', 'D', 'B', 'w', '&', '~' -> fullWidthPx * 0.75f
+                'O', 'Q', 'G', 'C', 'D', 'w', '&', '~' -> fullWidthPx * 0.75f
 
                 // --- [普通大写 & 宽数学符号] ~65%全宽 ---
                 // 注意：这里的 in 'A'..'Z' 会被上面的 'O','Q' 等提前拦截，顺序非常重要
@@ -375,7 +375,7 @@ class TextUtil {
 
             while (i < lineLength) {
                 val c = line[i]
-                val charWidth = if (c.code in ASCII_START..ASCII_END) halfWidthPx else fullWidthPx
+                val charWidth = getCharWidth(c, halfWidthPx, fullWidthPx)
 
                 if (currentWidth + charWidth > targetPixelWidth && lineBuilder.isNotEmpty()) {
                     val newWidth = handlePunctuationOptimizedVertical(
