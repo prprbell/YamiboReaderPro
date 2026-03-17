@@ -379,7 +379,76 @@ fun MinePage(
     LaunchedEffect(mineWebView, isSelected) {
         mineWebView.webViewClient = object : YamiboWebViewClient() {
             var contentImageCount = 0
-
+            val checkSectionAndInjectJs = """
+                (function(){
+                    var a = document.querySelector('.header h2 a');
+                    var isManga = false;
+                    if (a) {
+                        var t = a.innerText;
+                        isManga = t.indexOf('中文百合漫画区') !== -1 || 
+                                  t.indexOf('貼圖區') !== -1 || 
+                                  t.indexOf('原创图作区') !== -1 || 
+                                  t.indexOf('百合漫画图源区') !== -1;
+                    }
+                    if (isManga) {
+                        if (window._mangaClickInjected) return 'true';
+                        window._mangaClickInjected = true;
+                        
+                        // 破坏可能触发原生PhotoSwipe的属性
+                        var disablePhotoSwipe = function() {
+                            var links = document.querySelectorAll('a[data-pswp-width], .img_one a, .message a');
+                            for (var i = 0; i < links.length; i++) {
+                                var aNode = links[i];
+                                if (aNode.querySelector('img')) {
+                                    aNode.removeAttribute('data-pswp-width');
+                                    if (aNode.href && aNode.href.indexOf('javascript') === -1) {
+                                        aNode.setAttribute('data-disabled-href', aNode.href);
+                                        aNode.removeAttribute('href');
+                                    }
+                                }
+                            }
+                        };
+                        disablePhotoSwipe();
+                        // 监听动态加载的图片
+                        var observer = new MutationObserver(disablePhotoSwipe);
+                        observer.observe(document.body, { childList: true, subtree: true });
+                        
+                        document.addEventListener('click', function(e) {
+                            var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
+                            if (!targetContainer) return;
+                            
+                            var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
+                            
+                            if (targetImg) {
+                                var imgSrc = targetImg.getAttribute('src') || '';
+                                var imgZsrc = targetImg.getAttribute('zsrc') || '';
+                                
+                                if (imgSrc.indexOf('smiley') === -1 && imgZsrc.indexOf('smiley') === -1) { 
+                                    e.preventDefault(); 
+                                    e.stopPropagation();
+                                    e.stopImmediatePropagation();
+                                    
+                                    var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                                    var urls = [];
+                                    var clickedIndex = 0;
+                                    for (var i = 0; i < allImgs.length; i++) {
+                                        var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
+                                        if (rawSrc) {
+                                            var absoluteUrl = new URL(rawSrc, document.baseURI).href;
+                                            urls.push(absoluteUrl);
+                                            if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
+                                        }
+                                    }
+                                    if (window.NativeMangaApi) {
+                                        window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
+                                    }
+                                }
+                            }
+                        }, true); 
+                    }
+                    return isManga ? 'true' : 'false';
+                })()
+            """.trimIndent()
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 contentImageCount = 0
@@ -464,20 +533,8 @@ fun MinePage(
                     isLoading = false
                     showLoadError = false
                 }
-                view?.evaluateJavascript(
-                    """
-                    (function(){
-                        var a = document.querySelector('.header h2 a');
-                        if (!a) return false;
-                        var t = a.innerText;
-                        return t.indexOf('中文百合漫画区') !== -1 || 
-                               t.indexOf('貼圖區') !== -1 || 
-                               t.indexOf('原创图作区') !== -1 || 
-                               t.indexOf('百合漫画图源区') !== -1;
-                    })()
-                    """.trimIndent()
-                ) { result ->
-                    isMangaSection = result == "true"
+                view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
+                    isMangaSection = result == "true" || result == "\"true\""
                 }
             }
 
@@ -504,59 +561,8 @@ fun MinePage(
                     }
                 }
                 canGoBack = view?.canGoBack() ?: false
-                view?.evaluateJavascript(
-                    """
-                    (function(){
-                        var a = document.querySelector('.header h2 a');
-                        if (!a) return false;
-                        var t = a.innerText;
-                        return t.indexOf('中文百合漫画区') !== -1 || 
-                               t.indexOf('貼圖區') !== -1 || 
-                               t.indexOf('原创图作区') !== -1 || 
-                               t.indexOf('百合漫画图源区') !== -1;
-                    })()
-                    """.trimIndent()
-                ) { result ->
-                    isMangaSection = result == "true"
-                    // 如果是漫画/图区，拦截图片点击事件发送给NativeMangaApi
-                    if (isMangaSection) {
-                        val injectJs = """
-                            javascript:(function() {
-                                document.addEventListener('click', function(e) {
-                                    var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
-                                    if (!targetContainer) return;
-                                    
-                                    var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
-                                    
-                                    if (targetImg) {
-                                        var imgSrc = targetImg.getAttribute('src') || '';
-                                        var imgZsrc = targetImg.getAttribute('zsrc') || '';
-                                        
-                                        if (imgSrc.indexOf('smiley') === -1 && imgZsrc.indexOf('smiley') === -1) { 
-                                            e.preventDefault(); 
-                                            e.stopPropagation();
-                                            
-                                            var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                                            var urls = [];
-                                            var clickedIndex = 0;
-                                            for (var i = 0; i < allImgs.length; i++) {
-                                                var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
-                                                if (rawSrc) {
-                                                    var absoluteUrl = new URL(rawSrc, document.baseURI).href;
-                                                    urls.push(absoluteUrl);
-                                                    if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
-                                                }
-                                            }
-                                            if (window.NativeMangaApi) {
-                                                window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
-                                            }
-                                        }
-                                    }
-                                }, true); 
-                            })();
-                        """.trimIndent()
-                        view.evaluateJavascript(injectJs, null)
-                    }
+                view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
+                    isMangaSection = result == "true" || result == "\"true\""
                 }
             }
 
