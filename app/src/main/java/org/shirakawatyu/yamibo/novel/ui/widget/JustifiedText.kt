@@ -119,7 +119,7 @@ fun JustifiedText(
 
                     val skipJustification = isEndOfParagraph || isEndOfChapterShortLine
 
-                    // 5. 实现两端对齐（Justification）
+                    // 5. 实现两端对齐
                     if (!skipJustification && remainingSpace > 0 && line.length > 1) {
                         val gaps = line.length - 1
                         // 计算需要分配到每个间隙的额外像素
