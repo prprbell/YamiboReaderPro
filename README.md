@@ -111,7 +111,7 @@
 
 **维护者：** [@prprbell](https://github.com/prprbell)
 
-**鸣谢：** 本项目 Fork 自 [flben233/YamiboReader](https://github.com/flben233/YamiboReader)，感谢原作者 [@flben233](https://github.com/flben233) 的出色框架！
+**鸣谢：** 本项目最初基于 [flben233/YamiboReader](https://github.com/flben233/YamiboReader) 的基础框架进行开发，感谢原作者 [@flben233](https://github.com/flben233) 出色的工作！
 
 ## 如何贡献
 
