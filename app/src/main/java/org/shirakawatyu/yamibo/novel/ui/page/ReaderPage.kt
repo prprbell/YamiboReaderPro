@@ -491,9 +491,9 @@ fun ReaderPage(
 
                         if (isVolDown || isVolUp) {
                             if (!showSettings && !isLoading) {
-                                if (event.type == KeyEventType.KeyDown) {
+                                if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
                                     val currentTime = System.currentTimeMillis()
-                                    if (currentTime - lastVolKeyTime > 280L) {
+                                    if (currentTime - lastVolKeyTime > 200L) {
                                         lastVolKeyTime = currentTime
                                         scope.launch {
                                             if (uiState.isVerticalMode) {

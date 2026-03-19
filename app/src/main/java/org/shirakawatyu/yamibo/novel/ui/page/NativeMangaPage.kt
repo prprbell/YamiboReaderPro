@@ -58,6 +58,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -156,6 +157,7 @@ fun NativeMangaPage(
     val isRtl = readMode == 2
     var activePointers by remember { mutableIntStateOf(0) }
     val isMultiTouch by remember { derivedStateOf { activePointers > 1 } }
+    var lastVolKeyTime by remember { mutableLongStateOf(0L) }
 
     val handleVerticalClick: () -> Unit = remember {
         {
@@ -481,28 +483,35 @@ fun NativeMangaPage(
 
                             if (isVolDown || isVolUp) {
                                 if (!showUi) {
-                                    if (event.type == KeyEventType.KeyDown) {
-                                        scope.launch {
-                                            if (isVerticalMode) {
-                                                val target =
-                                                    if (isVolDown) lazyListState.firstVisibleItemIndex + 1 else lazyListState.firstVisibleItemIndex - 1
-                                                lazyListState.animateScrollToItem(
-                                                    index = target.coerceIn(0, imageUrls.size - 1)
-                                                )
-                                            } else {
-                                                val target =
-                                                    if (isVolDown) pagerState.targetPage + 1 else pagerState.targetPage - 1
-                                                pagerState.animateScrollToPage(
-                                                    page = target.coerceIn(
-                                                        0,
-                                                        pagerState.pageCount - 1
-                                                    ),
-                                                    animationSpec = tween(durationMillis = 250)
-                                                )
+                                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                                        val currentTime = System.currentTimeMillis()
+                                        if (currentTime - lastVolKeyTime > 300L) {
+                                            lastVolKeyTime = currentTime
+                                            scope.launch {
+                                                if (isVerticalMode) {
+                                                    val target =
+                                                        if (isVolDown) lazyListState.firstVisibleItemIndex + 1 else lazyListState.firstVisibleItemIndex - 1
+                                                    lazyListState.animateScrollToItem(
+                                                        index = target.coerceIn(
+                                                            0,
+                                                            imageUrls.size - 1
+                                                        )
+                                                    )
+                                                } else {
+                                                    val target =
+                                                        if (isVolDown) pagerState.targetPage + 1 else pagerState.targetPage - 1
+                                                    pagerState.animateScrollToPage(
+                                                        page = target.coerceIn(
+                                                            0,
+                                                            pagerState.pageCount - 1
+                                                        ),
+                                                        animationSpec = tween(durationMillis = 250)
+                                                    )
+                                                }
                                             }
                                         }
+                                        return@onPreviewKeyEvent true
                                     }
-                                    return@onPreviewKeyEvent true
                                 }
                             }
                             false
