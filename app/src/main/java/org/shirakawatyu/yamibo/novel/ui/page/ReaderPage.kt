@@ -176,6 +176,7 @@ fun ReaderPage(
     val originalCutoutMode = remember { mutableStateOf(0) }
     var hasCapturedOriginal by remember { mutableStateOf(false) }
     var hasRestoredSystemUi by remember { mutableStateOf(false) }
+    var lastVolKeyTime by remember { mutableLongStateOf(0L) }
 
     val favorites by FavoriteUtil.getFavoriteFlow().collectAsState(initial = emptyList())
     val bookTitle = remember(favorites, url) {
@@ -491,43 +492,50 @@ fun ReaderPage(
                         if (isVolDown || isVolUp) {
                             if (!showSettings && !isLoading) {
                                 if (event.type == KeyEventType.KeyDown) {
-                                    scope.launch {
-                                        if (uiState.isVerticalMode) {
-                                            val layoutInfo = lazyListState.layoutInfo
-                                            val visibleItems = layoutInfo.visibleItemsInfo
+                                    val currentTime = System.currentTimeMillis()
+                                    if (currentTime - lastVolKeyTime > 280L) {
+                                        lastVolKeyTime = currentTime
+                                        scope.launch {
+                                            if (uiState.isVerticalMode) {
+                                                val layoutInfo = lazyListState.layoutInfo
+                                                val visibleItems = layoutInfo.visibleItemsInfo
 
-                                            if (visibleItems.isNotEmpty()) {
-                                                val bufferLines = 3
-                                                val visibleCount = visibleItems.size
+                                                if (visibleItems.isNotEmpty()) {
+                                                    val bufferLines = 3
+                                                    val visibleCount = visibleItems.size
 
-                                                val scrollStep =
-                                                    (visibleCount - bufferLines).coerceAtLeast(1)
+                                                    val scrollStep =
+                                                        (visibleCount - bufferLines).coerceAtLeast(1)
 
-                                                if (isVolDown) {
-                                                    val targetIndex =
-                                                        (lazyListState.firstVisibleItemIndex + scrollStep)
-                                                            .coerceAtMost(uiState.htmlList.size - 1)
+                                                    if (isVolDown) {
+                                                        val targetIndex =
+                                                            (lazyListState.firstVisibleItemIndex + scrollStep)
+                                                                .coerceAtMost(uiState.htmlList.size - 1)
 
-                                                    lazyListState.animateScrollToItem(index = targetIndex)
-                                                } else {
-                                                    val targetIndex =
-                                                        (lazyListState.firstVisibleItemIndex - scrollStep)
-                                                            .coerceAtLeast(0)
+                                                        lazyListState.animateScrollToItem(index = targetIndex)
+                                                    } else {
+                                                        val targetIndex =
+                                                            (lazyListState.firstVisibleItemIndex - scrollStep)
+                                                                .coerceAtLeast(0)
 
-                                                    lazyListState.animateScrollToItem(index = targetIndex)
+                                                        lazyListState.animateScrollToItem(index = targetIndex)
+                                                    }
                                                 }
+                                            } else {
+                                                val target =
+                                                    if (isVolDown) pagerState.targetPage + 1 else pagerState.targetPage - 1
+                                                pagerState.animateScrollToPage(
+                                                    page = target.coerceIn(
+                                                        0,
+                                                        pagerState.pageCount - 1
+                                                    ),
+                                                    animationSpec = smoothScrollAnimation
+                                                )
                                             }
-                                        } else {
-                                            val target =
-                                                if (isVolDown) pagerState.targetPage + 1 else pagerState.targetPage - 1
-                                            pagerState.animateScrollToPage(
-                                                page = target.coerceIn(0, pagerState.pageCount - 1),
-                                                animationSpec = smoothScrollAnimation
-                                            )
                                         }
                                     }
+                                    return@onPreviewKeyEvent true
                                 }
-                                return@onPreviewKeyEvent true
                             }
                         }
                         false
