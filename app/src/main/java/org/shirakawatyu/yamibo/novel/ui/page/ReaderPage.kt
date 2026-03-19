@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -85,9 +86,16 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -235,7 +243,20 @@ fun ReaderPage(
         val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
         val smoothScrollAnimation =
             remember { tween<Float>(durationMillis = 432, easing = EaseOut) }
+        val focusRequester = remember { FocusRequester() }
 
+        LaunchedEffect(showSettings) {
+            if (!showSettings) {
+                view?.isFocusableInTouchMode = true
+                view?.requestFocus()
+                kotlinx.coroutines.delay(50)
+                try {
+                    focusRequester.requestFocus()
+                } catch (e: Exception) {
+                    // 忽略焦点请求失败
+                }
+            }
+        }
         LaunchedEffect(uiState.showChapterDrawer) {
             if (uiState.showChapterDrawer) drawerState.open() else drawerState.close()
         }
@@ -461,6 +482,49 @@ fun ReaderPage(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(finalBackground)
+                    .focusRequester(focusRequester)
+                    .focusable()
+                    .onPreviewKeyEvent { event ->
+                        val isVolDown = event.key == Key.VolumeDown
+                        val isVolUp = event.key == Key.VolumeUp
+
+                        if (isVolDown || isVolUp) {
+                            // 仅在设置面板关闭且没有处于加载遮罩时允许翻页
+                            if (!showSettings && !isLoading) {
+                                if (event.type == KeyEventType.KeyDown) {
+                                    scope.launch {
+                                        if (uiState.isVerticalMode) {
+                                            // 竖屏文本模式：翻一页的高度大约是当前可见的 item 数量减1（保留一行作为上下文防止阅读断层）
+                                            val visibleItems =
+                                                lazyListState.layoutInfo.visibleItemsInfo.size
+                                            val scrollAmount =
+                                                if (visibleItems > 1) visibleItems - 1 else 1
+                                            val target =
+                                                if (isVolDown) lazyListState.firstVisibleItemIndex + scrollAmount
+                                                else lazyListState.firstVisibleItemIndex - scrollAmount
+
+                                            lazyListState.animateScrollToItem(
+                                                index = target.coerceIn(
+                                                    0,
+                                                    (uiState.htmlList.size - 1).coerceAtLeast(0)
+                                                )
+                                            )
+                                        } else {
+                                            // 横屏模式：直接翻到上一页/下一页
+                                            val target =
+                                                if (isVolDown) pagerState.targetPage + 1 else pagerState.targetPage - 1
+                                            pagerState.animateScrollToPage(
+                                                page = target.coerceIn(0, pagerState.pageCount - 1),
+                                                animationSpec = smoothScrollAnimation
+                                            )
+                                        }
+                                    }
+                                }
+                                return@onPreviewKeyEvent true
+                            }
+                        }
+                        false
+                    }
             ) {
                 // 内容层
                 Box(
@@ -541,11 +605,12 @@ fun ReaderPage(
                                     }
                                 }
 
-                                Box(modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        alpha = if (isInitialScrollDone) 1f else 0f
-                                    }) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            alpha = if (isInitialScrollDone) 1f else 0f
+                                        }) {
                                     if (uiState.isVerticalMode) {
                                         LazyColumn(
                                             modifier = Modifier
