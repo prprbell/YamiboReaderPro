@@ -90,9 +90,8 @@ private val ReaderLightColorScheme = lightColorScheme(
 )
 
 /**
- * 应用于阅读器页面的专用主题，
- * 可根据uiState.nightMode在ReaderLightColorScheme和ReaderNightColorScheme之间切换。
- */
+ * 应用于阅读器页面的专用主题
+ * */
 @Composable
 fun ReaderTheme(
     nightMode: Boolean = false,
