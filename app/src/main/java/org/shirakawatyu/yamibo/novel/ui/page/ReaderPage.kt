@@ -489,28 +489,35 @@ fun ReaderPage(
                         val isVolUp = event.key == Key.VolumeUp
 
                         if (isVolDown || isVolUp) {
-                            // 仅在设置面板关闭且没有处于加载遮罩时允许翻页
                             if (!showSettings && !isLoading) {
                                 if (event.type == KeyEventType.KeyDown) {
                                     scope.launch {
                                         if (uiState.isVerticalMode) {
-                                            // 竖屏文本模式：翻一页的高度大约是当前可见的 item 数量减1（保留一行作为上下文防止阅读断层）
-                                            val visibleItems =
-                                                lazyListState.layoutInfo.visibleItemsInfo.size
-                                            val scrollAmount =
-                                                if (visibleItems > 1) visibleItems - 1 else 1
-                                            val target =
-                                                if (isVolDown) lazyListState.firstVisibleItemIndex + scrollAmount
-                                                else lazyListState.firstVisibleItemIndex - scrollAmount
+                                            val layoutInfo = lazyListState.layoutInfo
+                                            val visibleItems = layoutInfo.visibleItemsInfo
 
-                                            lazyListState.animateScrollToItem(
-                                                index = target.coerceIn(
-                                                    0,
-                                                    (uiState.htmlList.size - 1).coerceAtLeast(0)
-                                                )
-                                            )
+                                            if (visibleItems.isNotEmpty()) {
+                                                val bufferLines = 3
+                                                val visibleCount = visibleItems.size
+
+                                                val scrollStep =
+                                                    (visibleCount - bufferLines).coerceAtLeast(1)
+
+                                                if (isVolDown) {
+                                                    val targetIndex =
+                                                        (lazyListState.firstVisibleItemIndex + scrollStep)
+                                                            .coerceAtMost(uiState.htmlList.size - 1)
+
+                                                    lazyListState.animateScrollToItem(index = targetIndex)
+                                                } else {
+                                                    val targetIndex =
+                                                        (lazyListState.firstVisibleItemIndex - scrollStep)
+                                                            .coerceAtLeast(0)
+
+                                                    lazyListState.animateScrollToItem(index = targetIndex)
+                                                }
+                                            }
                                         } else {
-                                            // 横屏模式：直接翻到上一页/下一页
                                             val target =
                                                 if (isVolDown) pagerState.targetPage + 1 else pagerState.targetPage - 1
                                             pagerState.animateScrollToPage(
