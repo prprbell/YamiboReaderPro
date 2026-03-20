@@ -76,12 +76,6 @@ fun FavoriteItem(
             else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
         }
     }
-//    // 1. 判断标题是否以常见的全角左符号开头
-//    val isFullWidthStart = title.isNotEmpty() && title.first() in listOf('【', '（', '《', '「', '『')
-//
-//    // 2. 设定负数的首行缩进，把符号向左“拽”
-//    val firstLineOffset = if (isFullWidthStart) (-6).sp else 0.sp
-
     // 拖拽动画：根据是否处于拖拽状态动态调整卡片的阴影、缩放和颜色
     val elevation by animateDpAsState(
         targetValue = if (isDragging) 12.dp else 1.dp,

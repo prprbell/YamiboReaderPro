@@ -106,6 +106,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     private var diskCacheQueue: MutableSet<Int> = mutableSetOf()
     private var diskCacheIncludeImages: Boolean = false
+    private var ignoreFirstFakeZero = false
 
     // 进度条总数
     private var diskCacheTotalPages: Int = 0
@@ -866,7 +867,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 val totalItems = passages.size.coerceAtLeast(1)
                 val safeInitPage = newInitPage.coerceIn(0, (totalItems - 1).coerceAtLeast(0))
                 val newPercent = (safeInitPage.toFloat() / totalItems) * 100f
-
+                ignoreFirstFakeZero = safeInitPage > 0
                 _uiState.value = _uiState.value.copy(
                     htmlList = passages,
                     chapterList = chapters,
@@ -1128,14 +1129,15 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         }
 
         val newPage = curPagerState.targetPage
-
+        if (ignoreFirstFakeZero) {
+            if (newPage == 0) return
+            ignoreFirstFakeZero = false
+        }
         if (isTransitioning) {
             val isSettledAtInit =
                 curPagerState.settledPage == _uiState.value.initPage && newPage == _uiState.value.initPage
 
-            // 检查用户是否中断了滚动：
-            // 1. 滚动已停止 (!isScrollInProgress)
-            // 2. 停止的页面不是期望的initPage
+            // 检查用户是否中断了滚动
             val userInterrupted = !curPagerState.isScrollInProgress &&
                     curPagerState.settledPage != _uiState.value.initPage &&
                     curPagerState.settledPage == newPage
@@ -1193,6 +1195,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     }
 
     fun onVerticalPageSettled(newPage: Int) {
+        if (ignoreFirstFakeZero) {
+            if (newPage == 0) return
+            ignoreFirstFakeZero = false
+        }
         if (isTransitioning) {
             // 只要它在转场期间稳定下来，就认为转场结束
             isTransitioning = false

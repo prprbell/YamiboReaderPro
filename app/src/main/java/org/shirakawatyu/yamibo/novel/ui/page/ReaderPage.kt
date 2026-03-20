@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.EaseOut
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,15 +24,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -107,7 +110,6 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -165,9 +167,22 @@ fun ReaderPage(
     // 全屏与状态栏高度处理
     val context = LocalContext.current
     val density = LocalDensity.current
+
     val window = remember(context) { context.findActivity()?.window }
     val view = remember(window) { window?.decorView }
-    val statusBarHeight = getStatusBarHeight()
+    val statusBarsPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    val rememberedStatusBarHeight =
+        remember { mutableStateOf(if (statusBarsPadding > 0.dp) statusBarsPadding else 28.dp) }
+    if (statusBarsPadding > 0.dp) rememberedStatusBarHeight.value = statusBarsPadding
+
+    val rememberedNavBarHeight =
+        remember { mutableStateOf(if (navBarsPadding > 0.dp) navBarsPadding else 48.dp) }
+    if (navBarsPadding > 0.dp) rememberedNavBarHeight.value = navBarsPadding
+
+    val statusBarHeight = rememberedStatusBarHeight.value
+    val navBarHeight = rememberedNavBarHeight.value
 
     // 记录进入阅读器前的系统栏状态，退出时恢复，避免上一页上下栏抖动
     val originalStatusBarColor = remember { mutableStateOf(window?.statusBarColor ?: 0) }
@@ -175,9 +190,11 @@ fun ReaderPage(
     val originalLightStatusBars = remember { mutableStateOf(false) }
     val originalCutoutMode = remember { mutableStateOf(0) }
     var hasCapturedOriginal by remember { mutableStateOf(false) }
-    var hasRestoredSystemUi by remember { mutableStateOf(false) }
+    val hasRestoredSystemUi = remember { mutableStateOf(false) }
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
-
+    var isExiting by remember { mutableStateOf(false) }
+    var isFirstEnter by remember { mutableStateOf(true) }
+    var isFullScreen by remember { mutableStateOf(true) }
     val favorites by FavoriteUtil.getFavoriteFlow().collectAsState(initial = emptyList())
     val bookTitle = remember(favorites, url) {
         val rawTitle = favorites.find { it.url == url }?.title ?: ""
@@ -194,31 +211,14 @@ fun ReaderPage(
                 originalStatusBarColor.value = window.statusBarColor
                 originalBehavior.value = windowController.systemBarsBehavior
                 originalLightStatusBars.value = windowController.isAppearanceLightStatusBars
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    originalCutoutMode.value = window.attributes.layoutInDisplayCutoutMode
-                }
                 hasCapturedOriginal = true
             }
-
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val layoutParams = window.attributes
-                layoutParams.layoutInDisplayCutoutMode =
-                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                window.attributes = layoutParams
-            }
-
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
             windowController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
             onDispose {
-                if (!hasRestoredSystemUi) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        val layoutParams = window.attributes
-                        layoutParams.layoutInDisplayCutoutMode = originalCutoutMode.value
-                        window.attributes = layoutParams
-                    }
+                if (!hasRestoredSystemUi.value) {
                     windowController.systemBarsBehavior = originalBehavior.value
                     window.statusBarColor = originalStatusBarColor.value
                     windowController.isAppearanceLightStatusBars = originalLightStatusBars.value
@@ -227,7 +227,16 @@ fun ReaderPage(
             }
         }
     }
-
+    LaunchedEffect(isExiting) {
+        if (isExiting && window != null && view != null && !hasRestoredSystemUi.value) {
+            val windowController = WindowCompat.getInsetsController(window, view)
+            windowController.systemBarsBehavior = originalBehavior.value
+            window.statusBarColor = originalStatusBarColor.value
+            windowController.isAppearanceLightStatusBars = originalLightStatusBars.value
+            windowController.show(WindowInsetsCompat.Type.systemBars())
+            hasRestoredSystemUi.value = true
+        }
+    }
 
     ReaderTheme(nightMode = uiState.nightMode) {
         val themeBackground = MaterialTheme.colorScheme.background
@@ -272,19 +281,37 @@ fun ReaderPage(
             val windowController = window?.let { WindowCompat.getInsetsController(it, view!!) }
             if (windowController != null) {
                 if (showSettings) {
-                    // 打开设置：显示系统状态栏
-                    windowController.show(WindowInsetsCompat.Type.statusBars())
+                    isFullScreen = false
+                    windowController.show(WindowInsetsCompat.Type.systemBars())
                     window.statusBarColor = android.graphics.Color.BLACK
                     windowController.isAppearanceLightStatusBars = false
+                    isFirstEnter = false
                 } else {
-                    // 关闭设置：恢复沉浸式阅读
-                    windowController.hide(WindowInsetsCompat.Type.statusBars())
-                    window.statusBarColor = android.graphics.Color.TRANSPARENT
+                    isFullScreen = true
                     windowController.isAppearanceLightStatusBars = !uiState.nightMode
+                    window.statusBarColor = android.graphics.Color.TRANSPARENT
+
+                    if (isFirstEnter) {
+                        kotlinx.coroutines.delay(800)
+                        isFirstEnter = false
+                    }
+
+                    windowController.hide(WindowInsetsCompat.Type.systemBars())
                 }
             }
         }
 
+        // 新增：动态过渡的边距
+        val currentTopPadding by animateDpAsState(
+            targetValue = if (isFullScreen) 0.dp else statusBarHeight,
+            label = "topPadding",
+            animationSpec = tween(durationMillis = 300)
+        )
+        val currentBottomPadding by animateDpAsState(
+            targetValue = if (isFullScreen) 0.dp else navBarHeight,
+            label = "bottomPadding",
+            animationSpec = tween(durationMillis = 300)
+        )
 
         val currentPageIndex = if (uiState.isVerticalMode) {
             remember(lazyListState.firstVisibleItemIndex, lazyListState.isScrollInProgress) {
@@ -312,32 +339,10 @@ fun ReaderPage(
         val exitReader: () -> Unit = remember(window, view, navController) {
             {
                 if (window != null && view != null) {
-                    val controller = WindowCompat.getInsetsController(window, view)
-
-                    WindowCompat.setDecorFitsSystemWindows(window, true)
-
-                    if (hasCapturedOriginal) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            val lp = window.attributes
-                            lp.layoutInDisplayCutoutMode = originalCutoutMode.value
-                            window.attributes = lp
-                        }
-                        controller.systemBarsBehavior = originalBehavior.value
-                        window.statusBarColor = originalStatusBarColor.value
-                        controller.isAppearanceLightStatusBars = originalLightStatusBars.value
-                    }
-
-                    controller.show(WindowInsetsCompat.Type.systemBars())
-
-                    ViewCompat.requestApplyInsets(view)
-
-                    hasRestoredSystemUi = true
-
-                    view.post {
-                        navController.navigateUp()
-                    }
+                    isExiting = true
+                    view.clearFocus()
+                    navController.navigateUp()
                 } else {
-                    hasRestoredSystemUi = true
                     navController.navigateUp()
                 }
             }
@@ -347,23 +352,8 @@ fun ReaderPage(
             remember(window, view, navController, uiState.currentView, url) {
                 {
                     if (window != null && view != null) {
-                        val controller = WindowCompat.getInsetsController(window, view)
-                        WindowCompat.setDecorFitsSystemWindows(window, true)
-                        if (hasCapturedOriginal) {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                                val lp = window.attributes
-                                lp.layoutInDisplayCutoutMode = originalCutoutMode.value
-                                window.attributes = lp
-                            }
-                            controller.systemBarsBehavior = originalBehavior.value
-                            window.statusBarColor = originalStatusBarColor.value
-                            controller.isAppearanceLightStatusBars = originalLightStatusBars.value
-                        }
-                        controller.show(WindowInsetsCompat.Type.systemBars())
-                        ViewCompat.requestApplyInsets(view)
-                        hasRestoredSystemUi = true
-                    } else {
-                        hasRestoredSystemUi = true
+                        isExiting = true
+                        view.clearFocus()
                     }
 
                     val previousRoute = navController.previousBackStackEntry?.destination?.route
@@ -460,6 +450,7 @@ fun ReaderPage(
 
         // --- 根布局Box ---
         ModalNavigationDrawer(
+            modifier = Modifier.clip(RectangleShape),
             drawerState = drawerState,
             gesturesEnabled = drawerState.isOpen,
             drawerContent = {
@@ -545,8 +536,8 @@ fun ReaderPage(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = statusBarHeight)
-                        .navigationBarsPadding()
+                        .padding(top = currentTopPadding)
+                        .padding(bottom = currentBottomPadding)
                 ) {
                     Box(
                         modifier = Modifier
@@ -633,7 +624,12 @@ fun ReaderPage(
                                                 .clickable(
                                                     indication = null,
                                                     interactionSource = remember { MutableInteractionSource() },
-                                                    onClick = { showSettings = true }
+                                                    onClick = {
+                                                        if (isExiting) {
+                                                            return@clickable
+                                                        }
+                                                        showSettings = true
+                                                    }
                                                 )
                                                 .padding(horizontal = uiState.padding),
                                             state = lazyListState
@@ -665,6 +661,9 @@ fun ReaderPage(
                                                 .pointerInput(Unit) {
                                                     detectTapGestures(
                                                         onTap = { offset ->
+                                                            if (isExiting) {
+                                                                return@detectTapGestures
+                                                            }
                                                             val screenWidth = size.width.toFloat()
                                                             if (offset.x < screenWidth * 0.25f) {
                                                                 scope.launch {
@@ -739,7 +738,7 @@ fun ReaderPage(
                 } // 正文Box End
 
                 // --- 自定义状态栏层 ---
-                if (!showSettings) {
+                if (!showSettings && !isFullScreen) {
                     CustomStatusBar(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -786,7 +785,7 @@ fun ReaderPage(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .statusBarsPadding()
+                                .padding(top = statusBarHeight)
                                 .padding(horizontal = 8.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -1045,7 +1044,7 @@ fun ReaderPage(
                         modifier = Modifier
                             .fillMaxWidth()
                             .align(Alignment.BottomCenter)
-                            .navigationBarsPadding(),
+                            .padding(bottom = navBarHeight),
                         uiState = uiState,
                         pageCount = uiState.htmlList.size,
                         currentPage = currentPageIndex,
@@ -1874,21 +1873,4 @@ fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
-}
-
-@SuppressLint("InternalInsetResource", "DiscouragedApi")
-@Composable
-fun getStatusBarHeight(): Dp {
-    val context = LocalContext.current
-    val density = LocalDensity.current
-    val resourceId = remember(context) {
-        context.resources.getIdentifier("status_bar_height", "dimen", "android")
-    }
-    return remember(resourceId, density) {
-        if (resourceId > 0) {
-            with(density) { context.resources.getDimensionPixelSize(resourceId).toDp() }
-        } else {
-            28.dp
-        }
-    }
 }

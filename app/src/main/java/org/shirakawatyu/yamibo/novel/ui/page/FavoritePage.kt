@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -90,7 +92,6 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
-import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -122,28 +123,31 @@ fun FavoritePage(
     var showDirectoryManagement by remember { mutableStateOf(false) }
     var directoryList by remember { mutableStateOf<List<MangaDirectory>>(emptyList()) }
 
-    SetStatusBarColor(YamiboColors.onSurface)
-
+    val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
 
-                when (favoriteVM.nextResumeStrategy) {
-                    FavoriteVM.RefreshStrategy.SKIP -> {
-                        // 什么都不做
-                    }
+                coroutineScope.launch {
+                    kotlinx.coroutines.delay(300)
 
-                    FavoriteVM.RefreshStrategy.SMART -> {
-                        favoriteVM.refreshList(showLoading = false, isSmartSync = true)
-                    }
+                    when (favoriteVM.nextResumeStrategy) {
+                        FavoriteVM.RefreshStrategy.SKIP -> {
+                            // 什么都不做
+                        }
 
-                    FavoriteVM.RefreshStrategy.FULL -> {
-                        favoriteVM.refreshList(showLoading = false, isSmartSync = false)
+                        FavoriteVM.RefreshStrategy.SMART -> {
+                            favoriteVM.refreshList(showLoading = false, isSmartSync = true)
+                        }
+
+                        FavoriteVM.RefreshStrategy.FULL -> {
+                            favoriteVM.refreshList(showLoading = false, isSmartSync = false)
+                        }
                     }
+                    favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.FULL
+                    favoriteVM.getCacheInfo { info -> cacheInfoMap = info }
                 }
-                favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.FULL
-                favoriteVM.getCacheInfo { info -> cacheInfoMap = info }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -200,8 +204,14 @@ fun FavoritePage(
     )
     val currentCat =
         categoryOptions.find { it.first == favoriteVM.currentCategory } ?: categoryOptions[0]
-    val coroutineScope = rememberCoroutineScope()
+
     Column {
+        Spacer(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsTopHeight(androidx.compose.foundation.layout.WindowInsets.statusBars)
+                .background(YamiboColors.onSurface)
+        )
         TopBar(title = "") {
             Row(
                 modifier = Modifier

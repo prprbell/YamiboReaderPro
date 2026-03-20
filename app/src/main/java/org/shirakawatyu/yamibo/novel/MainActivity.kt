@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -14,19 +15,22 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -37,7 +41,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -132,11 +139,17 @@ class MainActivity : ComponentActivity() {
         window.setBackgroundDrawable(0xfffcf4cf.toInt().toDrawable())
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val layoutParams = window.attributes
+            layoutParams.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            window.attributes = layoutParams
+        }
         WindowInsetsControllerCompat(window, window.decorView).apply {
             systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-
+        window.statusBarColor = Color.TRANSPARENT
         bbsWebViewState = createBbsWebView(this, customWebChromeClient)
         setContent {
             App(bbsWebView = bbsWebViewState, webChromeClient = customWebChromeClient)
@@ -231,6 +244,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
             if (isAppInitialized) {
                 Box(contentAlignment = Alignment.TopCenter) {
                     val navController = rememberNavController()
+                    val premiumEasing = CubicBezierEasing(0.15f, 0.85f, 0.15f, 1f)
+                    val slideDuration = 800
                     val stateOwner = LocalViewModelStoreOwner.current
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val currentRoute = navBackStackEntry?.destination?.route
@@ -238,19 +253,45 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     val context = LocalContext.current
                     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
                     val selectedItemIndex = pageList.indexOf(currentRoute).coerceAtLeast(0)
-                    Column(verticalArrangement = Arrangement.SpaceBetween) {
+                    Box(modifier = Modifier.fillMaxSize()) {
                         NavHost(
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.fillMaxSize(),
                             navController = navController,
                             startDestination = "FavoritePage"
                         ) {
-                            composable("FavoritePage", popEnterTransition = {
-                                if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
-                                    EnterTransition.None
-                                } else {
-                                    fadeIn(tween(150))
+                            composable(
+                                "FavoritePage",
+                                // 离开收藏页（前往阅读器）时，底部的书架向左退后 1/3 的距离
+                                exitTransition = {
+                                    if (targetState.destination.route?.startsWith("ReaderPage") == true) {
+                                        slideOutHorizontally(
+                                            targetOffsetX = { fullWidth -> -fullWidth / 3 },
+                                            animationSpec = tween(
+                                                slideDuration,
+                                                easing = premiumEasing
+                                            )
+                                        )
+                                    } else {
+                                        fadeOut(tween(150)) // 保持原有的逻辑
+                                    }
+                                },
+                                // 从阅读器返回时，书架从左侧 1/3 的位置优雅归位
+                                popEnterTransition = {
+                                    if (initialState.destination.route?.startsWith("ReaderPage") == true) {
+                                        slideInHorizontally(
+                                            initialOffsetX = { fullWidth -> -fullWidth / 3 },
+                                            animationSpec = tween(
+                                                slideDuration,
+                                                easing = premiumEasing
+                                            )
+                                        )
+                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                        EnterTransition.None
+                                    } else {
+                                        fadeIn(tween(150))
+                                    }
                                 }
-                            }) {
+                            ) {
                                 FavoritePage(
                                     viewModel(
                                         stateOwner,
@@ -299,15 +340,48 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 "ReaderPage/{passageUrl}",
                                 arguments = listOf(navArgument("passageUrl") {
                                     type = NavType.StringType
-                                })
-                            ) {
-                                it.arguments?.getString("passageUrl")?.let { url ->
-                                    ReaderPage(
-                                        url = URLDecoder.decode(url, "utf-8"),
-                                        navController = navController
+                                }),
+                                enterTransition = {
+                                    slideIntoContainer(
+                                        towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                                        animationSpec = tween(slideDuration, easing = premiumEasing)
+                                    )
+                                },
+                                popExitTransition = {
+                                    slideOutOfContainer(
+                                        towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                                        animationSpec = tween(slideDuration, easing = premiumEasing)
                                     )
                                 }
+                            ) {
+                                it.arguments?.getString("passageUrl")?.let { url ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            // 🔥 关键新增：强制裁剪外轮廓，确保圆角能顶到屏幕最上方
+                                            .clip(
+                                                RoundedCornerShape(
+                                                    topStart = 16.dp,
+                                                    bottomStart = 16.dp
+                                                )
+                                            )
+                                            .shadow(
+                                                elevation = 20.dp,
+                                                shape = RoundedCornerShape(
+                                                    topStart = 16.dp,
+                                                    bottomStart = 16.dp
+                                                ),
+                                                clip = false
+                                            )
+                                    ) {
+                                        ReaderPage(
+                                            url = URLDecoder.decode(url, "utf-8"),
+                                            navController = navController
+                                        )
+                                    }
+                                }
                             }
+
                             composable(
                                 "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}&initialPage={initialPage}",
                                 arguments = listOf(
@@ -449,7 +523,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                         AnimatedVisibility(
                             visible = showBottomBar,
                             enter = EnterTransition.None,
-                            exit = ExitTransition.None
+                            exit = ExitTransition.None,
+                            modifier = Modifier.align(Alignment.BottomCenter)
                         ) {
                             BottomNavBar(navController, currentRoute, bottomNavBarVM)
                         }
