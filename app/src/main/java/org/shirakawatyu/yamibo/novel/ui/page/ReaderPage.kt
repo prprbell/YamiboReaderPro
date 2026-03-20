@@ -245,7 +245,11 @@ fun ReaderPage(
         val smoothScrollAnimation =
             remember { tween<Float>(durationMillis = 432, easing = EaseOut) }
         val focusRequester = remember { FocusRequester() }
-
+        var isInitialScrollDone by remember(uiState.currentView) {
+            mutableStateOf(
+                false
+            )
+        }
         LaunchedEffect(showSettings) {
             if (!showSettings) {
                 view?.isFocusableInTouchMode = true
@@ -452,7 +456,9 @@ fun ReaderPage(
                     .distinctUntilChanged()
                     .collect { (visibleIndex, isSettled) ->
                         if (isSettled && visibleIndex >= 0 && visibleIndex < uiState.htmlList.size) {
-                            readerVM.onVerticalPageSettled(visibleIndex)
+                            if (isInitialScrollDone) {
+                                readerVM.onVerticalPageSettled(visibleIndex)
+                            }
                         }
                     }
             }
@@ -598,11 +604,7 @@ fun ReaderPage(
                         } else if (hasLoaded) {
                             val dataKey =
                                 "${uiState.htmlList.hashCode()}_${uiState.initPage}_${uiState.isVerticalMode}"
-                            var isInitialScrollDone by remember(uiState.currentView) {
-                                mutableStateOf(
-                                    false
-                                )
-                            }
+
 
                             if (uiState.htmlList.isNotEmpty()) {
                                 LaunchedEffect(dataKey) {
@@ -720,7 +722,11 @@ fun ReaderPage(
                                                 onRefresh = { readerVM.forceRefreshCurrentPage() },
                                                 bookTitle = bookTitle
                                             )
-                                            SideEffect { readerVM.onPageChange(pagerState, scope) }
+                                            SideEffect {
+                                                if (isInitialScrollDone) {
+                                                    readerVM.onPageChange(pagerState, scope)
+                                                }
+                                            }
                                         }
                                     }
                                 }
