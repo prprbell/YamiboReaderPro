@@ -1,6 +1,7 @@
 package org.shirakawatyu.yamibo.novel
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
 import android.graphics.Color
 import android.net.Uri
@@ -29,22 +30,32 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -81,6 +92,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
+import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import java.net.URLDecoder
 
@@ -254,6 +266,16 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
                     val selectedItemIndex = pageList.indexOf(currentRoute).coerceAtLeast(0)
                     Box(modifier = Modifier.fillMaxSize()) {
+                        val statusBarColor = when {
+                            currentRoute == "FavoritePage" -> YamiboColors.onSurface
+                            currentRoute == "BBSPage" -> YamiboColors.primary
+                            currentRoute == "MinePage" -> YamiboColors.primary
+                            currentRoute?.startsWith("OtherWebPage") == true -> YamiboColors.primary
+                            else -> null
+                        }
+                        if (statusBarColor != null) {
+                            SetStatusBarColor(statusBarColor)
+                        }
                         NavHost(
                             modifier = Modifier.fillMaxSize(),
                             navController = navController,
@@ -300,13 +322,30 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     navController
                                 )
                             }
-                            composable("BBSPage", popEnterTransition = {
-                                if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
-                                    EnterTransition.None
-                                } else {
-                                    fadeIn(tween(150))
+                            composable("BBSPage",
+                                exitTransition = {
+                                    if (targetState.destination.route?.startsWith("ReaderPage") == true) {
+                                        slideOutHorizontally(
+                                            targetOffsetX = { fullWidth -> -fullWidth / 3 },
+                                            animationSpec = tween(slideDuration, easing = premiumEasing)
+                                        )
+                                    } else {
+                                        fadeOut(tween(150))
+                                    }
+                                },
+                                popEnterTransition = {
+                                    if (initialState.destination.route?.startsWith("ReaderPage") == true) {
+                                        slideInHorizontally(
+                                            initialOffsetX = { fullWidth -> -fullWidth / 3 },
+                                            animationSpec = tween(slideDuration, easing = premiumEasing)
+                                        )
+                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                        EnterTransition.None
+                                    } else {
+                                        fadeIn(tween(150))
+                                    }
                                 }
-                            }) {
+                            ) {
                                 if (bbsWebView != null) {
                                     BBSPage(
                                         webView = bbsWebView,
@@ -323,13 +362,30 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     }
                                 }
                             }
-                            composable("MinePage", popEnterTransition = {
-                                if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
-                                    EnterTransition.None
-                                } else {
-                                    fadeIn(tween(150))
+                            composable("MinePage",
+                                exitTransition = {
+                                    if (targetState.destination.route?.startsWith("ReaderPage") == true) {
+                                        slideOutHorizontally(
+                                            targetOffsetX = { fullWidth -> -fullWidth / 3 },
+                                            animationSpec = tween(slideDuration, easing = premiumEasing)
+                                        )
+                                    } else {
+                                        fadeOut(tween(150))
+                                    }
+                                },
+                                popEnterTransition = {
+                                    if (initialState.destination.route?.startsWith("ReaderPage") == true) {
+                                        slideInHorizontally(
+                                            initialOffsetX = { fullWidth -> -fullWidth / 3 },
+                                            animationSpec = tween(slideDuration, easing = premiumEasing)
+                                        )
+                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                        EnterTransition.None
+                                    } else {
+                                        fadeIn(tween(150))
+                                    }
                                 }
-                            }) {
+                            ) {
                                 MinePage(
                                     isSelected = selectedItemIndex == 2,
                                     navController = navController,
@@ -361,15 +417,15 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                             // 🔥 关键新增：强制裁剪外轮廓，确保圆角能顶到屏幕最上方
                                             .clip(
                                                 RoundedCornerShape(
-                                                    topStart = 16.dp,
-                                                    bottomStart = 16.dp
+                                                    topStart = 24.dp,
+                                                    bottomStart = 24.dp
                                                 )
                                             )
                                             .shadow(
                                                 elevation = 20.dp,
                                                 shape = RoundedCornerShape(
-                                                    topStart = 16.dp,
-                                                    bottomStart = 16.dp
+                                                    topStart = 24.dp,
+                                                    bottomStart = 24.dp
                                                 ),
                                                 clip = false
                                             )
@@ -520,11 +576,55 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                         )
                         val showBottomBar = currentRoute !in hideBottomNavRoutes
 
+                        val visibleEntries by navController.visibleEntries.collectAsState(initial = emptyList())
+
+                        val isOverlayVisible = visibleEntries.any { entry ->
+                            val r = entry.destination.route ?: ""
+                            r.startsWith("ReaderPage") ||
+                                    r.startsWith("NativeMangaPage") ||
+                                    r.startsWith("OtherWebPage") ||
+                                    r.startsWith("MangaWebPage") ||
+                                    r.startsWith("ProbingPage")
+                        }
+                        val barZIndex = if (isOverlayVisible) -1f else 1f
+
+                        var lastHiddenRoute by remember { mutableStateOf<String?>(null) }
+                        LaunchedEffect(currentRoute) {
+                            if (currentRoute in hideBottomNavRoutes) {
+                                lastHiddenRoute = currentRoute
+                            }
+                        }
+
+                        val bottomBarEnterAnim = if (lastHiddenRoute?.startsWith("ReaderPage") == true) {
+                            slideInHorizontally(
+                                initialOffsetX = { fullWidth -> -fullWidth },
+                                animationSpec = tween(slideDuration, easing = premiumEasing)
+                            )
+                        } else {
+                            EnterTransition.None
+                        }
+
+                        val bottomBarExitAnim = if (currentRoute?.startsWith("ReaderPage") == true) {
+                            slideOutHorizontally(
+                                targetOffsetX = { fullWidth -> -fullWidth },
+                                animationSpec = tween(slideDuration, easing = premiumEasing)
+                            )
+                        } else {
+                            ExitTransition.None
+                        }
+
+                        val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                        var lockedNavHeight by remember { mutableStateOf(0.dp) }
+                        if (navBarsPadding > lockedNavHeight) lockedNavHeight = navBarsPadding
+
                         AnimatedVisibility(
                             visible = showBottomBar,
-                            enter = EnterTransition.None,
-                            exit = ExitTransition.None,
-                            modifier = Modifier.align(Alignment.BottomCenter)
+                            enter = bottomBarEnterAnim,
+                            exit = bottomBarExitAnim,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = lockedNavHeight)
+                                .zIndex(barZIndex)
                         ) {
                             BottomNavBar(navController, currentRoute, bottomNavBarVM)
                         }

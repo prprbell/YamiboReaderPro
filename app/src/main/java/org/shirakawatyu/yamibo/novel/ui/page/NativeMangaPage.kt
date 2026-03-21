@@ -146,7 +146,7 @@ fun NativeMangaPage(
     var showUi by rememberSaveable { mutableStateOf(false) }
     var showChapterList by rememberSaveable { mutableStateOf(false) }
     var showSettingsPanel by rememberSaveable { mutableStateOf(false) }
-
+    var isExiting by remember { mutableStateOf(false) }
     val globalScale = remember { Animatable(1f) }
     val globalOffsetX = remember { Animatable(0f) }
     val globalOffsetY = remember { Animatable(0f) }
@@ -210,6 +210,7 @@ fun NativeMangaPage(
 
 
     val performExit = {
+        isExiting = true
         val window = activity?.window
         if (window != null) {
             WindowCompat.getInsetsController(window, view).apply {
@@ -228,6 +229,7 @@ fun NativeMangaPage(
     }
 
     val returnToOriginalPost = {
+        isExiting = true
         val window = activity?.window
         if (window != null) {
             WindowCompat.getInsetsController(window, view).apply {
@@ -255,19 +257,38 @@ fun NativeMangaPage(
 
     BackHandler { performExit() }
 
+    var isFirstEnter by remember { mutableStateOf(true) }
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(showUi, lifecycleOwner.lifecycle.currentState) {
+        if (isExiting) return@LaunchedEffect
+
         val window = activity?.window
-        if (window != null && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+        if (window != null) {
             val controller = WindowCompat.getInsetsController(window, view)
-            if (showUi) {
-                controller.show(WindowInsetsCompat.Type.systemBars())
-                window.statusBarColor = android.graphics.Color.TRANSPARENT
-                controller.isAppearanceLightStatusBars = false
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                if (showUi) {
+                    controller.show(WindowInsetsCompat.Type.systemBars())
+                    window.statusBarColor = android.graphics.Color.TRANSPARENT
+                    controller.isAppearanceLightStatusBars = false
+                    isFirstEnter = false // 若用户提前点击，取消延迟
+                } else {
+                    if (isFirstEnter) {
+                        delay(150)
+                        isFirstEnter = false
+                    }
+
+                    window.statusBarColor = android.graphics.Color.TRANSPARENT
+                    controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    controller.hide(WindowInsetsCompat.Type.systemBars())
+
+                    delay(300)
+
+                    controller.isAppearanceLightStatusBars = false
+                }
             } else {
-                controller.hide(WindowInsetsCompat.Type.systemBars())
-                controller.systemBarsBehavior =
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.show(WindowInsetsCompat.Type.systemBars())
+                controller.isAppearanceLightStatusBars = true
+                bottomNavBarVM.setBottomNavBarVisibility(true)
             }
         }
     }
@@ -286,19 +307,18 @@ fun NativeMangaPage(
             }
 
             window.statusBarColor = android.graphics.Color.TRANSPARENT
-            controller.isAppearanceLightStatusBars = false
-
-            if (!showUi) {
-                controller.hide(WindowInsetsCompat.Type.systemBars())
-                controller.systemBarsBehavior =
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            } else {
-                controller.show(WindowInsetsCompat.Type.systemBars())
-            }
             bottomNavBarVM.setBottomNavBarVisibility(false)
         }
 
-        onDispose {}
+        onDispose {
+            val win = activity?.window
+            if (win != null) {
+                val ctrl = WindowCompat.getInsetsController(win, view)
+                ctrl.show(WindowInsetsCompat.Type.systemBars())
+                ctrl.isAppearanceLightStatusBars = true
+            }
+            bottomNavBarVM.setBottomNavBarVisibility(true)
+        }
     }
     Box(
         modifier = Modifier

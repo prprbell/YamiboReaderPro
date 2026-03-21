@@ -24,10 +24,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -54,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -134,7 +141,6 @@ fun MinePage(
     navController: NavController,
     webChromeClient: WebChromeClient
 ) {
-    SetStatusBarColor(YamiboColors.primary)
     val mineUrl = "https://bbs.yamibo.com/home.php?mod=space&do=profile&mycenter=1&mobile=2"
     val bbsUrl = "https://bbs.yamibo.com/?mobile=2"
     val baseBbsUrl = "https://bbs.yamibo.com/"      // 根URL
@@ -291,13 +297,11 @@ fun MinePage(
         val shouldBeFullscreen = isFullscreenState.value || autoOpenMangaMode
 
         if (shouldBeFullscreen) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             bottomNavBarVM.setBottomNavBarVisibility(false)
         } else {
-            WindowCompat.setDecorFitsSystemWindows(window, true)
             controller.show(WindowInsetsCompat.Type.systemBars())
             bottomNavBarVM.setBottomNavBarVisibility(true)
         }
@@ -785,103 +789,119 @@ fun MinePage(
             startLoading(mineWebView, mineUrl)
         }
     }
-
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = {
-                mineWebView
-            },
-            update = {
-                canGoBack = it.canGoBack()
-                currentUrl = it.url
-                pageTitle = it.title ?: ""
-            },
-            onRelease = {
-                timeoutJob?.cancel()
-                it.apply {
-                    onPause()
-                    stopLoading()
-                    webViewClient = android.webkit.WebViewClient()
-                    setWebChromeClient(null)
-                    (parent as? ViewGroup)?.removeView(this)
-                    destroy()
-                }
-            }
-        )
-        ReaderModeFAB(
-            visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
-            onClick = {
-                currentUrl?.let { url ->
-                    ReaderModeDetector.extractThreadPath(url)?.let { threadPath ->
-                        savedMangaUrl = url
-                        val encodedPath = URLEncoder.encode(threadPath, "utf-8")
-                        navController.navigate("ReaderPage/$encodedPath")
-                    }
-                }
-            },
+        // 1. 手动“画”出状态栏的底色块
+        Spacer(
             modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 150.dp)
+                .fillMaxWidth()
+                .windowInsetsTopHeight(WindowInsets.statusBars) // 高度正好等于状态栏
+                .background(YamiboColors.primary)               // 设置为你想要的背景色
+                .align(Alignment.TopCenter)
+                .zIndex(1f) // 确保这块颜色盖在 WebView 上方
         )
-
-        if (showLoadError) {
-            Column(
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(bottom = 50.dp)
+        ) {
+            AndroidView(
+                factory = {
+                    mineWebView
+                },
+                update = {
+                    canGoBack = it.canGoBack()
+                    currentUrl = it.url
+                    pageTitle = it.title ?: ""
+                },
+                onRelease = {
+                    timeoutJob?.cancel()
+                    it.apply {
+                        onPause()
+                        stopLoading()
+                        webViewClient = android.webkit.WebViewClient()
+                        setWebChromeClient(null)
+                        (parent as? ViewGroup)?.removeView(this)
+                        destroy()
+                    }
+                }
+            )
+            ReaderModeFAB(
+                visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
+                onClick = {
+                    currentUrl?.let { url ->
+                        ReaderModeDetector.extractThreadPath(url)?.let { threadPath ->
+                            savedMangaUrl = url
+                            val encodedPath = URLEncoder.encode(threadPath, "utf-8")
+                            navController.navigate("ReaderPage/$encodedPath")
+                        }
+                    }
+                },
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    Icons.Default.Warning,
-                    contentDescription = "加载失败",
-                    modifier = Modifier.size(48.dp),
-                    tint = Color.Gray
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    "页面加载失败",
-                    fontSize = 18.sp,
-                    color = Color.DarkGray
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "请尝试切换至其他界面再切换回来，或重启应用。",
-                    fontSize = 14.sp,
-                    color = Color.Gray,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(onClick = {
-                    startLoading(mineWebView, mineWebView.url ?: mineUrl)
-                }) {
-                    Text("重试")
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 150.dp)
+            )
+
+            if (showLoadError) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 32.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = "加载失败",
+                        modifier = Modifier.size(48.dp),
+                        tint = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "页面加载失败",
+                        fontSize = 18.sp,
+                        color = Color.DarkGray
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "请尝试切换至其他界面再切换回来，或重启应用。",
+                        fontSize = 14.sp,
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(onClick = {
+                        startLoading(mineWebView, mineWebView.url ?: mineUrl)
+                    }) {
+                        Text("重试")
+                    }
                 }
             }
-        }
 
-        // 局部加载指示器
-        if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center),
-                color = YamiboColors.secondary
-            )
-        }
-
-        if (autoOpenMangaMode) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
-                    .pointerInput(Unit) {
-                        detectTapGestures { }
-                        detectVerticalDragGestures { _, _ -> }
-                    }
-            ) {
+            // 局部加载指示器
+            if (isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
-                    color = Color.White
+                    color = YamiboColors.secondary
                 )
+            }
+
+            if (autoOpenMangaMode) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                        .pointerInput(Unit) {
+                            detectTapGestures { }
+                            detectVerticalDragGestures { _, _ -> }
+                        }
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                        color = Color.White
+                    )
+                }
             }
         }
     }

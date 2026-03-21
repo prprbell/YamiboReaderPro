@@ -21,10 +21,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -50,6 +56,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -122,7 +129,6 @@ fun BBSPage(
     cookieFlow: Flow<String>,
     navController: NavController
 ) {
-    SetStatusBarColor(YamiboColors.primary)
     val indexUrl = "https://bbs.yamibo.com/forum.php"
     val bbsUrl = "https://bbs.yamibo.com/index.php?mobile=2"
     val baseBbsUrl = "https://bbs.yamibo.com/"
@@ -209,15 +215,11 @@ fun BBSPage(
         val shouldBeFullscreen = isFullscreenState.value || autoOpenMangaMode
 
         if (shouldBeFullscreen) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             bottomNavBarVM.setBottomNavBarVisibility(false)
         } else {
-            WindowCompat.setDecorFitsSystemWindows(window, true)
-
             controller.show(WindowInsetsCompat.Type.systemBars())
             bottomNavBarVM.setBottomNavBarVisibility(true)
         }
@@ -792,114 +794,130 @@ fun BBSPage(
             }
         }
     }
-
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = {
-                (webView.parent as? ViewGroup)?.removeView(webView)
-                webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
-                webView.settings.apply {
-                    // 强制遵守网页的viewport
-                    useWideViewPort = true
-                    loadWithOverviewMode = true
-                    // 禁用系统缩放
-                    setSupportZoom(false)
-                    builtInZoomControls = false
-                    displayZoomControls = false
-                    // 锁定字体比例
-                    textZoom = 100
-                    // 开启本地存储
-                    domStorageEnabled = true
-                    // 启用JavaScript
-                    javaScriptEnabled = true
-                }
-
-                webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
-                webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
-                webView
-            },
-            update = { view ->
-                canGoBack = view.canGoBack()
-                currentUrl = view.url
-                pageTitle = view.title ?: ""
-            },
-            onRelease = {
-                it.onPause()
-            }
-        )
-
-        if (showLoadError) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    Icons.Default.Warning,
-                    contentDescription = "加载失败",
-                    modifier = Modifier.size(48.dp),
-                    tint = Color.Gray
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    "页面加载失败",
-                    fontSize = 18.sp,
-                    color = Color.DarkGray
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "请尝试切换至其他界面再切换回来，或重启应用。",
-                    fontSize = 14.sp,
-                    color = Color.Gray,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(onClick = {
-                    startLoading(webView.url ?: indexUrl)
-                }) {
-                    Text("重试")
-                }
-            }
-        }
-
-        if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center),
-                color = YamiboColors.secondary
-            )
-        }
-
-        ReaderModeFAB(
-            visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
-            onClick = {
-                currentUrl?.let { url ->
-                    ReaderModeDetector.extractThreadPath(url)?.let { threadPath ->
-                        val encodedPath = URLEncoder.encode(threadPath, "utf-8")
-                        navController.navigate("ReaderPage/$encodedPath")
-                    }
-                }
-            },
+        // 1. 手动“画”出状态栏的底色块
+        Spacer(
             modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 150.dp)
+                .fillMaxWidth()
+                .windowInsetsTopHeight(WindowInsets.statusBars) // 高度正好等于状态栏
+                .background(YamiboColors.primary)               // 设置为你想要的背景色
+                .align(Alignment.TopCenter)
+                .zIndex(1f) // 确保这块颜色盖在 WebView 上方
         )
-        // 切换漫画章节的黑屏遮罩层
-        if (autoOpenMangaMode) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
-                    .pointerInput(Unit) {
-                        detectTapGestures { }
-                        detectVerticalDragGestures { _, _ -> }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(bottom = 50.dp)
+        ) {
+            AndroidView(
+                factory = {
+                    (webView.parent as? ViewGroup)?.removeView(webView)
+                    webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
+                    webView.settings.apply {
+                        // 强制遵守网页的viewport
+                        useWideViewPort = true
+                        loadWithOverviewMode = true
+                        // 禁用系统缩放
+                        setSupportZoom(false)
+                        builtInZoomControls = false
+                        displayZoomControls = false
+                        // 锁定字体比例
+                        textZoom = 100
+                        // 开启本地存储
+                        domStorageEnabled = true
+                        // 启用JavaScript
+                        javaScriptEnabled = true
                     }
-            ) {
+
+                    webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
+                    webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
+                    webView
+                },
+                update = { view ->
+                    canGoBack = view.canGoBack()
+                    currentUrl = view.url
+                    pageTitle = view.title ?: ""
+                },
+                onRelease = {
+                    it.onPause()
+                }
+            )
+
+            if (showLoadError) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 32.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = "加载失败",
+                        modifier = Modifier.size(48.dp),
+                        tint = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "页面加载失败",
+                        fontSize = 18.sp,
+                        color = Color.DarkGray
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "请尝试切换至其他界面再切换回来，或重启应用。",
+                        fontSize = 14.sp,
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(onClick = {
+                        startLoading(webView.url ?: indexUrl)
+                    }) {
+                        Text("重试")
+                    }
+                }
+            }
+
+            if (isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
-                    color = Color.White
+                    color = YamiboColors.secondary
                 )
+            }
+
+            ReaderModeFAB(
+                visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
+                onClick = {
+                    currentUrl?.let { url ->
+                        ReaderModeDetector.extractThreadPath(url)?.let { threadPath ->
+                            val encodedPath = URLEncoder.encode(threadPath, "utf-8")
+                            navController.navigate("ReaderPage/$encodedPath")
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 150.dp)
+            )
+            // 切换漫画章节的黑屏遮罩层
+            if (autoOpenMangaMode) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                        .pointerInput(Unit) {
+                            detectTapGestures { }
+                            detectVerticalDragGestures { _, _ -> }
+                        }
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                        color = Color.White
+                    )
+                }
             }
         }
     }

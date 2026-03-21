@@ -21,20 +21,18 @@ class ComposeUtil {
             val context = LocalContext.current as? Activity ?: return
             val view = LocalView.current
             val window = context.window
-            val targetArgb = color.toArgb()
             val lightColor =
                 color.red * 0.299 + color.green * 0.578 + color.blue * 0.114 >= 192.0 / 255.0
 
             val lifecycleOwner = LocalLifecycleOwner.current
 
-            // 提取设置状态栏的核心逻辑
             val applyInsets = {
                 try {
                     val insetsController = WindowCompat.getInsetsController(window, view)
                     insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
                     insetsController.isAppearanceLightStatusBars = lightColor
-                    window.statusBarColor = targetArgb
-                    WindowCompat.setDecorFitsSystemWindows(window, true)
+                    window.statusBarColor = android.graphics.Color.TRANSPARENT
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -57,6 +55,22 @@ class ComposeUtil {
                 lifecycleOwner.lifecycle.addObserver(observer)
                 onDispose {
                     lifecycleOwner.lifecycle.removeObserver(observer)
+                }
+            }
+
+            fun applyStatusBarColor(window: android.view.Window, view: android.view.View, logicalColor: Color) {
+                // 根据传入的逻辑颜色，判断状态栏图标该用黑还是白
+                val isLightColor = logicalColor.red * 0.299 + logicalColor.green * 0.578 + logicalColor.blue * 0.114 >= 192.0 / 255.0
+                try {
+                    val insetsController = WindowCompat.getInsetsController(window, view)
+                    insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                    insetsController.isAppearanceLightStatusBars = isLightColor
+
+                    window.statusBarColor = android.graphics.Color.TRANSPARENT
+
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             }
         }

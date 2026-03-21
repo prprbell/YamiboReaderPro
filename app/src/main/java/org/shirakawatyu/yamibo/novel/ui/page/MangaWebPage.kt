@@ -28,10 +28,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -58,6 +64,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -288,7 +295,6 @@ fun MangaWebPage(
             navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedOriginal")
         }
     }
-    SetStatusBarColor(if (showBlackScreen || isFullscreenState.value) Color.Black else YamiboColors.primary)
     DisposableEffect(Unit) {
         onDispose {
             bottomNavBarVM.setBottomNavBarVisibility(true)
@@ -308,8 +314,9 @@ fun MangaWebPage(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             bottomNavBarVM.setBottomNavBarVisibility(false)
         } else {
-            WindowCompat.setDecorFitsSystemWindows(window, true)
+            WindowCompat.setDecorFitsSystemWindows(window, false)
             controller.show(WindowInsetsCompat.Type.systemBars())
+            controller.isAppearanceLightStatusBars = false
             bottomNavBarVM.setBottomNavBarVisibility(true)
         }
     }
@@ -677,60 +684,78 @@ fun MangaWebPage(
         }
     }
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = {
-                (mangaWebView.parent as? ViewGroup)?.removeView(mangaWebView)
-                mangaWebView
-            },
-            update = {
-                canGoBack = it.canGoBack()
-                currentUrl = it.url
-            },
-            onRelease = {
-                timeoutJob?.cancel()
-                it.apply {
-                    onPause()
-                    stopLoading()
-                    webViewClient = android.webkit.WebViewClient()
-                    setWebChromeClient(null)
-                    (parent as? ViewGroup)?.removeView(this)
-                    destroy()
-                }
-            }
+        // 1. 手动画出状态栏
+        Spacer(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsTopHeight(WindowInsets.statusBars)
+                .background(YamiboColors.primary)
+                .align(Alignment.TopCenter)
+                .zIndex(1f)
         )
 
-        if (showLoadError) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(Icons.Default.Warning, "加载失败", Modifier.size(48.dp), Color.Gray)
-                Spacer(Modifier.height(16.dp))
-                Text("页面加载失败", fontSize = 18.sp, color = Color.DarkGray)
-                Spacer(Modifier.height(24.dp))
-                Button(onClick = {
-                    startLoading(
-                        mangaWebView,
-                        mangaWebView.url ?: url
-                    )
-                }) { Text("重试") }
+        // 2. 原本的 WebView 容器
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            AndroidView(
+                factory = {
+                    (mangaWebView.parent as? ViewGroup)?.removeView(mangaWebView)
+                    mangaWebView
+                },
+                update = {
+                    canGoBack = it.canGoBack()
+                    currentUrl = it.url
+                },
+                onRelease = {
+                    timeoutJob?.cancel()
+                    it.apply {
+                        onPause()
+                        stopLoading()
+                        webViewClient = android.webkit.WebViewClient()
+                        setWebChromeClient(null)
+                        (parent as? ViewGroup)?.removeView(this)
+                        destroy()
+                    }
+                }
+            )
+
+            if (showLoadError) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 32.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.Warning, "加载失败", Modifier.size(48.dp), Color.Gray)
+                    Spacer(Modifier.height(16.dp))
+                    Text("页面加载失败", fontSize = 18.sp, color = Color.DarkGray)
+                    Spacer(Modifier.height(24.dp))
+                    Button(onClick = {
+                        startLoading(
+                            mangaWebView,
+                            mangaWebView.url ?: url
+                        )
+                    }) { Text("重试") }
+                }
+            }
+
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = YamiboColors.secondary
+                )
             }
         }
-
-        if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center),
-                color = YamiboColors.secondary
-            )
-        }
-
         AnimatedVisibility(
             visible = showBlackScreen,
             enter = fadeIn(tween(0)),
-            exit = fadeOut(tween(100))
+            exit = fadeOut(tween(100)),
+            modifier = Modifier.zIndex(2f)
         ) {
             Box(
                 modifier = Modifier

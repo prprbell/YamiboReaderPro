@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
+import android.app.Activity
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -10,14 +11,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
@@ -95,6 +100,11 @@ import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 
 /**
  * 收藏页面，展示用户的收藏列表，支持刷新和拖拽排序。
@@ -205,11 +215,24 @@ fun FavoritePage(
     val currentCat =
         categoryOptions.find { it.first == favoriteVM.currentCategory } ?: categoryOptions[0]
 
-    Column {
+    // 1. 获取并锁死底部导航栏高度
+    val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    var lockedNavHeight by remember { mutableStateOf(0.dp) }
+    if (navBarsPadding > lockedNavHeight) lockedNavHeight = navBarsPadding
+
+    // 2. 获取并锁死顶部状态栏高度
+    val statusBarsPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    var lockedStatusHeight by remember { mutableStateOf(0.dp) }
+    if (statusBarsPadding > lockedStatusHeight) lockedStatusHeight = statusBarsPadding
+
+    Column(
+        modifier = Modifier
+            .padding(bottom = lockedNavHeight + 50.dp) // 使用锁死的底部高度
+    ) {
         Spacer(
             modifier = Modifier
                 .fillMaxWidth()
-                .windowInsetsTopHeight(androidx.compose.foundation.layout.WindowInsets.statusBars)
+                .height(if (lockedStatusHeight > 0.dp) lockedStatusHeight else 28.dp)
                 .background(YamiboColors.onSurface)
         )
         TopBar(title = "") {
@@ -644,7 +667,8 @@ fun CacheManagementDialog(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var imageCacheSize by remember { mutableLongStateOf(0L) }
-
+    val contextR = LocalContext.current as? Activity
+    val view = LocalView.current
     // 获取Coil图片磁盘缓存的大小
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {

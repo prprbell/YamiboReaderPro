@@ -7,6 +7,7 @@ import android.content.ContextWrapper
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.core.EaseIn
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -113,6 +115,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -173,16 +177,19 @@ fun ReaderPage(
     val statusBarsPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    val rememberedStatusBarHeight =
-        remember { mutableStateOf(if (statusBarsPadding > 0.dp) statusBarsPadding else 28.dp) }
-    if (statusBarsPadding > 0.dp) rememberedStatusBarHeight.value = statusBarsPadding
+    val rememberedStatusBarHeight = remember { mutableStateOf(0.dp) }
+    if (statusBarsPadding > rememberedStatusBarHeight.value) {
+        rememberedStatusBarHeight.value = statusBarsPadding
+    }
+    val statusBarHeight = if (rememberedStatusBarHeight.value > 0.dp) rememberedStatusBarHeight.value else 28.dp
 
-    val rememberedNavBarHeight =
-        remember { mutableStateOf(if (navBarsPadding > 0.dp) navBarsPadding else 48.dp) }
-    if (navBarsPadding > 0.dp) rememberedNavBarHeight.value = navBarsPadding
+    val rememberedNavBarHeight = remember { mutableStateOf(0.dp) }
+    if (navBarsPadding > rememberedNavBarHeight.value) {
+        rememberedNavBarHeight.value = navBarsPadding
+    }
+    val navBarHeight = if (rememberedNavBarHeight.value > 0.dp) rememberedNavBarHeight.value else 48.dp
 
-    val statusBarHeight = rememberedStatusBarHeight.value
-    val navBarHeight = rememberedNavBarHeight.value
+    var isFullScreen by remember { mutableStateOf(true) }
 
     // 记录进入阅读器前的系统栏状态，退出时恢复，避免上一页上下栏抖动
     val originalStatusBarColor = remember { mutableStateOf(window?.statusBarColor ?: 0) }
@@ -194,7 +201,6 @@ fun ReaderPage(
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
     var isExiting by remember { mutableStateOf(false) }
     var isFirstEnter by remember { mutableStateOf(true) }
-    var isFullScreen by remember { mutableStateOf(true) }
     val favorites by FavoriteUtil.getFavoriteFlow().collectAsState(initial = emptyList())
     val bookTitle = remember(favorites, url) {
         val rawTitle = favorites.find { it.url == url }?.title ?: ""
@@ -218,25 +224,21 @@ fun ReaderPage(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
             onDispose {
+                // 不在这里恢复系统栏，因为这时候动画已经完成了
+                // 系统栏的恢复由 exitReader 函数在动画开始前处理
+                // 只恢复必要的行为属性
                 if (!hasRestoredSystemUi.value) {
+                    hasRestoredSystemUi.value = true
                     windowController.systemBarsBehavior = originalBehavior.value
-                    window.statusBarColor = originalStatusBarColor.value
+                    // 立即显示系统栏，使用透明色避免闪变
+                    window.statusBarColor = android.graphics.Color.TRANSPARENT
                     windowController.isAppearanceLightStatusBars = originalLightStatusBars.value
                     windowController.show(WindowInsetsCompat.Type.systemBars())
                 }
             }
         }
     }
-    LaunchedEffect(isExiting) {
-        if (isExiting && window != null && view != null && !hasRestoredSystemUi.value) {
-            val windowController = WindowCompat.getInsetsController(window, view)
-            windowController.systemBarsBehavior = originalBehavior.value
-            window.statusBarColor = originalStatusBarColor.value
-            windowController.isAppearanceLightStatusBars = originalLightStatusBars.value
-            windowController.show(WindowInsetsCompat.Type.systemBars())
-            hasRestoredSystemUi.value = true
-        }
-    }
+
 
     ReaderTheme(nightMode = uiState.nightMode) {
         val themeBackground = MaterialTheme.colorScheme.background
@@ -245,7 +247,18 @@ fun ReaderPage(
         } else {
             uiState.backgroundColor ?: themeBackground
         }
+        val targetStatusBarColor = if (uiState.nightMode) Color.Gray else Color.DarkGray
+        val statusBarContentColor = remember { androidx.compose.animation.Animatable(Color.Transparent) }
 
+        LaunchedEffect(targetStatusBarColor) {
+            statusBarContentColor.animateTo(
+                targetValue = targetStatusBarColor,
+                animationSpec = tween(
+                    durationMillis = 1000,
+                    easing = EaseIn
+                )
+            )
+        }
         val pagerState = rememberPagerState(pageCount = { uiState.htmlList.size })
         val lazyListState = rememberLazyListState()
         var showSettings by remember { mutableStateOf(false) }
@@ -277,36 +290,45 @@ fun ReaderPage(
             }
         }
 
-        LaunchedEffect(showSettings, uiState.nightMode) {
+        val lifecycleOwner = LocalLifecycleOwner.current
+
+        LaunchedEffect(showSettings, uiState.nightMode, lifecycleOwner.lifecycle.currentState) {
+            if (isExiting) return@LaunchedEffect
+
             val windowController = window?.let { WindowCompat.getInsetsController(it, view!!) }
             if (windowController != null) {
-                if (showSettings) {
-                    isFullScreen = false
-                    windowController.show(WindowInsetsCompat.Type.systemBars())
-                    window.statusBarColor = android.graphics.Color.BLACK
-                    windowController.isAppearanceLightStatusBars = false
-                    isFirstEnter = false
-                } else {
-                    isFullScreen = true
-                    windowController.isAppearanceLightStatusBars = !uiState.nightMode
-                    window.statusBarColor = android.graphics.Color.TRANSPARENT
-
-                    if (isFirstEnter) {
-                        kotlinx.coroutines.delay(800)
+                // 判断当前页面是否处于活跃状态
+                if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    if (showSettings) {
+                        isFullScreen = false
+                        windowController.show(WindowInsetsCompat.Type.systemBars())
+                        window.statusBarColor = android.graphics.Color.BLACK
+                        windowController.isAppearanceLightStatusBars = false
                         isFirstEnter = false
-                    }
+                    } else {
+                        isFullScreen = true
 
-                    windowController.hide(WindowInsetsCompat.Type.systemBars())
+                        if (isFirstEnter) {
+                            kotlinx.coroutines.delay(200)
+                            isFirstEnter = false
+                        }
+                        windowController.hide(WindowInsetsCompat.Type.systemBars())
+                        kotlinx.coroutines.delay(300)
+                        window.statusBarColor = android.graphics.Color.BLACK
+                        windowController.isAppearanceLightStatusBars = false
+                    }
+                } else {
+                    if (!hasRestoredSystemUi.value) {
+                        hasRestoredSystemUi.value = true
+                        windowController.systemBarsBehavior = originalBehavior.value
+                        window.statusBarColor = android.graphics.Color.TRANSPARENT
+                        windowController.isAppearanceLightStatusBars = originalLightStatusBars.value
+                        windowController.show(WindowInsetsCompat.Type.systemBars())
+                    }
                 }
             }
         }
 
-        // 新增：动态过渡的边距
-        val currentTopPadding by animateDpAsState(
-            targetValue = if (isFullScreen) 0.dp else statusBarHeight,
-            label = "topPadding",
-            animationSpec = tween(durationMillis = 300)
-        )
         val currentBottomPadding by animateDpAsState(
             targetValue = if (isFullScreen) 0.dp else navBarHeight,
             label = "bottomPadding",
@@ -536,8 +558,6 @@ fun ReaderPage(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = currentTopPadding)
-                        .padding(bottom = currentBottomPadding)
                 ) {
                     Box(
                         modifier = Modifier
@@ -554,6 +574,7 @@ fun ReaderPage(
 
                     BoxWithConstraints(
                         modifier = Modifier.fillMaxSize()
+                            .padding(top = statusBarHeight)
                     ) {
                         var hasLoaded by remember { mutableStateOf(false) }
                         if (maxHeight > 0.dp && maxWidth > 0.dp && !hasLoaded) {
@@ -738,7 +759,7 @@ fun ReaderPage(
                 } // 正文Box End
 
                 // --- 自定义状态栏层 ---
-                if (!showSettings && !isFullScreen) {
+                if (!showSettings) {
                     CustomStatusBar(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -746,7 +767,7 @@ fun ReaderPage(
                             .align(Alignment.TopCenter),
                         height = statusBarHeight,
                         backgroundColor = finalBackground,
-                        contentColor = if (uiState.nightMode) Color.Gray else Color.DarkGray,
+                        contentColor = statusBarContentColor.value,
                         title = ""
                     )
                 }
@@ -1043,8 +1064,7 @@ fun ReaderPage(
                     ReaderSettingsBar(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = navBarHeight),
+                            .align(Alignment.BottomCenter),
                         uiState = uiState,
                         pageCount = uiState.htmlList.size,
                         currentPage = currentPageIndex,
@@ -1150,28 +1170,30 @@ fun ReaderSettingsBar(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shadowElevation = 8.dp
     ) {
-        if (showSpacingMenu) {
-            SpacingSettingsMenu(
-                uiState = uiState,
-                onSetFontSize = onSetFontSize,
-                onSetLineHeight = onSetLineHeight,
-                onSetPadding = onSetPadding,
-                onBack = { showSpacingMenu = false },
-                onSetReadingMode = onSetReadingMode,
-                onSetBackgroundColor = onSetBackgroundColor
-            )
-        } else {
-            MainSettingsMenu(
-                uiState = uiState,
-                pageCount = pageCount,
-                currentPage = currentPage,
-                onSetView = onSetView,
-                onSetPage = onSetPage,
-                onShowSpacingMenu = { showSpacingMenu = true },
-                onShowChapters = onShowChapters,
-                onSetBackgroundColor = onSetBackgroundColor,
-                onShowCacheDialog = onShowCacheDialog
-            )
+        Box(modifier = Modifier.navigationBarsPadding()) {
+            if (showSpacingMenu) {
+                SpacingSettingsMenu(
+                    uiState = uiState,
+                    onSetFontSize = onSetFontSize,
+                    onSetLineHeight = onSetLineHeight,
+                    onSetPadding = onSetPadding,
+                    onBack = { showSpacingMenu = false },
+                    onSetReadingMode = onSetReadingMode,
+                    onSetBackgroundColor = onSetBackgroundColor
+                )
+            } else {
+                MainSettingsMenu(
+                    uiState = uiState,
+                    pageCount = pageCount,
+                    currentPage = currentPage,
+                    onSetView = onSetView,
+                    onSetPage = onSetPage,
+                    onShowSpacingMenu = { showSpacingMenu = true },
+                    onShowChapters = onShowChapters,
+                    onSetBackgroundColor = onSetBackgroundColor,
+                    onShowCacheDialog = onShowCacheDialog
+                )
+            }
         }
     }
 }

@@ -24,10 +24,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -52,6 +58,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -134,38 +141,15 @@ fun OtherWebPage(
     val view = LocalView.current
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
-    val originalStatusBarColor =
-        remember { mutableIntStateOf(activity?.window?.statusBarColor ?: 0) }
-    val originalLightStatusBars = remember {
-        mutableStateOf(activity?.window?.let {
-            WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars
-        } ?: false)
-    }
 
-    var isExiting by remember { mutableStateOf(false) }
-
-    if (!isExiting) {
-        SetStatusBarColor(YamiboColors.primary)
-    }
     val performExit = {
-        isExiting = true // 阻止 Compose 继续刷当前页的颜色
         val window = activity?.window
         if (window != null) {
             val controller = WindowCompat.getInsetsController(window, view)
-            WindowCompat.setDecorFitsSystemWindows(window, true)
-
-            // 把状态栏颜色和图标颜色完美恢复成进入前的样子
-            window.statusBarColor = originalStatusBarColor.intValue
-            controller.isAppearanceLightStatusBars = originalLightStatusBars.value
-
             controller.show(WindowInsetsCompat.Type.systemBars())
-            bottomNavBarVM.setBottomNavBarVisibility(true)
-
-            view.post { navController.navigateUp() }
-        } else {
-            bottomNavBarVM.setBottomNavBarVisibility(true)
-            navController.navigateUp()
         }
+        bottomNavBarVM.setBottomNavBarVisibility(true)
+        view.post { navController.navigateUp() }
     }
 
     fun runTimeout(webView: WebView, onTimeout: () -> Unit) {
@@ -261,13 +245,11 @@ fun OtherWebPage(
         val shouldBeFullscreen = isFullscreenState.value || autoOpenMangaMode
 
         if (shouldBeFullscreen) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             bottomNavBarVM.setBottomNavBarVisibility(false)
         } else {
-            WindowCompat.setDecorFitsSystemWindows(window, true)
             controller.show(WindowInsetsCompat.Type.systemBars())
             bottomNavBarVM.setBottomNavBarVisibility(true)
         }
@@ -626,71 +608,86 @@ fun OtherWebPage(
             performExit()
         }
     }
-
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { (otherWebView.parent as? ViewGroup)?.removeView(otherWebView); otherWebView },
-            update = {
-                canGoBack = it.canGoBack()
-                currentUrl = it.url
-            },
-            onRelease = {
-                timeoutJob?.cancel()
-                it.apply {
-                    onPause()
-                    stopLoading()
-                    webViewClient = android.webkit.WebViewClient()
-                    setWebChromeClient(null) // <--- 改用这种写法
-                    (parent as? ViewGroup)?.removeView(this)
-                    destroy()
-                }
-            }
+        Spacer(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsTopHeight(WindowInsets.statusBars)
+                .background(YamiboColors.primary)
+                .align(Alignment.TopCenter)
+                .zIndex(1f)
         )
 
-        if (showLoadError) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(Icons.Default.Warning, "加载失败", Modifier.size(48.dp), Color.Gray)
-                Spacer(Modifier.height(16.dp))
-                Text("页面加载失败", fontSize = 18.sp, color = Color.DarkGray)
-                Spacer(Modifier.height(24.dp))
-                Button(onClick = {
-                    startLoading(
-                        otherWebView,
-                        otherWebView.url ?: url
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            AndroidView(
+                factory = { (otherWebView.parent as? ViewGroup)?.removeView(otherWebView); otherWebView },
+                update = {
+                    canGoBack = it.canGoBack()
+                    currentUrl = it.url
+                },
+                onRelease = {
+                    timeoutJob?.cancel()
+                    it.apply {
+                        onPause()
+                        stopLoading()
+                        webViewClient = android.webkit.WebViewClient()
+                        setWebChromeClient(null) // <--- 改用这种写法
+                        (parent as? ViewGroup)?.removeView(this)
+                        destroy()
+                    }
+                }
+            )
+
+            if (showLoadError) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 32.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.Warning, "加载失败", Modifier.size(48.dp), Color.Gray)
+                    Spacer(Modifier.height(16.dp))
+                    Text("页面加载失败", fontSize = 18.sp, color = Color.DarkGray)
+                    Spacer(Modifier.height(24.dp))
+                    Button(onClick = {
+                        startLoading(
+                            otherWebView,
+                            otherWebView.url ?: url
+                        )
+                    }) { Text("重试") }
+                }
+            }
+            if (isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.2f))
+                        .pointerInput(Unit) {
+                            detectTapGestures { }
+                            detectVerticalDragGestures { _, _ -> }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = YamiboColors.secondary)
+                }
+            }
+            if (autoOpenMangaMode) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                        .pointerInput(Unit) { detectTapGestures { }; detectVerticalDragGestures { _, _ -> } }) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                        color = Color.White
                     )
-                }) { Text("重试") }
-            }
-        }
-        if (isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.2f))
-                    .pointerInput(Unit) {
-                        detectTapGestures { }
-                        detectVerticalDragGestures { _, _ -> }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = YamiboColors.secondary)
-            }
-        }
-        if (autoOpenMangaMode) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
-                    .pointerInput(Unit) { detectTapGestures { }; detectVerticalDragGestures { _, _ -> } }) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center),
-                    color = Color.White
-                )
+                }
             }
         }
     }
