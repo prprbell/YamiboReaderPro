@@ -22,9 +22,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -57,11 +55,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,6 +72,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -100,11 +101,6 @@ import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
-import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 
 /**
  * 收藏页面，展示用户的收藏列表，支持刷新和拖拽排序。
@@ -215,15 +211,16 @@ fun FavoritePage(
     val currentCat =
         categoryOptions.find { it.first == favoriteVM.currentCategory } ?: categoryOptions[0]
 
-    // 1. 获取并锁死底部导航栏高度
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    var lockedNavHeight by remember { mutableStateOf(0.dp) }
-    if (navBarsPadding > lockedNavHeight) lockedNavHeight = navBarsPadding
+    var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
+    if (navBarsPadding.value > lockedNavHeightValue) lockedNavHeightValue = navBarsPadding.value
+    val lockedNavHeight = lockedNavHeightValue.dp
 
-    // 2. 获取并锁死顶部状态栏高度
     val statusBarsPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    var lockedStatusHeight by remember { mutableStateOf(0.dp) }
-    if (statusBarsPadding > lockedStatusHeight) lockedStatusHeight = statusBarsPadding
+    var lockedStatusHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
+    if (statusBarsPadding.value > lockedStatusHeightValue) lockedStatusHeightValue =
+        statusBarsPadding.value
+    val lockedStatusHeight = lockedStatusHeightValue.dp
 
     Column(
         modifier = Modifier

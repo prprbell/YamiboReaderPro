@@ -1,7 +1,6 @@
 package org.shirakawatyu.yamibo.novel
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
 import android.graphics.Color
 import android.net.Uri
@@ -17,11 +16,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -34,28 +32,23 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -252,12 +245,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-
             if (isAppInitialized) {
                 Box(contentAlignment = Alignment.TopCenter) {
                     val navController = rememberNavController()
-                    val premiumEasing = CubicBezierEasing(0.15f, 0.85f, 0.15f, 1f)
-                    val slideDuration = 800
+                    val enterEasing = LinearOutSlowInEasing
+                    val exitEasing = FastOutSlowInEasing
+                    val enterDuration = 500
+                    val exitDuration = 600
                     val stateOwner = LocalViewModelStoreOwner.current
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val currentRoute = navBackStackEntry?.destination?.route
@@ -265,6 +259,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     val context = LocalContext.current
                     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
                     val selectedItemIndex = pageList.indexOf(currentRoute).coerceAtLeast(0)
+                    val navBarsPadding =
+                        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
+                    if (navBarsPadding.value > lockedNavHeightValue) {
+                        lockedNavHeightValue = navBarsPadding.value
+                    }
+                    val lockedNavHeight = lockedNavHeightValue.dp
                     Box(modifier = Modifier.fillMaxSize()) {
                         val statusBarColor = when {
                             currentRoute == "FavoritePage" -> YamiboColors.onSurface
@@ -283,51 +284,14 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                         ) {
                             composable(
                                 "FavoritePage",
-                                // 离开收藏页（前往阅读器）时，底部的书架向左退后 1/3 的距离
                                 exitTransition = {
                                     if (targetState.destination.route?.startsWith("ReaderPage") == true) {
                                         slideOutHorizontally(
                                             targetOffsetX = { fullWidth -> -fullWidth / 3 },
                                             animationSpec = tween(
-                                                slideDuration,
-                                                easing = premiumEasing
+                                                enterDuration,
+                                                easing = enterEasing
                                             )
-                                        )
-                                    } else {
-                                        fadeOut(tween(150)) // 保持原有的逻辑
-                                    }
-                                },
-                                // 从阅读器返回时，书架从左侧 1/3 的位置优雅归位
-                                popEnterTransition = {
-                                    if (initialState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideInHorizontally(
-                                            initialOffsetX = { fullWidth -> -fullWidth / 3 },
-                                            animationSpec = tween(
-                                                slideDuration,
-                                                easing = premiumEasing
-                                            )
-                                        )
-                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
-                                        EnterTransition.None
-                                    } else {
-                                        fadeIn(tween(150))
-                                    }
-                                }
-                            ) {
-                                FavoritePage(
-                                    viewModel(
-                                        stateOwner,
-                                        factory = ViewModelFactory(context.applicationContext)
-                                    ),
-                                    navController
-                                )
-                            }
-                            composable("BBSPage",
-                                exitTransition = {
-                                    if (targetState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideOutHorizontally(
-                                            targetOffsetX = { fullWidth -> -fullWidth / 3 },
-                                            animationSpec = tween(slideDuration, easing = premiumEasing)
                                         )
                                     } else {
                                         fadeOut(tween(150))
@@ -337,7 +301,52 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     if (initialState.destination.route?.startsWith("ReaderPage") == true) {
                                         slideInHorizontally(
                                             initialOffsetX = { fullWidth -> -fullWidth / 3 },
-                                            animationSpec = tween(slideDuration, easing = premiumEasing)
+                                            animationSpec = tween(exitDuration, easing = exitEasing)
+                                        )
+                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                        EnterTransition.None
+                                    } else {
+                                        fadeIn(tween(150))
+                                    }
+                                }
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    FavoritePage(
+                                        viewModel(
+                                            stateOwner,
+                                            factory = ViewModelFactory(context.applicationContext)
+                                        ),
+                                        navController
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .padding(bottom = lockedNavHeight)
+                                    ) {
+                                        BottomNavBar(navController, "FavoritePage", bottomNavBarVM)
+                                    }
+                                }
+                            }
+                            composable(
+                                "BBSPage",
+                                exitTransition = {
+                                    if (targetState.destination.route?.startsWith("ReaderPage") == true) {
+                                        slideOutHorizontally(
+                                            targetOffsetX = { fullWidth -> -fullWidth / 3 },
+                                            animationSpec = tween(
+                                                enterDuration,
+                                                easing = enterEasing
+                                            )
+                                        )
+                                    } else {
+                                        fadeOut(tween(150))
+                                    }
+                                },
+                                popEnterTransition = {
+                                    if (initialState.destination.route?.startsWith("ReaderPage") == true) {
+                                        slideInHorizontally(
+                                            initialOffsetX = { fullWidth -> -fullWidth / 3 },
+                                            animationSpec = tween(exitDuration, easing = exitEasing)
                                         )
                                     } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
                                         EnterTransition.None
@@ -347,12 +356,21 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 }
                             ) {
                                 if (bbsWebView != null) {
-                                    BBSPage(
-                                        webView = bbsWebView,
-                                        isSelected = selectedItemIndex == 1,
-                                        cookieFlow = GlobalData.cookieFlow,
-                                        navController = navController
-                                    )
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        BBSPage(
+                                            webView = bbsWebView,
+                                            isSelected = selectedItemIndex == 1,
+                                            cookieFlow = GlobalData.cookieFlow,
+                                            navController = navController
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(navController, "BBSPage", bottomNavBarVM)
+                                        }
+                                    }
                                 } else {
                                     Box(
                                         modifier = Modifier.fillMaxSize(),
@@ -362,12 +380,16 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     }
                                 }
                             }
-                            composable("MinePage",
+                            composable(
+                                "MinePage",
                                 exitTransition = {
                                     if (targetState.destination.route?.startsWith("ReaderPage") == true) {
                                         slideOutHorizontally(
                                             targetOffsetX = { fullWidth -> -fullWidth / 3 },
-                                            animationSpec = tween(slideDuration, easing = premiumEasing)
+                                            animationSpec = tween(
+                                                enterDuration,
+                                                easing = enterEasing
+                                            )
                                         )
                                     } else {
                                         fadeOut(tween(150))
@@ -377,7 +399,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     if (initialState.destination.route?.startsWith("ReaderPage") == true) {
                                         slideInHorizontally(
                                             initialOffsetX = { fullWidth -> -fullWidth / 3 },
-                                            animationSpec = tween(slideDuration, easing = premiumEasing)
+                                            animationSpec = tween(exitDuration, easing = exitEasing)
                                         )
                                     } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
                                         EnterTransition.None
@@ -386,11 +408,20 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     }
                                 }
                             ) {
-                                MinePage(
-                                    isSelected = selectedItemIndex == 2,
-                                    navController = navController,
-                                    webChromeClient = webChromeClient
-                                )
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    MinePage(
+                                        isSelected = selectedItemIndex == 2,
+                                        navController = navController,
+                                        webChromeClient = webChromeClient
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .padding(bottom = lockedNavHeight)
+                                    ) {
+                                        BottomNavBar(navController, "MinePage", bottomNavBarVM)
+                                    }
+                                }
                             }
                             composable(
                                 "ReaderPage/{passageUrl}",
@@ -400,13 +431,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 enterTransition = {
                                     slideIntoContainer(
                                         towards = AnimatedContentTransitionScope.SlideDirection.Left,
-                                        animationSpec = tween(slideDuration, easing = premiumEasing)
+                                        animationSpec = tween(enterDuration, easing = enterEasing)
                                     )
                                 },
                                 popExitTransition = {
                                     slideOutOfContainer(
                                         towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                                        animationSpec = tween(slideDuration, easing = premiumEasing)
+                                        animationSpec = tween(exitDuration, easing = exitEasing)
                                     )
                                 }
                             ) {
@@ -414,20 +445,11 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            // 🔥 关键新增：强制裁剪外轮廓，确保圆角能顶到屏幕最上方
                                             .clip(
                                                 RoundedCornerShape(
-                                                    topStart = 24.dp,
-                                                    bottomStart = 24.dp
+                                                    topStart = 32.dp,
+                                                    bottomStart = 32.dp
                                                 )
-                                            )
-                                            .shadow(
-                                                elevation = 20.dp,
-                                                shape = RoundedCornerShape(
-                                                    topStart = 24.dp,
-                                                    bottomStart = 24.dp
-                                                ),
-                                                clip = false
                                             )
                                     ) {
                                         ReaderPage(
@@ -451,9 +473,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     }
                                 ),
                                 enterTransition = {
-                                    if (initialState.destination.route?.startsWith("ProbingPage") == true || initialState.destination.route?.startsWith(
-                                            "FavoritePage"
-                                        ) == true
+                                    if (initialState.destination.route?.startsWith("ProbingPage") == true ||
+                                        initialState.destination.route?.startsWith("FavoritePage") == true
                                     ) {
                                         EnterTransition.None
                                     } else {
@@ -494,7 +515,6 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 )
                             }
 
-                            // 3. 其他/探测网页
                             composable(
                                 "OtherWebPage/{url}",
                                 arguments = listOf(navArgument("url") { type = NavType.StringType })
@@ -521,9 +541,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     navArgument("url") { defaultValue = "" },
                                     navArgument("originalUrl") { defaultValue = "" }
                                 ),
-                                // 覆盖默认的长延迟淡出动画
                                 enterTransition = {
-                                    // 进入时：从 85% 大小开始，带阻尼感地放大至全屏，同时淡入
                                     scaleIn(
                                         initialScale = 0.50f,
                                         animationSpec = tween(
@@ -565,68 +583,6 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     navController = navController
                                 )
                             }
-                        }
-
-                        val hideBottomNavRoutes = listOf(
-                            "ReaderPage/{passageUrl}",
-                            "ProbingPage/{url}",
-                            "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}&initialPage={initialPage}",
-                            "OtherWebPage/{url}",
-                            "NativeMangaPage?url={url}&originalUrl={originalUrl}"
-                        )
-                        val showBottomBar = currentRoute !in hideBottomNavRoutes
-
-                        val visibleEntries by navController.visibleEntries.collectAsState(initial = emptyList())
-
-                        val isOverlayVisible = visibleEntries.any { entry ->
-                            val r = entry.destination.route ?: ""
-                            r.startsWith("ReaderPage") ||
-                                    r.startsWith("NativeMangaPage") ||
-                                    r.startsWith("OtherWebPage") ||
-                                    r.startsWith("MangaWebPage") ||
-                                    r.startsWith("ProbingPage")
-                        }
-                        val barZIndex = if (isOverlayVisible) -1f else 1f
-
-                        var lastHiddenRoute by remember { mutableStateOf<String?>(null) }
-                        LaunchedEffect(currentRoute) {
-                            if (currentRoute in hideBottomNavRoutes) {
-                                lastHiddenRoute = currentRoute
-                            }
-                        }
-
-                        val bottomBarEnterAnim = if (lastHiddenRoute?.startsWith("ReaderPage") == true) {
-                            slideInHorizontally(
-                                initialOffsetX = { fullWidth -> -fullWidth },
-                                animationSpec = tween(slideDuration, easing = premiumEasing)
-                            )
-                        } else {
-                            EnterTransition.None
-                        }
-
-                        val bottomBarExitAnim = if (currentRoute?.startsWith("ReaderPage") == true) {
-                            slideOutHorizontally(
-                                targetOffsetX = { fullWidth -> -fullWidth },
-                                animationSpec = tween(slideDuration, easing = premiumEasing)
-                            )
-                        } else {
-                            ExitTransition.None
-                        }
-
-                        val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                        var lockedNavHeight by remember { mutableStateOf(0.dp) }
-                        if (navBarsPadding > lockedNavHeight) lockedNavHeight = navBarsPadding
-
-                        AnimatedVisibility(
-                            visible = showBottomBar,
-                            enter = bottomBarEnterAnim,
-                            exit = bottomBarExitAnim,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = lockedNavHeight)
-                                .zIndex(barZIndex)
-                        ) {
-                            BottomNavBar(navController, currentRoute, bottomNavBarVM)
                         }
                     }
                 }

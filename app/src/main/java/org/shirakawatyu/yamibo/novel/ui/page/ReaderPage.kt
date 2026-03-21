@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.EaseIn
 import androidx.compose.animation.core.EaseOut
@@ -119,6 +120,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.R
@@ -181,13 +183,15 @@ fun ReaderPage(
     if (statusBarsPadding > rememberedStatusBarHeight.value) {
         rememberedStatusBarHeight.value = statusBarsPadding
     }
-    val statusBarHeight = if (rememberedStatusBarHeight.value > 0.dp) rememberedStatusBarHeight.value else 28.dp
+    val statusBarHeight =
+        if (rememberedStatusBarHeight.value > 0.dp) rememberedStatusBarHeight.value else 28.dp
 
     val rememberedNavBarHeight = remember { mutableStateOf(0.dp) }
     if (navBarsPadding > rememberedNavBarHeight.value) {
         rememberedNavBarHeight.value = navBarsPadding
     }
-    val navBarHeight = if (rememberedNavBarHeight.value > 0.dp) rememberedNavBarHeight.value else 48.dp
+    val navBarHeight =
+        if (rememberedNavBarHeight.value > 0.dp) rememberedNavBarHeight.value else 48.dp
 
     var isFullScreen by remember { mutableStateOf(true) }
 
@@ -224,17 +228,6 @@ fun ReaderPage(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
             onDispose {
-                // 不在这里恢复系统栏，因为这时候动画已经完成了
-                // 系统栏的恢复由 exitReader 函数在动画开始前处理
-                // 只恢复必要的行为属性
-                if (!hasRestoredSystemUi.value) {
-                    hasRestoredSystemUi.value = true
-                    windowController.systemBarsBehavior = originalBehavior.value
-                    // 立即显示系统栏，使用透明色避免闪变
-                    window.statusBarColor = android.graphics.Color.TRANSPARENT
-                    windowController.isAppearanceLightStatusBars = originalLightStatusBars.value
-                    windowController.show(WindowInsetsCompat.Type.systemBars())
-                }
             }
         }
     }
@@ -248,7 +241,8 @@ fun ReaderPage(
             uiState.backgroundColor ?: themeBackground
         }
         val targetStatusBarColor = if (uiState.nightMode) Color.Gray else Color.DarkGray
-        val statusBarContentColor = remember { androidx.compose.animation.Animatable(Color.Transparent) }
+        val statusBarContentColor =
+            remember { androidx.compose.animation.Animatable(Color.Transparent) }
 
         LaunchedEffect(targetStatusBarColor) {
             statusBarContentColor.animateTo(
@@ -309,7 +303,7 @@ fun ReaderPage(
                         isFullScreen = true
 
                         if (isFirstEnter) {
-                            kotlinx.coroutines.delay(200)
+                            kotlinx.coroutines.delay(100)
                             isFirstEnter = false
                         }
                         windowController.hide(WindowInsetsCompat.Type.systemBars())
@@ -419,11 +413,16 @@ fun ReaderPage(
                     }
                 }
             }
-        BackHandler {
-            if (showSettings) {
-                showSettings = false
-            } else {
-                exitReader()
+        BackHandler(enabled = showSettings) {
+            showSettings = false
+        }
+        PredictiveBackHandler(enabled = !showSettings) { progress ->
+            try {
+                progress.collect { }
+                isExiting = true
+                view?.clearFocus()
+                navController.navigateUp()
+            } catch (e: CancellationException) {
             }
         }
         if (showImageWarning) {
@@ -469,7 +468,12 @@ fun ReaderPage(
                     }
             }
         }
+        var isAnimationFinished by remember { mutableStateOf(false) }
 
+        LaunchedEffect(Unit) {
+            kotlinx.coroutines.delay(500)
+            isAnimationFinished = true
+        }
         // --- 根布局Box ---
         ModalNavigationDrawer(
             modifier = Modifier.clip(RectangleShape),
@@ -559,21 +563,24 @@ fun ReaderPage(
                     modifier = Modifier
                         .fillMaxSize()
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .offset(x = (-10000).dp)
-                    ) {
-                        PassageWebView(
-                            url = uiState.urlToLoad,
-                            loadImages = uiState.loadImages
-                        ) { success, html, loadedUrl, maxPage, title ->
-                            readerVM.loadFinished(success, html, loadedUrl, maxPage, title)
+                    if (isAnimationFinished) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .offset(x = (-10000).dp)
+                        ) {
+                            PassageWebView(
+                                url = uiState.urlToLoad,
+                                loadImages = uiState.loadImages
+                            ) { success, html, loadedUrl, maxPage, title ->
+                                readerVM.loadFinished(success, html, loadedUrl, maxPage, title)
+                            }
                         }
                     }
 
                     BoxWithConstraints(
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
                             .padding(top = statusBarHeight)
                     ) {
                         var hasLoaded by remember { mutableStateOf(false) }

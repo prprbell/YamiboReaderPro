@@ -5,14 +5,15 @@ import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.launch
 
 class ComposeUtil {
     companion object {
@@ -26,7 +27,18 @@ class ComposeUtil {
 
             val lifecycleOwner = LocalLifecycleOwner.current
 
-            val applyInsets = {
+            val applyAppearance = {
+                try {
+                    val insetsController = WindowCompat.getInsetsController(window, view)
+                    insetsController.isAppearanceLightStatusBars = lightColor
+                    window.statusBarColor = android.graphics.Color.TRANSPARENT
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            val applyFull = {
                 try {
                     val insetsController = WindowCompat.getInsetsController(window, view)
                     insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
@@ -38,39 +50,24 @@ class ComposeUtil {
                 }
             }
 
-            // 1. 使用 SideEffect：每次页面组合完成时立即触发，消除导航动画带来的 300ms 延迟。
             androidx.compose.runtime.SideEffect {
                 if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                    applyInsets()
+                    applyAppearance()
                 }
             }
-
-            // 2. 生命周期的兜底观察：应用从后台切回前台时，保证颜色正确恢复
+            val scope = rememberCoroutineScope()
             DisposableEffect(lifecycleOwner, color) {
                 val observer = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_START) {
-                        applyInsets()
+                        scope.launch {
+                            kotlinx.coroutines.delay(100)
+                            applyFull()
+                        }
                     }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
                 onDispose {
                     lifecycleOwner.lifecycle.removeObserver(observer)
-                }
-            }
-
-            fun applyStatusBarColor(window: android.view.Window, view: android.view.View, logicalColor: Color) {
-                // 根据传入的逻辑颜色，判断状态栏图标该用黑还是白
-                val isLightColor = logicalColor.red * 0.299 + logicalColor.green * 0.578 + logicalColor.blue * 0.114 >= 192.0 / 255.0
-                try {
-                    val insetsController = WindowCompat.getInsetsController(window, view)
-                    insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-                    insetsController.isAppearanceLightStatusBars = isLightColor
-
-                    window.statusBarColor = android.graphics.Color.TRANSPARENT
-
-                    WindowCompat.setDecorFitsSystemWindows(window, false)
-                } catch (e: Exception) {
-                    e.printStackTrace()
                 }
             }
         }

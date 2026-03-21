@@ -22,15 +22,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -41,10 +40,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,7 +75,6 @@ import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
-import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
@@ -794,22 +794,33 @@ fun BBSPage(
             }
         }
     }
+    val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
+    if (navBarsPadding.value > lockedNavHeightValue) lockedNavHeightValue = navBarsPadding.value
+    val lockedNavHeight = lockedNavHeightValue.dp
+
+    val statusBarsPaddingVal = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    var lockedStatusHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
+    if (statusBarsPaddingVal.value > lockedStatusHeightValue) lockedStatusHeightValue =
+        statusBarsPaddingVal.value
+    val lockedStatusHeight = lockedStatusHeightValue.dp
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. 手动“画”出状态栏的底色块
         Spacer(
             modifier = Modifier
                 .fillMaxWidth()
-                .windowInsetsTopHeight(WindowInsets.statusBars) // 高度正好等于状态栏
-                .background(YamiboColors.primary)               // 设置为你想要的背景色
+                .height(lockedStatusHeight)
+                .background(YamiboColors.primary)
                 .align(Alignment.TopCenter)
-                .zIndex(1f) // 确保这块颜色盖在 WebView 上方
+                .zIndex(1f)
         )
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(bottom = 50.dp)
+                .padding(
+                    top = lockedStatusHeight,
+                    bottom = lockedNavHeight + 50.dp
+                )
         ) {
             AndroidView(
                 factory = {
