@@ -686,7 +686,7 @@ fun FavoritePage(
                     Text("开启省流模式", color = MaterialTheme.colorScheme.primary)
                 },
                 text = {
-                    Text("开启后，系统将强行拦截网络请求，并只显示前三张图片以节省流量。\n\n如需阅读完整漫画，请点击前两张图片进入「漫画阅读模式」。")
+                    Text("开启后，系统将强行拦截网络请求，并只显示前三张图片以节省流量。\n\n如需阅读完整漫画，请点击前三张图片进入「漫画阅读模式」。")
                 },
                 confirmButton = {
                     TextButton(onClick = {
