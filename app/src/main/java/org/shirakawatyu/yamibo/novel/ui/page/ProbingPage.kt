@@ -1,7 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
-import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
@@ -32,6 +31,7 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
+import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.net.URLEncoder
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -52,9 +52,7 @@ fun ProbingPage(url: String, navController: NavController) {
 
             AndroidView(
                 factory = {
-                    WebView(context).apply {
-                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
-
+                    WebViewPool.acquire(context).apply {
                         settings.apply {
                             javaScriptEnabled = true
                             domStorageEnabled = true
@@ -113,7 +111,12 @@ fun ProbingPage(url: String, navController: NavController) {
                                             map[url]?.let { fav ->
                                                 if (type == 1) {
                                                     val authorId = parts.getOrNull(1)
-                                                    FavoriteUtil.updateFavorite(fav.copy(type = 1, authorId = authorId))
+                                                    FavoriteUtil.updateFavorite(
+                                                        fav.copy(
+                                                            type = 1,
+                                                            authorId = authorId
+                                                        )
+                                                    )
                                                 } else {
                                                     FavoriteUtil.updateFavorite(fav.copy(type = type))
                                                 }
@@ -174,14 +177,7 @@ fun ProbingPage(url: String, navController: NavController) {
                     }
                 },
                 onRelease = { webView ->
-                    webView.apply {
-                        onPause()
-                        stopLoading()
-                        webViewClient = WebViewClient()
-                        setWebChromeClient(null)
-                        (parent as? ViewGroup)?.removeView(this)
-                        destroy()
-                    }
+                    WebViewPool.release(webView)
                 },
                 modifier = Modifier
                     .size(1.dp)

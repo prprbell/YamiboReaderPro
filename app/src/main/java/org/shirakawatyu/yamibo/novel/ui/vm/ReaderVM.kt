@@ -514,6 +514,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     private fun loadWithSettings() {
         viewModelScope.launch {
+            if (!initialized) {
+                showLoadingScrim = true
+                delay(400)
+            }
             FavoriteUtil.getFavoriteMap { favMap ->
                 val favorite = favMap[url]
                 val targetView = favorite?.lastView ?: 1
@@ -881,9 +885,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     initialized = true
                 }
                 latestPage = safeInitPage
-                if (!isFromCache) {
-                    showLoadingScrim = false
-                }
+                showLoadingScrim = false
                 isTransitioning = false
             }
         }

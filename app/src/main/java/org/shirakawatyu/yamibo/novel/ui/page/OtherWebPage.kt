@@ -79,6 +79,7 @@ import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColo
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
+import org.shirakawatyu.yamibo.novel.util.WebViewPool
 
 private val hideCommand = """
     javascript:(function() {
@@ -211,12 +212,7 @@ fun OtherWebPage(
     }
 
     val otherWebView = remember {
-        WebView(context).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        WebViewPool.acquire(context).apply {
             settings.apply {
                 javaScriptEnabled = true
                 useWideViewPort = true
@@ -495,7 +491,8 @@ fun OtherWebPage(
             }
         }
 
-        if (otherWebView.url == null) {
+        if (otherWebView.url == null || otherWebView.tag == "recycled") {
+            otherWebView.tag = null
             FavoriteUtil.getFavoriteMap { map ->
                 val lastSavedPage = map[url]?.lastView ?: 1
                 val startUrl = getPagedUrl(finalUrl, lastSavedPage)
@@ -625,7 +622,10 @@ fun OtherWebPage(
                 .navigationBarsPadding()
         ) {
             AndroidView(
-                factory = { (otherWebView.parent as? ViewGroup)?.removeView(otherWebView); otherWebView },
+                factory = {
+                    (otherWebView.parent as? ViewGroup)?.removeView(otherWebView)
+                    otherWebView
+                },
                 update = {
                     canGoBack = it.canGoBack()
                     currentUrl = it.url
@@ -633,13 +633,9 @@ fun OtherWebPage(
                 onRelease = {
                     timeoutJob?.cancel()
                     it.apply {
-                        onPause()
-                        stopLoading()
-                        webViewClient = android.webkit.WebViewClient()
-                        setWebChromeClient(null) // <--- 改用这种写法
-                        (parent as? ViewGroup)?.removeView(this)
-                        destroy()
+                        removeJavascriptInterface("AndroidFullscreen")
                     }
+                    WebViewPool.release(it)
                 }
             )
 

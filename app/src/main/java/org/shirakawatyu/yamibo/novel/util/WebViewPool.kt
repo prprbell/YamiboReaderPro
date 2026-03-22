@@ -10,7 +10,7 @@ import android.webkit.WebViewClient
 object WebViewPool {
     private val pool = mutableListOf<WebView>()
 
-    private const val MAX_POOL_SIZE = 2
+    private const val MAX_POOL_SIZE = 4
 
     fun init(context: Context) {
         if (Looper.myLooper() != Looper.getMainLooper()) return
