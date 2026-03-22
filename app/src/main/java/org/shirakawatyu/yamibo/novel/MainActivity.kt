@@ -249,8 +249,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     val navController = rememberNavController()
                     val enterEasing = FastOutSlowInEasing
                     val exitEasing = FastOutLinearInEasing
-                    val enterDuration = 350
-                    val exitDuration = 300
+                    val enterDuration = 500
+                    val exitDuration = 400
                     val stateOwner = LocalViewModelStoreOwner.current
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val currentRoute = navBackStackEntry?.destination?.route

@@ -1,10 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.widget
 
 import android.annotation.SuppressLint
-import android.graphics.Color
-import android.view.ViewGroup
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
@@ -17,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.PassageWebViewClient
+import org.shirakawatyu.yamibo.novel.util.WebViewPool
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -33,51 +30,37 @@ fun PassageWebView(
 ) {
     val passageWebViewClient = remember { PassageWebViewClient(onFinished) }
     var lastLoadedUrl by remember { mutableStateOf<String?>(null) }
+
     AndroidView(
         modifier = Modifier
             .fillMaxSize()
             .offset(x = (-10000).dp),
         factory = { context ->
-            WebView(context).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                setBackgroundColor(Color.TRANSPARENT)
+            WebViewPool.acquire(context).apply {
+                // 根据当前页面需求动态配置图片拦截逻辑
+                settings.loadsImagesAutomatically = loadImages
+                settings.blockNetworkImage = !loadImages
 
-                settings.javaScriptEnabled = true
-                settings.useWideViewPort = true
-                settings.loadsImagesAutomatically = false
-                settings.blockNetworkImage = true
-
+                // 挂载业务 Client
                 webViewClient = passageWebViewClient
                 webChromeClient = GlobalData.webChromeClient
-
             }
         },
         update = { webView ->
-
             webView.onResume()
             webView.resumeTimers()
 
-            // 只有当VM请求的URL (url) 与上次请求加载的URL (lastLoadedUrl)
-            // 不同时，才调用 loadUrl。
-            // 这可以防止中断由JS点击触发的内部重定向。
-            // 否则，可能会卡在加载页面
             if (url != lastLoadedUrl) {
                 webView.loadUrl(url)
-                lastLoadedUrl = url // 记住刚刚请求加载的URL
+                lastLoadedUrl = url
+            } else {
+                webView.settings.loadsImagesAutomatically = loadImages
+                webView.settings.blockNetworkImage = !loadImages
             }
         },
         onRelease = { webView ->
-            webView.apply {
-                onPause()
-                stopLoading()
-                webViewClient = WebViewClient()
-                webChromeClient = null
-                (parent as? ViewGroup)?.removeView(this)
-                destroy()
-            }
+            // 2. 离开页面时，归还给对象池进行清洗和保留
+            WebViewPool.release(webView)
         }
     )
 }

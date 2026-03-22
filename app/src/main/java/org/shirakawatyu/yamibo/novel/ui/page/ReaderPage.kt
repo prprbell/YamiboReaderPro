@@ -10,7 +10,6 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.EaseIn
 import androidx.compose.animation.core.EaseOut
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -83,6 +82,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -254,7 +254,7 @@ fun ReaderPage(
             statusBarContentColor.animateTo(
                 targetValue = targetStatusBarColor,
                 animationSpec = tween(
-                    durationMillis = 600,
+                    durationMillis = 800,
                     easing = EaseIn
                 )
             )
@@ -291,14 +291,17 @@ fun ReaderPage(
         }
 
         val lifecycleOwner = LocalLifecycleOwner.current
-        var isAnimationFinished by remember { mutableStateOf(false) }
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
-
-        LaunchedEffect(lifecycleState) {
-            if (lifecycleState == Lifecycle.State.RESUMED) {
-                kotlinx.coroutines.delay(50)
-                isAnimationFinished = true
+        val isAnimationFinished = lifecycleState == Lifecycle.State.RESUMED
+        var allowRender by remember { mutableStateOf(false) }
+        LaunchedEffect(isAnimationFinished) {
+            if (isAnimationFinished) {
+                allowRender = true
             }
+        }
+
+        val hasRealContent = remember(uiState.htmlList) {
+            uiState.htmlList.size > 1 || uiState.htmlList.any { it.chapterTitle != "footer" }
         }
 
         LaunchedEffect(showSettings, uiState.nightMode, lifecycleOwner.lifecycle.currentState) {
@@ -322,7 +325,7 @@ fun ReaderPage(
                             isFirstEnter = false
                         }
                         windowController.hide(WindowInsetsCompat.Type.systemBars())
-                        kotlinx.coroutines.delay(350)
+                        kotlinx.coroutines.delay(450)
                         window.statusBarColor = android.graphics.Color.BLACK
                         windowController.isAppearanceLightStatusBars = false
                     }
@@ -338,18 +341,15 @@ fun ReaderPage(
             }
         }
 
-        val currentBottomPadding by animateDpAsState(
-            targetValue = if (isFullScreen) 0.dp else navBarHeight,
-            label = "bottomPadding",
-            animationSpec = tween(durationMillis = 300)
-        )
-
-        val currentPageIndex = if (uiState.isVerticalMode) {
-            remember(lazyListState.firstVisibleItemIndex, lazyListState.isScrollInProgress) {
-                lazyListState.firstVisibleItemIndex
-            }.coerceIn(0, (uiState.htmlList.size - 1).coerceAtLeast(0))
-        } else {
-            pagerState.currentPage
+        val currentPageIndex by remember(uiState.isVerticalMode, uiState.htmlList.size) {
+            derivedStateOf {
+                val maxIndex = (uiState.htmlList.size - 1).coerceAtLeast(0)
+                if (uiState.isVerticalMode) {
+                    lazyListState.firstVisibleItemIndex.coerceIn(0, maxIndex)
+                } else {
+                    pagerState.currentPage.coerceIn(0, maxIndex)
+                }
+            }
         }
 
         val currentChapterTitle =
@@ -572,7 +572,17 @@ fun ReaderPage(
                     modifier = Modifier
                         .fillMaxSize()
                 ) {
-                    if (isAnimationFinished) {
+                    var isWebViewReady by remember { mutableStateOf(false) }
+
+                    LaunchedEffect(isAnimationFinished) {
+                        if (isAnimationFinished) {
+                            kotlinx.coroutines.android.awaitFrame()
+                            kotlinx.coroutines.delay(100)
+                            isWebViewReady = true
+                        }
+                    }
+
+                    if (isWebViewReady) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -592,11 +602,11 @@ fun ReaderPage(
                             .fillMaxSize()
                             .padding(top = statusBarHeight)
                     ) {
-                        var hasLoaded by remember { mutableStateOf(false) }
-                        if (maxHeight > 0.dp && maxWidth > 0.dp && !hasLoaded && isAnimationFinished) {
+                        var hasTriggeredLoad by remember { mutableStateOf(false) }
+                        if (maxHeight > 0.dp && maxWidth > 0.dp && !hasTriggeredLoad) {
                             LaunchedEffect(maxHeight, maxWidth, url) {
                                 readerVM.firstLoad(url, maxHeight, maxWidth)
-                                hasLoaded = true
+                                hasTriggeredLoad = true
                             }
                         }
 
@@ -623,169 +633,166 @@ fun ReaderPage(
                                 Spacer(Modifier.height(24.dp))
                                 Button(onClick = { readerVM.retryLoad() }) { Text("重试") }
                             }
-                        } else if (hasLoaded) {
-                            val dataKey =
-                                "${uiState.htmlList.hashCode()}_${uiState.initPage}_${uiState.isVerticalMode}"
-                            var isInitialScrollDone by remember(uiState.currentView) {
-                                mutableStateOf(
-                                    false
-                                )
-                            }
-
-                            if (uiState.htmlList.isNotEmpty()) {
-
-                                // 强制等待动画结束，再把极其耗时的长列表加入组合树
-                                if (isAnimationFinished) {
-                                    LaunchedEffect(dataKey) {
-                                        if (!isInitialScrollDone) {
-                                            if (uiState.isVerticalMode) {
-                                                if (lazyListState.firstVisibleItemIndex != uiState.initPage) lazyListState.scrollToItem(
-                                                    uiState.initPage
-                                                )
-                                            } else {
-                                                if (pagerState.pageCount > uiState.initPage && pagerState.currentPage != uiState.initPage) pagerState.scrollToPage(
-                                                    uiState.initPage
-                                                )
-                                            }
-                                            isInitialScrollDone = true
-                                        }
-                                    }
-
-                                    val contentAlpha by animateFloatAsState(
-                                        targetValue = if (isInitialScrollDone) 1f else 0f,
-                                        animationSpec = tween(durationMillis = 50),
-                                        label = "contentAlphaFadeIn"
+                        } else if (hasTriggeredLoad) {
+                            if (allowRender && hasRealContent) {
+                                val dataKey =
+                                    "${uiState.htmlList.hashCode()}_${uiState.initPage}_${uiState.isVerticalMode}"
+                                var isInitialScrollDone by remember(uiState.currentView) {
+                                    mutableStateOf(
+                                        false
                                     )
+                                }
 
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .graphicsLayer {
-                                                alpha = contentAlpha
-                                            }
-                                    ) {
+                                LaunchedEffect(dataKey) {
+                                    if (!isInitialScrollDone) {
                                         if (uiState.isVerticalMode) {
-                                            LazyColumn(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .clickable(
-                                                        indication = null,
-                                                        interactionSource = remember { MutableInteractionSource() },
-                                                        onClick = {
-                                                            if (isExiting) {
-                                                                return@clickable
-                                                            }
-                                                            showSettings = true
-                                                        }
-                                                    )
-                                                    .padding(horizontal = uiState.padding),
-                                                state = lazyListState
-                                            ) {
-                                                itemsIndexed(
-                                                    items = uiState.htmlList,
-                                                    key = { index, item -> "${item.type}_${item.chapterTitle}_${item.data.hashCode()}_${index}" }
-                                                ) { index, content ->
-                                                    ContentViewer(
-                                                        data = content,
-                                                        padding = uiState.padding,
-                                                        lineHeight = uiState.lineHeight,
-                                                        letterSpacing = uiState.letterSpacing,
-                                                        fontSize = uiState.fontSize,
-                                                        currentPage = index + 1,
-                                                        pageCount = uiState.htmlList.size,
-                                                        nightMode = uiState.nightMode,
-                                                        backgroundColor = finalBackground,
-                                                        isVerticalMode = true,
-                                                        onRefresh = { readerVM.forceRefreshCurrentPage() },
-                                                        bookTitle = bookTitle
-                                                    )
-                                                }
-                                            }
+                                            if (lazyListState.firstVisibleItemIndex != uiState.initPage) lazyListState.scrollToItem(
+                                                uiState.initPage
+                                            )
                                         } else {
-                                            HorizontalPager(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .pointerInput(Unit) {
-                                                        detectTapGestures(
-                                                            onTap = { offset ->
-                                                                if (isExiting) {
-                                                                    return@detectTapGestures
-                                                                }
-                                                                val screenWidth =
-                                                                    size.width.toFloat()
-                                                                if (offset.x < screenWidth * 0.25f) {
-                                                                    scope.launch {
-                                                                        pagerState.animateScrollToPage(
-                                                                            (pagerState.currentPage - 1).coerceAtLeast(
-                                                                                0
-                                                                            ),
-                                                                            animationSpec = smoothScrollAnimation
-                                                                        )
-                                                                    }
-                                                                } else if (offset.x > screenWidth * 0.75f) {
-                                                                    scope.launch {
-                                                                        pagerState.animateScrollToPage(
-                                                                            (pagerState.currentPage + 1).coerceAtMost(
-                                                                                pagerState.pageCount - 1
-                                                                            ),
-                                                                            animationSpec = smoothScrollAnimation
-                                                                        )
-                                                                    }
-                                                                } else {
-                                                                    showSettings = true
-                                                                }
-                                                            }
-                                                        )
-                                                    }
-                                                    .pointerInput(Unit) {
-                                                        detectTransformGestures { _, pan, zoom, _ ->
-                                                            readerVM.onTransform(
-                                                                pan,
-                                                                zoom
-                                                            )
+                                            if (pagerState.pageCount > uiState.initPage && pagerState.currentPage != uiState.initPage) pagerState.scrollToPage(
+                                                uiState.initPage
+                                            )
+                                        }
+                                        isInitialScrollDone = true
+                                    }
+                                }
+
+                                val contentAlpha by animateFloatAsState(
+                                    targetValue = if (isInitialScrollDone) 1f else 0f,
+                                    animationSpec = tween(durationMillis = 150),
+                                    label = "contentAlphaFadeIn"
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            alpha = contentAlpha
+                                        }
+                                ) {
+                                    if (uiState.isVerticalMode) {
+                                        LazyColumn(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clickable(
+                                                    indication = null,
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    onClick = {
+                                                        if (isExiting) {
+                                                            return@clickable
                                                         }
+                                                        showSettings = true
                                                     }
-                                                    .graphicsLayer(
-                                                        scaleX = uiState.scale,
-                                                        scaleY = uiState.scale,
-                                                        translationX = uiState.offset.x,
-                                                        translationY = uiState.offset.y
-                                                    ),
-                                                state = pagerState,
-                                            ) { page ->
+                                                )
+                                                .padding(horizontal = uiState.padding),
+                                            state = lazyListState
+                                        ) {
+                                            itemsIndexed(
+                                                items = uiState.htmlList,
+                                                key = { index, item -> "${item.type}_${item.chapterTitle}_${item.data.hashCode()}_${index}" }
+                                            ) { index, content ->
                                                 ContentViewer(
-                                                    data = uiState.htmlList[page],
+                                                    data = content,
                                                     padding = uiState.padding,
                                                     lineHeight = uiState.lineHeight,
                                                     letterSpacing = uiState.letterSpacing,
                                                     fontSize = uiState.fontSize,
-                                                    currentPage = pagerState.currentPage + 1,
-                                                    pageCount = pagerState.pageCount,
+                                                    currentPage = index + 1,
+                                                    pageCount = uiState.htmlList.size,
                                                     nightMode = uiState.nightMode,
                                                     backgroundColor = finalBackground,
-                                                    isVerticalMode = false,
+                                                    isVerticalMode = true,
                                                     onRefresh = { readerVM.forceRefreshCurrentPage() },
                                                     bookTitle = bookTitle
                                                 )
-                                                SideEffect {
-                                                    readerVM.onPageChange(
-                                                        pagerState,
-                                                        scope
+                                            }
+                                        }
+                                    } else {
+                                        HorizontalPager(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .pointerInput(Unit) {
+                                                    detectTapGestures(
+                                                        onTap = { offset ->
+                                                            if (isExiting) {
+                                                                return@detectTapGestures
+                                                            }
+                                                            val screenWidth =
+                                                                size.width.toFloat()
+                                                            if (offset.x < screenWidth * 0.25f) {
+                                                                scope.launch {
+                                                                    pagerState.animateScrollToPage(
+                                                                        (pagerState.currentPage - 1).coerceAtLeast(
+                                                                            0
+                                                                        ),
+                                                                        animationSpec = smoothScrollAnimation
+                                                                    )
+                                                                }
+                                                            } else if (offset.x > screenWidth * 0.75f) {
+                                                                scope.launch {
+                                                                    pagerState.animateScrollToPage(
+                                                                        (pagerState.currentPage + 1).coerceAtMost(
+                                                                            pagerState.pageCount - 1
+                                                                        ),
+                                                                        animationSpec = smoothScrollAnimation
+                                                                    )
+                                                                }
+                                                            } else {
+                                                                showSettings = true
+                                                            }
+                                                        }
                                                     )
                                                 }
+                                                .pointerInput(Unit) {
+                                                    detectTransformGestures { _, pan, zoom, _ ->
+                                                        readerVM.onTransform(
+                                                            pan,
+                                                            zoom
+                                                        )
+                                                    }
+                                                }
+                                                .graphicsLayer(
+                                                    scaleX = uiState.scale,
+                                                    scaleY = uiState.scale,
+                                                    translationX = uiState.offset.x,
+                                                    translationY = uiState.offset.y
+                                                ),
+                                            state = pagerState,
+                                        ) { page ->
+                                            ContentViewer(
+                                                data = uiState.htmlList[page],
+                                                padding = uiState.padding,
+                                                lineHeight = uiState.lineHeight,
+                                                letterSpacing = uiState.letterSpacing,
+                                                fontSize = uiState.fontSize,
+                                                currentPage = pagerState.currentPage + 1,
+                                                pageCount = pagerState.pageCount,
+                                                nightMode = uiState.nightMode,
+                                                backgroundColor = finalBackground,
+                                                isVerticalMode = false,
+                                                onRefresh = { readerVM.forceRefreshCurrentPage() },
+                                                bookTitle = bookTitle
+                                            )
+                                            SideEffect {
+                                                readerVM.onPageChange(
+                                                    pagerState,
+                                                    scope
+                                                )
                                             }
                                         }
                                     }
                                 }
-                            }
-                            if (uiState.isVerticalMode && uiState.htmlList.isNotEmpty()) {
-                                VerticalModeHeader(
-                                    chapterTitle = currentChapterTitle,
-                                    currentPage = currentPageIndex + 1,
-                                    pageCount = uiState.htmlList.size,
-                                    backgroundColor = finalBackground,
-                                    padding = uiState.padding
-                                )
+
+                                if (uiState.isVerticalMode) {
+                                    VerticalModeHeader(
+                                        chapterTitle = currentChapterTitle,
+                                        currentPage = currentPageIndex + 1,
+                                        pageCount = uiState.htmlList.size,
+                                        backgroundColor = finalBackground,
+                                        padding = uiState.padding
+                                    )
+                                }
                             }
                         }
                     }

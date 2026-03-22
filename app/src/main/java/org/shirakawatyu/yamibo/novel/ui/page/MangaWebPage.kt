@@ -68,6 +68,7 @@ import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.Dispatchers
@@ -84,8 +85,8 @@ import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
-import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
+import org.shirakawatyu.yamibo.novel.util.WebViewPool
 
 private val hideCommand = """
     javascript:(function() {
@@ -220,24 +221,16 @@ fun MangaWebPage(
     fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
     val nativeMangaApi = remember { MangaWebNativeJSInterface() }
-
+    var initialLoadTriggered by remember { mutableStateOf(false) }
     val mangaWebView = remember {
-        WebView(context).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        WebViewPool.acquire(context).apply {
             settings.apply {
-                javaScriptEnabled = true
-                useWideViewPort = true
                 loadWithOverviewMode = true
                 setSupportZoom(false)
                 builtInZoomControls = false
                 displayZoomControls = false
                 textZoom = 100
                 domStorageEnabled = true
-                blockNetworkImage = showBlackScreen
             }
             addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
@@ -245,7 +238,7 @@ fun MangaWebPage(
         }
     }
     // 生命周期监听。当从原生阅读器返回此页面时，撤销黑屏掩护
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             // 只有当页面完全结束动画、重新处于前台时，才撤销黑屏状态
@@ -254,13 +247,21 @@ fun MangaWebPage(
                     isWaitingForNativeReturn = false
                 }
                 mangaWebView.onResume()
+                val window = activity?.window
+                if (window != null) {
+                    WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars =
+                        false
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(showBlackScreen) {
-        mangaWebView.settings.blockNetworkImage = showBlackScreen
+        mangaWebView.settings.apply {
+            blockNetworkImage = showBlackScreen
+            loadsImagesAutomatically = !showBlackScreen
+        }
     }
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
@@ -407,6 +408,9 @@ fun MangaWebPage(
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, pageUrl, favicon)
+
+                if (pageUrl == "about:blank") return
+
                 isLoading = true
                 currentUrl = pageUrl
                 canGoBack = view?.canGoBack() ?: false
@@ -436,6 +440,9 @@ fun MangaWebPage(
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 super.onPageFinished(view, finishedUrl)
+
+                if (finishedUrl == "about:blank") return
+
                 isLoading = false
                 currentUrl = finishedUrl
                 if (mangaWebView.url == null) {
@@ -525,7 +532,8 @@ fun MangaWebPage(
             }
         }
 
-        if (mangaWebView.url == null) {
+        if (!initialLoadTriggered) {
+            initialLoadTriggered = true
             startLoading(mangaWebView, finalUrl)
         }
     }
@@ -694,7 +702,6 @@ fun MangaWebPage(
                 .zIndex(1f)
         )
 
-        // 2. 原本的 WebView 容器
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -707,19 +714,19 @@ fun MangaWebPage(
                     mangaWebView
                 },
                 update = {
+                    it.onResume()
+                    it.resumeTimers()
+
                     canGoBack = it.canGoBack()
                     currentUrl = it.url
                 },
-                onRelease = {
+                onRelease = { webView ->
                     timeoutJob?.cancel()
-                    it.apply {
-                        onPause()
-                        stopLoading()
-                        webViewClient = android.webkit.WebViewClient()
-                        setWebChromeClient(null)
-                        (parent as? ViewGroup)?.removeView(this)
-                        destroy()
+                    webView.apply {
+                        removeJavascriptInterface("AndroidFullscreen")
+                        removeJavascriptInterface("NativeMangaApi")
                     }
+                    WebViewPool.release(webView)
                 }
             )
 

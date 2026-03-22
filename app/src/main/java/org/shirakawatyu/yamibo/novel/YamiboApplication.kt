@@ -1,12 +1,22 @@
 package org.shirakawatyu.yamibo.novel
 
 import android.app.Application
+import android.os.Handler
+import android.os.Looper
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import org.shirakawatyu.yamibo.novel.util.WebViewPool
 
 class YamiboApplication : Application(), ImageLoaderFactory {
+    override fun onCreate() {
+        super.onCreate()
+
+        Handler(Looper.getMainLooper()).postDelayed({
+            WebViewPool.init(this)
+        }, 1500)
+    }
 
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
