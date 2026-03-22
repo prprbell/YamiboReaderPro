@@ -120,6 +120,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -291,10 +292,13 @@ fun ReaderPage(
 
         val lifecycleOwner = LocalLifecycleOwner.current
         var isAnimationFinished by remember { mutableStateOf(false) }
+        val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
 
-        LaunchedEffect(Unit) {
-            kotlinx.coroutines.delay(450)
-            isAnimationFinished = true
+        LaunchedEffect(lifecycleState) {
+            if (lifecycleState == Lifecycle.State.RESUMED) {
+                kotlinx.coroutines.delay(50)
+                isAnimationFinished = true
+            }
         }
 
         LaunchedEffect(showSettings, uiState.nightMode, lifecycleOwner.lifecycle.currentState) {
@@ -318,7 +322,7 @@ fun ReaderPage(
                             isFirstEnter = false
                         }
                         windowController.hide(WindowInsetsCompat.Type.systemBars())
-                        kotlinx.coroutines.delay(450)
+                        kotlinx.coroutines.delay(350)
                         window.statusBarColor = android.graphics.Color.BLACK
                         windowController.isAppearanceLightStatusBars = false
                     }
@@ -589,7 +593,7 @@ fun ReaderPage(
                             .padding(top = statusBarHeight)
                     ) {
                         var hasLoaded by remember { mutableStateOf(false) }
-                        if (maxHeight > 0.dp && maxWidth > 0.dp && !hasLoaded) {
+                        if (maxHeight > 0.dp && maxWidth > 0.dp && !hasLoaded && isAnimationFinished) {
                             LaunchedEffect(maxHeight, maxWidth, url) {
                                 readerVM.firstLoad(url, maxHeight, maxWidth)
                                 hasLoaded = true
