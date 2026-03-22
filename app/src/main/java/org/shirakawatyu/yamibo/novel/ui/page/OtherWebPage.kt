@@ -491,7 +491,9 @@ fun OtherWebPage(
             }
         }
 
-        if (otherWebView.url == null || otherWebView.tag == "recycled") {
+        if (otherWebView.url == null || otherWebView.tag?.toString()
+                ?.startsWith("recycled") == true || otherWebView.url == "about:blank"
+        ) {
             otherWebView.tag = null
             FavoriteUtil.getFavoriteMap { map ->
                 val lastSavedPage = map[url]?.lastView ?: 1

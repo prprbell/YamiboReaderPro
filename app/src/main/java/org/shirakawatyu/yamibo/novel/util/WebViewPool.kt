@@ -15,29 +15,49 @@ object WebViewPool {
     fun init(context: Context) {
         if (Looper.myLooper() != Looper.getMainLooper()) return
         while (pool.size < MAX_POOL_SIZE) {
-            pool.add(createWebView(context))
+            val webView = createWebView(context)
+            if (pool.isEmpty()) {
+                webView.tag = "recycled_awake"
+            } else {
+                webView.onPause()
+                webView.tag = "recycled_paused"
+            }
+            pool.add(webView)
         }
     }
 
     fun acquire(context: Context): WebView {
-        return if (pool.isNotEmpty()) {
+        val webView = if (pool.isNotEmpty()) {
+            // 优先取出池子里的第一个
             pool.removeAt(0)
         } else {
             createWebView(context)
         }
+
+        if (pool.isNotEmpty()) {
+            val standbyWebView = pool[0]
+            if (standbyWebView.tag == "recycled_paused" || standbyWebView.tag == "recycled") {
+                standbyWebView.onResume()
+                standbyWebView.resumeTimers()
+                standbyWebView.tag = "recycled_awake"
+            }
+        }
+
+        webView.onResume()
+        webView.resumeTimers()
+
+        return webView
     }
 
-    // WebViewPool.kt
     fun release(webView: WebView) {
         webView.apply {
             stopLoading()
 
             evaluateJavascript("document.open();document.close();", null)
-            tag = "recycled"
 
             clearHistory()
             clearFormData()
-            onPause()
+
             removeAllViews()
             (parent as? ViewGroup)?.removeView(this)
 
@@ -54,7 +74,16 @@ object WebViewPool {
         }
 
         if (pool.size < MAX_POOL_SIZE) {
-            pool.add(webView)
+            if (pool.isEmpty()) {
+                webView.onResume()
+                webView.resumeTimers()
+                webView.tag = "recycled_awake"
+                pool.add(0, webView)
+            } else {
+                webView.onPause()
+                webView.tag = "recycled_paused"
+                pool.add(webView)
+            }
         } else {
             webView.destroy()
         }

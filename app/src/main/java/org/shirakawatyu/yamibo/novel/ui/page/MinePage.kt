@@ -34,11 +34,14 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -381,6 +384,8 @@ fun MinePage(
     LaunchedEffect(mineWebView, isSelected) {
         mineWebView.webViewClient = object : YamiboWebViewClient() {
             var contentImageCount = 0
+            var hasError = false
+
             val checkSectionAndInjectJs = """
                 (function(){
                     var a = document.querySelector('.header h2 a');
@@ -455,6 +460,7 @@ fun MinePage(
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 GlobalData.webProgress.value = 0
+                hasError = false
                 contentImageCount = 0
                 super.onPageStarted(view, url, favicon)
                 currentUrl = url
@@ -530,14 +536,14 @@ fun MinePage(
                 super.onPageCommitVisible(view, url)
 
                 pageTitle = view?.title ?: ""
-                if (view != null && view.progress > 10 && isLoading) {
+                if (!hasError && view != null && view.progress > 10 && isLoading) {
                     timeoutJob?.cancel()
                     retryCount = 0
                     isLoading = false
                     showLoadError = false
                 }
                 // 页面内容已可见，立即停止加载圈
-                if (isLoading) {
+                if (!hasError && isLoading) {
                     timeoutJob?.cancel()
                     retryCount = 0
                     isLoading = false
@@ -553,7 +559,9 @@ fun MinePage(
                 timeoutJob?.cancel()
                 retryCount = 0
                 isLoading = false
-                showLoadError = false
+                if (!hasError) {
+                    showLoadError = false
+                }
                 super.onPageFinished(view, url)
                 currentUrl = url
                 if (url != null && url.startsWith("https://bbs.yamibo.com/home.php?mod=space&do=profile")) {
@@ -586,10 +594,27 @@ fun MinePage(
                 retryCount = 0
                 super.onReceivedError(view, request, error)
                 if (request?.isForMainFrame == true) {
+                    hasError = true // 【新增】：标记加载失败
                     isLoading = false
                     if (retryCount == 0) {
                         showLoadError = true
                     }
+                }
+            }
+
+            override fun onReceivedError(
+                view: WebView?,
+                errorCode: Int,
+                description: String?,
+                failingUrl: String?
+            ) {
+                timeoutJob?.cancel()
+                retryCount = 0
+                super.onReceivedError(view, errorCode, description, failingUrl)
+                hasError = true
+                isLoading = false
+                if (retryCount == 0) {
+                    showLoadError = true
                 }
             }
 
@@ -603,6 +628,7 @@ fun MinePage(
                 retryCount = 0
                 super.onReceivedHttpError(view, request, errorResponse)
                 if (request?.isForMainFrame == true) {
+                    hasError = true
                     isLoading = false
                     if (retryCount == 0) {
                         showLoadError = true
@@ -611,8 +637,10 @@ fun MinePage(
             }
         }
 
-        if (isSelected && (mineWebView.url == null || mineWebView.tag == "recycled" || mineWebView.url == "about:blank")) {
-            mineWebView.tag = null
+        if (isSelected && (mineWebView.url == null || mineWebView.tag?.toString()
+                ?.startsWith("recycled") == true || mineWebView.url == "about:blank")
+        ) {
+            mineWebView.tag = null // 页面消费完 tag 后将其清空
             // 从漫画返回
             if (savedMangaUrl != null) {
                 startLoading(mineWebView, savedMangaUrl!!)
@@ -855,10 +883,12 @@ fun MinePage(
                     .padding(bottom = 150.dp)
             )
 
+            // 【修改】：优化报错页面UI并增加原地刷新逻辑
             if (showLoadError) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background) // 不透明底色，遮住可能残留的内容
                         .padding(horizontal = 32.dp),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -871,22 +901,36 @@ fun MinePage(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        "页面加载失败",
+                        "网页无法打开",
                         fontSize = 18.sp,
-                        color = Color.DarkGray
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "请尝试切换至其他界面再切换回来，或重启应用。",
+                        "网络连接中断或页面加载失败，请检查网络后刷新",
                         fontSize = 14.sp,
                         color = Color.Gray,
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(onClick = {
-                        startLoading(mineWebView, mineWebView.url ?: mineUrl)
+                        isLoading = true
+                        showLoadError = false
+                        val currentWebViewUrl = mineWebView.url
+                        // 优先尝试原地刷新，失败则回退初始页
+                        if (!currentWebViewUrl.isNullOrEmpty() && currentWebViewUrl != "about:blank") {
+                            mineWebView.reload()
+                        } else {
+                            startLoading(mineWebView, mineUrl)
+                        }
                     }) {
-                        Text("重试")
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "刷新",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("刷新页面")
                     }
                 }
             }
@@ -918,4 +962,3 @@ fun MinePage(
         }
     }
 }
-

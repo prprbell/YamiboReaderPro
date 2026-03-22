@@ -8,7 +8,6 @@ import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
-import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -30,11 +29,14 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -550,6 +552,7 @@ fun BBSPage(
 
         webView.webViewClient = object : YamiboWebViewClient() {
             var contentImageCount = 0
+            var hasError = false
             val checkSectionAndInjectJs = """
                 (function(){
                     var a = document.querySelector('.header h2 a');
@@ -624,6 +627,7 @@ fun BBSPage(
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 GlobalData.webProgress.value = 0
                 contentImageCount = 0
+                hasError = false
                 super.onPageStarted(view, url, favicon)
                 currentUrl = url
                 canGoBack = view?.canGoBack() ?: false
@@ -690,7 +694,7 @@ fun BBSPage(
 
                 pageTitle = view?.title ?: ""
 
-                if (isLoading) {
+                if (!hasError && isLoading) {
                     timeoutJob?.cancel()
                     retryCount = 0
                     isLoading = false
@@ -705,7 +709,9 @@ fun BBSPage(
                 timeoutJob?.cancel()
                 retryCount = 0
                 isLoading = false
-                showLoadError = false
+                if (!hasError) {
+                    showLoadError = false
+                }
                 super.onPageFinished(view, url)
                 canGoBack = view?.canGoBack() ?: false
                 if (view != null && url != null) {
@@ -736,20 +742,21 @@ fun BBSPage(
                 }
             }
 
+            @Deprecated("Deprecated in Java")
             override fun onReceivedError(
                 view: WebView?,
-                request: WebResourceRequest?,
-                error: WebResourceError?
+                errorCode: Int,
+                description: String?,
+                failingUrl: String?
             ) {
                 timeoutJob?.cancel()
                 retryCount = 0
-                super.onReceivedError(view, request, error)
-                if (request?.isForMainFrame == true) {
-                    isLoading = false
-                    if (retryCount == 0) {
-                        showLoadError = true
-                        BBSPageState.hasSuccessfullyLoaded = false
-                    }
+                super.onReceivedError(view, errorCode, description, failingUrl)
+                hasError = true
+                isLoading = false
+                if (retryCount == 0) {
+                    showLoadError = true
+                    BBSPageState.hasSuccessfullyLoaded = false
                 }
             }
 
@@ -762,6 +769,7 @@ fun BBSPage(
                 retryCount = 0
                 super.onReceivedHttpError(view, request, errorResponse)
                 if (request?.isForMainFrame == true) {
+                    hasError = true
                     isLoading = false
                     if (retryCount == 0) {
                         showLoadError = true
@@ -861,6 +869,7 @@ fun BBSPage(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
                         .padding(horizontal = 32.dp),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -873,22 +882,37 @@ fun BBSPage(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        "页面加载失败",
+                        "网页无法打开", // 模仿系统标题，但做得更美观
                         fontSize = 18.sp,
-                        color = Color.DarkGray
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "请尝试切换至其他界面再切换回来，或重启应用。",
+                        "网络连接中断或页面加载失败，请检查网络后刷新",
                         fontSize = 14.sp,
                         color = Color.Gray,
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(onClick = {
-                        startLoading(webView.url ?: indexUrl)
+                        // 【优化刷新逻辑】：不再盲目回退到首页
+                        isLoading = true
+                        showLoadError = false
+                        val currentUrl = webView.url
+                        // 如果有残留的有效地址，优先原地刷新
+                        if (!currentUrl.isNullOrEmpty() && currentUrl != "about:blank") {
+                            webView.reload()
+                        } else {
+                            startLoading(indexUrl)
+                        }
                     }) {
-                        Text("重试")
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "刷新",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("刷新页面")
                     }
                 }
             }
