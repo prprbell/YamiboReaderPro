@@ -8,8 +8,8 @@ import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.core.EaseIn
 import androidx.compose.animation.core.EaseOut
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -21,7 +21,6 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -105,6 +104,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -123,6 +123,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import kotlinx.coroutines.android.awaitFrame
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.R
@@ -251,12 +253,11 @@ fun ReaderPage(
             remember { androidx.compose.animation.Animatable(Color.Transparent) }
 
         LaunchedEffect(targetStatusBarColor) {
+            delay(400)
+
             statusBarContentColor.animateTo(
                 targetValue = targetStatusBarColor,
-                animationSpec = tween(
-                    durationMillis = 800,
-                    easing = EaseIn
-                )
+                animationSpec = tween(durationMillis = 500, easing = LinearOutSlowInEasing)
             )
         }
         val pagerState = rememberPagerState(pageCount = { uiState.htmlList.size })
@@ -268,18 +269,6 @@ fun ReaderPage(
             remember { tween<Float>(durationMillis = 432, easing = EaseOut) }
         val focusRequester = remember { FocusRequester() }
 
-        LaunchedEffect(showSettings) {
-            if (!showSettings) {
-                view?.isFocusableInTouchMode = true
-                view?.requestFocus()
-                kotlinx.coroutines.delay(50)
-                try {
-                    focusRequester.requestFocus()
-                } catch (e: Exception) {
-                    // 忽略焦点请求失败
-                }
-            }
-        }
         LaunchedEffect(uiState.showChapterDrawer) {
             if (uiState.showChapterDrawer) drawerState.open() else drawerState.close()
         }
@@ -293,12 +282,6 @@ fun ReaderPage(
         val lifecycleOwner = LocalLifecycleOwner.current
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
         val isAnimationFinished = lifecycleState == Lifecycle.State.RESUMED
-        var allowRender by remember { mutableStateOf(false) }
-        LaunchedEffect(isAnimationFinished) {
-            if (isAnimationFinished) {
-                allowRender = true
-            }
-        }
 
         val hasRealContent = remember(uiState.htmlList) {
             uiState.htmlList.size > 1 || uiState.htmlList.any { it.chapterTitle != "footer" }
@@ -321,11 +304,11 @@ fun ReaderPage(
                         isFullScreen = true
 
                         if (isFirstEnter) {
-                            kotlinx.coroutines.delay(100)
+                            delay(100)
                             isFirstEnter = false
                         }
                         windowController.hide(WindowInsetsCompat.Type.systemBars())
-                        kotlinx.coroutines.delay(450)
+                        delay(300)
                         window.statusBarColor = android.graphics.Color.BLACK
                         windowController.isAppearanceLightStatusBars = false
                     }
@@ -462,6 +445,14 @@ fun ReaderPage(
                     Triple(uiState.fontSize, uiState.lineHeight, uiState.padding),
                     uiState.backgroundColor
                 )
+            } else {
+                view?.isFocusableInTouchMode = true
+                view?.requestFocus()
+                awaitFrame()
+                try {
+                    focusRequester.requestFocus()
+                } catch (e: Exception) {
+                }
             }
         }
 
@@ -569,15 +560,16 @@ fun ReaderPage(
             ) {
                 // 内容层
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
+                    modifier = Modifier.fillMaxSize()
                 ) {
+                    var allowRender by remember { mutableStateOf(false) }
                     var isWebViewReady by remember { mutableStateOf(false) }
 
                     LaunchedEffect(isAnimationFinished) {
                         if (isAnimationFinished) {
-                            kotlinx.coroutines.android.awaitFrame()
-                            kotlinx.coroutines.delay(100)
+                            allowRender = true
+                            awaitFrame()
+                            awaitFrame()
                             isWebViewReady = true
                         }
                     }
@@ -587,29 +579,40 @@ fun ReaderPage(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .offset(x = (-10000).dp)
+                                .graphicsLayer {
+                                    alpha = 0.01f
+                                }
                         ) {
                             PassageWebView(
                                 url = uiState.urlToLoad,
-                                loadImages = uiState.loadImages
+                                loadImages = uiState.loadImages,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .offset(x = (-10000).dp)
+                                    .graphicsLayer { alpha = 0.01f }
                             ) { success, html, loadedUrl, maxPage, title ->
                                 readerVM.loadFinished(success, html, loadedUrl, maxPage, title)
                             }
                         }
                     }
 
-                    BoxWithConstraints(
+                    var hasTriggeredLoad by remember(url) { mutableStateOf(false) }
+
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(top = statusBarHeight)
-                    ) {
-                        var hasTriggeredLoad by remember { mutableStateOf(false) }
-                        if (maxHeight > 0.dp && maxWidth > 0.dp && !hasTriggeredLoad) {
-                            LaunchedEffect(maxHeight, maxWidth, url) {
-                                readerVM.firstLoad(url, maxHeight, maxWidth)
-                                hasTriggeredLoad = true
-                            }
-                        }
+                            .onSizeChanged { size ->
+                                if (!hasTriggeredLoad && size.height > 0 && size.width > 0) {
+                                    val heightDp = with(density) { size.height.toDp() }
+                                    val widthDp = with(density) { size.width.toDp() }
 
+                                    readerVM.firstLoad(url, heightDp, widthDp)
+                                    hasTriggeredLoad = true
+                                }
+                            }
+                    ) {
+                        // --- 内部状态渲染 ---
                         if (uiState.isError) {
                             Column(
                                 modifier = Modifier
@@ -667,9 +670,7 @@ fun ReaderPage(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .graphicsLayer {
-                                            alpha = contentAlpha
-                                        }
+                                        .graphicsLayer { alpha = contentAlpha }
                                 ) {
                                     if (uiState.isVerticalMode) {
                                         LazyColumn(
