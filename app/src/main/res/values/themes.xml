@@ -7,6 +7,11 @@
         <item name="android:windowSplashScreenBackground" tools:targetApi="s">
             @color/splash_background
         </item>
+
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">
+            @mipmap/ic_launcher
+        </item>
+
     </style>
 
 </resources>
