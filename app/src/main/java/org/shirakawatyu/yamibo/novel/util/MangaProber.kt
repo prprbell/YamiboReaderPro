@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import kotlinx.coroutines.delay
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
@@ -32,6 +34,9 @@ class MangaProber {
         onFallback: () -> Unit
     ) {
         val webView = WebViewPool.acquire(context)
+        webView.onResume()
+        webView.resumeTimers()
+
         var isFinished = false
 
         val cleanupAndFinish = {
@@ -156,11 +161,10 @@ class MangaProber {
                     }
                 }
 
-                // 新增：兼容较新 Android API 的失败拦截
                 override fun onReceivedError(
                     view: WebView?,
-                    request: android.webkit.WebResourceRequest?,
-                    error: android.webkit.WebResourceError?
+                    request: WebResourceRequest?,
+                    error: WebResourceError?
                 ) {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame == true && !isFinished) {
