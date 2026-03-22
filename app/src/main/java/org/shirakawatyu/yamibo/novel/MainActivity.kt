@@ -18,8 +18,8 @@ import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -33,7 +33,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -46,7 +45,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toDrawable
@@ -248,10 +246,10 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
             if (isAppInitialized) {
                 Box(contentAlignment = Alignment.TopCenter) {
                     val navController = rememberNavController()
-                    val enterEasing = LinearOutSlowInEasing
-                    val exitEasing = FastOutSlowInEasing
-                    val enterDuration = 500
-                    val exitDuration = 600
+                    val enterEasing = CubicBezierEasing(0.4f, 0.0f, 0.2f, 1.0f)
+                    val exitEasing = CubicBezierEasing(0.4f, 0.0f, 1.0f, 1.0f)
+                    val enterDuration = 400
+                    val exitDuration = 350
                     val stateOwner = LocalViewModelStoreOwner.current
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val currentRoute = navBackStackEntry?.destination?.route
@@ -445,12 +443,6 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .clip(
-                                                RoundedCornerShape(
-                                                    topStart = 32.dp,
-                                                    bottomStart = 32.dp
-                                                )
-                                            )
                                     ) {
                                         ReaderPage(
                                             url = URLDecoder.decode(url, "utf-8"),

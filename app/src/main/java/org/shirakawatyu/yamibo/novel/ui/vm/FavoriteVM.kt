@@ -49,6 +49,9 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     // 等待队列：保存正在倒计时的那个任务
     private var pendingSyncJob: kotlinx.coroutines.Job? = null
 
+    private var lastNavigateTime = 0L
+    private val SMART_SYNC_TIMEOUT = 60 * 1000L
+
     enum class RefreshStrategy {
         FULL,   // 全量刷新
         SMART,  // 增量刷新
@@ -342,21 +345,43 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
     fun clickHandler(favorite: Favorite, navController: NavController) {
         val urlEncoded = URLEncoder.encode(favorite.url, "utf-8")
-
+        lastNavigateTime = System.currentTimeMillis()
         nextResumeStrategy = RefreshStrategy.SMART
 
         when (favorite.type) {
-            1 -> navController.navigate("ReaderPage/$urlEncoded")
+            1 -> {
+                nextResumeStrategy = RefreshStrategy.SKIP // 看小说，默认不刷新
+                navController.navigate("ReaderPage/$urlEncoded")
+            }
+
             2 -> {
+                nextResumeStrategy = RefreshStrategy.SKIP // 看漫画，默认不刷新
                 val targetUrl = favorite.lastMangaUrl ?: favorite.url
                 val encodedTarget = URLEncoder.encode(targetUrl, "utf-8")
                 val encodedOriginal = URLEncoder.encode(favorite.url, "utf-8")
                 navController.navigate("MangaWebPage/$encodedTarget/$encodedOriginal?fastForward=false&initialPage=${favorite.lastPage}")
             }
 
-            3 -> navController.navigate("OtherWebPage/$urlEncoded")
-            else -> navController.navigate("ProbingPage/$urlEncoded")
+            3 -> {
+                nextResumeStrategy = RefreshStrategy.SMART // 直接去网页版，可能去其他页面点收藏，保持SMART
+                navController.navigate("OtherWebPage/$urlEncoded")
+            }
+
+            else -> {
+                nextResumeStrategy = RefreshStrategy.SMART
+                navController.navigate("ProbingPage/$urlEncoded")
+            }
         }
+    }
+
+    fun getEffectiveResumeStrategy(): RefreshStrategy {
+        if (nextResumeStrategy == RefreshStrategy.SKIP) {
+            val elapsed = System.currentTimeMillis() - lastNavigateTime
+            if (elapsed > SMART_SYNC_TIMEOUT) {
+                return RefreshStrategy.SMART
+            }
+        }
+        return nextResumeStrategy
     }
 
     fun updateMangaProgress(

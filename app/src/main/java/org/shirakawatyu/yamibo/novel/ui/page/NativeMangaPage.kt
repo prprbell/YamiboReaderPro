@@ -230,6 +230,7 @@ fun NativeMangaPage(
 
     val returnToOriginalPost = {
         isExiting = true
+        favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.SMART
         val window = activity?.window
         if (window != null) {
             WindowCompat.getInsetsController(window, view).apply {
@@ -278,7 +279,8 @@ fun NativeMangaPage(
                     }
 
                     window.statusBarColor = android.graphics.Color.TRANSPARENT
-                    controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    controller.systemBarsBehavior =
+                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                     controller.hide(WindowInsetsCompat.Type.systemBars())
 
                     delay(300)

@@ -136,11 +136,11 @@ fun FavoritePage(
             if (event == Lifecycle.Event.ON_RESUME) {
 
                 coroutineScope.launch {
-                    kotlinx.coroutines.delay(300)
+                    kotlinx.coroutines.delay(350)
 
-                    when (favoriteVM.nextResumeStrategy) {
+                    when (favoriteVM.getEffectiveResumeStrategy()) {
                         FavoriteVM.RefreshStrategy.SKIP -> {
-                            // 什么都不做
+                            // 不到10分钟且没去网页，直接跳过！
                         }
 
                         FavoriteVM.RefreshStrategy.SMART -> {
@@ -151,6 +151,7 @@ fun FavoritePage(
                             favoriteVM.refreshList(showLoading = false, isSmartSync = false)
                         }
                     }
+                    // 重置回FULL防御后续异常跳转
                     favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.FULL
                     favoriteVM.getCacheInfo { info -> cacheInfoMap = info }
                 }
