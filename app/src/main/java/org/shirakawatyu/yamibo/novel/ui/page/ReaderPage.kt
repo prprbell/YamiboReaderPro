@@ -236,6 +236,10 @@ fun ReaderPage(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
             onDispose {
+                window.statusBarColor = originalStatusBarColor.value
+                windowController.systemBarsBehavior = originalBehavior.value
+                windowController.isAppearanceLightStatusBars = originalLightStatusBars.value
+                windowController.show(WindowInsetsCompat.Type.systemBars())
             }
         }
     }
@@ -287,39 +291,28 @@ fun ReaderPage(
             uiState.htmlList.size > 1 || uiState.htmlList.any { it.chapterTitle != "footer" }
         }
 
-        LaunchedEffect(showSettings, uiState.nightMode, lifecycleOwner.lifecycle.currentState) {
+        LaunchedEffect(showSettings, uiState.nightMode) {
             if (isExiting) return@LaunchedEffect
 
             val windowController = window?.let { WindowCompat.getInsetsController(it, view!!) }
             if (windowController != null) {
-                // 判断当前页面是否处于活跃状态
-                if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                    if (showSettings) {
-                        isFullScreen = false
-                        windowController.show(WindowInsetsCompat.Type.systemBars())
-                        window.statusBarColor = android.graphics.Color.BLACK
-                        windowController.isAppearanceLightStatusBars = false
-                        isFirstEnter = false
-                    } else {
-                        isFullScreen = true
-
-                        if (isFirstEnter) {
-                            delay(100)
-                            isFirstEnter = false
-                        }
-                        windowController.hide(WindowInsetsCompat.Type.systemBars())
-                        delay(300)
-                        window.statusBarColor = android.graphics.Color.BLACK
-                        windowController.isAppearanceLightStatusBars = false
-                    }
+                if (showSettings) {
+                    isFullScreen = false
+                    windowController.show(WindowInsetsCompat.Type.systemBars())
+                    window.statusBarColor = android.graphics.Color.BLACK
+                    windowController.isAppearanceLightStatusBars = false
+                    isFirstEnter = false
                 } else {
-                    if (!hasRestoredSystemUi.value) {
-                        hasRestoredSystemUi.value = true
-                        windowController.systemBarsBehavior = originalBehavior.value
-                        window.statusBarColor = android.graphics.Color.TRANSPARENT
-                        windowController.isAppearanceLightStatusBars = originalLightStatusBars.value
-                        windowController.show(WindowInsetsCompat.Type.systemBars())
+                    isFullScreen = true
+
+                    if (isFirstEnter) {
+                        delay(100)
+                        isFirstEnter = false
                     }
+                    windowController.hide(WindowInsetsCompat.Type.systemBars())
+                    delay(300)
+                    window.statusBarColor = android.graphics.Color.BLACK
+                    windowController.isAppearanceLightStatusBars = false
                 }
             }
         }
