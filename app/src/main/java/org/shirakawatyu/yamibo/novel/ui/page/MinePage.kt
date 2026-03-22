@@ -454,6 +454,7 @@ fun MinePage(
 
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                GlobalData.webProgress.value = 0
                 contentImageCount = 0
                 super.onPageStarted(view, url, favicon)
                 currentUrl = url

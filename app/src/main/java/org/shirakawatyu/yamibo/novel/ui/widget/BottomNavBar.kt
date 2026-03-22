@@ -70,7 +70,7 @@ fun BottomNavBar(
 
         // 全局进度条
         AnimatedVisibility(
-            visible = webProgress in 1..99 && (currentRoute == "BBSPage" || currentRoute == "MinePage"),
+            visible = webProgress in 0..99 && (currentRoute == "BBSPage" || currentRoute == "MinePage"),
             enter = fadeIn(tween(200)) + expandVertically(
                 expandFrom = Alignment.Top,
                 animationSpec = tween(200)
@@ -81,6 +81,12 @@ fun BottomNavBar(
             ),
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
+            val animatedProgress by animateFloatAsState(
+                targetValue = webProgress.toFloat() / 100f,
+                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                label = "WebProgressAnimation"
+            )
+
             LinearProgressIndicator(
                 progress = { animatedProgress },
                 modifier = Modifier
