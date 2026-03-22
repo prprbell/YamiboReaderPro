@@ -170,7 +170,6 @@ fun NativeMangaPage(
         }
     }
     val previousRoute = navController.previousBackStackEntry?.destination?.route
-
     val navigateToChapter = { targetUrl: String ->
         showUi = false
         showChapterList = false
@@ -215,7 +214,6 @@ fun NativeMangaPage(
         if (window != null) {
             WindowCompat.getInsetsController(window, view).apply {
                 show(WindowInsetsCompat.Type.systemBars())
-                isAppearanceLightStatusBars = true
             }
         }
         bottomNavBarVM.setBottomNavBarVisibility(true)
@@ -235,7 +233,6 @@ fun NativeMangaPage(
         if (window != null) {
             WindowCompat.getInsetsController(window, view).apply {
                 show(WindowInsetsCompat.Type.systemBars())
-                isAppearanceLightStatusBars = true
             }
         }
         bottomNavBarVM.setBottomNavBarVisibility(true)
@@ -247,7 +244,7 @@ fun NativeMangaPage(
         } else {
             val encodedChapterUrl = URLEncoder.encode(url, "utf-8")
             val encodedOriginalUrl = URLEncoder.encode(originalUrl, "utf-8")
-            navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
+            navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=true&initialPage=0") {
                 navController.currentDestination?.id?.let { currentId ->
                     popUpTo(currentId) { inclusive = true }
                 }
@@ -317,7 +314,6 @@ fun NativeMangaPage(
             if (win != null) {
                 val ctrl = WindowCompat.getInsetsController(win, view)
                 ctrl.show(WindowInsetsCompat.Type.systemBars())
-                ctrl.isAppearanceLightStatusBars = true
             }
             bottomNavBarVM.setBottomNavBarVisibility(true)
         }

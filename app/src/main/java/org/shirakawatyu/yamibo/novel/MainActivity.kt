@@ -300,6 +300,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                                 easing = enterEasing
                                             )
                                         )
+                                    } else if (targetState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                        ExitTransition.None
                                     } else if (targetState.destination.route in topLevelRoutes) {
                                         ExitTransition.None
                                     } else {

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -79,6 +80,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
+import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 
@@ -144,6 +146,7 @@ fun MinePage(
     val bbsUrl = "https://bbs.yamibo.com/?mobile=2"
     val baseBbsUrl = "https://bbs.yamibo.com/"      // 根URL
     val indexUrl = "https://bbs.yamibo.com/forum.php" // 论坛主页
+    var globalMineWebState: Bundle? = null
 
     var canGoBack by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
@@ -224,21 +227,17 @@ fun MinePage(
     val nativeMangaApi = remember { NativeMangaMineJSInterface() }
 
     val mineWebView = remember {
-        WebView(context).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        WebViewPool.acquire(context).apply {
             settings.apply {
-                javaScriptEnabled = true
-                useWideViewPort = true
                 loadWithOverviewMode = true
                 setSupportZoom(false)
                 builtInZoomControls = false
                 displayZoomControls = false
                 textZoom = 100
                 domStorageEnabled = true
+
+                loadsImagesAutomatically = true
+                blockNetworkImage = false
             }
             addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
@@ -605,7 +604,8 @@ fun MinePage(
             }
         }
 
-        if (isSelected && mineWebView.url == null) {
+        if (isSelected && (mineWebView.url == null || mineWebView.tag == "recycled" || mineWebView.url == "about:blank")) {
+            mineWebView.tag = null
             // 从漫画返回
             if (savedMangaUrl != null) {
                 startLoading(mineWebView, savedMangaUrl!!)
@@ -817,24 +817,19 @@ fun MinePage(
                 )
         ) {
             AndroidView(
-                factory = {
+                factory = { _ ->
+                    (mineWebView.parent as? ViewGroup)?.removeView(mineWebView)
                     mineWebView
                 },
-                update = {
-                    canGoBack = it.canGoBack()
-                    currentUrl = it.url
-                    pageTitle = it.title ?: ""
+                update = { webView ->
+                    canGoBack = webView.canGoBack()
+                    currentUrl = webView.url
+                    pageTitle = webView.title ?: ""
                 },
-                onRelease = {
+                onRelease = { webView ->
                     timeoutJob?.cancel()
-                    it.apply {
-                        onPause()
-                        stopLoading()
-                        webViewClient = android.webkit.WebViewClient()
-                        setWebChromeClient(null)
-                        (parent as? ViewGroup)?.removeView(this)
-                        destroy()
-                    }
+                    (webView.parent as? ViewGroup)?.removeView(webView)
+                    WebViewPool.release(webView)
                 }
             )
             ReaderModeFAB(

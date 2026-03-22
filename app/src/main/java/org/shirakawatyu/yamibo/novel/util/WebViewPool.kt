@@ -10,22 +10,15 @@ import android.webkit.WebViewClient
 object WebViewPool {
     private val pool = mutableListOf<WebView>()
 
-    // 保留1个实例足够应付阅读页的进入了
-    private const val MAX_POOL_SIZE = 1
+    private const val MAX_POOL_SIZE = 2
 
-    /**
-     * 初始化预加载，放在主线程空闲时执行
-     */
     fun init(context: Context) {
         if (Looper.myLooper() != Looper.getMainLooper()) return
-        if (pool.isEmpty()) {
+        while (pool.size < MAX_POOL_SIZE) {
             pool.add(createWebView(context))
         }
     }
 
-    /**
-     * 获取 WebView
-     */
     fun acquire(context: Context): WebView {
         return if (pool.isNotEmpty()) {
             pool.removeAt(0)
@@ -34,20 +27,24 @@ object WebViewPool {
         }
     }
 
-    /**
-     * 归还 WebView：清理页面痕迹，防止内存泄漏和数据串号
-     */
+    // WebViewPool.kt
     fun release(webView: WebView) {
         webView.apply {
             stopLoading()
-            loadUrl("about:blank")
+
+            evaluateJavascript("document.open();document.close();", null)
+            tag = "recycled"
+
             clearHistory()
             clearFormData()
             onPause()
             removeAllViews()
             (parent as? ViewGroup)?.removeView(this)
 
-            // 剥离业务相关的 Client
+            removeJavascriptInterface("ProberApi")
+            removeJavascriptInterface("AndroidFullscreen")
+            removeJavascriptInterface("NativeMangaApi")
+
             webViewClient = WebViewClient()
             webChromeClient = null
             settings.apply {
@@ -59,14 +56,10 @@ object WebViewPool {
         if (pool.size < MAX_POOL_SIZE) {
             pool.add(webView)
         } else {
-            // 池子满了，直接销毁
             webView.destroy()
         }
     }
 
-    /**
-     * 创建干净的基础 WebView，使用 ApplicationContext
-     */
     private fun createWebView(context: Context): WebView {
         return WebView(context.applicationContext).apply {
             layoutParams = ViewGroup.LayoutParams(

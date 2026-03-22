@@ -1,10 +1,11 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -70,15 +71,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -95,9 +97,11 @@ import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
+import org.shirakawatyu.yamibo.novel.util.MangaProber
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -128,7 +132,10 @@ fun FavoritePage(
     var showBookmarkManagement by remember { mutableStateOf(false) }
     var showDirectoryManagement by remember { mutableStateOf(false) }
     var directoryList by remember { mutableStateOf<List<MangaDirectory>>(emptyList()) }
-
+    val context = LocalContext.current
+    val bottomNavBarVM: BottomNavBarVM =
+        viewModel(viewModelStoreOwner = context as ComponentActivity)
+    var probingUrl by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -222,7 +229,6 @@ fun FavoritePage(
     if (statusBarsPadding.value > lockedStatusHeightValue) lockedStatusHeightValue =
         statusBarsPadding.value
     val lockedStatusHeight = lockedStatusHeightValue.dp
-
     Column(
         modifier = Modifier
             .padding(bottom = lockedNavHeight + 50.dp) // 使用锁死的底部高度
@@ -511,7 +517,48 @@ fun FavoritePage(
                                 if (isInManageMode) {
                                     favoriteVM.toggleItemSelection(item.url)
                                 } else {
-                                    favoriteVM.clickHandler(item, navController)
+                                    val encodedUrl = java.net.URLEncoder.encode(item.url, "utf-8")
+
+                                    when (item.type) {
+                                        0 -> {
+                                            navController.navigate("ProbingPage/$encodedUrl")
+                                        }
+
+                                        1 -> {
+                                            navController.navigate("ReaderPage/$encodedUrl")
+                                        }
+
+                                        3 -> {
+                                            navController.navigate("OtherWebPage/$encodedUrl")
+                                        }
+
+                                        else -> {
+                                            probingUrl = item.url
+                                            coroutineScope.launch {
+                                                MangaProber().probeUrl(
+                                                    context = context,
+                                                    url = item.url,
+                                                    onSuccess = { urls, title, html ->
+                                                        GlobalData.tempMangaUrls = urls
+                                                        GlobalData.tempHtml = html
+                                                        GlobalData.tempTitle = title
+                                                        GlobalData.tempMangaIndex = 0
+
+                                                        navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedUrl")
+
+                                                        coroutineScope.launch {
+                                                            kotlinx.coroutines.delay(300); probingUrl =
+                                                            null
+                                                        }
+                                                    },
+                                                    onFallback = {
+                                                        navController.navigate("MangaWebPage/$encodedUrl/$encodedUrl?fastForward=false")
+                                                        probingUrl = null
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             },
                             modifier = Modifier
@@ -648,6 +695,35 @@ fun FavoritePage(
             )
         }
     }
+    // 监听探测状态，隐藏底部导航栏，让黑屏真正全屏
+    LaunchedEffect(probingUrl) {
+        if (probingUrl != null) {
+            bottomNavBarVM.setBottomNavBarVisibility(false)
+        } else {
+            bottomNavBarVM.setBottomNavBarVisibility(true)
+        }
+    }
+
+    // 完美复刻的黑屏加载动画
+    androidx.compose.animation.AnimatedVisibility(
+        visible = probingUrl != null,
+        enter = androidx.compose.animation.fadeIn(tween(0)), // 瞬间变黑
+        exit = androidx.compose.animation.fadeOut(tween(150)),
+        modifier = Modifier.zIndex(100f) // 确保在最顶层
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                // 拦截一切手势，防止用户在黑屏期间乱点
+                .pointerInput(Unit) { detectTapGestures { } }
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color = Color.White
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalCoilApi::class)
@@ -663,10 +739,10 @@ fun CacheManagementDialog(
 
     // 用于图片缓存管理的上下文和协程
     val context = LocalContext.current
+
     val coroutineScope = rememberCoroutineScope()
     var imageCacheSize by remember { mutableLongStateOf(0L) }
-    val contextR = LocalContext.current as? Activity
-    val view = LocalView.current
+
     // 获取Coil图片磁盘缓存的大小
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
