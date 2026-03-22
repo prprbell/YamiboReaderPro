@@ -4,5 +4,5 @@
 
     <item
         android:gravity="center"
-        android:drawable="@mipmap/ic_launcher" />
+        android:drawable="@mipmap/ic_launcher_foreground" />
 </layer-list>
