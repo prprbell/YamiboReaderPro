@@ -1,6 +1,7 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -89,6 +90,7 @@ import androidx.navigation.NavController
 import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.R
@@ -136,6 +138,12 @@ fun FavoritePage(
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
     var probingUrl by remember { mutableStateOf<String?>(null) }
+    var probingJob by remember { mutableStateOf<Job?>(null) }
+    BackHandler(enabled = probingUrl != null) {
+        probingJob?.cancel()
+        probingJob = null
+        probingUrl = null
+    }
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -534,7 +542,7 @@ fun FavoritePage(
 
                                         else -> {
                                             probingUrl = item.url
-                                            coroutineScope.launch {
+                                            probingJob = coroutineScope.launch {
                                                 MangaProber().probeUrl(
                                                     context = context,
                                                     url = item.url,
@@ -547,13 +555,15 @@ fun FavoritePage(
                                                         navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedUrl")
 
                                                         coroutineScope.launch {
-                                                            kotlinx.coroutines.delay(300); probingUrl =
-                                                            null
+                                                            kotlinx.coroutines.delay(300)
+                                                            probingUrl = null
+                                                            probingJob = null
                                                         }
                                                     },
                                                     onFallback = {
                                                         navController.navigate("MangaWebPage/$encodedUrl/$encodedUrl?fastForward=false")
                                                         probingUrl = null
+                                                        probingJob = null // 清理 Job
                                                     }
                                                 )
                                             }

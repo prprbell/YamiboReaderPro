@@ -42,31 +42,31 @@ class MangaProber {
                 WebViewPool.release(webView)
             }
         }
-
-        webView.addJavascriptInterface(
-            ProberJSInterface(
-                onSuccess = { urlsJoined, title, html ->
-                    if (!isFinished) {
-                        val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
-                        cleanupAndFinish()
-                        onSuccess(urls, title, html)
+        try {
+            webView.addJavascriptInterface(
+                ProberJSInterface(
+                    onSuccess = { urlsJoined, title, html ->
+                        if (!isFinished) {
+                            val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+                            cleanupAndFinish()
+                            onSuccess(urls, title, html)
+                        }
+                    },
+                    onFail = {
+                        if (!isFinished) {
+                            cleanupAndFinish()
+                            onFallback()
+                        }
                     }
-                },
-                onFail = {
-                    if (!isFinished) {
-                        cleanupAndFinish()
-                        onFallback()
-                    }
-                }
-            ), "ProberApi"
-        )
+                ), "ProberApi"
+            )
 
-        webView.webViewClient = object : YamiboWebViewClient() {
-            override fun onPageFinished(view: WebView?, finishedUrl: String?) {
-                super.onPageFinished(view, finishedUrl)
-                if (finishedUrl == "about:blank") return
+            webView.webViewClient = object : YamiboWebViewClient() {
+                override fun onPageFinished(view: WebView?, finishedUrl: String?) {
+                    super.onPageFinished(view, finishedUrl)
+                    if (finishedUrl == "about:blank") return
 
-                val extractJs = """
+                    val extractJs = """
                     (function() {
                         if (window.proberStarted) return;
                         window.proberStarted = true;
@@ -140,17 +140,47 @@ class MangaProber {
                     })();
                 """.trimIndent()
 
-                view?.evaluateJavascript(extractJs, null)
+                    view?.evaluateJavascript(extractJs, null)
+                }
+
+                override fun onReceivedError(
+                    view: WebView?,
+                    errorCode: Int,
+                    description: String?,
+                    failingUrl: String?
+                ) {
+                    super.onReceivedError(view, errorCode, description, failingUrl)
+                    if (!isFinished) {
+                        cleanupAndFinish()
+                        onFallback()
+                    }
+                }
+
+                // 新增：兼容较新 Android API 的失败拦截
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                    error: android.webkit.WebResourceError?
+                ) {
+                    super.onReceivedError(view, request, error)
+                    if (request?.isForMainFrame == true && !isFinished) {
+                        cleanupAndFinish()
+                        onFallback()
+                    }
+                }
             }
-        }
 
-        val finalUrl = if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
-        webView.loadUrl(finalUrl)
+            val finalUrl = if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
+            webView.loadUrl(finalUrl)
 
-        delay(80000)
-        if (!isFinished) {
+            delay(8000)
+            if (!isFinished) {
+                cleanupAndFinish()
+                onFallback()
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
             cleanupAndFinish()
-            onFallback()
+            throw e
         }
     }
 }

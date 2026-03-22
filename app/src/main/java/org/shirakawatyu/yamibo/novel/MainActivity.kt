@@ -108,6 +108,11 @@ class MainActivity : ComponentActivity() {
     private val customWebChromeClient by lazy { createWebChromeClient() }
     private fun createWebChromeClient(): WebChromeClient {
         return object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                super.onProgressChanged(view, newProgress)
+                GlobalData.webProgress.value = newProgress
+            }
+
             override fun onShowFileChooser(
                 webView: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,

@@ -458,7 +458,8 @@ fun MinePage(
                 super.onPageStarted(view, url, favicon)
                 currentUrl = url
                 canGoBack = view?.canGoBack() ?: false
-                view?.loadUrl(hideCommand)
+                isLoading = true
+                view?.evaluateJavascript(hideCommand, null)
             }
 
             override fun shouldInterceptRequest(
@@ -528,7 +529,12 @@ fun MinePage(
                 super.onPageCommitVisible(view, url)
 
                 pageTitle = view?.title ?: ""
-
+                if (view != null && view.progress > 10 && isLoading) {
+                    timeoutJob?.cancel()
+                    retryCount = 0
+                    isLoading = false
+                    showLoadError = false
+                }
                 // 页面内容已可见，立即停止加载圈
                 if (isLoading) {
                     timeoutJob?.cancel()
