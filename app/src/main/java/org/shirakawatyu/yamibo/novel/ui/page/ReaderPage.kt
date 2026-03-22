@@ -7,7 +7,6 @@ import android.content.ContextWrapper
 import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.PredictiveBackHandler
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.EaseIn
 import androidx.compose.animation.core.EaseOut
@@ -123,7 +122,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.R
@@ -426,23 +424,21 @@ fun ReaderPage(
                     }
                 }
             }
-        BackHandler(enabled = showSettings) {
-            showSettings = false
-        }
-        PredictiveBackHandler(enabled = !showSettings) { progress ->
-            try {
-                progress.collect { }
-                isExiting = true
-                view?.clearFocus()
-                navController.navigateUp()
-            } catch (e: CancellationException) {
+        BackHandler(enabled = drawerState.isOpen || showSettings) {
+            if (drawerState.isOpen) {
+                scope.launch {
+                    drawerState.close()
+                }
+            }
+            if (showSettings) {
+                showSettings = false
             }
         }
         if (showImageWarning) {
             AlertDialog(
                 onDismissRequest = { showImageWarning = false },
                 title = { Text("确认加载图片") },
-                text = { Text("开启后将加载帖子中的图片，这会显著增加加载时间，并可能导致应用卡顿。") },
+                text = { Text("开启后将加载帖子中的图片，这会显著增加加载时间") },
                 confirmButton = {
                     TextButton(onClick = {
                         readerVM.toggleLoadImages(true); showImageWarning = false

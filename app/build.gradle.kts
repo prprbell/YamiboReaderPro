@@ -67,7 +67,6 @@ dependencies {
     implementation("androidx.compose.runtime:runtime-rxjava2:$composeVersion")
     implementation("androidx.compose.animation:animation:${composeVersion}")
     implementation("androidx.compose.animation:animation-core:${composeVersion}")
-    implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
     implementation("androidx.navigation:navigation-compose:2.8.0-beta06")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
@@ -81,8 +80,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
     implementation("sh.calvin.reorderable:reorderable:3.0.0")
-    implementation("io.coil-kt:coil-compose:2.5.0")
-    implementation("me.saket.telephoto:zoomable-image-coil:0.6.2")
     implementation("me.saket.telephoto:zoomable-image-coil:0.6.2")
     implementation("com.github.qichuan:android-opencc:1.2.0")
 

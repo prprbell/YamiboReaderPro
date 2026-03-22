@@ -249,7 +249,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     val navController = rememberNavController()
                     val enterEasing = FastOutSlowInEasing
                     val exitEasing = FastOutLinearInEasing
-                    val enterDuration = 380
+                    val enterDuration = 350
                     val exitDuration = 300
                     val stateOwner = LocalViewModelStoreOwner.current
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -276,6 +276,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                         if (statusBarColor != null) {
                             SetStatusBarColor(statusBarColor)
                         }
+                        val topLevelRoutes = listOf("FavoritePage", "BBSPage", "MinePage")
                         NavHost(
                             modifier = Modifier.fillMaxSize(),
                             navController = navController,
@@ -283,6 +284,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                         ) {
                             composable(
                                 "FavoritePage",
+                                enterTransition = {
+                                    if (initialState.destination.route in topLevelRoutes) {
+                                        EnterTransition.None
+                                    } else {
+                                        fadeIn(tween(150))
+                                    }
+                                },
                                 exitTransition = {
                                     if (targetState.destination.route?.startsWith("ReaderPage") == true) {
                                         slideOutHorizontally(
@@ -292,6 +300,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                                 easing = enterEasing
                                             )
                                         )
+                                    } else if (targetState.destination.route in topLevelRoutes) {
+                                        ExitTransition.None
                                     } else {
                                         fadeOut(tween(150))
                                     }
@@ -354,6 +364,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                             }
                             composable(
                                 "BBSPage",
+                                enterTransition = {
+                                    if (initialState.destination.route in topLevelRoutes) {
+                                        EnterTransition.None
+                                    } else {
+                                        fadeIn(tween(150))
+                                    }
+                                },
                                 exitTransition = {
                                     if (targetState.destination.route?.startsWith("ReaderPage") == true) {
                                         slideOutHorizontally(
@@ -363,6 +380,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                                 easing = enterEasing
                                             )
                                         )
+                                    } else if (targetState.destination.route in topLevelRoutes) {
+                                        ExitTransition.None
                                     } else {
                                         fadeOut(tween(150))
                                     }
@@ -433,6 +452,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                             }
                             composable(
                                 "MinePage",
+                                enterTransition = {
+                                    if (initialState.destination.route in topLevelRoutes) {
+                                        EnterTransition.None
+                                    } else {
+                                        fadeIn(tween(150))
+                                    }
+                                },
                                 exitTransition = {
                                     if (targetState.destination.route?.startsWith("ReaderPage") == true) {
                                         slideOutHorizontally(
@@ -442,6 +468,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                                 easing = enterEasing
                                             )
                                         )
+                                    } else if (targetState.destination.route in topLevelRoutes) {
+                                        ExitTransition.None
                                     } else {
                                         fadeOut(tween(150))
                                     }
