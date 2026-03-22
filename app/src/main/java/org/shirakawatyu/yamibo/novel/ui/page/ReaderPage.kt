@@ -12,6 +12,7 @@ import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.EaseIn
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -254,7 +255,7 @@ fun ReaderPage(
             statusBarContentColor.animateTo(
                 targetValue = targetStatusBarColor,
                 animationSpec = tween(
-                    durationMillis = 400,
+                    durationMillis = 600,
                     easing = EaseIn
                 )
             )
@@ -294,7 +295,7 @@ fun ReaderPage(
         var isAnimationFinished by remember { mutableStateOf(false) }
 
         LaunchedEffect(Unit) {
-            kotlinx.coroutines.delay(400)
+            kotlinx.coroutines.delay(450)
             isAnimationFinished = true
         }
 
@@ -319,7 +320,7 @@ fun ReaderPage(
                             isFirstEnter = false
                         }
                         windowController.hide(WindowInsetsCompat.Type.systemBars())
-                        kotlinx.coroutines.delay(50)
+                        kotlinx.coroutines.delay(450)
                         window.statusBarColor = android.graphics.Color.BLACK
                         windowController.isAppearanceLightStatusBars = false
                     }
@@ -506,7 +507,7 @@ fun ReaderPage(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(topStart = 32.dp, bottomStart = 32.dp))
+                    .clip(RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp))
                     .background(finalBackground)
                     .focusRequester(focusRequester)
                     .focusable()
@@ -650,9 +651,9 @@ fun ReaderPage(
                                         }
                                     }
 
-                                    val contentAlpha by androidx.compose.animation.core.animateFloatAsState(
+                                    val contentAlpha by animateFloatAsState(
                                         targetValue = if (isInitialScrollDone) 1f else 0f,
-                                        animationSpec = tween(durationMillis = 100),
+                                        animationSpec = tween(durationMillis = 50),
                                         label = "contentAlphaFadeIn"
                                     )
 

@@ -18,7 +18,7 @@ import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -27,6 +27,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -246,10 +247,10 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
             if (isAppInitialized) {
                 Box(contentAlignment = Alignment.TopCenter) {
                     val navController = rememberNavController()
-                    val enterEasing = CubicBezierEasing(0.4f, 0.0f, 0.2f, 1.0f)
-                    val exitEasing = CubicBezierEasing(0.4f, 0.0f, 1.0f, 1.0f)
-                    val enterDuration = 400
-                    val exitDuration = 350
+                    val enterEasing = FastOutSlowInEasing
+                    val exitEasing = FastOutLinearInEasing
+                    val enterDuration = 380
+                    val exitDuration = 300
                     val stateOwner = LocalViewModelStoreOwner.current
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val currentRoute = navBackStackEntry?.destination?.route
@@ -323,6 +324,32 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     ) {
                                         BottomNavBar(navController, "FavoritePage", bottomNavBarVM)
                                     }
+
+                                    val isContentPage = currentRoute?.run {
+                                        startsWith("ReaderPage") || startsWith("NativeMangaPage") ||
+                                                startsWith("MangaWebPage") || startsWith("OtherWebPage")
+                                    } == true
+
+                                    val maskAlpha by androidx.compose.animation.core.animateFloatAsState(
+                                        targetValue = if (isContentPage) 0.5f else 0f,
+                                        animationSpec = tween(
+                                            durationMillis = if (isContentPage) enterDuration else exitDuration,
+                                            easing = if (isContentPage) enterEasing else exitEasing
+                                        ),
+                                        label = "FavoriteMask"
+                                    )
+
+                                    if (maskAlpha > 0f) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(
+                                                    androidx.compose.ui.graphics.Color.Black.copy(
+                                                        alpha = maskAlpha
+                                                    )
+                                                )
+                                        )
+                                    }
                                 }
                             }
                             composable(
@@ -367,6 +394,32 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                                 .padding(bottom = lockedNavHeight)
                                         ) {
                                             BottomNavBar(navController, "BBSPage", bottomNavBarVM)
+                                        }
+
+                                        val isContentPage = currentRoute?.run {
+                                            startsWith("ReaderPage") || startsWith("NativeMangaPage") ||
+                                                    startsWith("MangaWebPage") || startsWith("OtherWebPage")
+                                        } == true
+
+                                        val maskAlpha by androidx.compose.animation.core.animateFloatAsState(
+                                            targetValue = if (isContentPage) 0.5f else 0f,
+                                            animationSpec = tween(
+                                                durationMillis = if (isContentPage) enterDuration else exitDuration,
+                                                easing = if (isContentPage) enterEasing else exitEasing
+                                            ),
+                                            label = "BBSMask"
+                                        )
+
+                                        if (maskAlpha > 0f) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(
+                                                        androidx.compose.ui.graphics.Color.Black.copy(
+                                                            alpha = maskAlpha
+                                                        )
+                                                    )
+                                            )
                                         }
                                     }
                                 } else {
@@ -418,6 +471,32 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                             .padding(bottom = lockedNavHeight)
                                     ) {
                                         BottomNavBar(navController, "MinePage", bottomNavBarVM)
+                                    }
+
+                                    val isContentPage = currentRoute?.run {
+                                        startsWith("ReaderPage") || startsWith("NativeMangaPage") ||
+                                                startsWith("MangaWebPage") || startsWith("OtherWebPage")
+                                    } == true
+
+                                    val maskAlpha by androidx.compose.animation.core.animateFloatAsState(
+                                        targetValue = if (isContentPage) 0.5f else 0f,
+                                        animationSpec = tween(
+                                            durationMillis = if (isContentPage) enterDuration else exitDuration,
+                                            easing = if (isContentPage) enterEasing else exitEasing
+                                        ),
+                                        label = "MineMask"
+                                    )
+
+                                    if (maskAlpha > 0f) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(
+                                                    androidx.compose.ui.graphics.Color.Black.copy(
+                                                        alpha = maskAlpha
+                                                    )
+                                                )
+                                        )
                                     }
                                 }
                             }
