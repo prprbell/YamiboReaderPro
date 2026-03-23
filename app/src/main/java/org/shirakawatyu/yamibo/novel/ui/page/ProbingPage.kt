@@ -32,6 +32,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
+import java.net.URLDecoder
 import java.net.URLEncoder
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -130,11 +131,11 @@ fun ProbingPage(url: String, navController: NavController) {
 
                                             if (type == 2) {
                                                 // 解码并赋值tempHtml
-                                                val title = java.net.URLDecoder.decode(
+                                                val title = URLDecoder.decode(
                                                     parts.getOrNull(1) ?: "", "UTF-8"
                                                 )
                                                 val urlsJoined = parts.getOrNull(2) ?: ""
-                                                val htmlContent = java.net.URLDecoder.decode(
+                                                val htmlContent = URLDecoder.decode(
                                                     parts.getOrNull(3) ?: "", "UTF-8"
                                                 )
                                                 val urlsList = urlsJoined.split("|||")

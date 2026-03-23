@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel
 
+import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import android.app.Application
 import android.os.Handler
 import android.os.Looper

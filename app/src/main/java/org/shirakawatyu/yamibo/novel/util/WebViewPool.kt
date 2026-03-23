@@ -1,3 +1,5 @@
+package org.shirakawatyu.yamibo.novel.util
+
 import android.content.Context
 import android.content.MutableContextWrapper
 import android.graphics.Color
