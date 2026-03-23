@@ -550,7 +550,11 @@ fun FavoritePage(
                                                         GlobalData.tempMangaUrls = urls
                                                         GlobalData.tempHtml = html
                                                         GlobalData.tempTitle = title
-                                                        GlobalData.tempMangaIndex = 0
+                                                        GlobalData.tempMangaIndex =
+                                                            item.lastPage.coerceIn(
+                                                                0,
+                                                                maxOf(0, urls.size - 1)
+                                                            )
 
                                                         navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedUrl")
 
