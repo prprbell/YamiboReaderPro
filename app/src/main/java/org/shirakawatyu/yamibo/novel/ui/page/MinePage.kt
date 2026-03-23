@@ -388,6 +388,40 @@ fun MinePage(
 
             val checkSectionAndInjectJs = """
                 (function(){
+                window.__pswpInit = function() {
+                        if (window.__globalPswpAttached) return;
+                        var pswp = document.querySelector('.pswp');
+                        if (!pswp) {
+                            var bodyObserver = new MutationObserver(function(mutations, obs) {
+                                if (document.querySelector('.pswp')) {
+                                    obs.disconnect();
+                                    window.__pswpInit();
+                                }
+                            });
+                            bodyObserver.observe(document.body, { childList: true, subtree: true });
+                            return;
+                        }
+                        window.__globalPswpAttached = true;
+                        
+                        var checkState = function() {
+                            var isOpen = pswp.classList.contains('pswp--open') || 
+                                         pswp.classList.contains('pswp--visible') || 
+                                         (getComputedStyle(pswp).display !== 'none' && getComputedStyle(pswp).opacity > 0);
+                            if (window.__pswpLastState !== isOpen) {
+                                window.__pswpLastState = isOpen;
+                                if (window.AndroidFullscreen) window.AndroidFullscreen.notify(isOpen);
+                                if (isOpen) {
+                                    setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 100);
+                                }
+                            }
+                        };
+                        
+                        var pswpObserver = new MutationObserver(checkState);
+                        pswpObserver.observe(pswp, { attributes: true, attributeFilter: ['class', 'style'] });
+                        checkState();
+                    };
+                    window.__pswpInit();
+                    
                     var a = document.querySelector('.header h2 a');
                     var isManga = false;
                     if (a) {
@@ -845,12 +879,19 @@ fun MinePage(
     if (statusBarsPaddingVal.value > lockedStatusHeightValue) lockedStatusHeightValue =
         statusBarsPaddingVal.value
     val lockedStatusHeight = lockedStatusHeightValue.dp
-    Box(modifier = Modifier.fillMaxSize()) {
+    val isFullscreen = isFullscreenState.value || autoOpenMangaMode
+    val topSpacerColor = if (isFullscreen) Color.Black else YamiboColors.primary
+    val bottomPad = if (isFullscreen) lockedNavHeight else (lockedNavHeight + 50.dp)
+
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .background(if (isFullscreen) Color.Black else MaterialTheme.colorScheme.background)
+    ) {
         Spacer(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(lockedStatusHeight)
-                .background(YamiboColors.primary)
+                .background(topSpacerColor)
                 .align(Alignment.TopCenter)
                 .zIndex(1f)
         )
@@ -859,7 +900,7 @@ fun MinePage(
                 .fillMaxSize()
                 .padding(
                     top = lockedStatusHeight,
-                    bottom = lockedNavHeight + 50.dp
+                    bottom = bottomPad
                 )
         ) {
             AndroidView(

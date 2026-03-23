@@ -25,9 +25,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -39,15 +41,18 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -378,6 +383,45 @@ fun OtherWebPage(
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 super.onPageFinished(view, finishedUrl)
+                view?.evaluateJavascript(
+                    """
+                    (function(){
+                        window.__pswpInit = function() {
+                            if (window.__globalPswpAttached) return;
+                            var pswp = document.querySelector('.pswp');
+                            if (!pswp) {
+                                var bodyObserver = new MutationObserver(function(mutations, obs) {
+                                    if (document.querySelector('.pswp')) {
+                                        obs.disconnect();
+                                        window.__pswpInit();
+                                    }
+                                });
+                                bodyObserver.observe(document.body, { childList: true, subtree: true });
+                                return;
+                            }
+                            window.__globalPswpAttached = true;
+                            
+                            var checkState = function() {
+                                var isOpen = pswp.classList.contains('pswp--open') || 
+                                             pswp.classList.contains('pswp--visible') || 
+                                             (getComputedStyle(pswp).display !== 'none' && getComputedStyle(pswp).opacity > 0);
+                                if (window.__pswpLastState !== isOpen) {
+                                    window.__pswpLastState = isOpen;
+                                    if (window.AndroidFullscreen) window.AndroidFullscreen.notify(isOpen);
+                                    if (isOpen) {
+                                        setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 100);
+                                    }
+                                }
+                            };
+                            
+                            var pswpObserver = new MutationObserver(checkState);
+                            pswpObserver.observe(pswp, { attributes: true, attributeFilter: ['class', 'style'] });
+                            checkState();
+                        };
+                        window.__pswpInit();
+                    })()
+                    """.trimIndent(), null
+                )
                 if (!isHistoryCleared) {
                     view?.clearHistory()
                     canGoBack = false
@@ -625,12 +669,29 @@ fun OtherWebPage(
             performExit()
         }
     }
-    Box(modifier = Modifier.fillMaxSize()) {
+    val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
+    if (navBarsPadding.value > lockedNavHeightValue) lockedNavHeightValue = navBarsPadding.value
+    val lockedNavHeight = lockedNavHeightValue.dp
+
+    val statusBarsPaddingVal = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    var lockedStatusHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
+    if (statusBarsPaddingVal.value > lockedStatusHeightValue) lockedStatusHeightValue = statusBarsPaddingVal.value
+    val lockedStatusHeight = lockedStatusHeightValue.dp
+    // -------------------------
+
+    val isFullscreen = isFullscreenState.value || autoOpenMangaMode
+    val topSpacerColor = if (isFullscreen) Color.Black else YamiboColors.primary
+
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .background(if (isFullscreen) Color.Black else MaterialTheme.colorScheme.background)
+    ) {
         Spacer(
             modifier = Modifier
                 .fillMaxWidth()
-                .windowInsetsTopHeight(WindowInsets.statusBars)
-                .background(YamiboColors.primary)
+                .height(lockedStatusHeight)
+                .background(topSpacerColor)
                 .align(Alignment.TopCenter)
                 .zIndex(1f)
         )
@@ -638,8 +699,10 @@ fun OtherWebPage(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
+                .padding(
+                    top = lockedStatusHeight,
+                    bottom = lockedNavHeight
+                )
         ) {
             AndroidView(
                 factory = {

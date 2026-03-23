@@ -71,6 +71,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.page.BBSPage
+import org.shirakawatyu.yamibo.novel.ui.page.BBSPageState
 import org.shirakawatyu.yamibo.novel.ui.page.FavoritePage
 import org.shirakawatyu.yamibo.novel.ui.page.MangaWebPage
 import org.shirakawatyu.yamibo.novel.ui.page.MinePage
@@ -170,9 +171,7 @@ class MainActivity : ComponentActivity() {
         backgroundStopJob = null
 
         if (bbsWebViewState == null) {
-            bbsWebViewState = createBbsWebView(this, customWebChromeClient).apply {
-                loadUrl("https://bbs.yamibo.com/forum.php")
-            }
+            bbsWebViewState = createBbsWebView(this, customWebChromeClient)
         } else {
             bbsWebViewState?.onResume()
         }
@@ -192,6 +191,7 @@ class MainActivity : ComponentActivity() {
                 destroy()
             }
             bbsWebViewState = null
+            BBSPageState.hasSuccessfullyLoaded = false
         }
     }
 
