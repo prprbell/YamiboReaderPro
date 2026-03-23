@@ -89,14 +89,22 @@ import java.net.URLEncoder
 
 private val hideCommand = """
     javascript:(function() {
-        if (window.location.href.indexOf('do=pm') !== -1) {
+        var href = window.location.href;
+        
+        if (href.indexOf('do=pm') !== -1 || href.indexOf('do=blog') !== -1) {
             return;
         }
-        if (window.location.href.indexOf('do=blog') !== -1) {
-            return;
-        }
+        
         var style = document.createElement('style');
-        style.innerHTML = '.my, .mz { visibility: hidden !important; pointer-events: none !important; }'; 
+        
+        if (href.indexOf('do=thread') !== -1 || 
+            href.indexOf('do=favorite') !== -1 || 
+            href.indexOf('do=friend') !== -1) {
+            style.innerHTML = '.my { visibility: hidden !important; pointer-events: none !important; }'; 
+        } else {
+            style.innerHTML = '.my, .mz { visibility: hidden !important; pointer-events: none !important; }'; 
+        }
+        
         document.head.appendChild(style);
     })()
 """.trimIndent()

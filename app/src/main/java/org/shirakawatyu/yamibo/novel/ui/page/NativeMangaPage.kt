@@ -149,6 +149,7 @@ fun NativeMangaPage(
     var showChapterList by rememberSaveable { mutableStateOf(false) }
     var showSettingsPanel by rememberSaveable { mutableStateOf(false) }
     var isExiting by remember { mutableStateOf(false) }
+    var isJumpingChapter by remember { mutableStateOf(false) }
     val globalScale = remember { Animatable(1f) }
     val globalOffsetX = remember { Animatable(0f) }
     val globalOffsetY = remember { Animatable(0f) }
@@ -178,6 +179,7 @@ fun NativeMangaPage(
         showUi = false
         showChapterList = false
         probingUrl = targetUrl // 触发黑屏遮罩
+        isJumpingChapter = true
 
         val encodedChapterUrl = URLEncoder.encode(targetUrl, "utf-8")
         val encodedOriginalUrl = URLEncoder.encode(originalUrl, "utf-8")
@@ -210,7 +212,7 @@ fun NativeMangaPage(
                     }
                 },
                 onFallback = {
-                    // 失败降级：跳到 MangaWebPage 让用户看网页，并踢掉当前阅读器
+                    isJumpingChapter = false
                     navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
                         if (previousRoute?.startsWith("MangaWebPage") == true) {
                             popUpTo(previousRoute) { inclusive = true }
@@ -299,6 +301,7 @@ fun NativeMangaPage(
             probingJob?.cancel()
             probingJob = null
             probingUrl = null
+            isJumpingChapter = false
         } else {
             performExit()
         }
@@ -359,12 +362,14 @@ fun NativeMangaPage(
         }
 
         onDispose {
-            val win = activity?.window
-            if (win != null) {
-                val ctrl = WindowCompat.getInsetsController(win, view)
-                ctrl.show(WindowInsetsCompat.Type.systemBars())
+            if (!isJumpingChapter) {
+                val win = activity?.window
+                if (win != null) {
+                    val ctrl = WindowCompat.getInsetsController(win, view)
+                    ctrl.show(WindowInsetsCompat.Type.systemBars())
+                }
+                bottomNavBarVM.setBottomNavBarVisibility(true)
             }
-            bottomNavBarVM.setBottomNavBarVisibility(true)
         }
     }
     Box(
