@@ -49,7 +49,7 @@ object WebViewPool {
                 blockNetworkImage = true
             }
 
-            evaluateJavascript("try { document.body.innerHTML=''; } catch(e){}", null)
+            loadUrl("about:blank")
 
             clearHistory()
             clearFormData()
