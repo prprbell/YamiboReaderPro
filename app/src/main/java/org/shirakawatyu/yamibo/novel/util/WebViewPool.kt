@@ -40,7 +40,6 @@ object WebViewPool {
         webViewUseCount[webView] = currentUses + 1
 
         webView.onResume()
-        webView.resumeTimers()
 
         return webView
     }
@@ -57,14 +56,15 @@ object WebViewPool {
                 loadsImagesAutomatically = false
                 blockNetworkImage = true
             }
-            loadUrl("about:blank")
+            loadDataWithBaseURL(null, "", "text/html", "utf-8", null)
             clearHistory()
             clearFormData()
             removeAllViews()
             (parent as? ViewGroup)?.removeView(this)
         }
 
-        (webView.context as? MutableContextWrapper)?.baseContext = webView.context.applicationContext
+        (webView.context as? MutableContextWrapper)?.baseContext =
+            webView.context.applicationContext
 
         val uses = webViewUseCount[webView] ?: 0
         if (uses >= MAX_USES_PER_WEBVIEW) {

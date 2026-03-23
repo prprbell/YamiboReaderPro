@@ -255,6 +255,20 @@ fun MinePage(
             this.webChromeClient = webChromeClient
         }
     }
+    LaunchedEffect(Unit) {
+        bottomNavBarVM.refreshEvent.collect { route ->
+            if (route == "MinePage") {
+                isLoading = true
+                showLoadError = false
+                val curl = mineWebView.url
+                if (!curl.isNullOrEmpty() && curl != "about:blank") {
+                    mineWebView.reload()
+                } else {
+                    startLoading(mineWebView, mineUrl)
+                }
+            }
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -891,9 +905,10 @@ fun MinePage(
     val topSpacerColor = if (isFullscreen) Color.Black else YamiboColors.primary
     val bottomPad = if (isFullscreen) lockedNavHeight else (lockedNavHeight + 50.dp)
 
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .background(if (isFullscreen) Color.Black else MaterialTheme.colorScheme.background)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(if (isFullscreen) Color.Black else MaterialTheme.colorScheme.background)
     ) {
         Spacer(
             modifier = Modifier

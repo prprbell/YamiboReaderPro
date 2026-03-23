@@ -227,79 +227,7 @@ fun BBSPage(
         }
     }
 
-    LaunchedEffect(isFullscreenState.value) {
-        if (!isFullscreenState.value) {
-            webView.evaluateJavascript(
-                """
-                (function() {
-                    var style = document.getElementById('manga-transition-style');
-                    if (style) style.remove();
-                    window.pswpObserverAttached = false; // 重置标记，确保下次进入能重新绑定
-                })();
-                """.trimIndent(),
-                null
-            )
 
-            pendingNavigateUrl?.let { url ->
-                isLoading = true
-                webView.loadUrl(url)
-                pendingNavigateUrl = null
-            }
-        } else {
-            if (autoOpenMangaMode) {
-                autoOpenMangaMode = false
-            }
-            currentUrl?.let { url ->
-                if (url.contains("mod=viewthread") && url.contains("tid=")) {
-                    val checkSectionJs = """
-                        (function() {
-                            var sectionHeader = document.querySelector('.header h2 a');
-                            if (sectionHeader) return sectionHeader.innerText.trim();
-                            var nav = document.querySelector('.z, .nav, .mz, .thread_nav, .sq_nav');
-                            if (nav) return nav.innerText.trim();
-                            return '';
-                        })();
-                    """.trimIndent()
-
-                    webView.evaluateJavascript(checkSectionJs) { result ->
-                        val sectionName = try {
-                            com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
-                        } catch (e: Exception) {
-                            result?.replace("\"", "") ?: ""
-                        }
-
-                        val allowedSections = listOf(
-                            "中文百合漫画区",
-                            "貼圖區",
-                            "贴图区",
-                            "原创图作区",
-                            "百合漫画图源区"
-                        )
-                        val isCrossForum = sectionName.isNotBlank() && allowedSections.none {
-                            sectionName.contains(it)
-                        }
-
-                        if (!isCrossForum) {
-                            val pageTitle = webView.title ?: ""
-                            webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
-                                val cleanHtml = try {
-                                    com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
-                                } catch (e: Exception) {
-                                    htmlResult.trim('"').replace("\\u003C", "<")
-                                        .replace("\\\"", "\"")
-                                }
-                                if (cleanHtml.isNotBlank()) {
-                                    mangaDirVM.initDirectoryFromWeb(url, cleanHtml, pageTitle)
-                                }
-                            }
-                        } else {
-                            Log.i("BBSPage", "非图区帖子(${sectionName})，跳过本地目录生成与缓存")
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     LaunchedEffect(isLoading) {
         if (!isLoading && autoOpenMangaMode) {
@@ -485,12 +413,10 @@ fun BBSPage(
         retryCount = 0
 
         runTimeout {
-            Log.w("BBSPage", "WebView loading timed out. Retrying...")
             webView.stopLoading()
             retryCount++
 
             runTimeout {
-                Log.e("BBSPage", "Retry timed out. Giving up.")
                 isLoading = false
                 showLoadError = true
                 webView.stopLoading()
@@ -500,7 +426,78 @@ fun BBSPage(
 
         webView.loadUrl(url)
     }
+    LaunchedEffect(isFullscreenState.value) {
+        if (!isFullscreenState.value) {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    var style = document.getElementById('manga-transition-style');
+                    if (style) style.remove();
+                    window.pswpObserverAttached = false;
+                })();
+                """.trimIndent(),
+                null
+            )
 
+            pendingNavigateUrl?.let { url ->
+                startLoading(url)
+                pendingNavigateUrl = null
+            }
+        } else {
+            if (autoOpenMangaMode) {
+                autoOpenMangaMode = false
+            }
+            currentUrl?.let { url ->
+                if (url.contains("mod=viewthread") && url.contains("tid=")) {
+                    val checkSectionJs = """
+                        (function() {
+                            var sectionHeader = document.querySelector('.header h2 a');
+                            if (sectionHeader) return sectionHeader.innerText.trim();
+                            var nav = document.querySelector('.z, .nav, .mz, .thread_nav, .sq_nav');
+                            if (nav) return nav.innerText.trim();
+                            return '';
+                        })();
+                    """.trimIndent()
+
+                    webView.evaluateJavascript(checkSectionJs) { result ->
+                        val sectionName = try {
+                            com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
+                        } catch (e: Exception) {
+                            result?.replace("\"", "") ?: ""
+                        }
+
+                        val allowedSections = listOf(
+                            "中文百合漫画区",
+                            "貼圖區",
+                            "贴图区",
+                            "原创图作区",
+                            "百合漫画图源区"
+                        )
+                        val isCrossForum = sectionName.isNotBlank() && allowedSections.none {
+                            sectionName.contains(it)
+                        }
+
+                        if (!isCrossForum) {
+                            val pageTitle = webView.title ?: ""
+                            webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
+                                val cleanHtml = try {
+                                    com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+                                } catch (e: Exception) {
+                                    htmlResult.trim('"').replace("\\u003C", "<")
+                                        .replace("\\\"", "\"")
+                                }
+                                if (cleanHtml.isNotBlank()) {
+                                    mangaDirVM.initDirectoryFromWeb(url, cleanHtml, pageTitle)
+                                }
+                            }
+                        } else {
+                            Log.i("BBSPage", "非图区帖子(${sectionName})，跳过本地目录生成与缓存")
+                        }
+                    }
+                }
+            }
+        }
+    }
     // 当页面被选中时，检查登录状态是否变化
     LaunchedEffect(isSelected) {
         if (!isSelected) {
@@ -544,7 +541,33 @@ fun BBSPage(
             startLoading(indexUrl)
         }
     }
+    LaunchedEffect(Unit) {
+        bottomNavBarVM.refreshEvent.collect { route ->
+            if (route == "BBSPage") {
+                val curl = webView.url
+                // 如果当前页面有效则原地刷新，否则重载初始页
+                if (!curl.isNullOrEmpty() && curl != "about:blank") {
+                    isLoading = true
+                    showLoadError = false
+                    retryCount = 0
 
+                    runTimeout {
+                        webView.stopLoading()
+                        retryCount++
+                        runTimeout {
+                            isLoading = false
+                            showLoadError = true
+                            webView.stopLoading()
+                        }
+                        webView.reload()
+                    }
+                    webView.reload()
+                } else {
+                    startLoading(indexUrl)
+                }
+            }
+        }
+    }
     LaunchedEffect(webView, isSelected) {
         if (!isSelected) {
             return@LaunchedEffect
@@ -852,9 +875,10 @@ fun BBSPage(
     val topSpacerColor = if (isFullscreen) Color.Black else YamiboColors.primary
     val bottomPad = if (isFullscreen) lockedNavHeight else (lockedNavHeight + 50.dp)
 
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .background(if (isFullscreen) Color.Black else MaterialTheme.colorScheme.background)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(if (isFullscreen) Color.Black else MaterialTheme.colorScheme.background)
     ) {
         Spacer(
             modifier = Modifier
@@ -936,12 +960,22 @@ fun BBSPage(
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(onClick = {
-                        // 【优化刷新逻辑】：不再盲目回退到首页
-                        isLoading = true
-                        showLoadError = false
                         val currentUrl = webView.url
-                        // 如果有残留的有效地址，优先原地刷新
                         if (!currentUrl.isNullOrEmpty() && currentUrl != "about:blank") {
+                            isLoading = true
+                            showLoadError = false
+                            retryCount = 0
+
+                            runTimeout {
+                                webView.stopLoading()
+                                retryCount++
+                                runTimeout {
+                                    isLoading = false
+                                    showLoadError = true
+                                    webView.stopLoading()
+                                }
+                                webView.reload()
+                            }
                             webView.reload()
                         } else {
                             startLoading(indexUrl)

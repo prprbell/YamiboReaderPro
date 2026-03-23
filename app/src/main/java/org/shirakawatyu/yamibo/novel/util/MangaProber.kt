@@ -58,7 +58,8 @@ class MangaProber {
                                 val cleanHtml = try {
                                     com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
                                 } catch (e: Exception) {
-                                    htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
+                                    htmlResult?.trim('"')?.replace("\\u003C", "<")
+                                        ?.replace("\\\"", "\"") ?: ""
                                 }
                                 val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
                                 cleanupAndFinish()
@@ -79,23 +80,11 @@ class MangaProber {
 
                 override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                     super.onPageStarted(view, pageUrl, favicon)
-                    if (pageUrl == "about:blank" && !isFinished) {
-                        view?.stopLoading()
-                        view?.post { view.loadUrl(finalUrl) }
-                    }
                 }
 
                 override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                     super.onPageFinished(view, finishedUrl)
-
-                    // 防御性补刀
-                    if (finishedUrl == "about:blank") {
-                        if (!isFinished) {
-                            view?.post { view.loadUrl(finalUrl) }
-                        }
-                        return
-                    }
-
+                    
                     if (view?.url != finishedUrl) return
 
                     val extractJs = """
