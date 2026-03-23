@@ -75,6 +75,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,6 +83,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -706,11 +708,24 @@ fun FavoritePage(
         }
     }
     // 监听探测状态，隐藏底部导航栏，让黑屏真正全屏
+    val view = LocalView.current
+    val activity = context as? ComponentActivity
+
     LaunchedEffect(probingUrl) {
-        if (probingUrl != null) {
-            bottomNavBarVM.setBottomNavBarVisibility(false)
+        val window = activity?.window
+        if (window != null) {
+            val controller = WindowCompat.getInsetsController(window, view)
+            if (probingUrl != null) {
+                bottomNavBarVM.setBottomNavBarVisibility(false)
+                // 出现探测黑屏时，文字强制变白
+                controller.isAppearanceLightStatusBars = false
+            } else {
+                bottomNavBarVM.setBottomNavBarVisibility(true)
+                // 恢复正常页面时，文字强制变黑
+                controller.isAppearanceLightStatusBars = true
+            }
         } else {
-            bottomNavBarVM.setBottomNavBarVisibility(true)
+            bottomNavBarVM.setBottomNavBarVisibility(probingUrl == null)
         }
     }
 

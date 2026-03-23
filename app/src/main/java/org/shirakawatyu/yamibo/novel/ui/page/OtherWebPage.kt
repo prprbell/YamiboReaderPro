@@ -82,10 +82,10 @@ import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 
 private val hideCommand = """
-    javascript:(function() {
+    (function() {
         var style = document.createElement('style');
         style.innerHTML = '.nav-search, #nav-more-menu .btn-to-pc { display: none !important; }';
-        document.head.appendChild(style);
+        if (document.head) document.head.appendChild(style);
     })()
 """.trimIndent()
 
@@ -222,6 +222,8 @@ fun OtherWebPage(
                 displayZoomControls = false
                 textZoom = 100
                 domStorageEnabled = true
+                loadsImagesAutomatically = true
+                blockNetworkImage = false
             }
             addJavascriptInterface(
                 FullscreenApiOther(
@@ -334,7 +336,8 @@ fun OtherWebPage(
                 isLoading = true
                 currentUrl = pageUrl
                 canGoBack = view?.canGoBack() ?: false
-                view?.loadUrl(hideCommand)
+
+                view?.evaluateJavascript(hideCommand, null)
             }
 
             override fun doUpdateVisitedHistory(
@@ -601,8 +604,14 @@ fun OtherWebPage(
     }
 
     BackHandler(enabled = true) {
-        if (otherWebView.canGoBack()) {
-            otherWebView.goBack()
+        val list = otherWebView.copyBackForwardList()
+        if (list.currentIndex > 0) {
+            val prevItem = list.getItemAtIndex(list.currentIndex - 1)
+            if (prevItem.url == "about:blank") {
+                performExit()
+            } else {
+                otherWebView.goBack()
+            }
         } else {
             performExit()
         }
