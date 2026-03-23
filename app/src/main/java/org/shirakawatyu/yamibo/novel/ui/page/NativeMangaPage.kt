@@ -103,6 +103,7 @@ import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -116,6 +117,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import java.net.URLEncoder
+import androidx.compose.ui.zIndex
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -150,6 +152,8 @@ fun NativeMangaPage(
     val globalScale = remember { Animatable(1f) }
     val globalOffsetX = remember { Animatable(0f) }
     val globalOffsetY = remember { Animatable(0f) }
+    var probingUrl by remember { mutableStateOf<String?>(null) }
+    var probingJob by remember { mutableStateOf<Job?>(null) }
 
     val configuration = LocalConfiguration.current
     val screenWidthPx = with(LocalDensity.current) { configuration.screenWidthDp.dp.toPx() }
@@ -173,17 +177,53 @@ fun NativeMangaPage(
     val navigateToChapter = { targetUrl: String ->
         showUi = false
         showChapterList = false
+        probingUrl = targetUrl // 触发黑屏遮罩
+
         val encodedChapterUrl = URLEncoder.encode(targetUrl, "utf-8")
         val encodedOriginalUrl = URLEncoder.encode(originalUrl, "utf-8")
 
-        navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
-            if (previousRoute?.startsWith("MangaWebPage") == true) {
-                popUpTo(previousRoute) { inclusive = true }
-            } else {
-                navController.currentDestination?.id?.let { currentId ->
-                    popUpTo(currentId) { inclusive = true }
+        probingJob = scope.launch {
+            org.shirakawatyu.yamibo.novel.util.MangaProber().probeUrl(
+                context = context,
+                url = targetUrl,
+                onSuccess = { urls, title, html ->
+                    GlobalData.tempMangaUrls = urls
+                    GlobalData.tempHtml = html
+                    GlobalData.tempTitle = title
+                    GlobalData.tempMangaIndex = 0
+
+                    // 成功：跳转到新的阅读器，并踢掉当前阅读器（保持原本的返回栈逻辑和进场动画）
+                    navController.navigate("NativeMangaPage?url=$encodedChapterUrl&originalUrl=$encodedOriginalUrl") {
+                        if (previousRoute?.startsWith("MangaWebPage") == true) {
+                            popUpTo(previousRoute) { inclusive = true }
+                        } else {
+                            navController.currentDestination?.id?.let { currentId ->
+                                popUpTo(currentId) { inclusive = true }
+                            }
+                        }
+                    }
+
+                    scope.launch {
+                        delay(300)
+                        probingUrl = null
+                        probingJob = null
+                    }
+                },
+                onFallback = {
+                    // 失败降级：跳到 MangaWebPage 让用户看网页，并踢掉当前阅读器
+                    navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=false&initialPage=0") {
+                        if (previousRoute?.startsWith("MangaWebPage") == true) {
+                            popUpTo(previousRoute) { inclusive = true }
+                        } else {
+                            navController.currentDestination?.id?.let { currentId ->
+                                popUpTo(currentId) { inclusive = true }
+                            }
+                        }
+                    }
+                    probingUrl = null
+                    probingJob = null
                 }
-            }
+            )
         }
     }
     LaunchedEffect(Unit) {
@@ -253,7 +293,16 @@ fun NativeMangaPage(
         Unit
     }
 
-    BackHandler { performExit() }
+    BackHandler(enabled = true) {
+        if (probingUrl != null) {
+            // 正在加载下一话时按返回，取消探测，停留在当前话
+            probingJob?.cancel()
+            probingJob = null
+            probingUrl = null
+        } else {
+            performExit()
+        }
+    }
 
     var isFirstEnter by remember { mutableStateOf(true) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -783,12 +832,31 @@ fun NativeMangaPage(
                                                 onClick = horizontalPagerClick
                                             )
 
-                                            // 如果图片还在下载中，在这个 Box 的中间显示加载圈
+                                            // 如果图片还在下载中，在这个Box的中间显示加载圈
                                             if (isImageLoading) {
                                                 CircularProgressIndicator(
                                                     modifier = Modifier.align(Alignment.Center),
                                                     color = YamiboColors.tertiary
                                                 )
+                                            }
+                                            AnimatedVisibility(
+                                                visible = probingUrl != null,
+                                                enter = fadeIn(tween(0)), // 瞬间变黑
+                                                exit = fadeOut(tween(150)),
+                                                modifier = Modifier.zIndex(100f) // 确保在最顶层
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(Color.Black)
+                                                        // 拦截一切手势，防止用户在黑屏期间乱点
+                                                        .pointerInput(Unit) { detectTapGestures { } }
+                                                ) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.align(Alignment.Center),
+                                                        color = Color.White
+                                                    )
+                                                }
                                             }
                                         }
                                     } else {
