@@ -45,8 +45,8 @@ object WebViewPool {
             webChromeClient = null
 
             settings.apply {
-                loadsImagesAutomatically = true
-                blockNetworkImage = false
+                loadsImagesAutomatically = false
+                blockNetworkImage = true
             }
 
             evaluateJavascript("try { document.body.innerHTML=''; } catch(e){}", null)
@@ -77,6 +77,8 @@ object WebViewPool {
                 javaScriptEnabled = true
                 useWideViewPort = true
                 domStorageEnabled = true
+                loadsImagesAutomatically = false
+                blockNetworkImage = true
             }
         }
     }

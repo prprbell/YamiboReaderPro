@@ -175,7 +175,6 @@ class MainActivity : ComponentActivity() {
             }
         } else {
             bbsWebViewState?.onResume()
-            bbsWebViewState?.resumeTimers()
         }
     }
 
@@ -183,12 +182,15 @@ class MainActivity : ComponentActivity() {
         super.onStop()
 
         bbsWebViewState?.onPause()
-        bbsWebViewState?.pauseTimers()
 
         backgroundStopJob?.cancel()
         backgroundStopJob = mainScope.launch {
             delay(600_000L) // 10分钟
-            bbsWebViewState?.destroy()
+            bbsWebViewState?.apply {
+                (parent as? ViewGroup)?.removeView(this)
+                removeAllViews()
+                destroy()
+            }
             bbsWebViewState = null
         }
     }
