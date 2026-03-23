@@ -554,7 +554,7 @@ fun MinePage(
                     showLoadError = false
                 }
                 // 页面内容已可见，立即停止加载圈
-                if (!hasError && view != null && view.progress > 80 && isLoading) {
+                if (!hasError && view != null && view.progress > 50 && isLoading) {
                     timeoutJob?.cancel()
                     retryCount = 0
                     isLoading = false
