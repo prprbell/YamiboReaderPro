@@ -678,7 +678,11 @@ fun NativeMangaPage(
                                                 val targetX = globalOffsetX.value + panChange.x
                                                 val targetY = globalOffsetY.value + panChange.y
 
-                                                if (isHorizontalPan) {
+                                                val clampedY = targetY.coerceIn(-maxY, maxY)
+                                                val canMoveY =
+                                                    kotlin.math.abs(clampedY - globalOffsetY.value) > 0.01f
+
+                                                if (canMoveY) {
                                                     activePointers.forEach { if (it.positionChanged()) it.consume() }
                                                     scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                                                         globalOffsetX.snapTo(
@@ -687,28 +691,31 @@ fun NativeMangaPage(
                                                                 maxX
                                                             )
                                                         )
-                                                        globalOffsetY.snapTo(
-                                                            targetY.coerceIn(
-                                                                -maxY,
-                                                                maxY
-                                                            )
-                                                        )
+                                                        globalOffsetY.snapTo(clampedY)
                                                     }
                                                 } else {
-                                                    // 纵向：绝对不吃事件，让 LazyColumn 接管
-                                                    scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                                                        globalOffsetX.snapTo(
-                                                            targetX.coerceIn(
-                                                                -maxX,
-                                                                maxX
-                                                            )
+                                                    if (isHorizontalPan && kotlin.math.abs(panChange.x) > kotlin.math.abs(
+                                                            panChange.y
                                                         )
-                                                        globalOffsetY.snapTo(
-                                                            targetY.coerceIn(
-                                                                -maxY,
-                                                                maxY
+                                                    ) {
+                                                        activePointers.forEach { if (it.positionChanged()) it.consume() }
+                                                        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                                                            globalOffsetX.snapTo(
+                                                                targetX.coerceIn(
+                                                                    -maxX,
+                                                                    maxX
+                                                                )
                                                             )
-                                                        )
+                                                        }
+                                                    } else {
+                                                        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                                                            globalOffsetX.snapTo(
+                                                                targetX.coerceIn(
+                                                                    -maxX,
+                                                                    maxX
+                                                                )
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }
@@ -741,10 +748,19 @@ fun NativeMangaPage(
                                             } else {
                                                 scope.launch {
                                                     globalOffsetX.updateBounds(-maxX, maxX)
-                                                    globalOffsetX.animateDecay(
-                                                        initialVelocity = velocity.x,
-                                                        animationSpec = exponentialDecay()
-                                                    )
+                                                    globalOffsetY.updateBounds(-maxY, maxY)
+                                                    launch {
+                                                        globalOffsetX.animateDecay(
+                                                            initialVelocity = velocity.x,
+                                                            animationSpec = exponentialDecay()
+                                                        )
+                                                    }
+                                                    launch {
+                                                        globalOffsetY.animateDecay(
+                                                            initialVelocity = velocity.y,
+                                                            animationSpec = exponentialDecay()
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
