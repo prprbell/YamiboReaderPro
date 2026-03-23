@@ -1,6 +1,7 @@
 package org.shirakawatyu.yamibo.novel.util
 
 import android.content.Context
+import android.content.MutableContextWrapper
 import android.graphics.Color
 import android.os.Looper
 import android.view.ViewGroup
@@ -26,6 +27,8 @@ object WebViewPool {
         } else {
             createWebView(context)
         }
+
+        (webView.context as? MutableContextWrapper)?.baseContext = context
 
         webView.onResume()
         webView.resumeTimers()
@@ -57,6 +60,7 @@ object WebViewPool {
             removeAllViews()
             (parent as? ViewGroup)?.removeView(this)
         }
+        (webView.context as? MutableContextWrapper)?.baseContext = webView.context.applicationContext
 
         if (pool.size < MAX_POOL_SIZE) {
             webView.tag = "recycled_standby"
@@ -67,7 +71,9 @@ object WebViewPool {
     }
 
     private fun createWebView(context: Context): WebView {
-        return WebView(context.applicationContext).apply {
+        val contextWrapper = MutableContextWrapper(context.applicationContext)
+
+        return WebView(contextWrapper).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
