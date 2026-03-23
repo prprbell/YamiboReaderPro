@@ -1,8 +1,8 @@
 package org.shirakawatyu.yamibo.novel.ui.widget
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable // 新增导入
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -18,8 +18,10 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect // 新增导入
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember // 新增导入
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
@@ -40,11 +42,19 @@ fun BottomNavBar(
     val webProgress by GlobalData.webProgress.collectAsState()
     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
 
-    val animatedProgress by animateFloatAsState(
-        targetValue = webProgress.toFloat() / 100f,
-        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-        label = "WebProgressAnimation"
-    )
+    val animatedProgress = remember { Animatable(0f) }
+
+    LaunchedEffect(webProgress) {
+        val target = webProgress.toFloat() / 100f
+        if (target < animatedProgress.value || target == 0f) {
+            animatedProgress.snapTo(target)
+        } else {
+            animatedProgress.animateTo(
+                targetValue = target,
+                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+            )
+        }
+    }
 
     Box(modifier = Modifier.fillMaxWidth()) {
 
@@ -68,9 +78,8 @@ fun BottomNavBar(
             }
         }
 
-        // 全局进度条
         AnimatedVisibility(
-            visible = webProgress in 0..99 && (currentRoute == "BBSPage" || currentRoute == "MinePage"),
+            visible = webProgress > 0 && animatedProgress.value < 1f && (currentRoute == "BBSPage" || currentRoute == "MinePage"),
             enter = fadeIn(tween(200)) + expandVertically(
                 expandFrom = Alignment.Top,
                 animationSpec = tween(200)
@@ -81,14 +90,8 @@ fun BottomNavBar(
             ),
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
-            val animatedProgress by animateFloatAsState(
-                targetValue = webProgress.toFloat() / 100f,
-                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-                label = "WebProgressAnimation"
-            )
-
             LinearProgressIndicator(
-                progress = { animatedProgress },
+                progress = { animatedProgress.value },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.5.dp),
