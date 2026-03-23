@@ -7,7 +7,6 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
-import org.shirakawatyu.yamibo.novel.util.WebViewPool
 
 class YamiboApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
