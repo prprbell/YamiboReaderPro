@@ -2,7 +2,9 @@ package org.shirakawatyu.yamibo.novel.ui.widget
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -51,7 +53,7 @@ fun BottomNavBar(
         } else {
             animatedProgress.animateTo(
                 targetValue = target,
-                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = 250, easing = LinearEasing)
             )
         }
     }
@@ -94,7 +96,7 @@ fun BottomNavBar(
                 progress = { animatedProgress.value },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(2.5.dp),
+                    .height(2.dp),
                 color = YamiboColors.primary,
                 trackColor = YamiboColors.primary.copy(alpha = 0.1f),
                 strokeCap = StrokeCap.Round

@@ -1,11 +1,16 @@
 package org.shirakawatyu.yamibo.novel.util
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 
@@ -33,6 +38,7 @@ class MangaProber {
     ) {
         val webView = WebViewPool.acquire(context)
         var isFinished = false
+        val finalUrl = if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
 
         val cleanupAndFinish = {
             if (!isFinished) {
@@ -42,6 +48,7 @@ class MangaProber {
                 WebViewPool.release(webView)
             }
         }
+
         try {
             webView.addJavascriptInterface(
                 ProberJSInterface(
@@ -55,7 +62,7 @@ class MangaProber {
                                 }
                                 val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
                                 cleanupAndFinish()
-                                onSuccess(urls, title, cleanHtml) // 传递给外部的回调
+                                onSuccess(urls, title, cleanHtml)
                             }
                         }
                     },
@@ -69,9 +76,27 @@ class MangaProber {
             )
 
             webView.webViewClient = object : YamiboWebViewClient() {
+
+                override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
+                    super.onPageStarted(view, pageUrl, favicon)
+                    if (pageUrl == "about:blank" && !isFinished) {
+                        view?.stopLoading()
+                        view?.post { view.loadUrl(finalUrl) }
+                    }
+                }
+
                 override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                     super.onPageFinished(view, finishedUrl)
-                    if (finishedUrl == "about:blank") return
+
+                    // 防御性补刀
+                    if (finishedUrl == "about:blank") {
+                        if (!isFinished) {
+                            view?.post { view.loadUrl(finalUrl) }
+                        }
+                        return
+                    }
+
+                    if (view?.url != finishedUrl) return
 
                     val extractJs = """
                     (function() {
@@ -126,7 +151,7 @@ class MangaProber {
                         }
 
                         var extractAttempts = 0;
-                        var maxExtracts = 24; // 等待 6 秒，和 MangaWebPage 保持一致
+                        var maxExtracts = 10; // 对齐 MangaWebPage 的兜底等待时间
                         
                         var extractTimer = setInterval(function() {
                             extractAttempts++;
@@ -144,7 +169,7 @@ class MangaProber {
                             }
                         }, 250);
                     })();
-                """.trimIndent()
+                    """.trimIndent()
 
                     view?.evaluateJavascript(extractJs, null)
                 }
@@ -156,17 +181,16 @@ class MangaProber {
                     failingUrl: String?
                 ) {
                     super.onReceivedError(view, errorCode, description, failingUrl)
-                    if (!isFinished) {
+                    if (!isFinished && failingUrl == view?.url) {
                         cleanupAndFinish()
                         onFallback()
                     }
                 }
 
-                // 新增：兼容较新 Android API 的失败拦截
                 override fun onReceivedError(
                     view: WebView?,
-                    request: android.webkit.WebResourceRequest?,
-                    error: android.webkit.WebResourceError?
+                    request: WebResourceRequest?,
+                    error: WebResourceError?
                 ) {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame == true && !isFinished) {
@@ -176,14 +200,33 @@ class MangaProber {
                 }
             }
 
-            val finalUrl = if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
             webView.loadUrl(finalUrl)
 
-            delay(8000)
+            var timeWaited = 0
+            val maxWaitTime = 8000 // 探测的生命周期上限为8秒
+            val checkInterval = 500
+
+            while (timeWaited < maxWaitTime && !isFinished) {
+                delay(checkInterval.toLong())
+                timeWaited += checkInterval
+
+                if (timeWaited == 3000 && !isFinished) {
+                    val isStuckOnBlank = withContext(Dispatchers.Main) {
+                        webView.url == null || webView.url == "about:blank"
+                    }
+                    if (isStuckOnBlank) {
+                        cleanupAndFinish()
+                        onFallback()
+                        return
+                    }
+                }
+            }
+
             if (!isFinished) {
                 cleanupAndFinish()
                 onFallback()
             }
+
         } catch (e: kotlinx.coroutines.CancellationException) {
             cleanupAndFinish()
             throw e
