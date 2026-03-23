@@ -327,7 +327,7 @@ fun OtherWebPage(
             }
         }
     }
-
+    var isHistoryCleared by remember { mutableStateOf(false) }
     LaunchedEffect(otherWebView) {
         otherWebView.webViewClient = object : YamiboWebViewClient() {
             @RequiresApi(Build.VERSION_CODES.M)
@@ -378,6 +378,11 @@ fun OtherWebPage(
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 super.onPageFinished(view, finishedUrl)
+                if (!isHistoryCleared) {
+                    view?.clearHistory()
+                    canGoBack = false
+                    isHistoryCleared = true
+                }
                 isLoading = false
                 val currentTid = MangaTitleCleaner.extractTidFromUrl(finishedUrl ?: "")
                 val originalTid = MangaTitleCleaner.extractTidFromUrl(url)
@@ -604,13 +609,17 @@ fun OtherWebPage(
     }
 
     BackHandler(enabled = true) {
-        val list = otherWebView.copyBackForwardList()
-        if (list.currentIndex > 0) {
-            val prevItem = list.getItemAtIndex(list.currentIndex - 1)
-            if (prevItem.url == "about:blank") {
-                performExit()
+        if (otherWebView.canGoBack()) {
+            val list = otherWebView.copyBackForwardList()
+            if (list.currentIndex > 0) {
+                val prevItem = list.getItemAtIndex(list.currentIndex - 1)
+                if (prevItem.url == "about:blank") {
+                    performExit()
+                } else {
+                    otherWebView.goBack()
+                }
             } else {
-                otherWebView.goBack()
+                performExit()
             }
         } else {
             performExit()

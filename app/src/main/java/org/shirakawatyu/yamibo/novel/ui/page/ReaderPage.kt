@@ -226,20 +226,18 @@ fun ReaderPage(
             val windowController = WindowCompat.getInsetsController(window, view)
 
             if (!hasCapturedOriginal) {
-                originalStatusBarColor.value = window.statusBarColor
                 originalBehavior.value = windowController.systemBarsBehavior
-                originalLightStatusBars.value = windowController.isAppearanceLightStatusBars
                 hasCapturedOriginal = true
             }
+
             window.statusBarColor = android.graphics.Color.TRANSPARENT
             windowController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
             onDispose {
-                window.statusBarColor = originalStatusBarColor.value
                 windowController.systemBarsBehavior = originalBehavior.value
-                windowController.isAppearanceLightStatusBars = originalLightStatusBars.value
                 windowController.show(WindowInsetsCompat.Type.systemBars())
+
             }
         }
     }
