@@ -466,6 +466,17 @@ fun MinePage(
                 currentUrl = url
                 canGoBack = view?.canGoBack() ?: false
                 isLoading = true
+
+                timeoutJob?.cancel()
+                timeoutJob = scope.launch {
+                    delay(8000)
+                    if (isLoading) {
+                        view?.stopLoading()
+                        isLoading = false
+                        showLoadError = true
+                    }
+                }
+
                 view?.evaluateJavascript(hideCommand, null)
             }
 

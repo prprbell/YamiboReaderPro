@@ -11,12 +11,12 @@ import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 
 class MangaProber {
     class ProberJSInterface(
-        private val onSuccess: (String, String, String) -> Unit,
+        private val onSuccess: (String, String) -> Unit,
         private val onFail: () -> Unit
     ) {
         @JavascriptInterface
-        fun triggerSuccess(urlsJoined: String, title: String, htmlResult: String) {
-            Handler(Looper.getMainLooper()).post { onSuccess(urlsJoined, title, htmlResult) }
+        fun triggerSuccess(urlsJoined: String, title: String) {
+            Handler(Looper.getMainLooper()).post { onSuccess(urlsJoined, title) }
         }
 
         @JavascriptInterface
@@ -45,11 +45,18 @@ class MangaProber {
         try {
             webView.addJavascriptInterface(
                 ProberJSInterface(
-                    onSuccess = { urlsJoined, title, html ->
+                    onSuccess = { urlsJoined, title ->
                         if (!isFinished) {
-                            val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
-                            cleanupAndFinish()
-                            onSuccess(urls, title, html)
+                            webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
+                                val cleanHtml = try {
+                                    com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+                                } catch (e: Exception) {
+                                    htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
+                                }
+                                val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+                                cleanupAndFinish()
+                                onSuccess(urls, title, cleanHtml) // 传递给外部的回调
+                            }
                         }
                     },
                     onFail = {
@@ -108,8 +115,7 @@ class MangaProber {
                             }
                             
                             if (urls.length > 0) {
-                                var html = document.documentElement.outerHTML;
-                                window.ProberApi.triggerSuccess(urls.join('|||'), document.title, html);
+                                window.ProberApi.triggerSuccess(urls.join('|||'), document.title);
                                 return true;
                             }
                             return false;
