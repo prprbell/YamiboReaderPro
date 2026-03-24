@@ -49,8 +49,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
@@ -1366,7 +1364,7 @@ private fun MainSettingsMenu(
             // 右侧网页翻页控制区域
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.Center,
                 modifier = Modifier
                     .weight(1.6f)
                     .clickable(
@@ -1378,7 +1376,10 @@ private fun MainSettingsMenu(
                     onClick = { onSetView(uiState.currentView - 1) },
                     enabled = uiState.currentView > 1
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "上一页(网页)")
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_arrow_left),
+                        contentDescription = "上一页(网页)"
+                    )
                 }
                 Text(
                     text = "网页: ${uiState.currentView} / ${uiState.maxWebView}",
@@ -1389,7 +1390,10 @@ private fun MainSettingsMenu(
                     onClick = { onSetView(uiState.currentView + 1) },
                     enabled = uiState.currentView < uiState.maxWebView
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "下一页(网页)")
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_arrow_right),
+                        contentDescription = "下一页(网页)"
+                    )
                 }
             }
         }
@@ -1408,26 +1412,71 @@ private fun MainSettingsMenu(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
-            Slider(
-                modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .align(Alignment.CenterHorizontally),
-                value = sliderPos,
-                onValueChange = { sliderPos = it },
-                onValueChangeFinished = {
-                    val targetIndex = if (isVerticalMode) {
-                        (sliderPos / 100f * pageCount.coerceAtLeast(1).toFloat())
-                            .toInt().coerceIn(0, (pageCount - 1).coerceAtLeast(0))
-                    } else {
-                        sliderPos.roundToInt()
-                    }
-                    onSetPage(targetIndex)
-                },
-                valueRange = sliderRange,
-                steps = sliderSteps
-            )
-        }
 
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 计算当前所处的章节索引
+                val currentChapterIndex =
+                    uiState.chapterList.indexOfLast { it.startIndex <= currentPage }
+                val hasPrevChapter = currentChapterIndex > 0
+                val hasNextChapter =
+                    currentChapterIndex >= 0 && currentChapterIndex < uiState.chapterList.size - 1
+
+                // 上一章
+                IconButton(
+                    onClick = {
+                        if (hasPrevChapter) {
+                            onSetPage(uiState.chapterList[currentChapterIndex - 1].startIndex)
+                        }
+                    },
+                    enabled = hasPrevChapter
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_arrow_back),
+                        contentDescription = "上一章"
+                    )
+                }
+
+                // 进度条
+                Slider(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp),
+                    value = sliderPos,
+                    onValueChange = { sliderPos = it },
+                    onValueChangeFinished = {
+                        val targetIndex = if (isVerticalMode) {
+                            (sliderPos / 100f * pageCount.coerceAtLeast(1).toFloat())
+                                .toInt().coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+                        } else {
+                            sliderPos.roundToInt()
+                        }
+                        onSetPage(targetIndex)
+                    },
+                    valueRange = sliderRange,
+                    steps = sliderSteps
+                )
+
+                // 下一章
+                IconButton(
+                    onClick = {
+                        if (hasNextChapter) {
+                            onSetPage(uiState.chapterList[currentChapterIndex + 1].startIndex)
+                        }
+                    },
+                    enabled = hasNextChapter
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_arrow_forward),
+                        contentDescription = "下一章"
+                    )
+                }
+            }
+        }
         // 缓存和页面设置按钮（移除了背景色选择）
         Row(
             modifier = Modifier
