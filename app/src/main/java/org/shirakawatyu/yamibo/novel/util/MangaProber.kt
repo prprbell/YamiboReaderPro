@@ -53,7 +53,6 @@ class MangaProber {
             }
         }
 
-        // 提取 JS 逻辑提取到外部，不再依赖内部 setInterval
         val extractJs = """
             javascript:(function() {
                 try {
@@ -156,12 +155,10 @@ class MangaProber {
             val checkInterval = 500
             var hasCheckedBlank = false
 
-            // 使用 Kotlin 协程接管探测轮询
             while (timeWaited < maxWaitTime && !isFinished.get()) {
                 delay(checkInterval.toLong())
                 timeWaited += checkInterval
 
-                // 核心修复：不依赖 JS 内部的 setInterval，由宿主 App 强制拉起执行 JS 探测！
                 if (!isFinished.get()) {
                     withContext(Dispatchers.Main) {
                         webView.evaluateJavascript(extractJs, null)
