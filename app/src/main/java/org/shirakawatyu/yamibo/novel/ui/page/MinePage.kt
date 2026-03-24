@@ -946,7 +946,14 @@ fun MinePage(
                 visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
                 onClick = {
                     currentUrl?.let { url ->
+                        mineWebView.evaluateJavascript("window.stop();", null)
+                        mineWebView.stopLoading()
+                        mineWebView.onPause()
+
                         val cleanUrl = url.substringBefore("#")
+
+                        // 模仿漫画模式，保存当前路径以便从阅读器返回时能够恢复
+                        savedMangaUrl = url
 
                         ReaderModeDetector.extractThreadPath(cleanUrl)?.let { threadPath ->
                             val encodedPath = URLEncoder.encode(threadPath, "utf-8")
@@ -959,7 +966,6 @@ fun MinePage(
                     .padding(bottom = 150.dp)
             )
 
-            // 【修改】：优化报错页面UI并增加原地刷新逻辑
             if (showLoadError) {
                 Column(
                     modifier = Modifier
