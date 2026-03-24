@@ -498,7 +498,7 @@ fun BBSPage(
             }
         }
     }
-    // 当页面被选中时，检查登录状态是否变化
+    // 当页面被选中时，持续监听登录状态变化
     LaunchedEffect(isSelected) {
         if (!isSelected) {
             timeoutJob?.cancel()
@@ -509,36 +509,43 @@ fun BBSPage(
 
         webView.onResume()
 
-        val currentCookie = cookieFlow.first()
-        val currentLoginState = isLoggedIn(currentCookie)
+        while (true) {
+            val cookieManager = android.webkit.CookieManager.getInstance()
+            // 获取实时的底层Cookie
+            val realTimeCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
+            val currentLoginState = isLoggedIn(realTimeCookie)
 
-        val needsLoad = when {
-            !BBSPageState.hasSuccessfullyLoaded -> {
-                Log.i("BBSPage", "First time or previous load failed, loading...")
-                true
+            val needsLoad = when {
+                !BBSPageState.hasSuccessfullyLoaded -> {
+                    Log.i("BBSPage", "First time or previous load failed, loading...")
+                    true
+                }
+
+                webView.url.isNullOrEmpty() || webView.url == "about:blank" -> {
+                    Log.i("BBSPage", "WebView URL is empty or blank, reloading...")
+                    true
+                }
+
+                BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState -> {
+                    Log.i(
+                        "BBSPage",
+                        "Login state changed from ${BBSPageState.lastLoginState} to $currentLoginState. Reloading page..."
+                    )
+                    true
+                }
+
+                else -> {
+                    // 状态一致时无需操作
+                    false
+                }
             }
 
-            webView.url.isNullOrEmpty() || webView.url == "about:blank" -> {
-                Log.i("BBSPage", "WebView URL is empty or blank, reloading...")
-                true
+            if (needsLoad) {
+                BBSPageState.lastLoginState = currentLoginState
+                startLoading(indexUrl)
             }
 
-            BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState -> {
-                Log.i(
-                    "BBSPage",
-                    "Login state changed from ${BBSPageState.lastLoginState} to $currentLoginState. Reloading page..."
-                )
-                true
-            }
-
-            else -> {
-                Log.d("BBSPage", "WebView state is good, no reload needed")
-                false
-            }
-        }
-
-        if (needsLoad) {
-            startLoading(indexUrl)
+            delay(800)
         }
     }
     LaunchedEffect(Unit) {

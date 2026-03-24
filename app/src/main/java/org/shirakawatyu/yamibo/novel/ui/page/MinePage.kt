@@ -494,6 +494,19 @@ fun MinePage(
 
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                val checkUrl = url ?: ""
+
+                val isHomepage = checkUrl == "https://bbs.yamibo.com/" ||
+                        checkUrl == "https://bbs.yamibo.com" ||
+                        checkUrl.startsWith("https://bbs.yamibo.com/?") ||
+                        checkUrl.startsWith("https://bbs.yamibo.com/forum.php")
+
+                if (isSelected && isHomepage && view != null) {
+                    view.stopLoading()
+                    startLoading(view, mineUrl)
+                    return
+                }
+
                 GlobalData.webProgress.value = 0
                 hasError = false
                 contentImageCount = 0
@@ -604,17 +617,7 @@ fun MinePage(
                 if (url != null && url.startsWith("https://bbs.yamibo.com/home.php?mod=space&do=profile")) {
                     view?.clearHistory()
                 }
-
-                if (isSelected && view != null) {
-                    val currentUrl = view.url ?: ""
-
-                    val isHomepage = currentUrl == bbsUrl ||
-                            currentUrl == baseBbsUrl ||
-                            currentUrl == indexUrl
-                    if (isHomepage) {
-                        startLoading(view, mineUrl)
-                    }
-                }
+                
                 canGoBack = view?.canGoBack() ?: false
                 view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
                     isMangaSection = result == "true" || result == "\"true\""
