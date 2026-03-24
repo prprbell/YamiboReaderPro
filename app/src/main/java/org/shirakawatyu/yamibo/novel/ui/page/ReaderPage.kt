@@ -1360,11 +1360,12 @@ private fun MainSettingsMenu(
                     Text("章节", fontSize = 18.sp)
                 }
             }
+
             Spacer(modifier = Modifier.weight(0.1f))
+
             // 右侧网页翻页控制区域
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
                 modifier = Modifier
                     .weight(1.6f)
                     .clickable(
@@ -1381,11 +1382,33 @@ private fun MainSettingsMenu(
                         contentDescription = "上一页(网页)"
                     )
                 }
+
+                var showPrefix by remember(uiState.currentView, uiState.maxWebView) {
+                    mutableStateOf(true)
+                }
+
+                val displayText = if (showPrefix) {
+                    "网页: ${uiState.currentView} / ${uiState.maxWebView}"
+                } else {
+                    "${uiState.currentView} / ${uiState.maxWebView}"
+                }
+
                 Text(
-                    text = "网页: ${uiState.currentView} / ${uiState.maxWebView}",
+                    text = displayText,
                     style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(horizontal = 8.dp)
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                    onTextLayout = { textLayoutResult ->
+                        if (textLayoutResult.hasVisualOverflow && showPrefix) {
+                            showPrefix = false
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp)
                 )
+
                 IconButton(
                     onClick = { onSetView(uiState.currentView + 1) },
                     enabled = uiState.currentView < uiState.maxWebView
