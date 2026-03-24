@@ -1003,7 +1003,9 @@ fun BBSPage(
                 visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
                 onClick = {
                     currentUrl?.let { url ->
-                        ReaderModeDetector.extractThreadPath(url)?.let { threadPath ->
+                        val cleanUrl = url.substringBefore("#")
+
+                        ReaderModeDetector.extractThreadPath(cleanUrl)?.let { threadPath ->
                             val encodedPath = URLEncoder.encode(threadPath, "utf-8")
                             navController.navigate("ReaderPage/$encodedPath")
                         }
