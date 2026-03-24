@@ -1,13 +1,13 @@
 package org.shirakawatyu.yamibo.novel.util
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import androidx.annotation.Keep
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -16,15 +16,19 @@ import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MangaProber {
+
+    @Keep
     class ProberJSInterface(
         private val onSuccess: (String, String) -> Unit,
         private val onFail: () -> Unit
     ) {
+        @Keep
         @JavascriptInterface
         fun triggerSuccess(urlsJoined: String, title: String) {
             Handler(Looper.getMainLooper()).post { onSuccess(urlsJoined, title) }
         }
 
+        @Keep
         @JavascriptInterface
         fun triggerFail() {
             Handler(Looper.getMainLooper()).post { onFail() }
@@ -48,6 +52,48 @@ class MangaProber {
                 WebViewPool.release(webView)
             }
         }
+
+        // 提取 JS 逻辑提取到外部，不再依赖内部 setInterval
+        val extractJs = """
+            javascript:(function() {
+                try {
+                    var sectionHeader = document.querySelector('.header h2 a');
+                    var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
+                    if (sectionName !== '') {
+                        var allowedSections = ['中文百合漫画区', '貼圖區', '贴图区', '原创图作区', '百合漫画图源区'];
+                        var isAllowedSection = false;
+                        for (var k = 0; k < allowedSections.length; k++) {
+                            if (sectionName.indexOf(allowedSections[k]) !== -1) { isAllowedSection = true; break; }
+                        }
+                        if (!isAllowedSection) {
+                            if (window.ProberApi) window.ProberApi.triggerFail();
+                            return;
+                        }
+                    }
+                    
+                    var typeLabel = document.querySelector('.view_tit em');
+                    if (typeLabel && typeLabel.innerText.indexOf('公告') !== -1) {
+                        if (window.ProberApi) window.ProberApi.triggerFail();
+                        return; 
+                    }
+
+                    var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                    if (allImgs.length === 0) return; // 没找到图片就静默退出，等待 Kotlin 下一次轮询
+                    
+                    var urls = [];
+                    for (var i = 0; i < allImgs.length; i++) {
+                        var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
+                        if (rawSrc) {
+                            try { urls.push(new URL(rawSrc, document.baseURI).href); } catch(e) {}
+                        }
+                    }
+                    
+                    if (urls.length > 0) {
+                        if (window.ProberApi) window.ProberApi.triggerSuccess(urls.join('|||'), document.title);
+                    }
+                } catch(err) {}
+            })();
+        """.trimIndent()
 
         try {
             webView.addJavascriptInterface(
@@ -77,92 +123,6 @@ class MangaProber {
             )
 
             webView.webViewClient = object : YamiboWebViewClient() {
-
-                override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
-                    super.onPageStarted(view, pageUrl, favicon)
-                }
-
-                override fun onPageFinished(view: WebView?, finishedUrl: String?) {
-                    super.onPageFinished(view, finishedUrl)
-
-                    if (view?.url != finishedUrl) return
-
-                    val extractJs = """
-                    (function() {
-                        if (window.proberStarted) return;
-                        window.proberStarted = true;
-                        
-                        var sectionHeader = document.querySelector('.header h2 a');
-                        var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
-                        if (sectionName !== '') {
-                            var allowedSections = ['中文百合漫画区', '貼圖區', '贴图区', '原创图作区', '百合漫画图源区'];
-                            var isAllowedSection = false;
-                            for (var k = 0; k < allowedSections.length; k++) {
-                                if (sectionName.indexOf(allowedSections[k]) !== -1) { isAllowedSection = true; break; }
-                            }
-                            if (!isAllowedSection) {
-                                if (window.ProberApi) window.ProberApi.triggerFail();
-                                return;
-                            }
-                        }
-                        
-                        var typeLabel = document.querySelector('.view_tit em');
-                        if (typeLabel && typeLabel.innerText.indexOf('公告') !== -1) {
-                            if (window.ProberApi) window.ProberApi.triggerFail();
-                            return; 
-                        }
-
-                        function extractAndOpenNative() {
-                            if (!window.ProberApi) return false;
-                            
-                            var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                            if (allImgs.length === 0) return false;
-                            
-                            var urls = [];
-                            for (var i = 0; i < allImgs.length; i++) {
-                                var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
-                                if (rawSrc) {
-                                    try {
-                                        urls.push(new URL(rawSrc, document.baseURI).href);
-                                    } catch(e) {}
-                                }
-                            }
-                            
-                            if (urls.length > 0) {
-                                window.ProberApi.triggerSuccess(urls.join('|||'), document.title);
-                                return true;
-                            }
-                            return false;
-                        }
-
-                        if (extractAndOpenNative()) {
-                            return;
-                        }
-
-                        var extractAttempts = 0;
-                        var maxExtracts = 10; // 对齐 MangaWebPage 的兜底等待时间
-                        
-                        var extractTimer = setInterval(function() {
-                            extractAttempts++;
-                            
-                            if (extractAndOpenNative()) {
-                                clearInterval(extractTimer);
-                                return;
-                            }
-                            
-                            if (extractAttempts >= maxExtracts) {
-                                clearInterval(extractTimer);
-                                if (window.ProberApi) {
-                                    window.ProberApi.triggerFail();
-                                }
-                            }
-                        }, 250);
-                    })();
-                    """.trimIndent()
-
-                    view?.evaluateJavascript(extractJs, null)
-                }
-
                 override fun onReceivedError(
                     view: WebView?,
                     errorCode: Int,
@@ -194,12 +154,19 @@ class MangaProber {
             var timeWaited = 0
             val maxWaitTime = 8000 // 探测的生命周期上限为8秒
             val checkInterval = 500
-
             var hasCheckedBlank = false
 
+            // 使用 Kotlin 协程接管探测轮询
             while (timeWaited < maxWaitTime && !isFinished.get()) {
                 delay(checkInterval.toLong())
                 timeWaited += checkInterval
+
+                // 核心修复：不依赖 JS 内部的 setInterval，由宿主 App 强制拉起执行 JS 探测！
+                if (!isFinished.get()) {
+                    withContext(Dispatchers.Main) {
+                        webView.evaluateJavascript(extractJs, null)
+                    }
+                }
 
                 if (timeWaited >= 4000 && !hasCheckedBlank && !isFinished.get()) {
                     hasCheckedBlank = true
