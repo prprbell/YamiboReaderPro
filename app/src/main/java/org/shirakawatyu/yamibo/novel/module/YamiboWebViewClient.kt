@@ -19,23 +19,7 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 
 open class YamiboWebViewClient : WebViewClient() {
-    // 隐藏底部导航栏
-    private val jsCommand = """
-        let bottomBar = document.getElementsByClassName("foot flex-box")[0]
-        if (!bottomBar.classList.contains("foot_reply")) {
-            bottomBar.style.display = "none";
-            document.getElementsByClassName("foot_height")[0].style.display = "none";
-        }
-    """.trimIndent()
 
-    // 移除MinePage顶部到首页的导航
-    private val hideCssCommand = """
-        javascript:(function() {
-            var style = document.createElement('style');
-            style.innerHTML = '.foot.flex-box:not(.foot_reply) { display: none !important; } .foot_height { display: none !important; }';
-            document.head.appendChild(style);
-        })()
-    """.trimIndent()
     private var currentCookie = ""
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -45,17 +29,78 @@ open class YamiboWebViewClient : WebViewClient() {
         }
     }
 
+    protected fun applyHideCss(view: WebView?, currentUrl: String?) {
+        val url = currentUrl ?: view?.url ?: ""
+
+        // 1. 隐藏底部栏
+        var css =
+            ".foot.flex-box:not(.foot_reply) { display: none !important; } .foot_height { display: none !important; }"
+
+        // 2. 隐藏顶部栏
+        if (url.contains("home.php") || url.contains("mod=space")) {
+            if (!url.contains("do=pm") && !url.contains("do=blog")) {
+                if (url.contains("do=thread") || url.contains("do=favorite") || url.contains("do=friend")) {
+                    css += " .my { visibility: hidden !important; pointer-events: none !important; }"
+                } else {
+                    css += " .my, .mz { visibility: hidden !important; pointer-events: none !important; }"
+                }
+            }
+        }
+
+        val injectJs = """
+            javascript:(function() {
+                var style = document.getElementById('yamibo-hide-style');
+                if (!style) {
+                    style = document.createElement('style');
+                    style.id = 'yamibo-hide-style';
+                    
+                    var tryInject = function() {
+                        if (document.head) {
+                            document.head.appendChild(style);
+                            return true;
+                        } else if (document.documentElement) {
+                            document.documentElement.appendChild(style);
+                            return true;
+                        }
+                        return false;
+                    };
+                    
+                    if (!tryInject()) {
+                        var observer = new MutationObserver(function(mutations, obs) {
+                            if (tryInject()) {
+                                obs.disconnect();
+                            }
+                        });
+                        observer.observe(document, { childList: true, subtree: true });
+                    }
+                }
+                style.innerHTML = '$css';
+            })();
+        """.trimIndent()
+
+        view?.evaluateJavascript(injectJs, null)
+    }
+
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         CookieManager.getInstance().setCookie(url, currentCookie)
         CookieManager.getInstance().flush()
-        view?.loadUrl(hideCssCommand)
+
+        applyHideCss(view, url)
+
         super.onPageStarted(view, url, favicon)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    override fun onPageCommitVisible(view: WebView?, url: String?) {
+        applyHideCss(view, url)
+        super.onPageCommitVisible(view, url)
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {
         url?.let {
             if (it.contains(RequestConfig.BASE_URL)) {
-                view?.evaluateJavascript(jsCommand, null)
+                applyHideCss(view, url)
+
                 val cookieManager = CookieManager.getInstance()
                 val cookie = cookieManager.getCookie(url)
                 if (cookie != null) {
@@ -65,6 +110,7 @@ open class YamiboWebViewClient : WebViewClient() {
             }
         }
         super.onPageFinished(view, url)
+
         view?.evaluateJavascript(
             """
             (function() {
@@ -104,9 +150,6 @@ open class YamiboWebViewClient : WebViewClient() {
         )
     }
 
-    /**
-     * 处理加载失败
-     */
     @RequiresApi(Build.VERSION_CODES.M)
     override fun onReceivedError(
         view: WebView?,
@@ -118,9 +161,6 @@ open class YamiboWebViewClient : WebViewClient() {
         super.onReceivedError(view, request, error)
     }
 
-    /**
-     * 处理 HTTP 错误
-     */
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
     override fun onReceivedHttpError(
         view: WebView?,
@@ -130,5 +170,10 @@ open class YamiboWebViewClient : WebViewClient() {
         if (request?.isForMainFrame == true) {
         }
         super.onReceivedHttpError(view, request, errorResponse)
+    }
+
+    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+        super.doUpdateVisitedHistory(view, url, isReload)
+        applyHideCss(view, url)
     }
 }

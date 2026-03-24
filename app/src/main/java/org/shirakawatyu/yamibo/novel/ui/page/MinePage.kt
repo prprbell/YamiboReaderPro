@@ -87,27 +87,6 @@ import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 
-private val hideCommand = """
-    javascript:(function() {
-        var href = window.location.href;
-        
-        if (href.indexOf('do=pm') !== -1 || href.indexOf('do=blog') !== -1) {
-            return;
-        }
-        
-        var style = document.createElement('style');
-        
-        if (href.indexOf('do=thread') !== -1 || 
-            href.indexOf('do=favorite') !== -1 || 
-            href.indexOf('do=friend') !== -1) {
-            style.innerHTML = '.my { visibility: hidden !important; pointer-events: none !important; }'; 
-        } else {
-            style.innerHTML = '.my, .mz { visibility: hidden !important; pointer-events: none !important; }'; 
-        }
-        
-        document.head.appendChild(style);
-    })()
-""".trimIndent()
 
 class FullscreenApiMine {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -532,8 +511,6 @@ fun MinePage(
                         showLoadError = true
                     }
                 }
-
-                view?.evaluateJavascript(hideCommand, null)
             }
 
             override fun shouldInterceptRequest(

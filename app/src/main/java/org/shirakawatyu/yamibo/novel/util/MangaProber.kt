@@ -13,6 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MangaProber {
     class ProberJSInterface(
@@ -37,12 +38,11 @@ class MangaProber {
         onFallback: () -> Unit
     ) {
         val webView = WebViewPool.acquire(context)
-        var isFinished = false
+        val isFinished = AtomicBoolean(false)
         val finalUrl = if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
 
         val cleanupAndFinish = {
-            if (!isFinished) {
-                isFinished = true
+            if (isFinished.compareAndSet(false, true)) {
                 webView.removeJavascriptInterface("ProberApi")
                 webView.stopLoading()
                 WebViewPool.release(webView)
@@ -53,7 +53,7 @@ class MangaProber {
             webView.addJavascriptInterface(
                 ProberJSInterface(
                     onSuccess = { urlsJoined, title ->
-                        if (!isFinished) {
+                        if (!isFinished.get()) {
                             webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
                                 val cleanHtml = try {
                                     com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
@@ -68,7 +68,7 @@ class MangaProber {
                         }
                     },
                     onFail = {
-                        if (!isFinished) {
+                        if (!isFinished.get()) {
                             cleanupAndFinish()
                             onFallback()
                         }
@@ -84,7 +84,7 @@ class MangaProber {
 
                 override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                     super.onPageFinished(view, finishedUrl)
-                    
+
                     if (view?.url != finishedUrl) return
 
                     val extractJs = """
@@ -170,7 +170,7 @@ class MangaProber {
                     failingUrl: String?
                 ) {
                     super.onReceivedError(view, errorCode, description, failingUrl)
-                    if (!isFinished && failingUrl == view?.url) {
+                    if (!isFinished.get() && failingUrl == view?.url) {
                         cleanupAndFinish()
                         onFallback()
                     }
@@ -182,7 +182,7 @@ class MangaProber {
                     error: WebResourceError?
                 ) {
                     super.onReceivedError(view, request, error)
-                    if (request?.isForMainFrame == true && !isFinished) {
+                    if (request?.isForMainFrame == true && !isFinished.get()) {
                         cleanupAndFinish()
                         onFallback()
                     }
@@ -195,14 +195,20 @@ class MangaProber {
             val maxWaitTime = 8000 // 探测的生命周期上限为8秒
             val checkInterval = 500
 
-            while (timeWaited < maxWaitTime && !isFinished) {
+            var hasCheckedBlank = false
+
+            while (timeWaited < maxWaitTime && !isFinished.get()) {
                 delay(checkInterval.toLong())
                 timeWaited += checkInterval
 
-                if (timeWaited == 3000 && !isFinished) {
+                if (timeWaited >= 4000 && !hasCheckedBlank && !isFinished.get()) {
+                    hasCheckedBlank = true
+
                     val isStuckOnBlank = withContext(Dispatchers.Main) {
-                        webView.url == null || webView.url == "about:blank"
+                        val currentUrl = webView.url
+                        currentUrl == null || currentUrl == "about:blank" || currentUrl.startsWith("data:")
                     }
+
                     if (isStuckOnBlank) {
                         cleanupAndFinish()
                         onFallback()
@@ -211,7 +217,7 @@ class MangaProber {
                 }
             }
 
-            if (!isFinished) {
+            if (!isFinished.get()) {
                 cleanupAndFinish()
                 onFallback()
             }

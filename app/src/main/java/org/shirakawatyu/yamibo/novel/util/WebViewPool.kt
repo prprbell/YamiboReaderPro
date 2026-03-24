@@ -57,10 +57,12 @@ object WebViewPool {
                 blockNetworkImage = true
             }
             loadDataWithBaseURL(null, "", "text/html", "utf-8", null)
-            clearHistory()
             clearFormData()
             removeAllViews()
             (parent as? ViewGroup)?.removeView(this)
+            post {
+                clearHistory()
+            }
         }
 
         (webView.context as? MutableContextWrapper)?.baseContext =

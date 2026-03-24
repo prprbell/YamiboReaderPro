@@ -59,7 +59,7 @@ class PassageWebViewClient(
     }
 
     /**
-     * 对 JavaScript 执行结果进行反序列化处理，去除 JSON 转义字符。
+     * 对 JavaScript 执行结果进行反序列化处理，去除JSON转义字符。
      *
      * @param jsString JavaScript 返回的原始字符串。
      * @return 处理后的字符串内容。
