@@ -496,11 +496,20 @@ fun MinePage(
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 val checkUrl = url ?: ""
 
-                val isHomepage = checkUrl == "https://bbs.yamibo.com/" ||
-                        checkUrl == "https://bbs.yamibo.com" ||
-                        checkUrl.startsWith("https://bbs.yamibo.com/?") ||
-                        checkUrl.startsWith("https://bbs.yamibo.com/forum.php")
+                val isHomepage = when (checkUrl) {
+                    "https://bbs.yamibo.com/",
+                    "https://bbs.yamibo.com",
+                    "https://bbs.yamibo.com/?mobile=2",
+                    "https://bbs.yamibo.com/?mobile=no",
+                    "https://bbs.yamibo.com/index.php",
+                    "https://bbs.yamibo.com/index.php?mobile=2",
+                    "https://bbs.yamibo.com/index.php?mobile=no",
+                    "https://bbs.yamibo.com/forum.php",
+                    "https://bbs.yamibo.com/forum.php?mobile=2",
+                    "https://bbs.yamibo.com/forum.php?mobile=no" -> true
 
+                    else -> false
+                }
                 if (isSelected && isHomepage && view != null) {
                     view.stopLoading()
                     startLoading(view, mineUrl)
@@ -617,7 +626,7 @@ fun MinePage(
                 if (url != null && url.startsWith("https://bbs.yamibo.com/home.php?mod=space&do=profile")) {
                     view?.clearHistory()
                 }
-                
+
                 canGoBack = view?.canGoBack() ?: false
                 view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
                     isMangaSection = result == "true" || result == "\"true\""
