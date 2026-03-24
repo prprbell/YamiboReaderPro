@@ -603,14 +603,7 @@ fun MinePage(
                 super.onPageCommitVisible(view, url)
 
                 pageTitle = view?.title ?: ""
-                if (!hasError && view != null && view.progress > 10 && isLoading) {
-                    timeoutJob?.cancel()
-                    retryCount = 0
-                    isLoading = false
-                    showLoadError = false
-                }
-                // 页面内容已可见，立即停止加载圈
-                if (!hasError && view != null && view.progress > 50 && isLoading) {
+                if (!hasError && view != null && isLoading) {
                     timeoutJob?.cancel()
                     retryCount = 0
                     isLoading = false
@@ -946,14 +939,10 @@ fun MinePage(
                 visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
                 onClick = {
                     currentUrl?.let { url ->
-                        mineWebView.evaluateJavascript("window.stop();", null)
-                        mineWebView.stopLoading()
-                        mineWebView.onPause()
-
                         val cleanUrl = url.substringBefore("#")
 
                         // 模仿漫画模式，保存当前路径以便从阅读器返回时能够恢复
-                        savedMangaUrl = url
+                        savedMangaUrl = cleanUrl
 
                         ReaderModeDetector.extractThreadPath(cleanUrl)?.let { threadPath ->
                             val encodedPath = URLEncoder.encode(threadPath, "utf-8")
