@@ -10,7 +10,7 @@ import android.webkit.WebViewClient
 
 object WebViewPool {
     private val pool = mutableListOf<WebView>()
-    private const val MAX_POOL_SIZE = 4
+    private const val MAX_POOL_SIZE = 3
 
     private val webViewUseCount = mutableMapOf<WebView, Int>()
     private const val MAX_USES_PER_WEBVIEW = 8

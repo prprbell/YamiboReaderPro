@@ -45,6 +45,7 @@ import org.shirakawatyu.yamibo.novel.util.LocalCacheUtil
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.TextUtil
 import org.shirakawatyu.yamibo.novel.util.ValueUtil
+import org.shirakawatyu.yamibo.novel.util.WebViewPool
 
 @SuppressLint("SetJavaScriptEnabled")
 class ReaderVM(private val applicationContext: Context) : ViewModel() {
@@ -179,11 +180,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         // 初始化后台WebView
         viewModelScope.launch(Dispatchers.Main) {
             if (cacheWebView == null) {
-                cacheWebView = WebView(applicationContext).apply {
-                    // 基本设置
+                cacheWebView = WebViewPool.acquire(applicationContext).apply {
                     settings.javaScriptEnabled = true
                     settings.useWideViewPort = true
-                    // 应用缓存时选择的图片设置
+                    // 后台缓存通常不需要加载图片，提升速度
                     settings.loadsImagesAutomatically = false
                     settings.blockNetworkImage = true
                     webChromeClient = GlobalData.webChromeClient
@@ -452,7 +452,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         diskCacheQueue.clear()
         // 停止后台 WebView
         viewModelScope.launch(Dispatchers.Main) {
-            cacheWebView?.stopLoading()
+            cacheWebView?.let { WebViewPool.release(it) }
+            cacheWebView = null
+            cacheWebViewClient = null
         }
         // 隐藏进度对话框
         _cacheProgress.value = null
@@ -1492,8 +1494,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
         // 销毁后台 WebView
         viewModelScope.launch(Dispatchers.Main) {
-            cacheWebView?.stopLoading()
-            cacheWebView?.destroy()
+            cacheWebView?.let { WebViewPool.release(it) }
             cacheWebView = null
             cacheWebViewClient = null
         }
@@ -1515,7 +1516,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 // 记录当前章节和进度，用于转换后恢复位置
                 val oldPageCount = _uiState.value.htmlList.size.coerceAtLeast(1)
                 val oldPercent = currentPage.toFloat() / oldPageCount
-                val (oldChapterTitle, oldItemInChapter) = if (currentPage >= 0 && currentPage < oldPageCount) {
+                val (oldChapterTitle, oldItemInChapter) = if (currentPage in 0..<oldPageCount) {
                     val title = _uiState.value.htmlList[currentPage].chapterTitle
                     val startIndex =
                         _uiState.value.chapterList.find { it.title == title }?.startIndex ?: 0
