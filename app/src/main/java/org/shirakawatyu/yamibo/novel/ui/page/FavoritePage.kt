@@ -884,6 +884,7 @@ fun CacheManagementDialog(
                             key = { "favorite_${it.url}" }
                         ) { favorite ->
                             val info = cacheInfoMap[favorite.url]!!
+                            val cleanTitle = favorite.title.replace(Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"), "").ifBlank { favorite.title }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -893,7 +894,7 @@ fun CacheManagementDialog(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        favorite.title,
+                                        cleanTitle,
                                         fontSize = 14.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -927,6 +928,7 @@ fun CacheManagementDialog(
                                 items = orphanedCaches,
                                 key = { "orphan_${it.url}" }
                             ) { info ->
+                                val displayTitle = info.title?.replace(Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"), "")?.ifBlank { info.title } ?: info.url
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -936,7 +938,7 @@ fun CacheManagementDialog(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            info.title ?: info.url,
+                                            displayTitle,
                                             fontSize = if (info.title != null) 14.sp else 12.sp,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
@@ -1086,6 +1088,7 @@ fun BookmarkManagementDialog(
                             items = bookmarkedList,
                             key = { it.url }
                         ) { favorite ->
+                            val cleanTitle = favorite.title.replace(Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"), "").ifBlank { favorite.title }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1095,7 +1098,7 @@ fun BookmarkManagementDialog(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        favorite.title,
+                                        cleanTitle,
                                         fontSize = 14.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
