@@ -516,7 +516,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         viewModelScope.launch {
             if (!initialized) {
                 showLoadingScrim = true
-                delay(400)
             }
             FavoriteUtil.getFavoriteMap { favMap ->
                 val favorite = favMap[url]
@@ -538,7 +537,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
                     if (localCacheData != null) {
                         // 本地缓存命中
-
+                        if (!initialized) delay(380)
                         if (currentAuthorId == null && localCacheData.authorId != null) {
                             currentAuthorId = localCacheData.authorId
                         }
@@ -561,34 +560,37 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
                     // 本地缓存未命中，检查内存缓存
                     CacheUtil.getCache(url, targetView) { cacheData ->
-                        if (cacheData != null) {
+                        viewModelScope.launch {
+                            if (cacheData != null) {
+                                if (!initialized) {
+                                    delay(380)
+                                }
 
-                            if (currentAuthorId == null && cacheData.authorId != null) {
-                                currentAuthorId = cacheData.authorId
+                                if (currentAuthorId == null && cacheData.authorId != null) {
+                                    currentAuthorId = cacheData.authorId
+                                }
+
+                                _uiState.value = _uiState.value.copy(
+                                    currentView = targetView,
+                                    maxWebView = cacheData.maxPageNum
+                                )
+
+                                loadFinished(
+                                    success = true,
+                                    cacheData.htmlContent,
+                                    null,
+                                    cacheData.maxPageNum,
+                                    isFromCache = true,
+                                    cacheTargetIndex = targetIndex
+                                )
+                            } else {
+                                _uiState.value = _uiState.value.copy(
+                                    currentView = targetView,
+                                    initPage = targetIndex
+                                )
+
+                                loadFromNetwork(targetView)
                             }
-
-                            _uiState.value = _uiState.value.copy(
-                                currentView = targetView,
-                                maxWebView = cacheData.maxPageNum
-                            )
-
-                            loadFinished(
-                                success = true,
-                                cacheData.htmlContent,
-                                null,
-                                cacheData.maxPageNum,
-                                isFromCache = true,
-                                cacheTargetIndex = targetIndex
-                            )
-                        } else {
-                            // 内存缓存也未命中，从网络加载
-
-                            _uiState.value = _uiState.value.copy(
-                                currentView = targetView,
-                                initPage = targetIndex
-                            )
-
-                            loadFromNetwork(targetView)
                         }
                     }
                 }
@@ -712,7 +714,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         )
 
         viewModelScope.launch {
-            delay(10)
             _uiState.value = _uiState.value.copy(
                 urlToLoad = urlToLoad
             )

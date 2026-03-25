@@ -559,29 +559,26 @@ fun ReaderPage(
                             allowRender = true
                             awaitFrame()
                             awaitFrame()
-                            isWebViewReady = true
                         }
                     }
 
-                    if (isWebViewReady) {
-                        Box(
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .offset(x = (-10000).dp)
+                            .graphicsLayer {
+                                alpha = 0.01f
+                            }
+                    ) {
+                        PassageWebView(
+                            url = uiState.urlToLoad,
+                            loadImages = uiState.loadImages,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .offset(x = (-10000).dp)
-                                .graphicsLayer {
-                                    alpha = 0.01f
-                                }
-                        ) {
-                            PassageWebView(
-                                url = uiState.urlToLoad,
-                                loadImages = uiState.loadImages,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .offset(x = (-10000).dp)
-                                    .graphicsLayer { alpha = 0.01f }
-                            ) { success, html, loadedUrl, maxPage, title ->
-                                readerVM.loadFinished(success, html, loadedUrl, maxPage, title)
-                            }
+                                .graphicsLayer { alpha = 0.01f }
+                        ) { success, html, loadedUrl, maxPage, title ->
+                            readerVM.loadFinished(success, html, loadedUrl, maxPage, title)
                         }
                     }
 
