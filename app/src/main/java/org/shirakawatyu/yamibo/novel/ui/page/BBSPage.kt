@@ -511,40 +511,28 @@ fun BBSPage(
 
         while (true) {
             val cookieManager = android.webkit.CookieManager.getInstance()
-            // 获取实时的底层Cookie
-            val realTimeCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
-            val currentLoginState = isLoggedIn(realTimeCookie)
+            // 直接读取底层实时 Cookie
+            val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
+            val currentLoginState = isLoggedIn(currentCookie)
 
-            val needsLoad = when {
-                !BBSPageState.hasSuccessfullyLoaded -> {
-                    Log.i("BBSPage", "First time or previous load failed, loading...")
-                    true
-                }
+            val isWebViewBlank = webView.url.isNullOrEmpty() || webView.url == "about:blank"
 
-                webView.url.isNullOrEmpty() || webView.url == "about:blank" -> {
-                    Log.i("BBSPage", "WebView URL is empty or blank, reloading...")
-                    true
-                }
-
-                BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState -> {
-                    Log.i(
-                        "BBSPage",
-                        "Login state changed from ${BBSPageState.lastLoginState} to $currentLoginState. Reloading page..."
-                    )
-                    true
-                }
-
-                else -> {
-                    // 状态一致时无需操作
-                    false
-                }
+            // 初次启动或空白页，进行首次加载
+            if (!BBSPageState.hasSuccessfullyLoaded || isWebViewBlank) {
+                BBSPageState.lastLoginState = currentLoginState
+                startLoading(indexUrl)
             }
-
-            if (needsLoad) {
+            // 如果当前正在加载中，屏蔽刷新操作
+            else if (isLoading) {
+                BBSPageState.lastLoginState = currentLoginState
+            }
+            // 页面处于空闲状态时，如果状态发生了变化，才进行刷新
+            else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
                 BBSPageState.lastLoginState = currentLoginState
                 startLoading(indexUrl)
             }
 
+            // 极低开销的轮询
             delay(800)
         }
     }
@@ -788,18 +776,6 @@ fun BBSPage(
 
                 if (url != null && !url.contains("about:blank")) {
                     BBSPageState.hasSuccessfullyLoaded = true
-
-                    scope.launch {
-                        val currentCookie = cookieFlow.first()
-                        val currentLoginState = isLoggedIn(currentCookie)
-                        if (BBSPageState.lastLoginState == null || BBSPageState.lastLoginState != currentLoginState) {
-                            Log.d(
-                                "BBSPage",
-                                "Updating lastLoginState to $currentLoginState after successful load"
-                            )
-                            BBSPageState.lastLoginState = currentLoginState
-                        }
-                    }
                 }
                 view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
                     isMangaSection = result == "true" || result == "\"true\""
