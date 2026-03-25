@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import okhttp3.ResponseBody
 import org.jsoup.Jsoup
 import org.shirakawatyu.yamibo.novel.bean.Favorite
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.FavoriteApi
 import org.shirakawatyu.yamibo.novel.parser.MangaHtmlParser
@@ -321,6 +322,14 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                         if (page == 1) {
                             viewModelScope.launch(Dispatchers.Main) {
                                 _uiState.value = _uiState.value.copy(isRefreshing = false)
+                            }
+
+                            // 直接通过Cookie里的auth字段判断真实登录状态
+                            val isLoggedIn = GlobalData.currentCookie.contains("EeqY_2132_auth=")
+                            val htmlStr = respHTML ?: ""
+                            // 如果确实未登录，或者这是一次全量刷新，则清空本地数据
+                            if (!isLoggedIn || !isSmartSync || htmlStr.contains("您还没有添加任何收藏")) {
+                                FavoriteUtil.cleanupDeletedFavorites(emptyList())
                             }
                         }
                         // 第一页没数据，释放锁
