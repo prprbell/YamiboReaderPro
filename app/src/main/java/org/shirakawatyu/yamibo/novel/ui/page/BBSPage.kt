@@ -499,6 +499,7 @@ fun BBSPage(
         }
     }
     // 当页面被选中时，持续监听登录状态变化
+    // 当页面被选中时，持续监听登录状态变化
     LaunchedEffect(isSelected) {
         if (!isSelected) {
             timeoutJob?.cancel()
@@ -517,23 +518,23 @@ fun BBSPage(
 
             val isWebViewBlank = webView.url.isNullOrEmpty() || webView.url == "about:blank"
 
-            // 初次启动或空白页，进行首次加载
-            if (!BBSPageState.hasSuccessfullyLoaded || isWebViewBlank) {
+            if (isLoading) {
+                BBSPageState.lastLoginState = currentLoginState
+            }
+            else if (isWebViewBlank) {
                 BBSPageState.lastLoginState = currentLoginState
                 startLoading(indexUrl)
             }
-            // 如果当前正在加载中，屏蔽刷新操作
-            else if (isLoading) {
-                BBSPageState.lastLoginState = currentLoginState
-            }
-            // 页面处于空闲状态时，如果状态发生了变化，才进行刷新
             else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
+                Log.i("BBSPage", "状态变更: ${BBSPageState.lastLoginState} -> $currentLoginState, 准备刷新")
                 BBSPageState.lastLoginState = currentLoginState
                 startLoading(indexUrl)
+            }
+            else if (BBSPageState.lastLoginState == null) {
+                BBSPageState.lastLoginState = currentLoginState
             }
 
-            // 极低开销的轮询
-            delay(800)
+            delay(500)
         }
     }
     LaunchedEffect(Unit) {
