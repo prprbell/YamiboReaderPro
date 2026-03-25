@@ -82,9 +82,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
         viewModelScope.launch {
             localCache.index.collect { index ->
-                if (allFavorites.isNotEmpty()) {
-                    refreshCacheInfo(index)
-                }
+                refreshCacheInfo(index)
             }
         }
     }
