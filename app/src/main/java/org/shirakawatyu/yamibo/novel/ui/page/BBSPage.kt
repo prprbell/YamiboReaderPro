@@ -68,7 +68,6 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
@@ -132,6 +131,7 @@ fun BBSPage(
     navController: NavController
 ) {
     val indexUrl = "https://bbs.yamibo.com/forum.php"
+    val mobileIndexUrl = "https://bbs.yamibo.com/forum.php?mobile=2"
     val bbsUrl = "https://bbs.yamibo.com/index.php?mobile=2"
     val baseBbsUrl = "https://bbs.yamibo.com/"
 
@@ -523,12 +523,12 @@ fun BBSPage(
             }
             else if (isWebViewBlank) {
                 BBSPageState.lastLoginState = currentLoginState
-                startLoading(indexUrl)
+                startLoading(mobileIndexUrl)
             }
             else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
                 Log.i("BBSPage", "状态变更: ${BBSPageState.lastLoginState} -> $currentLoginState, 准备刷新")
                 BBSPageState.lastLoginState = currentLoginState
-                startLoading(indexUrl)
+                startLoading(mobileIndexUrl)
             }
             else if (BBSPageState.lastLoginState == null) {
                 BBSPageState.lastLoginState = currentLoginState
@@ -559,7 +559,7 @@ fun BBSPage(
                     }
                     webView.reload()
                 } else {
-                    startLoading(indexUrl)
+                    startLoading(mobileIndexUrl)
                 }
             }
         }
@@ -709,8 +709,10 @@ fun BBSPage(
 
                         val count = synchronized(this) { contentImageCount++ }
                         val isHomePage = currentUrl == indexUrl ||
+                                currentUrl == mobileIndexUrl ||
                                 currentUrl == bbsUrl ||
                                 currentUrl == baseBbsUrl ||
+
                                 (currentUrl?.startsWith("https://bbs.yamibo.com/forum.php") == true && currentUrl?.contains(
                                     "mod="
                                 ) == false)
@@ -768,7 +770,7 @@ fun BBSPage(
                 super.onPageFinished(view, url)
                 canGoBack = view?.canGoBack() ?: false
                 if (view != null && url != null) {
-                    val isHomepage = url == indexUrl || url == bbsUrl || url == baseBbsUrl
+                    val isHomepage = url == indexUrl || url == bbsUrl || url == baseBbsUrl  || url  == mobileIndexUrl
                     if (isHomepage) {
                         view.clearHistory()
                     }
@@ -883,23 +885,6 @@ fun BBSPage(
             AndroidView(
                 factory = {
                     (webView.parent as? ViewGroup)?.removeView(webView)
-                    webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
-                    webView.settings.apply {
-                        // 强制遵守网页的viewport
-                        useWideViewPort = true
-                        loadWithOverviewMode = true
-                        // 禁用系统缩放
-                        setSupportZoom(false)
-                        builtInZoomControls = false
-                        displayZoomControls = false
-                        // 锁定字体比例
-                        textZoom = 100
-                        // 开启本地存储
-                        domStorageEnabled = true
-                        // 启用JavaScript
-                        javaScriptEnabled = true
-                    }
-
                     webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
                     webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
                     webView
@@ -962,7 +947,7 @@ fun BBSPage(
                             }
                             webView.reload()
                         } else {
-                            startLoading(indexUrl)
+                            startLoading(mobileIndexUrl)
                         }
                     }) {
                         Icon(

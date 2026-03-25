@@ -215,6 +215,12 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
         settings.apply {
             javaScriptEnabled = true
             useWideViewPort = true
+            loadWithOverviewMode = true
+            setSupportZoom(false)
+            builtInZoomControls = false
+            displayZoomControls = false
+            textZoom = 100
+            domStorageEnabled = true
         }
         webViewClient = GlobalData.webViewClient
         webChromeClient = chromeClient ?: GlobalData.webChromeClient
