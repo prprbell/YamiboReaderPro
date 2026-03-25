@@ -936,8 +936,8 @@ fun CacheManagementDialog(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            info.url, // 只能显示 URL
-                                            fontSize = 12.sp, // 用小号字体显示 URL
+                                            info.title ?: info.url,
+                                            fontSize = if (info.title != null) 14.sp else 12.sp,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
                                         )

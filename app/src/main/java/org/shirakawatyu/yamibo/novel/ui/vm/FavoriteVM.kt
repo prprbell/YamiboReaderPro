@@ -72,6 +72,11 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 allFavorites = fullList
                 updateUiList()
                 refreshCacheInfo(localCache.index.value)
+                val titleMap = fullList.associate {
+                    val cleanTitle = it.title.replace(Regex("^(?:【.*?】|\\[.*?\\]|\\s)+"), "").ifBlank { it.title }
+                    it.url to cleanTitle
+                }
+                localCache.updateCacheTitles(titleMap)
             }
         }
 
@@ -498,8 +503,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                     val totalPages = novelCache.pages.size
                     val totalSize = novelCache.pages.values.sumOf { it.fileSize }
                     val pagesWithImages = novelCache.pages.values.count { it.hasImages }
-
-                    cacheInfoMap[url] = CacheInfo(url, totalPages, totalSize, pagesWithImages)
+                    cacheInfoMap[url] = CacheInfo(url, totalPages, totalSize, pagesWithImages, novelCache.title)
                 }
             }
             _uiState.value = _uiState.value.copy(cacheInfoMap = cacheInfoMap)
@@ -513,7 +517,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         val url: String,
         val totalPages: Int,
         val totalSize: Long,
-        val pagesWithImages: Int
+        val pagesWithImages: Int,
+        val title: String? = null
     )
 
     fun refreshCacheInfo() = refreshCacheInfo(localCache.index.value)
