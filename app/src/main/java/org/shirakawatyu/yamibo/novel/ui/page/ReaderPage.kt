@@ -552,7 +552,6 @@ fun ReaderPage(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     var allowRender by remember { mutableStateOf(false) }
-                    var isWebViewReady by remember { mutableStateOf(false) }
 
                     LaunchedEffect(isAnimationFinished) {
                         if (isAnimationFinished) {

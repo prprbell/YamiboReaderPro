@@ -57,6 +57,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private var initialized = false
     private val logTag = "ReaderVM"
     private var compositionScope: CoroutineScope? = null
+    private var pageEnterTime = 0L
+
     var url by mutableStateOf("")
         private set
 
@@ -464,6 +466,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     // ====================上方为缓存功能====================
 
     fun firstLoad(initUrl: String, initHeight: Dp, initWidth: Dp) {
+        pageEnterTime = System.currentTimeMillis()
         viewModelScope.launch {
             url = initUrl
             maxWidth = initWidth
@@ -537,7 +540,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
                     if (localCacheData != null) {
                         // 本地缓存命中
-                        if (!initialized) delay(380)
                         if (currentAuthorId == null && localCacheData.authorId != null) {
                             currentAuthorId = localCacheData.authorId
                         }
@@ -562,9 +564,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     CacheUtil.getCache(url, targetView) { cacheData ->
                         viewModelScope.launch {
                             if (cacheData != null) {
-                                if (!initialized) {
-                                    delay(380)
-                                }
 
                                 if (currentAuthorId == null && cacheData.authorId != null) {
                                     currentAuthorId = cacheData.authorId
@@ -764,6 +763,14 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             currentRawHtml = html
         }
         viewModelScope.launch {
+            if (!initialized) {
+                val elapsed = System.currentTimeMillis() - pageEnterTime
+                val remainTime = 380L - elapsed
+                if (remainTime > 0) {
+                    delay(remainTime)
+                }
+            }
+
             val loadedPageNum = if (isFromCache) {
                 _uiState.value.currentView
             } else {
