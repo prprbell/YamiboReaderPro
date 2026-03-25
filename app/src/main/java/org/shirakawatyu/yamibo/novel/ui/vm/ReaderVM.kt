@@ -1490,10 +1490,14 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         nextChapterList = null
         isPreloading = false
 
-        // 销毁后台 WebView
+        // 销毁后台WebView
         viewModelScope.launch(Dispatchers.Main) {
-            cacheWebView?.stopLoading()
-            cacheWebView?.destroy()
+            cacheWebView?.apply {
+                stopLoading()
+                clearHistory()
+                removeAllViews()
+                destroy()
+            }
             cacheWebView = null
             cacheWebViewClient = null
         }
