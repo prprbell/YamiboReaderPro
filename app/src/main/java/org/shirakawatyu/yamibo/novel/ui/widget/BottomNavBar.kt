@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.widget
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -48,6 +49,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import kotlinx.coroutines.delay
@@ -82,19 +84,18 @@ fun BottomNavBar(
 
     val density = LocalDensity.current
     val maxDragPx = with(density) { 130.dp.toPx() }
-    val haptic = LocalHapticFeedback.current
+    val view = LocalView.current
     var hasVibrated by remember { mutableStateOf(false) }
 
-    // 达标时触发一次震动反馈
+    // 达标时触发震动反馈
     LaunchedEffect(refreshProgress.value) {
         if (refreshProgress.value >= 0.8f && !hasVibrated && !isRefreshing) {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             hasVibrated = true
         } else if (refreshProgress.value < 0.8f) {
             hasVibrated = false
         }
     }
-    // ===========================
 
     LaunchedEffect(webProgress) {
         val target = webProgress.toFloat() / 100f
@@ -110,7 +111,7 @@ fun BottomNavBar(
 
     Box(modifier = Modifier.fillMaxWidth()) {
 
-        // ==== 1. 上拉刷新视觉气泡层 (移到 Box 的最前，使其处于底层，会被导航栏遮挡实现完美下潜) ====
+        // 上拉刷新视觉气泡
         AnimatedVisibility(
             visible = showRefreshPopup,
             enter = fadeIn(tween(200)),
@@ -123,7 +124,6 @@ fun BottomNavBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // Y起点设为0，结合底层渲染，进度为0时正好完全藏在 50dp 的导航栏后面
                     .offset(
                         y = 0.dp - (135.dp * kotlin.math.sin(currentProgress * kotlin.math.PI / 2)
                             .toFloat())
@@ -181,7 +181,7 @@ fun BottomNavBar(
             }
         }
 
-        // ==== 2. 导航栏层 (中层，会盖住气泡层) ====
+        // 导航栏层
         NavigationBar(
             Modifier.height(50.dp),
             windowInsets = WindowInsets(0, 0, 0, 0),
@@ -199,12 +199,13 @@ fun BottomNavBar(
                         navBarVM.changeSelection(index, navController)
                     },
                     modifier = Modifier.pointerInput(isSelected) {
-                        // 1. 取消 FavoritePage 的刷新功能：如果是该页面，直接不绑定长按拖拽手势
+                        // 取消FavoritePage的刷新功能
                         if (!isSelected || targetRoute == "FavoritePage") return@pointerInput
 
                         detectDragGesturesAfterLongPress(
                             onDragStart = {
                                 if (isRefreshing) return@detectDragGesturesAfterLongPress
+                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                                 showRefreshPopup = true
                                 dragOffset = 0f
                                 coroutineScope.launch {
@@ -308,7 +309,7 @@ fun BottomNavBar(
             }
         }
 
-        // ==== 3. 网页进度条 (顶层) ====
+        // 网页进度条
         AnimatedVisibility(
             visible = webProgress > 0 && animatedProgress.value < 1f &&
                     (currentRoute == "BBSPage" || currentRoute == "MinePage"),

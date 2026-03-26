@@ -57,11 +57,11 @@ fun ContentViewer(
     onRefresh: () -> Unit = {},
     bookTitle: String = ""
 ) {
-    // 顶部章节标题的固定高度（标题 + 间距）
+    // 顶部章节标题的固定高度
     val chapterTitleHeight = 24.dp
     val cookie by GlobalData.cookieFlow.collectAsState(initial = "")
 
-    // 竖屏模式的特殊处理
+    // 竖屏模式
     if (isVerticalMode) {
         if (data.type == ContentType.IMG) {
             // 竖屏图片
@@ -140,48 +140,33 @@ fun ContentViewer(
             }
         }
     } else {
-        // --- 横屏翻页模式 ---
+        // 横屏翻页
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(backgroundColor)
-                .padding(horizontal = padding)
         ) {
 
             // 章节标题
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(chapterTitleHeight),
+                    .height(chapterTitleHeight)
+                    .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 书籍标题（左）
-                if (bookTitle.isNotBlank()) {
-                    Text(
-                        text = bookTitle,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 1.dp, top = 4.dp, end = 4.dp),
-                        textAlign = TextAlign.Start
-                    )
-                } else {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-
-                // 章节标题（右）
+                // 章节标题（左侧）
                 data.chapterTitle?.takeIf { it.isNotBlank() && it != "footer" }?.let { title ->
                     Text(
                         text = title,
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(end = 7.dp, top = 4.dp),
-                        textAlign = TextAlign.End
+                        modifier = Modifier
+                            .fillMaxWidth(0.75f)
+                            .padding(start = 1.dp, top = 4.dp, end = 4.dp),
+                        textAlign = TextAlign.Start
                     )
                 }
             }
@@ -202,7 +187,8 @@ fun ContentViewer(
                 SubcomposeAsyncImage(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth(),
+                        .fillMaxWidth()
+                        .padding(horizontal = padding),
                     model = imageRequestBuilder.build(),
                     onError = {
                         it.result.throwable.printStackTrace()
@@ -236,7 +222,8 @@ fun ContentViewer(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth(),
+                            .fillMaxWidth()
+                            .padding(horizontal = padding),
                         contentAlignment = Alignment.Center
                     ) {
                         Button(onClick = onRefresh) {
@@ -249,7 +236,8 @@ fun ContentViewer(
                     JustifiedText(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth(),
+                            .fillMaxWidth()
+                            .padding(horizontal = padding),
                         text = data.data,
                         lineHeight = lineHeight,
                         fontSize = fontSize,
@@ -260,20 +248,36 @@ fun ContentViewer(
                 }
             }
 
-            // 页码
+            // 底部：作品名和页码
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(end = 4.dp, top = 1.dp, bottom = 4.dp)
+                    .padding(start = 16.dp, end = 16.dp, top = 1.dp, bottom = 4.dp)
                     .height(50.dp),
-                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // 书籍标题
+                if (bookTitle.isNotBlank()) {
+                    Text(
+                        text = bookTitle,
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth(0.55f)
+                            .padding(start = 1.dp, end = 4.dp),
+                        textAlign = TextAlign.Start
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
                 // 右侧显示页码
                 Text(
                     text = "${currentPage}/${pageCount}",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
                     textAlign = TextAlign.End
                 )
             }

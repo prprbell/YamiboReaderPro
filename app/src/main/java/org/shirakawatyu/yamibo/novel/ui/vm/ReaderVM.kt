@@ -74,8 +74,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             _uiState.value = _uiState.value.copy(authorId = value)
         }
     private var isPreloading = false
-    private val PRELOAD_THRESHOLD_VERTICAL = 200
-    private val PRELOAD_THRESHOLD_HORIZONTAL = 20
+    private val PRELOAD_THRESHOLD_VERTICAL = 300
+    private val PRELOAD_THRESHOLD_HORIZONTAL = 30
     private var viewBeingPreloaded = 0
     private var nextHtmlList: List<Content>? = null
     private var nextChapterList: List<ChapterInfo>? = null

@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -1186,39 +1187,79 @@ fun ReaderSettingsBar(
     onShowCacheDialog: () -> Unit
 ) {
     var showSpacingMenu by remember { mutableStateOf(false) }
+    var chapterPillVisible by remember { mutableStateOf(false) }
+    var dynamicChapterTitle by remember { mutableStateOf("") }
 
-    Surface(
-        modifier = modifier
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() },
-                onClick = {}),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shadowElevation = 8.dp
-    ) {
-        Box(modifier = Modifier.navigationBarsPadding()) {
-            if (showSpacingMenu) {
-                SpacingSettingsMenu(
-                    uiState = uiState,
-                    onSetFontSize = onSetFontSize,
-                    onSetLineHeight = onSetLineHeight,
-                    onSetPadding = onSetPadding,
-                    onBack = { showSpacingMenu = false },
-                    onSetReadingMode = onSetReadingMode,
-                    onSetBackgroundColor = onSetBackgroundColor
+    Box(modifier = modifier) {
+        // 章节气泡
+        androidx.compose.animation.AnimatedVisibility(
+            visible = chapterPillVisible && !showSpacingMenu,
+            enter = androidx.compose.animation.fadeIn(animationSpec = tween(200)) +
+                    androidx.compose.animation.slideInVertically(initialOffsetY = { 30 }),
+            exit = androidx.compose.animation.fadeOut(animationSpec = tween(500)),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = (-64).dp)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .widthIn(max = 250.dp)
+                    .animateContentSize(
+                        animationSpec = tween(150),
+                        alignment = Alignment.Center
+                    ),
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.95f),
+                shape = CircleShape,
+                shadowElevation = 0.dp
+            ) {
+                Text(
+                    text = dynamicChapterTitle,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
                 )
-            } else {
-                MainSettingsMenu(
-                    uiState = uiState,
-                    pageCount = pageCount,
-                    currentPage = currentPage,
-                    onSetView = onSetView,
-                    onSetPage = onSetPage,
-                    onShowSpacingMenu = { showSpacingMenu = true },
-                    onShowChapters = onShowChapters,
-                    onSetBackgroundColor = onSetBackgroundColor,
-                    onShowCacheDialog = onShowCacheDialog
-                )
+            }
+        }
+        Surface(
+            modifier = modifier
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                    onClick = {}),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shadowElevation = 8.dp
+        ) {
+            Box(modifier = Modifier.navigationBarsPadding()) {
+                if (showSpacingMenu) {
+                    SpacingSettingsMenu(
+                        uiState = uiState,
+                        onSetFontSize = onSetFontSize,
+                        onSetLineHeight = onSetLineHeight,
+                        onSetPadding = onSetPadding,
+                        onBack = { showSpacingMenu = false },
+                        onSetReadingMode = onSetReadingMode,
+                        onSetBackgroundColor = onSetBackgroundColor
+                    )
+                } else {
+                    MainSettingsMenu(
+                        uiState = uiState,
+                        pageCount = pageCount,
+                        currentPage = currentPage,
+                        onSetView = onSetView,
+                        onSetPage = onSetPage,
+                        onShowSpacingMenu = { showSpacingMenu = true },
+                        onShowChapters = onShowChapters,
+                        onSetBackgroundColor = onSetBackgroundColor,
+                        onShowCacheDialog = onShowCacheDialog,
+                        onPillStateChange = { visible, title ->
+                            chapterPillVisible = visible
+                            dynamicChapterTitle = title
+                        }
+                    )
+                }
             }
         }
     }
@@ -1314,7 +1355,8 @@ private fun MainSettingsMenu(
     onShowSpacingMenu: () -> Unit,
     onShowChapters: () -> Unit,
     onSetBackgroundColor: (color: Color?) -> Unit,
-    onShowCacheDialog: () -> Unit
+    onShowCacheDialog: () -> Unit,
+    onPillStateChange: (Boolean, String) -> Unit = { _, _ -> }
 ) {
     // 模式判断
     val isVerticalMode = uiState.isVerticalMode
@@ -1329,7 +1371,32 @@ private fun MainSettingsMenu(
     var sliderPos by remember(sliderValue) {
         mutableFloatStateOf(sliderValue)
     }
+    var pillLastActiveTime by remember { mutableLongStateOf(0L) }
 
+    // 动态计算目标页码
+    val targetPageIndex = remember(sliderPos, isVerticalMode, pageCount) {
+        if (isVerticalMode) {
+            (sliderPos / 100f * pageCount.coerceAtLeast(1).toFloat())
+                .toInt().coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+        } else {
+            sliderPos.roundToInt()
+        }
+    }
+
+    // 动态获取章节名称
+    val dynamicChapterTitle = remember(targetPageIndex, uiState.chapterList) {
+        val chapter = uiState.chapterList.findLast { it.startIndex <= targetPageIndex }
+        chapter?.title ?: "•••"
+    }
+
+    // 定时隐藏与状态上报
+    LaunchedEffect(pillLastActiveTime, dynamicChapterTitle) {
+        if (pillLastActiveTime > 0) {
+            onPillStateChange(true, dynamicChapterTitle) // 通知外层显示
+            delay(800)
+            onPillStateChange(false, dynamicChapterTitle) // 通知外层隐藏
+        }
+    }
     var showWebViewPageSelector by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -1450,6 +1517,8 @@ private fun MainSettingsMenu(
                     onClick = {
                         if (hasPrevChapter) {
                             onSetPage(uiState.chapterList[currentChapterIndex - 1].startIndex)
+                            pillLastActiveTime = System.currentTimeMillis()
+
                         }
                     },
                     enabled = hasPrevChapter
@@ -1466,7 +1535,10 @@ private fun MainSettingsMenu(
                         .weight(1f)
                         .padding(horizontal = 4.dp),
                     value = sliderPos,
-                    onValueChange = { sliderPos = it },
+                    onValueChange = {
+                        sliderPos = it
+                        pillLastActiveTime = System.currentTimeMillis()
+                    },
                     onValueChangeFinished = {
                         val targetIndex = if (isVerticalMode) {
                             (sliderPos / 100f * pageCount.coerceAtLeast(1).toFloat())
@@ -1485,6 +1557,7 @@ private fun MainSettingsMenu(
                     onClick = {
                         if (hasNextChapter) {
                             onSetPage(uiState.chapterList[currentChapterIndex + 1].startIndex)
+                            pillLastActiveTime = System.currentTimeMillis()
                         }
                     },
                     enabled = hasNextChapter
@@ -1858,7 +1931,7 @@ private fun VerticalModeHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = padding),
+                .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 章节标题（左）

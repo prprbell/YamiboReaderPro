@@ -130,12 +130,24 @@ class LocalCacheUtil(private val context: Context) {
 
         // 如果有修复，保存回磁盘
         if (needsUpdate) {
+            val indexFile = getIndexFile()
+            val tempFile = File(indexFile.parent, "${indexFile.name}.tmp")
             try {
-                val indexFile = getIndexFile()
                 val jsonStr = JSON.toJSONString(fixedIndex)
-                indexFile.writeText(jsonStr)
+                tempFile.writeText(jsonStr)
+
+                if (tempFile.exists()) {
+                    if (indexFile.exists()) {
+                        indexFile.delete()
+                    }
+                    tempFile.renameTo(indexFile)
+                }
             } catch (e: Exception) {
                 Log.e(LOG_TAG, "保存修复后的索引失败", e)
+            } finally {
+                if (tempFile.exists()) {
+                    tempFile.delete()
+                }
             }
         }
 
@@ -149,12 +161,27 @@ class LocalCacheUtil(private val context: Context) {
 
         // 启动一个后台任务将新索引写入磁盘
         ioScope.launch {
+            val indexFile = getIndexFile()
+            val tempFile = File(indexFile.parent, "${indexFile.name}.tmp")
             try {
-                val indexFile = getIndexFile()
                 val jsonStr = JSON.toJSONString(newIndex)
-                indexFile.writeText(jsonStr)
+                // 先写入临时文件
+                tempFile.writeText(jsonStr)
+
+                // 写入成功后，执行重命名替换
+                if (tempFile.exists()) {
+                    if (indexFile.exists()) {
+                        indexFile.delete()
+                    }
+                    tempFile.renameTo(indexFile)
+                }
             } catch (e: Exception) {
                 Log.e(LOG_TAG, "将缓存索引写入磁盘失败", e)
+            } finally {
+                // 清理可能残留的临时文件
+                if (tempFile.exists()) {
+                    tempFile.delete()
+                }
             }
         }
     }
