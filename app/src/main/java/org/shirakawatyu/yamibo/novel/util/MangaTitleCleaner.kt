@@ -29,7 +29,7 @@ class MangaTitleCleaner {
                         "[-—\\s]*EP\\d+|" +
                         "[-—\\s]*Vol\\.?\\s*\\d+|" +
                         "[-—\\s]*Ch\\.?\\s*\\d+|" +
-                        "[-—\\s]*(番外|特典|附录|短篇|单行本|最终话|最終話|最终回|最終回|大结局)|" +
+                        "[-—\\s]*(番外|特典|卷后附|附录|短篇|单行本|最终话|最終話|最终回|最終回|大结局)|" +
                         "[-—\\s]+(前篇|中篇|后篇|上|中|下)|" +
                         "[-—\\s]*[(（]\\s*[\\d\\.\\-零一二两三四五六七八九十百千]+\\s*[)）]|" +
                         "\\s+\\d+(?:\\.\\d+)?\\s+|" +
@@ -90,7 +90,7 @@ class MangaTitleCleaner {
             val cleanTitle = rawTitle
                 .replace(Regex("【.*?】|\\[.*?\\]|\\(.*?\\)|（.*?）|「.*?」|《.*?》"), "")
                 .replace(Regex("\\d+\\s*[xX×]\\s*\\d+"), "")
-            if (Regex("番外|特典|附录|SP", RegexOption.IGNORE_CASE).containsMatchIn(rawTitle)) {
+            if (Regex("番外|特典|附录|SP|后附|小剧场|小漫画", RegexOption.IGNORE_CASE).containsMatchIn(rawTitle)) {
                 return 0f
             }
 

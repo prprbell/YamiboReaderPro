@@ -379,7 +379,7 @@ fun MangaChapterPanel(
                                 it.index.toString().substringAfter(".", "").length < 3 &&
                                         !it.title.contains(
                                             Regex(
-                                                "番外|特典|附录|SP",
+                                                "番外|特典|附录|SP|卷后附",
                                                 RegexOption.IGNORE_CASE
                                             )
                                         )
@@ -487,7 +487,7 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
     }
     // 格式化左侧的序号展示
     val displayIndex = when {
-        chapter.title.contains(Regex("番外|特典|附录|SP", RegexOption.IGNORE_CASE)) -> "SP"
+        chapter.title.contains(Regex("番外|特典|附录|SP|后附", RegexOption.IGNORE_CASE)) -> "SP"
         chapter.index == 999f -> "终"
         chapter.index.toString().substringAfter(".", "").length >= 3 -> "Ex"
 
