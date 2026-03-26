@@ -541,11 +541,17 @@ fun FavoritePage(
                                         }
 
                                         else -> {
-                                            probingUrl = item.url
+                                            val targetUrl = item.lastMangaUrl ?: item.url
+
+                                            val encodedTarget = java.net.URLEncoder.encode(targetUrl, "utf-8")
+                                            val encodedOriginal = java.net.URLEncoder.encode(item.url, "utf-8")
+
+                                            probingUrl = targetUrl // UI 遮罩层状态更新
+
                                             probingJob = coroutineScope.launch {
                                                 MangaProber().probeUrl(
                                                     context = context,
-                                                    url = item.url,
+                                                    url = targetUrl,
                                                     onSuccess = { urls, title, html ->
                                                         GlobalData.tempMangaUrls = urls
                                                         GlobalData.tempHtml = html
@@ -556,7 +562,8 @@ fun FavoritePage(
                                                                 maxOf(0, urls.size - 1)
                                                             )
 
-                                                        navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedUrl")
+                                                        // 【核心修复4】：导航时使用 encodedTarget
+                                                        navController.navigate("NativeMangaPage?url=$encodedTarget&originalUrl=$encodedOriginal")
 
                                                         coroutineScope.launch {
                                                             kotlinx.coroutines.delay(300)
@@ -565,9 +572,9 @@ fun FavoritePage(
                                                         }
                                                     },
                                                     onFallback = {
-                                                        navController.navigate("MangaWebPage/$encodedUrl/$encodedUrl?fastForward=false")
+                                                        navController.navigate("MangaWebPage/$encodedTarget/$encodedOriginal?fastForward=false&initialPage=${item.lastPage}")
                                                         probingUrl = null
-                                                        probingJob = null // 清理 Job
+                                                        probingJob = null
                                                     }
                                                 )
                                             }
