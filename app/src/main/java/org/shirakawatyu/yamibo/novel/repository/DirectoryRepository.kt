@@ -206,7 +206,40 @@ class DirectoryRepository private constructor(private val context: Context) {
             }
         }
     }
+    /**
+     * 差分法：利用相邻帖子的标题相似性，拯救正则提取失败的章节
+     */
+    private fun rescueChapterNumsByDiff(items: List<MangaChapterItem>): List<MangaChapterItem> {
+        if (items.size < 3) return items
 
+        val processed = items.toMutableList()
+
+        // 滑动窗口对比相邻的 3 个标题
+        for (i in 1 until processed.size - 1) {
+            val prev = processed[i - 1]
+            val curr = processed[i]
+            val next = processed[i + 1]
+
+            // 只有当当前话数提取失败（即 0f 坑位），才触发救援
+            if (curr.chapterNum == 0f) {
+                val prefix = curr.rawTitle.commonPrefixWith(prev.rawTitle)
+                val suffix = curr.rawTitle.commonSuffixWith(next.rawTitle)
+
+                // 如果前后缀重合度很高（说明楼主排版格式非常固定）
+                if (prefix.length > 3 || suffix.length > 2) {
+                    // 砍掉公共前后缀，只留中间的差异字符
+                    val diffStr = curr.rawTitle.removePrefix(prefix).removeSuffix(suffix).trim()
+
+                    // 尝试将提取出的差异部分转为数字
+                    val rescuedNum = diffStr.toFloatOrNull()
+                    if (rescuedNum != null && rescuedNum > 0f && rescuedNum < 1000f) {
+                        processed[i] = curr.copy(chapterNum = rescuedNum)
+                    }
+                }
+            }
+        }
+        return processed
+    }
     /**
      * 补完算法
      * 针对无法提取编号的帖子以及提取错误/排序差距过大的异常贴，
@@ -218,22 +251,69 @@ class DirectoryRepository private constructor(private val context: Context) {
     ): List<MangaChapterItem> {
         if (items.isEmpty()) return items
 
+        // TID基准
         val ascendingItems = if (items.any { it.publishTime > 0L }) {
-            items.sortedBy { it.publishTime }
+            // 时间戳优先，当时间戳相同或丢失精度时，用TID兜底
+            items.sortedWith(compareBy({ it.publishTime }, { it.tid.toLongOrNull() ?: 0L }))
         } else {
-            if (isSearchDesc) items.reversed() else items
+            // 无时间戳时，纯靠TID排序
+            val sortedByTid = items.sortedBy { it.tid.toLongOrNull() ?: 0L }
+            if (isSearchDesc) sortedByTid.reversed() else sortedByTid
+        }
+
+        // 统计全局话数出现的频率
+        val chapterNumFrequencies = ascendingItems
+            .filter { it.chapterNum > 0f }
+            .groupingBy { it.chapterNum }
+            .eachCount()
+
+        // 自顶向下的离群值裁剪
+        val MAX_VALID_CHAPTER = 1000f
+        var dynamicMaxBound = MAX_VALID_CHAPTER
+
+        val uniqueDescNums = chapterNumFrequencies.keys.filter { it < MAX_VALID_CHAPTER }.sortedDescending()
+
+        // 允许的顶部跳跃跨度阈值。
+        val TOP_GAP_THRESHOLD = 5f
+
+        if (uniqueDescNums.isNotEmpty()) {
+            var validMax = uniqueDescNums.first()
+
+            for (i in 0 until uniqueDescNums.size - 1) {
+                val curr = uniqueDescNums[i]   // 当前最大
+                val next = uniqueDescNums[i + 1] // 第二大
+
+                // 如果最大值比第二大超出了合理范围
+                if (curr - next > TOP_GAP_THRESHOLD) {
+                    validMax = next
+                } else {
+                    validMax = curr
+                    break
+                }
+            }
+            dynamicMaxBound = validMax + TOP_GAP_THRESHOLD
         }
 
         // ======================= 阶段一：检测排序差距过大 =======================
-        val rawValidItems = ascendingItems.filter { it.chapterNum > 0f && it.chapterNum < 1000f }
+        val rawValidItems = ascendingItems.filter { it.chapterNum > 0f && it.chapterNum < MAX_VALID_CHAPTER }
         val sortedRawValid = rawValidItems.sortedBy { it.chapterNum }
         val sortedIndexMap = sortedRawValid.mapIndexed { index, item -> item.tid to index }.toMap()
 
-        // 容忍阈值：由于数字提取错乱导致排序偏离超过3话，视为提取错误
         val DEVIATION_THRESHOLD = 3
         val anomalyTids = rawValidItems.mapIndexedNotNull { index, item ->
             val sortedIdx = sortedIndexMap[item.tid] ?: index
-            if (abs(index - sortedIdx) >= DEVIATION_THRESHOLD) item.tid else null
+
+            val isInteger = item.chapterNum % 1f == 0f
+            val isNotTooLarge = item.chapterNum <= dynamicMaxBound
+            val isUnique = chapterNumFrequencies[item.chapterNum] == 1
+
+            val isTrustworthy = isInteger && isNotTooLarge && isUnique
+
+            if (abs(index - sortedIdx) >= DEVIATION_THRESHOLD && !isTrustworthy) {
+                item.tid
+            } else {
+                null
+            }
         }.toSet()
 
         // ======================= 阶段二：双向插值法赋予真实位置编号 =======================
@@ -342,7 +422,8 @@ class DirectoryRepository private constructor(private val context: Context) {
                 }
 
                 if (newChapters.isNotEmpty()) {
-                    val fixedChapters = fixChaptersByTimeline(newChapters, isSearchDesc = false)
+                    val rescuedChapters = rescueChapterNumsByDiff(newChapters)
+                    val fixedChapters = fixChaptersByTimeline(rescuedChapters, isSearchDesc = false)
                     newChapters.clear()
                     newChapters.addAll(fixedChapters)
                 }
@@ -403,7 +484,8 @@ class DirectoryRepository private constructor(private val context: Context) {
             }
         }
 
-        val fixedItems = fixChaptersByTimeline(allItems, isSearchDesc = true)
+        val rescuedItems = rescueChapterNumsByDiff(allItems)
+        val fixedItems = fixChaptersByTimeline(rescuedItems, isSearchDesc = true)
         return Result.success(fixedItems)
     }
 
