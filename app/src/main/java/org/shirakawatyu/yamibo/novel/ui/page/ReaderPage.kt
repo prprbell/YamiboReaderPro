@@ -18,7 +18,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -87,6 +86,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -139,6 +139,7 @@ import org.shirakawatyu.yamibo.novel.ui.widget.ContentViewer
 import org.shirakawatyu.yamibo.novel.ui.widget.CustomStatusBar
 import org.shirakawatyu.yamibo.novel.ui.widget.PassageWebView
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
+import org.shirakawatyu.yamibo.novel.util.detectReaderTransformGestures
 import kotlin.math.roundToInt
 
 private val backgroundColors = listOf(
@@ -696,6 +697,7 @@ fun ReaderPage(
                                             }
                                         }
                                     } else {
+                                        val currentScale by rememberUpdatedState(uiState.scale)
                                         HorizontalPager(
                                             modifier = Modifier
                                                 .fillMaxSize()
@@ -732,12 +734,12 @@ fun ReaderPage(
                                                     )
                                                 }
                                                 .pointerInput(Unit) {
-                                                    detectTransformGestures { _, pan, zoom, _ ->
-                                                        readerVM.onTransform(
-                                                            pan,
-                                                            zoom
-                                                        )
-                                                    }
+                                                    detectReaderTransformGestures(
+                                                        scaleProvider = { currentScale },
+                                                        onGesture = { pan, zoom ->
+                                                            readerVM.onTransform(pan, zoom)
+                                                        }
+                                                    )
                                                 }
                                                 .graphicsLayer(
                                                     scaleX = uiState.scale,
