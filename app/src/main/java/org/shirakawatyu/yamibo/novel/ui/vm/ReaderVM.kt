@@ -1166,8 +1166,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 latestPage = newPage
             } else {
                 // 转场仍在进行中
-                // 此时不应处理页面变更逻辑（如预加载）
-                // 仅重置缩放
                 if (curPagerState.settledPage != curPagerState.targetPage && _uiState.value.scale != 1f) {
                     _uiState.value = _uiState.value.copy(scale = 1f, offset = Offset(0f, 0f))
                 }

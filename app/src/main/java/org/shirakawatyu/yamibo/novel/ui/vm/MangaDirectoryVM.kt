@@ -26,7 +26,7 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
     var isUpdatingDirectory by mutableStateOf(false)
         private set
 
-    // 更新按钮的冷却时间 (秒)
+    // 更新按钮的冷却时间
     var directoryCooldown by mutableIntStateOf(0)
         private set
 
