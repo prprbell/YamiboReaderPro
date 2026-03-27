@@ -15,6 +15,9 @@ import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * 漫画探测工具
+ */
 class MangaProber {
 
     @Keep

@@ -5,7 +5,9 @@ import androidx.compose.ui.unit.TextUnit
 import org.shirakawatyu.yamibo.novel.bean.Content
 import org.shirakawatyu.yamibo.novel.bean.ContentType
 
-// 分页算法
+/**
+ * 文本分页工具
+ */
 class TextUtil {
     companion object {
         private val PUNCTUATION_LINE_START_DENY_SET = BooleanArray(0x10000).apply {

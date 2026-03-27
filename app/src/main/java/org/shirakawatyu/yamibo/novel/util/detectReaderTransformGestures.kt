@@ -11,9 +11,11 @@ import androidx.compose.ui.input.pointer.positionChanged
 import kotlin.math.abs
 
 /**
- * 阅读器的手势探测器
- *  @param scaleProvider 提供当前缩放比例的Lambda，确保手势探测器能实时获取最新状态
- * @param onGesture 发生缩放或平移时的回调
+ * 阅读器手势探测器（扩展函数）
+ * 用于检测缩放和平移手势，并根据缩放状态和多指情况决定是否消费事件
+ * 避免与底层Pager滚动冲突
+ * @param scaleProvider 提供当前缩放比例的lambda，用于判断是否需要拦截
+ * @param onGesture 缩放/平移时的回调
  */
 suspend fun PointerInputScope.detectReaderTransformGestures(
     scaleProvider: () -> Float,

@@ -6,6 +6,13 @@ import androidx.collection.LruCache
 import com.alibaba.fastjson2.annotation.JSONCreator
 import com.alibaba.fastjson2.annotation.JSONField
 
+/**
+ * 内存缓存数据类，用于存储页面缓存信息。
+ * @property cachedPageNum 已缓存的页码
+ * @property htmlContent 页面HTML内容
+ * @property maxPageNum 最大页码
+ * @property authorId 作者ID
+ */
 data class CacheData @JSONCreator constructor(
     @JSONField(name = "cachedPageNum") val cachedPageNum: Int = 0,
     @JSONField(name = "htmlContent") val htmlContent: String = "",
@@ -13,27 +20,26 @@ data class CacheData @JSONCreator constructor(
     @JSONField(name = "authorId") val authorId: String? = null
 )
 
-// 缓存管理类
+/**
+ * 内存缓存管理工具
+ * 负责在内存中存储和检索页面缓存，并验证HTML内容有效性
+ */
 class CacheUtil {
     companion object {
         private const val logTag = "CacheUtil"
 
-        // 定义缓存的总大小 50mb
+        // 定义缓存的总大小50mb
         private const val CACHE_SIZE_IN_MIB = 50
         private val cacheSizeInBytes = CACHE_SIZE_IN_MIB * 1024 * 1024
 
         /**
-         * LruCache 的实现
-         * Key: String - 唯一键 (例如 "novel/url::page/2")
-         * Value: CacheData - 缓存的数据
+         * LruCache实现
+         * Key: String 唯一键
+         * Value: CacheData 缓存的数据
          */
         private val inMemoryCache: LruCache<String, CacheData> =
             object : LruCache<String, CacheData>(cacheSizeInBytes) {
 
-                /**
-                 * LruCache 的核心。
-                 * 告诉 LruCache 存入的每一项 (CacheData) 占用了多少内存。
-                 */
                 override fun sizeOf(key: String, value: CacheData): Int {
                     val htmlSize = value.htmlContent.length * 2
                     val keySize = key.length * 2

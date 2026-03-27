@@ -7,7 +7,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 
-
+/**
+ * 单位转换工具
+ */
 class ValueUtil {
     companion object {
 

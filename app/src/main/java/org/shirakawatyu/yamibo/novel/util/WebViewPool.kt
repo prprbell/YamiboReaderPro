@@ -8,6 +8,9 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
+/**
+ * WebView预加载池
+ */
 object WebViewPool {
     private val pool = mutableListOf<WebView>()
     private const val MAX_POOL_SIZE = 3

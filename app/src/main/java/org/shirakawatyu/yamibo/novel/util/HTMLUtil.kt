@@ -1,5 +1,8 @@
 package org.shirakawatyu.yamibo.novel.util
 
+/**
+ * HTML文本处理工具
+ */
 class HTMLUtil {
     companion object {
         fun toText(html: String): String {

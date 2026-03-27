@@ -4,6 +4,10 @@ import android.content.Context
 import com.zqc.opencc.android.lib.ChineseConverter
 import com.zqc.opencc.android.lib.ConversionType
 
+/**
+ * 中文简繁转换工具
+ * 提供简体转繁体、繁体转简体的功能
+ */
 object ChineseConvertUtil {
 
     /**

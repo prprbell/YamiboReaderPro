@@ -5,6 +5,10 @@ import com.alibaba.fastjson2.JSON
 import com.alibaba.fastjson2.JSONException
 import org.shirakawatyu.yamibo.novel.bean.ReaderSettings
 
+/**
+ * 设置管理工具
+ * 负责保存和读取阅读器设置和省流模式开关
+ */
 class SettingsUtil {
     companion object {
         private val key = stringPreferencesKey("settings")

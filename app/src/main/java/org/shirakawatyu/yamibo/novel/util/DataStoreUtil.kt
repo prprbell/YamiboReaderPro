@@ -11,7 +11,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 
-// 数据存储工具类
+/**
+ * DataStore操作工具类
+ * 提供写入和读取数据的方法。
+ */
 class DataStoreUtil {
     companion object {
         fun addData(data: String, key: Preferences.Key<String>, callback: () -> Unit = {}) {

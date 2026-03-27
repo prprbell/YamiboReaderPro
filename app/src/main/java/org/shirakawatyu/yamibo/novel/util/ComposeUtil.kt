@@ -17,6 +17,10 @@ import kotlinx.coroutines.launch
 
 class ComposeUtil {
     companion object {
+        /**
+         * 设置状态栏颜色
+         * @param color 状态栏颜色
+         */
         @Composable
         fun SetStatusBarColor(color: Color) {
             val context = LocalContext.current as? Activity ?: return
@@ -75,8 +79,8 @@ class ComposeUtil {
 }
 
 /**
- * 宿主级别的 WebView 生命周期观察者。
- * 只有当整个 App 切换到后台/前台时，才会全局暂停/恢复 JS 引擎和 WebView 渲染。
+ * 宿主级别的WebView生命周期观察者
+ * 只有当整个App切换到后台/前台时，才会全局暂停/恢复JS引擎和WebView渲染。
  */
 @Composable
 fun ActivityWebViewLifecycleObserver(webView: WebView) {

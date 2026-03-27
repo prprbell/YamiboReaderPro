@@ -1,5 +1,8 @@
 package org.shirakawatyu.yamibo.novel.util
 
+/**
+ * 漫画标题清洗工具
+ */
 class MangaTitleCleaner {
     companion object {
         fun getCleanThreadTitle(rawTitle: String): String {
@@ -90,7 +93,11 @@ class MangaTitleCleaner {
             val cleanTitle = rawTitle
                 .replace(Regex("【.*?】|\\[.*?\\]|\\(.*?\\)|（.*?）|「.*?」|《.*?》"), "")
                 .replace(Regex("\\d+\\s*[xX×]\\s*\\d+"), "")
-            if (Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE).containsMatchIn(rawTitle)) {
+            if (Regex(
+                    "番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画",
+                    RegexOption.IGNORE_CASE
+                ).containsMatchIn(rawTitle)
+            ) {
                 return 0f
             }
 

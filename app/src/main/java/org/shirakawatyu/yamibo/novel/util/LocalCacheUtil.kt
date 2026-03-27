@@ -12,8 +12,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * 本地缓存工具类
- * 管理小说页面的持久化缓存
+ * 本地持久化缓存管理
+ * 负责将小说页面缓存到应用私有目录，并提供索引管理
  */
 class LocalCacheUtil(private val context: Context) {
 
@@ -361,6 +361,7 @@ class LocalCacheUtil(private val context: Context) {
             false
         }
     }
+
     // 批量更新缓存的标题（用于孤立缓存的别名显示）
     fun updateCacheTitles(titlesMap: Map<String, String>) {
         val currentIndex = _index.value

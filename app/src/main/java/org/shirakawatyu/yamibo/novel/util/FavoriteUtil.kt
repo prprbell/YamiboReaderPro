@@ -8,12 +8,16 @@ import kotlinx.coroutines.flow.map
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 
+/**
+ * 收藏管理工具
+ * 负责收藏数据的存储、合并、排序、更新等操作
+ */
 class FavoriteUtil {
     companion object {
         private val key = stringPreferencesKey("yamibo_favorite")
 
         /**
-         * 提供一个 Flow，用于实时监听收藏列表的变化。
+         * 提供一个Flow，用于实时监听收藏列表的变化。
          */
         fun getFavoriteFlow(): Flow<List<Favorite>> {
             val dataStore =
@@ -31,39 +35,6 @@ class FavoriteUtil {
                         emptyList()
                     }
                 }
-        }
-
-        /**
-         * (不是给论坛账号添加新的收藏）合并网络收藏和本地收藏。
-         * 1. 将网络上新增的收藏项放在顶部。
-         * 2. 保留本地已有的收藏项的顺序（包括用户手动排序后的顺序）。
-         * 3. 移除在网络上已被删除的收藏项。
-         */
-        fun addFavorite(favorites: List<Favorite>, callback: (list: List<Favorite>) -> Unit) {
-            getFavoriteMap { oldMap ->
-
-                val networkMap = favorites.associateBy { it.url }
-                val finalOrderedMap = LinkedHashMap<String, Favorite>()
-
-                for (netFav in favorites) {
-                    if (!oldMap.containsKey(netFav.url)) {
-                        finalOrderedMap[netFav.url] = netFav
-                    }
-                }
-
-                for (oldEntry in oldMap.entries) {
-                    val url = oldEntry.key
-                    val oldFavData = oldEntry.value
-
-                    if (networkMap.containsKey(url)) {
-                        finalOrderedMap[url] = oldFavData
-                    }
-                }
-
-                DataStoreUtil.addData(JSON.toJSONString(finalOrderedMap), key)
-
-                callback(finalOrderedMap.values.toList())
-            }
         }
 
         fun checkAndUpdateTitle(url: String, rawTitle: String?) {
@@ -126,12 +97,6 @@ class FavoriteUtil {
             }, onNull = {
                 callback(LinkedHashMap())
             })
-        }
-
-        fun getFavorite(callback: (list: List<Favorite>) -> Unit) {
-            getFavoriteMap {
-                callback(it.values.toList())
-            }
         }
 
         private fun jsonToHashMap(text: String): LinkedHashMap<String, Favorite> {

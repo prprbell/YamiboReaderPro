@@ -5,6 +5,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 
+/**
+ * Cookie管理工具
+ * 负责保存和获取论坛登录cookie
+ */
 class CookieUtil {
     companion object {
         private val key = stringPreferencesKey("yamibo")
