@@ -97,7 +97,9 @@ fun MangaChapterPanel(
     var isTitleExpanded by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var editTitleText by remember { mutableStateOf(title) }
-    var editAuthorText by remember { mutableStateOf(initialAuthor) }
+    var editKeyword1 by remember { mutableStateOf(initialAuthor) }
+    var editKeyword2 by remember { mutableStateOf("") }
+    var showSecondKeyword by remember { mutableStateOf(false) }
 
     val sorted = remember(chapters, ascending) {
         if (ascending) chapters else chapters.reversed()
@@ -158,20 +160,56 @@ fun MangaChapterPanel(
                 },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(
-                            value = editAuthorText,
-                            onValueChange = { editAuthorText = it },
-                            singleLine = true,
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("额外关键词", color = TextSec) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Accent,
-                                unfocusedTextColor = Accent,
-                                cursorColor = Accent,
-                                focusedBorderColor = Accent,
-                                unfocusedBorderColor = TextSec
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = editKeyword1,
+                                onValueChange = { editKeyword1 = it },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                label = { Text("关键词 1", color = TextSec) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Accent,
+                                    unfocusedTextColor = Accent,
+                                    cursorColor = Accent,
+                                    focusedBorderColor = Accent,
+                                    unfocusedBorderColor = TextSec
+                                )
                             )
-                        )
+
+                            if (showSecondKeyword) {
+                                OutlinedTextField(
+                                    value = editKeyword2,
+                                    onValueChange = { editKeyword2 = it },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    label = { Text("关键词 2", color = TextSec) },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Accent,
+                                        unfocusedTextColor = Accent,
+                                        cursorColor = Accent,
+                                        focusedBorderColor = Accent,
+                                        unfocusedBorderColor = TextSec
+                                    )
+                                )
+                            } else {
+                                // 加号按钮：点击后显示第二个输入框
+                                Box(
+                                    modifier = Modifier
+                                        .padding(top = 8.dp) // 稍微下移以对齐输入框主体
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF1C2028))
+                                        .clickable { showSecondKeyword = true },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("+", color = Accent, fontSize = 24.sp, fontWeight = FontWeight.Light)
+                                }
+                            }
+                        }
                         OutlinedTextField(
                             value = editTitleText,
                             onValueChange = { editTitleText = it },
@@ -191,7 +229,10 @@ fun MangaChapterPanel(
                 confirmButton = {
                     TextButton(onClick = {
                         if (editTitleText.isNotBlank()) {
-                            onTitleEdit(editTitleText.trim(), editAuthorText.trim())
+                            val combinedKeywords = listOf(editKeyword1.trim(), editKeyword2.trim())
+                                .filter { it.isNotEmpty() }
+                                .joinToString(" ")
+                            onTitleEdit(editTitleText.trim(), combinedKeywords)
                         }
                         showEditDialog = false
                     }) {
@@ -385,9 +426,19 @@ fun MangaChapterPanel(
                                         )
                             }.maxByOrNull { it.index }
 
-                            val latestText = latestChapter?.let {
-                                if (it.index % 1f == 0f) it.index.toInt()
-                                    .toString() else it.index.toString()
+                            val latestText = latestChapter?.let { chap ->
+                                when {
+                                    chap.title.contains(Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)) -> "SP"
+                                    chap.index == 999f -> "终"
+                                    chap.index < 1f && !chap.title.contains(Regex("0|零|〇")) -> "Ex"
+                                    else -> {
+                                        val safeStr = java.text.DecimalFormat("0.###").format(chap.index)
+                                        if (safeStr.contains(".")) {
+                                            val parts = safeStr.split(".")
+                                            if (parts[1].length >= 3) "Ex" else "${parts[0]}-${parts[1].trimStart('0')}"
+                                        } else safeStr
+                                    }
+                                }
                             } ?: ""
 
                             Text(
@@ -489,12 +540,24 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
     val displayIndex = when {
         chapter.title.contains(Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)) -> "SP"
         chapter.index == 999f -> "终"
-        chapter.index.toString().substringAfter(".", "").length >= 3 -> "Ex"
-
         chapter.index < 1f && !chapter.title.contains(Regex("0|零|〇")) -> "Ex"
+        else -> {
+            val safeStr = java.text.DecimalFormat("0.###").format(chapter.index)
 
-        chapter.index % 1f == 0f -> chapter.index.toInt().toString() // 4.0 -> "4"
-        else -> chapter.index.toString() // 29.5 -> "29.5"
+            if (safeStr.contains(".")) {
+                val parts = safeStr.split(".")
+                val integerPart = parts[0]
+                val fractionalPart = parts[1].trimStart('0')
+
+                if (parts[1].length >= 3) {
+                    "Ex"
+                } else {
+                    "$integerPart-$fractionalPart"
+                }
+            } else {
+                safeStr
+            }
+        }
     }
 
     var isExpanded by remember(chapter.url) { mutableStateOf(false) }

@@ -18,7 +18,6 @@ import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import java.io.File
 import java.io.IOException
 import java.util.Collections
-import kotlin.math.abs
 
 data class DirectoryUpdateResult(val directory: MangaDirectory, val searchPerformed: Boolean)
 
@@ -27,13 +26,11 @@ class DirectoryRepository private constructor(private val context: Context) {
     private val DIRECTORY_DIR = "manga_directory"
     private val LOG_TAG = "DirectoryRepo"
 
-    // 条带锁：固定32个槽位
     private val STRIPE_COUNT = 32
     private val locks = Array(STRIPE_COUNT) { Mutex() }
     private fun getFileLock(name: String) =
         locks[(name.hashCode() and Int.MAX_VALUE) % STRIPE_COUNT]
 
-    // 内存LRU缓存：保持50部漫画对象，使用同步装饰器确保线程安全
     private val memoryCache: MutableMap<String, MangaDirectory> = Collections.synchronizedMap(
         object : LinkedHashMap<String, MangaDirectory>(20, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MangaDirectory>?) =
@@ -83,7 +80,7 @@ class DirectoryRepository private constructor(private val context: Context) {
                 if (file.exists()) file.delete()
                 tempFile.renameTo(file)
             }
-            Unit // 显式返回 Unit 解决 if-else 报错
+            Unit
         } catch (e: IOException) {
             Log.e(LOG_TAG, "Save failed: $name", e)
         } finally {
@@ -91,10 +88,145 @@ class DirectoryRepository private constructor(private val context: Context) {
         }
     }
 
+    // 基于 TID 排序并重组序号
+    private fun mergeAndSortChapters(
+        old: List<MangaChapterItem>,
+        new: List<MangaChapterItem>
+    ): List<MangaChapterItem> {
+        val map = LinkedHashMap<String, MangaChapterItem>()
+
+        old.forEach { map[it.tid] = it }
+        new.forEach { map[it.tid] = it }
+
+        val sortedByTid = map.values.sortedBy { it.tid.toLongOrNull() ?: 0L }
+
+        val extractedChapters = sortedByTid.map { item ->
+            val extractedNum = MangaTitleCleaner.extractChapterNum(item.rawTitle)
+            item.copy(chapterNum = extractedNum)
+        }
+
+        return smoothChapterDisplayNumbers(extractedChapters)
+    }
     /**
-     * 初次进入帖子。
-     * 无论是否有缓存，都尝试提取当前页超链接并合并
+     * 话数纠错
      */
+    private fun smoothChapterDisplayNumbers(items: List<MangaChapterItem>): List<MangaChapterItem> {
+        if (items.size < 3) return items
+
+        val processed = items.toMutableList()
+        val isBad = BooleanArray(processed.size)
+
+        for (i in processed.indices) {
+            val curr = processed[i].chapterNum
+            if (curr <= 0f || curr >= 999f) continue
+
+            var leftNum = -1f
+            for (j in i - 1 downTo 0) {
+                if (!isBad[j] && processed[j].chapterNum > 0f && processed[j].chapterNum < 999f) {
+                    leftNum = processed[j].chapterNum
+                    break
+                }
+            }
+
+            if (leftNum != -1f && curr < leftNum - 3f) {
+                isBad[i] = true
+                continue
+            }
+
+            if (leftNum != -1f && curr > leftNum + 3f) {
+                var dropCount = 0
+                for (j in i + 1 until minOf(processed.size, i + 8)) {
+                    val futureNum = processed[j].chapterNum
+                    if (futureNum > 0f && futureNum < curr - 5f) {
+                        dropCount++
+                        if (dropCount >= 3) {
+                            isBad[i] = true
+                            break
+                        }
+                    }
+                }
+                if (isBad[i]) continue
+            }
+
+            if (leftNum == -1f) {
+                var dropCount = 0
+                for (j in i + 1 until minOf(processed.size, i + 8)) {
+                    if (processed[j].chapterNum > 0f && processed[j].chapterNum < curr - 3f) {
+                        dropCount++
+                        if (dropCount >= 3) {
+                            isBad[i] = true
+                            break
+                        }
+                    }
+                }
+            }
+        }
+
+        for (i in processed.indices) {
+            if (isBad[i]) {
+                val currItem = processed[i]
+
+                var prevValidNum = 0f
+                for (j in i - 1 downTo 0) if (!isBad[j] && processed[j].chapterNum > 0f && processed[j].chapterNum < 999f) { prevValidNum = processed[j].chapterNum; break }
+
+                var nextValidNum = 9999f
+                for (j in i + 1 until processed.size) if (!isBad[j] && processed[j].chapterNum > 0f && processed[j].chapterNum < 999f) { nextValidNum = processed[j].chapterNum; break }
+
+                val candidates = MangaTitleCleaner.extractAllPossibleNumbers(currItem.rawTitle)
+                var bestFit = -1f
+
+                val beautyComparator = compareBy<Float> { num ->
+                    val str = java.text.DecimalFormat("0.###").format(num)
+                    if (str.contains(".")) str.substringAfter(".").length else 0
+                }.thenBy { it }
+
+                val validCandidates = candidates.filter { it >= prevValidNum && it <= nextValidNum }
+
+                if (validCandidates.isNotEmpty()) {
+                    val strictGreater = validCandidates.filter { it > prevValidNum }
+                    bestFit = if (strictGreater.isNotEmpty()) {
+                        strictGreater.minWithOrNull(beautyComparator) ?: -1f
+                    } else {
+                        validCandidates.minWithOrNull(beautyComparator) ?: -1f
+                    }
+                }
+
+                if (bestFit == -1f) {
+                    var smartFill = -1f
+
+                    if (prevValidNum > 0f && nextValidNum < 9999f) {
+                        val expectedInt = kotlin.math.floor(prevValidNum.toDouble()).toFloat() + 1f
+
+                        if (expectedInt > prevValidNum && expectedInt < nextValidNum) {
+                            val existsGlobally = processed.any { it.chapterNum == expectedInt }
+                            if (!existsGlobally) {
+                                smartFill = expectedInt
+                            }
+                        }
+                    }
+
+                    if (smartFill != -1f) {
+                        bestFit = smartFill
+                    } else if (candidates.isNotEmpty()) {
+                        bestFit = candidates.minWithOrNull(beautyComparator) ?: candidates.first()
+                    }
+                }
+
+                // 最终回填
+                if (bestFit != -1f) {
+                    val formattedNum = Math.round(bestFit * 1000) / 1000f
+                    processed[i] = currItem.copy(chapterNum = formattedNum)
+                    isBad[i] = false
+                } else {
+                    val fallbackNum = Math.round((prevValidNum + 0.1f) * 1000) / 1000f
+                    processed[i] = currItem.copy(chapterNum = fallbackNum)
+                    isBad[i] = false
+                }
+            }
+        }
+
+        return processed
+    }
     suspend fun initDirectoryForThread(
         tid: String,
         currentUrl: String,
@@ -110,31 +242,8 @@ class DirectoryRepository private constructor(private val context: Context) {
         return getFileLock(cleanName).withLock {
             val cachedDir = loadDirectory(cleanName)
 
+            // 直接提取当前页超链接（无需再做虚拟话数补全）
             val rawSamePageLinks = MangaHtmlParser.extractSamePageLinks(mobileHtml)
-
-            val validNums = rawSamePageLinks.map { it.chapterNum }.filter { it > 0f && it < 1000f }
-            val isDescending = validNums.size >= 2 && validNums.first() > validNums.last()
-
-            val ascendingLinks = if (isDescending) rawSamePageLinks.reversed() else rawSamePageLinks
-
-            var lastValidNum = 0f
-            var subIndex = 1
-
-            val fixedSamePageLinks = ascendingLinks.map { item ->
-                if (item.chapterNum > 0f && item.chapterNum < 1000f) {
-                    lastValidNum = item.chapterNum
-                    subIndex = 1
-                    item
-                } else if (item.chapterNum == 0f) {
-                    val virtualNum = lastValidNum + (subIndex * 0.001f)
-                    subIndex++
-                    item.copy(chapterNum = virtualNum)
-                } else {
-                    val virtualNum = item.chapterNum + (subIndex * 0.001f)
-                    subIndex++
-                    item.copy(chapterNum = virtualNum)
-                }
-            }
 
             val currentChapter = MangaChapterItem(
                 tid = tid,
@@ -145,33 +254,26 @@ class DirectoryRepository private constructor(private val context: Context) {
                 authorName = null
             )
 
-            val gatheredFromPage = (fixedSamePageLinks + currentChapter).distinctBy { it.tid }
+            val gatheredFromPage = (rawSamePageLinks + currentChapter).distinctBy { it.tid }
 
             if (cachedDir != null) {
-                val existingTids = cachedDir.chapters.map { it.tid }.toSet()
-                val supplementaryChapters = gatheredFromPage.filter { it.tid !in existingTids }
-
-                val mergedChapters = if (supplementaryChapters.isNotEmpty()) {
-                    (cachedDir.chapters + supplementaryChapters).sortedWith(
-                        compareBy(
-                            { it.groupIndex },
-                            { it.chapterNum })
-                    )
-                } else {
-                    cachedDir.chapters
-                }
-
                 val newStrategy =
                     if (cachedDir.strategy == DirectoryStrategy.PENDING_SEARCH && rawSamePageLinks.isNotEmpty()) {
                         DirectoryStrategy.LINKS
                     } else cachedDir.strategy
+
+                val existingTids = cachedDir.chapters.map { it.tid }.toSet()
+
+                val supplementaryChapters = gatheredFromPage.filter { it.tid !in existingTids }
+
+                val mergedChapters = mergeAndSortChapters(cachedDir.chapters, supplementaryChapters)
 
                 val updatedDir = cachedDir.copy(
                     chapters = mergedChapters,
                     strategy = newStrategy
                 )
 
-                if (supplementaryChapters.isNotEmpty() || updatedDir.strategy != cachedDir.strategy) {
+                if (mergedChapters.size != cachedDir.chapters.size || updatedDir.strategy != cachedDir.strategy) {
                     saveDirectory(updatedDir)
                 }
                 return@withLock updatedDir
@@ -192,13 +294,14 @@ class DirectoryRepository private constructor(private val context: Context) {
                     sourceKey = cleanName
                 }
 
+                // 调用核心 TID 排序初始化
+                val initialChapters = mergeAndSortChapters(emptyList(), gatheredFromPage)
+
                 val newDir = MangaDirectory(
                     cleanBookName = cleanName,
                     strategy = strategy,
                     sourceKey = sourceKey,
-                    chapters = gatheredFromPage.sortedWith(
-                        compareBy({ it.groupIndex }, { it.chapterNum })
-                    )
+                    chapters = initialChapters
                 )
 
                 saveDirectory(newDir)
@@ -206,195 +309,19 @@ class DirectoryRepository private constructor(private val context: Context) {
             }
         }
     }
-    /**
-     * 差分法：利用相邻帖子的标题相似性，拯救正则提取失败的章节
-     */
-    private fun rescueChapterNumsByDiff(items: List<MangaChapterItem>): List<MangaChapterItem> {
-        if (items.size < 3) return items
-
-        val processed = items.toMutableList()
-
-        // 滑动窗口对比相邻的 3 个标题
-        for (i in 1 until processed.size - 1) {
-            val prev = processed[i - 1]
-            val curr = processed[i]
-            val next = processed[i + 1]
-
-            // 只有当当前话数提取失败（即 0f 坑位），才触发救援
-            if (curr.chapterNum == 0f) {
-                val prefix = curr.rawTitle.commonPrefixWith(prev.rawTitle)
-                val suffix = curr.rawTitle.commonSuffixWith(next.rawTitle)
-
-                // 如果前后缀重合度很高（说明楼主排版格式非常固定）
-                if (prefix.length > 3 || suffix.length > 2) {
-                    // 砍掉公共前后缀，只留中间的差异字符
-                    val diffStr = curr.rawTitle.removePrefix(prefix).removeSuffix(suffix).trim()
-
-                    // 尝试将提取出的差异部分转为数字
-                    val rescuedNum = diffStr.toFloatOrNull()
-                    if (rescuedNum != null && rescuedNum > 0f && rescuedNum < 1000f) {
-                        processed[i] = curr.copy(chapterNum = rescuedNum)
-                    }
-                }
-            }
-        }
-        return processed
-    }
-    /**
-     * 补完算法
-     * 针对无法提取编号的帖子以及提取错误/排序差距过大的异常贴，
-     * 根据它们在时间线上的真实位置，参考前后的正常编号，动态计算出一个合理的顺位编号。
-     */
-    private fun fixChaptersByTimeline(
-        items: List<MangaChapterItem>,
-        isSearchDesc: Boolean = false
-    ): List<MangaChapterItem> {
-        if (items.isEmpty()) return items
-
-        // TID基准
-        val ascendingItems = if (items.any { it.publishTime > 0L }) {
-            // 时间戳优先，当时间戳相同或丢失精度时，用TID兜底
-            items.sortedWith(compareBy({ it.publishTime }, { it.tid.toLongOrNull() ?: 0L }))
-        } else {
-            // 无时间戳时，纯靠TID排序
-            val sortedByTid = items.sortedBy { it.tid.toLongOrNull() ?: 0L }
-            if (isSearchDesc) sortedByTid.reversed() else sortedByTid
-        }
-
-        // 统计全局话数出现的频率
-        val chapterNumFrequencies = ascendingItems
-            .filter { it.chapterNum > 0f }
-            .groupingBy { it.chapterNum }
-            .eachCount()
-
-        // 自顶向下的离群值裁剪
-        val MAX_VALID_CHAPTER = 1000f
-        var dynamicMaxBound = MAX_VALID_CHAPTER
-
-        val uniqueDescNums = chapterNumFrequencies.keys.filter { it < MAX_VALID_CHAPTER }.sortedDescending()
-
-        // 允许的顶部跳跃跨度阈值。
-        val TOP_GAP_THRESHOLD = 5f
-
-        if (uniqueDescNums.isNotEmpty()) {
-            var validMax = uniqueDescNums.first()
-
-            for (i in 0 until uniqueDescNums.size - 1) {
-                val curr = uniqueDescNums[i]   // 当前最大
-                val next = uniqueDescNums[i + 1] // 第二大
-
-                // 如果最大值比第二大超出了合理范围
-                if (curr - next > TOP_GAP_THRESHOLD) {
-                    validMax = next
-                } else {
-                    validMax = curr
-                    break
-                }
-            }
-            dynamicMaxBound = validMax + TOP_GAP_THRESHOLD
-        }
-
-        // ======================= 阶段一：检测排序差距过大 =======================
-        val rawValidItems = ascendingItems.filter { it.chapterNum > 0f && it.chapterNum < MAX_VALID_CHAPTER }
-        val sortedRawValid = rawValidItems.sortedBy { it.chapterNum }
-        val sortedIndexMap = sortedRawValid.mapIndexed { index, item -> item.tid to index }.toMap()
-
-        val DEVIATION_THRESHOLD = 3
-        val anomalyTids = rawValidItems.mapIndexedNotNull { index, item ->
-            val sortedIdx = sortedIndexMap[item.tid] ?: index
-
-            val isInteger = item.chapterNum % 1f == 0f
-            val isNotTooLarge = item.chapterNum <= dynamicMaxBound
-            val isUnique = chapterNumFrequencies[item.chapterNum] == 1
-
-            val isTrustworthy = isInteger && isNotTooLarge && isUnique
-
-            if (abs(index - sortedIdx) >= DEVIATION_THRESHOLD && !isTrustworthy) {
-                item.tid
-            } else {
-                null
-            }
-        }.toSet()
-
-        // ======================= 阶段二：双向插值法赋予真实位置编号 =======================
-
-        // 判断是否是需要被赋予新编号的“坑位”
-        fun isHole(item: MangaChapterItem): Boolean {
-            val num = item.chapterNum
-            return num == 0f || (num > 0f && num < 1000f && anomalyTids.contains(item.tid))
-        }
-
-        // 判断是否是可靠的基准正常编号
-        fun isValidNormal(item: MangaChapterItem): Boolean {
-            val num = item.chapterNum
-            return num > 0f && num < 1000f && !anomalyTids.contains(item.tid)
-        }
-
-        val processedItems = ascendingItems.toMutableList()
-        var i = 0
-        while (i < processedItems.size) {
-            if (isHole(processedItems[i])) {
-                val holeStartIndex = i
-                var holeEndIndex = i
-
-                // 向后试探
-                while (holeEndIndex + 1 < processedItems.size && isHole(processedItems[holeEndIndex + 1])) {
-                    holeEndIndex++
-                }
-
-                val holeCount = holeEndIndex - holeStartIndex + 1
-
-                // 向左寻找
-                var prevValidNum = 0f
-                for (j in holeStartIndex - 1 downTo 0) {
-                    if (isValidNormal(processedItems[j])) {
-                        prevValidNum = processedItems[j].chapterNum
-                        break
-                    }
-                }
-
-                // 向右寻找
-                var nextValidNum = -1f
-                for (j in holeEndIndex + 1 until processedItems.size) {
-                    if (isValidNormal(processedItems[j])) {
-                        nextValidNum = processedItems[j].chapterNum
-                        break
-                    }
-                }
-
-                // 计算步长
-                val step = if (nextValidNum != -1f) {
-                    (nextValidNum - prevValidNum) / (holeCount + 1)
-                } else {
-                    1.0f
-                }
-
-                for (k in 0 until holeCount) {
-                    val assignedNum = prevValidNum + step * (k + 1)
-                    val formattedNum = Math.round(assignedNum * 1000) / 1000f
-                    processedItems[holeStartIndex + k] =
-                        processedItems[holeStartIndex + k].copy(chapterNum = formattedNum)
-                }
-
-                i = holeEndIndex + 1
-            } else {
-                i++
-            }
-        }
-
-        return processedItems
-    }
 
     suspend fun manuallyUpdateDirectory(
         currentDir: MangaDirectory,
-        forceSearch: Boolean = false
+        forceSearch: Boolean = false,
+        currentTid: String? = null
     ): Result<DirectoryUpdateResult> = withContext(Dispatchers.IO) {
         val newChapters = mutableListOf<MangaChapterItem>()
         var searchPerformed = false
         try {
-            val firstRawTitle =
-                currentDir.chapters.firstOrNull()?.rawTitle ?: currentDir.cleanBookName
-            val autoCleanName = MangaTitleCleaner.getCleanBookName(firstRawTitle)
+            val targetChapter = currentDir.chapters.find { it.tid == currentTid }
+                ?: currentDir.chapters.lastOrNull()
+
+            val firstRawTitle = targetChapter?.rawTitle ?: currentDir.cleanBookName
             val exactKeyword = currentDir.searchKeyword
 
             if (!forceSearch && currentDir.strategy == DirectoryStrategy.TAG) {
@@ -410,22 +337,12 @@ class DirectoryRepository private constructor(private val context: Context) {
                             for (p in 2..total) {
                                 newChapters.addAll(
                                     MangaHtmlParser.parseListHtml(
-                                        mangaApi.getTagPageHtml(
-                                            tagId,
-                                            p
-                                        ).string(), index
+                                        mangaApi.getTagPageHtml(tagId, p).string(), index
                                     )
                                 )
                             }
                         }
                     }
-                }
-
-                if (newChapters.isNotEmpty()) {
-                    val rescuedChapters = rescueChapterNumsByDiff(newChapters)
-                    val fixedChapters = fixChaptersByTimeline(rescuedChapters, isSearchDesc = false)
-                    newChapters.clear()
-                    newChapters.addAll(fixedChapters)
                 }
 
                 if (newChapters.isEmpty()) {
@@ -443,6 +360,7 @@ class DirectoryRepository private constructor(private val context: Context) {
 
             val finalDir = getFileLock(currentDir.cleanBookName).withLock {
                 val latest = loadDirectory(currentDir.cleanBookName) ?: currentDir
+                // 直接把新抓取的数据合并，交给TID排序
                 val merged = mergeAndSortChapters(latest.chapters, newChapters)
                 val updated = latest.copy(
                     chapters = merged,
@@ -484,28 +402,9 @@ class DirectoryRepository private constructor(private val context: Context) {
             }
         }
 
-        val rescuedItems = rescueChapterNumsByDiff(allItems)
-        val fixedItems = fixChaptersByTimeline(rescuedItems, isSearchDesc = true)
-        return Result.success(fixedItems)
+        return Result.success(allItems)
     }
 
-    private fun mergeAndSortChapters(
-        old: List<MangaChapterItem>,
-        new: List<MangaChapterItem>
-    ): List<MangaChapterItem> {
-        val map = LinkedHashMap<String, MangaChapterItem>()
-        val validNums = new.map { it.chapterNum }.toSet()
-        old.forEach {
-            if (!(validNums.contains(it.chapterNum) && new.none { n -> n.tid == it.tid })) map[it.tid] =
-                it
-        }
-        new.forEach { map[it.tid] = it }
-        return map.values.sortedWith(compareBy({ it.groupIndex }, { it.chapterNum }))
-    }
-
-    /**
-     * 获取所有本地保存的目录
-     */
     suspend fun getAllDirectories(): List<MangaDirectory> = withContext(Dispatchers.IO) {
         val dir = File(context.filesDir, DIRECTORY_DIR)
         if (!dir.exists()) return@withContext emptyList()
@@ -523,9 +422,6 @@ class DirectoryRepository private constructor(private val context: Context) {
         }.sortedByDescending { it.lastUpdateTime }
     }
 
-    /**
-     * 删除指定漫画的本地目录
-     */
     suspend fun deleteDirectory(cleanName: String): Boolean = withContext(Dispatchers.IO) {
         getFileLock(cleanName).withLock {
             memoryCache.remove(cleanName)
@@ -538,9 +434,6 @@ class DirectoryRepository private constructor(private val context: Context) {
         }
     }
 
-    /**
-     * 清空所有本地目录
-     */
     suspend fun clearAllDirectories(): Boolean = withContext(Dispatchers.IO) {
         val dir = File(context.filesDir, DIRECTORY_DIR)
         if (!dir.exists()) return@withContext true

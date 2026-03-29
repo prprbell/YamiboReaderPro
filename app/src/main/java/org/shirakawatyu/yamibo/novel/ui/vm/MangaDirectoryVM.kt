@@ -65,24 +65,22 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
     /**
      * 触发目录更新 (连接到 MangaChapterBottomSheet 的更新按钮)
      */
-    fun updateMangaDirectory(isForced: Boolean = false) {
+    fun updateMangaDirectory(isForced: Boolean = false, currentTid: String? = null) {
         val dir = currentDirectory ?: return
         if (isUpdatingDirectory || directoryCooldown > 0) return
 
         viewModelScope.launch {
             isUpdatingDirectory = true
-            showSearchShortcut = false // 开始更新时关闭窗口
+            showSearchShortcut = false
 
-            val result = repo.manuallyUpdateDirectory(dir, forceSearch = isForced)
+            val result = repo.manuallyUpdateDirectory(dir, forceSearch = isForced, currentTid = currentTid)
 
             result.onSuccess { updateResult ->
                 currentDirectory = updateResult.directory
 
                 if (updateResult.searchPerformed) {
-                    // 如果执行了搜索，进入冷却
                     startDirectoryCooldown(20)
                 } else {
-                    // 如果是TAG更新成功，开启5s的“全局搜索”窗口期
                     triggerSearchShortcutWindow()
                 }
             }.onFailure { error ->

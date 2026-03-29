@@ -490,8 +490,19 @@ fun NativeMangaPage(
                     val chapter =
                         mangaDirVM.currentDirectory?.chapters?.find { it.tid == currentTid }
                     if (chapter != null) {
-                        val shortTitle =
-                            if (chapter.chapterNum % 1f == 0f) "读至第 ${chapter.chapterNum.toInt()} 话 - ${currentIndex + 1}页" else "读至第 ${chapter.chapterNum} 话 - ${currentIndex + 1}页"
+                        val displayNum = when {
+                            chapter.rawTitle.contains(Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)) -> "SP"
+                            chapter.chapterNum == 999f -> "终"
+                            chapter.chapterNum < 1f && !chapter.rawTitle.contains(Regex("0|零|〇")) -> "Ex"
+                            else -> {
+                                val safeStr = java.text.DecimalFormat("0.###").format(chapter.chapterNum)
+                                if (safeStr.contains(".")) {
+                                    val parts = safeStr.split(".")
+                                    if (parts[1].length >= 3) "Ex" else "${parts[0]}-${parts[1].trimStart('0')}"
+                                } else safeStr
+                            }
+                        }
+                        val shortTitle = "读至第 $displayNum 话 - ${currentIndex + 1}页"
 
                         favoriteVM.updateMangaProgress(originalUrl, url, shortTitle, currentIndex)
                     }
@@ -997,10 +1008,35 @@ fun NativeMangaPage(
                             val chap = mangaDirVM.currentDirectory?.chapters?.find {
                                 it.tid == MangaTitleCleaner.extractTidFromUrl(url)
                             }
-                            if (chap != null) Text(
-                                if (chap.chapterNum % 1f == 0f) "第 ${chap.chapterNum.toInt()} 话" else "第 ${chap.chapterNum} 话",
-                                color = Color.LightGray, fontSize = 12.sp
-                            )
+                            if (chap != null) {
+                                val displayNum = when {
+                                    chap.rawTitle.contains(
+                                        Regex(
+                                            "番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画",
+                                            RegexOption.IGNORE_CASE
+                                        )
+                                    ) -> "SP"
+
+                                    chap.chapterNum == 999f -> "终"
+                                    chap.chapterNum < 1f && !chap.rawTitle.contains(Regex("0|零|〇")) -> "Ex"
+                                    else -> {
+                                        val safeStr =
+                                            java.text.DecimalFormat("0.###").format(chap.chapterNum)
+                                        if (safeStr.contains(".")) {
+                                            val parts = safeStr.split(".")
+                                            if (parts[1].length >= 3) "Ex" else "${parts[0]}-${
+                                                parts[1].trimStart(
+                                                    '0'
+                                                )
+                                            }"
+                                        } else safeStr
+                                    }
+                                }
+                                Text(
+                                    "第 $displayNum 话",
+                                    color = Color.LightGray, fontSize = 12.sp
+                                )
+                            }
                         }
                         TextButton(onClick = returnToOriginalPost) {
                             Text("去往原帖", color = YamiboColors.tertiary)
@@ -1181,15 +1217,20 @@ fun NativeMangaPage(
                     } ?: emptyList()
 
                     // 提取初始的作者名
-                    val initialAuthor = remember(mangaDirVM.currentDirectory) {
+                    val initialAuthor = remember(mangaDirVM.currentDirectory, currentTid) {
                         val dir = mangaDirVM.currentDirectory
-                        if (dir?.searchKeyword != null && dir.searchKeyword.endsWith(dir.cleanBookName)) {
-                            dir.searchKeyword.removeSuffix(dir.cleanBookName).trim()
+
+                        if (dir?.searchKeyword != null && dir.searchKeyword != dir.cleanBookName) {
+                            dir.searchKeyword.replace(dir.cleanBookName, "").trim()
                         } else {
-                            dir?.chapters?.firstNotNullOfOrNull {
-                                MangaTitleCleaner.extractAuthorPrefix(it.rawTitle)
-                                    .takeIf { author -> author.isNotBlank() }
-                            } ?: ""
+                            val currentChapter = dir?.chapters?.find { it.tid == currentTid }
+                            if (currentChapter != null) {
+                                MangaTitleCleaner.extractAuthorPrefix(currentChapter.rawTitle)
+                            } else {
+                                dir?.chapters?.lastOrNull()?.let {
+                                    MangaTitleCleaner.extractAuthorPrefix(it.rawTitle)
+                                } ?: ""
+                            }
                         }
                     }
 
@@ -1203,7 +1244,10 @@ fun NativeMangaPage(
                         strategy = mangaDirVM.currentDirectory?.strategy,
                         showSearchShortcut = mangaDirVM.showSearchShortcut,
                         searchShortcutCountdown = mangaDirVM.searchShortcutCountdown,
-                        onUpdateClick = { mangaDirVM.updateMangaDirectory(it) },
+                        onUpdateClick = { isForced ->
+                            val tid = MangaTitleCleaner.extractTidFromUrl(url)
+                            mangaDirVM.updateMangaDirectory(isForced, tid)
+                        },
                         onDismiss = {
                             showChapterList = false
                             showUi = false
