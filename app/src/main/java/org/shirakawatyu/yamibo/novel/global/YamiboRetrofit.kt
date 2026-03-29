@@ -10,7 +10,6 @@ import java.util.Locale
 class YamiboRetrofit {
 
     companion object {
-        // PC UA 列表：使用相对较新的主流浏览器版本池
         private val pcUaList = listOf(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",

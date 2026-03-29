@@ -117,18 +117,6 @@ open class YamiboWebViewClient : WebViewClient() {
                 if (window.__historyHooked) return;
                 window.__historyHooked = true;
 
-                window.addEventListener('pagehide', function() {
-                    document.body.style.transition = 'none';
-                    document.body.style.opacity = '0';
-                    setTimeout(function() { document.body.style.opacity = '1'; }, 500);
-                });
-                
-                window.addEventListener('pageshow', function(e) {
-                    setTimeout(function() {
-                        document.body.style.transition = 'opacity 0.25s ease-out';
-                        document.body.style.opacity = '1';
-                    }, 50); 
-                });
                 function checkState() {
                     var state = window.history.state;
                     var isFullscreen = state && typeof state === 'object' && 'pswp_index' in state;
