@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -163,14 +164,21 @@ class MangaProber {
                         }
                     }
                 }
-            }
 
+                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                    if (isFinished.compareAndSet(false, true)) {
+                        WebViewPool.discard(webView)
+                        onFallback()
+                    }
+                    return true
+                }
+            }
+            webView.resumeTimers()
             webView.loadUrl(finalUrl)
 
             var timeWaited = 0
             val maxWaitTime = 8000 // 探测的生命周期上限为8秒
             val checkInterval = 500
-            var hasCheckedBlank = false
 
             while (timeWaited < maxWaitTime && !isFinished.get()) {
                 delay(checkInterval.toLong())

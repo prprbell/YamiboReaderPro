@@ -238,13 +238,11 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
             try {
                 GlobalData.currentCookie = GlobalData.cookieFlow.first()
             } catch (e: Exception) {
-                // 如果加载失败，就当用户未登录处理
                 GlobalData.currentCookie = ""
             } finally {
                 SettingsUtil.getDataSaverMode { isDataSaver ->
                     GlobalData.isDataSaverMode.value = isDataSaver
                 }
-                // 无论成功还是失败，都必须设置为true来解锁UI
                 GlobalData.isAppInitialized = true
             }
         }

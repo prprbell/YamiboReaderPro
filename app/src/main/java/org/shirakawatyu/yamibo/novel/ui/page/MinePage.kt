@@ -666,7 +666,19 @@ fun MinePage(
                     showLoadError = true
                 }
             }
+            override fun onRenderProcessGone(
+                view: WebView?,
+                detail: android.webkit.RenderProcessGoneDetail?
+            ): Boolean {
+                view?.let { WebViewPool.discard(it) }
 
+                timeoutJob?.cancel()
+                hasError = true
+                isLoading = false
+                showLoadError = true
+
+                return true
+            }
             @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
             override fun onReceivedHttpError(
                 view: WebView?,

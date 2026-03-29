@@ -96,7 +96,29 @@ object WebViewPool {
             webView.destroy()
         }
     }
-
+    /**
+     * 用于处理渲染进程崩溃的僵尸WebView
+     */
+    fun discard(webView: WebView) {
+        pool.remove(webView)
+        webViewUseCount.remove(webView)
+        try {
+            webView.apply {
+                stopLoading()
+                removeAllViews()
+                (parent as? ViewGroup)?.removeView(this)
+                destroy()
+            }
+            if (pool.size < MAX_POOL_SIZE) {
+                val freshWebView = createWebView(webView.context)
+                freshWebView.tag = "recycled_standby"
+                pool.add(freshWebView)
+                webViewUseCount[freshWebView] = 0
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
     private fun createWebView(context: Context): WebView {
         val contextWrapper = MutableContextWrapper(context.applicationContext)
         return WebView(contextWrapper).apply {

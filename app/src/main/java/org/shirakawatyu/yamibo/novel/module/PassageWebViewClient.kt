@@ -2,12 +2,14 @@ package org.shirakawatyu.yamibo.novel.module
 
 import android.graphics.Bitmap
 import android.util.Log
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import com.alibaba.fastjson2.JSON
 import com.alibaba.fastjson2.JSONException
+import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.ByteArrayInputStream
 
 /**
@@ -161,6 +163,27 @@ class PassageWebViewClient(
     /**
      * 处理加载失败
      */
+    override fun onRenderProcessGone(
+        view: WebView?,
+        detail: RenderProcessGoneDetail?
+    ): Boolean {
+        view?.let { WebViewPool.discard(it) }
+
+        if (!hasErrorOccurred) {
+            hasErrorOccurred = true
+            Log.e(logTag, "Render process gone (WebView crashed)")
+            onFinished.invoke(
+                false,
+                "<html><body>[Error] 系统回收了网页内存或发生崩溃，请退出重试</body></html>",
+                view?.url,
+                1,
+                null
+            )
+        }
+        return true
+    }
+
+    // 处理加载失败
     override fun onReceivedError(
         view: WebView?,
         request: WebResourceRequest?,
@@ -168,17 +191,26 @@ class PassageWebViewClient(
     ) {
         super.onReceivedError(view, request, error)
         if (request?.isForMainFrame == true) {
-            if (hasErrorOccurred) return
-            hasErrorOccurred = true
-
-            Log.e(logTag, "Main frame error: ${error?.description}")
-            onFinished.invoke(
-                false,
-                "<html><body>[Error] 页面加载失败: ${error?.description}</body></html>",
-                request.url.toString(),
-                1,
-                null
+            val errorCode = error?.errorCode ?: 0
+            val fatalErrors = listOf(
+                ERROR_HOST_LOOKUP,
+                ERROR_CONNECT,
+                ERROR_BAD_URL
             )
+
+            if (fatalErrors.contains(errorCode)) {
+                if (hasErrorOccurred) return
+                hasErrorOccurred = true
+
+                Log.e(logTag, "Main frame error: ${error?.description}")
+                onFinished.invoke(
+                    false,
+                    "<html><body>[Error] 页面加载失败: ${error?.description}</body></html>",
+                    request.url.toString(),
+                    1,
+                    null
+                )
+            }
         }
     }
 
