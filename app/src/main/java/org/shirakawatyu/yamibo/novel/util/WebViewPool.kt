@@ -59,13 +59,19 @@ object WebViewPool {
                 loadsImagesAutomatically = false
                 blockNetworkImage = true
             }
-            loadDataWithBaseURL(null, "", "text/html", "utf-8", null)
             clearFormData()
             removeAllViews()
             (parent as? ViewGroup)?.removeView(this)
-            post {
-                clearHistory()
+
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    view?.clearHistory()
+                    view?.webViewClient = WebViewClient()
+                }
             }
+
+            loadDataWithBaseURL(null, "", "text/html", "utf-8", null)
         }
 
         (webView.context as? MutableContextWrapper)?.baseContext =

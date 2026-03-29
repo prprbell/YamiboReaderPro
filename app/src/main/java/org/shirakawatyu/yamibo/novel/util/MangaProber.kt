@@ -125,6 +125,14 @@ class MangaProber {
             )
 
             webView.webViewClient = object : YamiboWebViewClient() {
+
+                private val fatalErrors = listOf(
+                    ERROR_HOST_LOOKUP, // -2: 找不到服务器
+                    ERROR_CONNECT,     // -6: 连接不到服务器
+                    ERROR_BAD_URL      // -12: 错误的URL
+                )
+
+                // 旧版API
                 override fun onReceivedError(
                     view: WebView?,
                     errorCode: Int,
@@ -133,11 +141,14 @@ class MangaProber {
                 ) {
                     super.onReceivedError(view, errorCode, description, failingUrl)
                     if (!isFinished.get() && failingUrl == view?.url) {
-                        cleanupAndFinish()
-                        onFallback()
+                        if (fatalErrors.contains(errorCode)) {
+                            cleanupAndFinish()
+                            onFallback()
+                        }
                     }
                 }
 
+                // 新版API
                 override fun onReceivedError(
                     view: WebView?,
                     request: WebResourceRequest?,
@@ -145,8 +156,11 @@ class MangaProber {
                 ) {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame == true && !isFinished.get()) {
-                        cleanupAndFinish()
-                        onFallback()
+                        val errorCode = error?.errorCode ?: 0
+                        if (fatalErrors.contains(errorCode)) {
+                            cleanupAndFinish()
+                            onFallback()
+                        }
                     }
                 }
             }
@@ -165,21 +179,6 @@ class MangaProber {
                 if (!isFinished.get()) {
                     withContext(Dispatchers.Main) {
                         webView.evaluateJavascript(extractJs, null)
-                    }
-                }
-
-                if (timeWaited >= 4000 && !hasCheckedBlank && !isFinished.get()) {
-                    hasCheckedBlank = true
-
-                    val isStuckOnBlank = withContext(Dispatchers.Main) {
-                        val currentUrl = webView.url
-                        currentUrl == null || currentUrl == "about:blank" || currentUrl.startsWith("data:")
-                    }
-
-                    if (isStuckOnBlank) {
-                        cleanupAndFinish()
-                        onFallback()
-                        return
                     }
                 }
             }
