@@ -417,69 +417,71 @@ fun NativeMangaPage(
                 val imageLoader = context.imageLoader
                 LaunchedEffect(currentIndex, imageUrls) {
                     if (imageUrls.isEmpty()) return@LaunchedEffect
-
-                    // 增加防抖，避免用户快速滑动时产生的无效请求堆积
-                    delay(250)
+                    delay(150)
 
                     val totalPages = imageUrls.size
 
-                    val nextPages = (1..4).map { currentIndex + it }
-
-                    val progress =
-                        if (totalPages > 1) currentIndex.toFloat() / (totalPages - 1) else 0f
-
-                    var prevLoadCount = (1 + progress * 4).toInt()
-
-                    val remainingForward = totalPages - 1 - currentIndex
-                    if (remainingForward < 3) {
-                        val unusedQuota = 3 - maxOf(0, remainingForward)
-                        prevLoadCount += unusedQuota
-                    }
-
-                    prevLoadCount = prevLoadCount.coerceAtMost(5)
-
-                    val prevPages = (1..prevLoadCount).map { currentIndex - it }
-
                     val loadSequence = mutableListOf(currentIndex)
-                    val maxDepth = maxOf(nextPages.size, prevPages.size)
-                    for (i in 0 until maxDepth) {
-                        if (i < nextPages.size) loadSequence.add(nextPages[i])
-                        if (i < prevPages.size) loadSequence.add(prevPages[i])
+                    val maxOffset = maxOf(currentIndex, totalPages - 1 - currentIndex)
+                    for (offset in 1..maxOffset) {
+                        if (currentIndex + offset < totalPages) loadSequence.add(currentIndex + offset)
+                        if (currentIndex - offset >= 0) loadSequence.add(currentIndex - offset)
                     }
+
+                    val nearbyCount = 8.coerceAtMost(loadSequence.size)
+                    val nearbyBatch = loadSequence.subList(0, nearbyCount)
+                    val restBatch = if (nearbyCount < loadSequence.size)
+                        loadSequence.subList(nearbyCount, loadSequence.size) else emptyList()
 
                     withContext(Dispatchers.IO) {
-                        if (currentIndex in imageUrls.indices) {
-                            withContext(Dispatchers.Main) {
-                                allowedIndices = allowedIndices + currentIndex
-                            }
+                        withContext(Dispatchers.Main) {
+                            allowedIndices = allowedIndices + nearbyBatch.toSet()
+                        }
 
-                            val currentRequest = ImageRequest.Builder(context.applicationContext)
+                        if (currentIndex in imageUrls.indices) {
+                            val req = ImageRequest.Builder(context.applicationContext)
                                 .data(imageUrls[currentIndex])
                                 .addHeader("Cookie", cookie)
                                 .addHeader("Referer", "https://bbs.yamibo.com/")
                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                 .diskCachePolicy(CachePolicy.ENABLED)
                                 .build()
-
-                            imageLoader.execute(currentRequest)
+                            imageLoader.execute(req)
                         }
 
-                        withContext(Dispatchers.Main) {
-                            allowedIndices = allowedIndices + loadSequence
-                        }
-
-                        for (i in loadSequence) {
+                        for (i in nearbyBatch) {
                             if (i == currentIndex || i !in imageUrls.indices) continue
-
-                            val request = ImageRequest.Builder(context.applicationContext)
+                            val req = ImageRequest.Builder(context.applicationContext)
                                 .data(imageUrls[i])
                                 .addHeader("Cookie", cookie)
                                 .addHeader("Referer", "https://bbs.yamibo.com/")
                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                 .diskCachePolicy(CachePolicy.ENABLED)
                                 .build()
+                            imageLoader.enqueue(req)
+                        }
 
-                            imageLoader.enqueue(request)
+                        if (restBatch.isNotEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                allowedIndices = allowedIndices + restBatch.toSet()
+                            }
+                            val batchSize = 3
+                            for (batch in restBatch.chunked(batchSize)) {
+                                kotlinx.coroutines.coroutineScope {
+                                    batch.filter { it in imageUrls.indices }.forEach { i ->
+                                        launch {
+                                            val req = ImageRequest.Builder(context.applicationContext)
+                                                .data(imageUrls[i])
+                                                .addHeader("Cookie", cookie)
+                                                .addHeader("Referer", "https://bbs.yamibo.com/")
+                                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                                .diskCachePolicy(CachePolicy.ENABLED)
+                                                .build()
+                                            imageLoader.execute(req)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
