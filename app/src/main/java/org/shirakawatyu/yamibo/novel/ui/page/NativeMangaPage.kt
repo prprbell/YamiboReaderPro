@@ -120,6 +120,8 @@ import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
+import org.shirakawatyu.yamibo.novel.util.ZoomPanGestureHandler
+import org.shirakawatyu.yamibo.novel.util.verticalMangaZoomGesture
 import java.net.URLEncoder
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -346,7 +348,15 @@ fun NativeMangaPage(
             }
         }
     }
-
+    val gestureHandler = remember {
+        ZoomPanGestureHandler(
+            scale = globalScale,
+            offsetX = globalOffsetX,
+            offsetY = globalOffsetY,
+            screenWidthPx = screenWidthPx,
+            screenHeightPx = screenHeightPx
+        )
+    }
     DisposableEffect(lifecycleOwner) {
         val window = activity?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
@@ -604,238 +614,12 @@ fun NativeMangaPage(
                             }
                             false
                         }
-                        .pointerInput(isVerticalMode) {
-                            if (!isVerticalMode) return@pointerInput
-                            awaitPointerEventScope {
-                                var isPanning = false
-                                var panOffset = Offset.Zero
-                                var isHorizontalPan = false
-                                val touchSlop = viewConfiguration.touchSlop
-                                val velocityTracker = VelocityTracker()
-
-                                while (true) {
-                                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                                    val activePointers = event.changes.filter { it.pressed }
-                                    event.changes.forEach { change ->
-                                        if (change.pressed && change.positionChanged()) {
-                                            velocityTracker.addPointerInputChange(change)
-                                        }
-                                    }
-                                    if (activePointers.size > 1) {
-                                        // 双指缩放时，重置滑动和速度状态，防止松手时乱飘
-                                        isPanning = false
-                                        panOffset = Offset.Zero
-                                        isHorizontalPan = false
-                                        velocityTracker.resetTracking()
-
-                                        val zoomChange = event.calculateZoom()
-                                        val panChange = event.calculatePan()
-
-                                        if (zoomChange != 1f || panChange != Offset.Zero) {
-                                            activePointers.forEach { if (it.positionChanged()) it.consume() }
-
-                                            scope.launch {
-                                                val oldScale = globalScale.value
-                                                val dampenedZoom = 1f + (zoomChange - 1f) * 0.6f
-                                                val newScale =
-                                                    (oldScale * dampenedZoom).coerceIn(1f, 4f)
-
-                                                val scaleDelta = newScale / oldScale
-                                                val newOffsetX =
-                                                    globalOffsetX.value * scaleDelta + panChange.x
-                                                val newOffsetY =
-                                                    globalOffsetY.value * scaleDelta + panChange.y
-
-                                                val maxX = (screenWidthPx * (newScale - 1)) / 2f
-                                                val maxY = (screenHeightPx * (newScale - 1)) / 2f
-
-                                                globalScale.snapTo(newScale)
-                                                if (newScale > 1f) {
-                                                    globalOffsetX.snapTo(
-                                                        newOffsetX.coerceIn(
-                                                            -maxX,
-                                                            maxX
-                                                        )
-                                                    )
-                                                    globalOffsetY.snapTo(
-                                                        newOffsetY.coerceIn(
-                                                            -maxY,
-                                                            maxY
-                                                        )
-                                                    )
-                                                } else {
-                                                    globalOffsetX.snapTo(0f)
-                                                    globalOffsetY.snapTo(0f)
-                                                }
-                                            }
-                                        }
-                                    } else if (activePointers.size == 1 && globalScale.value > 1f) {
-                                        val panChange = event.calculatePan()
-                                        if (panChange != Offset.Zero) {
-                                            if (!isPanning) {
-                                                panOffset += panChange
-                                                if (panOffset.getDistance() > touchSlop) {
-                                                    isPanning = true
-                                                    isHorizontalPan =
-                                                        kotlin.math.abs(panOffset.x) > kotlin.math.abs(
-                                                            panOffset.y
-                                                        )
-                                                }
-                                            }
-
-                                            if (isPanning) {
-                                                val scale = globalScale.value
-                                                val maxX = (screenWidthPx * (scale - 1)) / 2f
-                                                val maxY = (screenHeightPx * (scale - 1)) / 2f
-
-                                                val targetX = globalOffsetX.value + panChange.x
-                                                val targetY = globalOffsetY.value + panChange.y
-
-                                                val clampedY = targetY.coerceIn(-maxY, maxY)
-                                                val canMoveY =
-                                                    kotlin.math.abs(clampedY - globalOffsetY.value) > 0.01f
-
-                                                if (canMoveY) {
-                                                    activePointers.forEach { if (it.positionChanged()) it.consume() }
-                                                    scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                                                        globalOffsetX.snapTo(
-                                                            targetX.coerceIn(
-                                                                -maxX,
-                                                                maxX
-                                                            )
-                                                        )
-                                                        globalOffsetY.snapTo(clampedY)
-                                                    }
-                                                } else {
-                                                    if (isHorizontalPan && kotlin.math.abs(panChange.x) > kotlin.math.abs(
-                                                            panChange.y
-                                                        )
-                                                    ) {
-                                                        activePointers.forEach { if (it.positionChanged()) it.consume() }
-                                                        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                                                            globalOffsetX.snapTo(
-                                                                targetX.coerceIn(
-                                                                    -maxX,
-                                                                    maxX
-                                                                )
-                                                            )
-                                                        }
-                                                    } else {
-                                                        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                                                            globalOffsetX.snapTo(
-                                                                targetX.coerceIn(
-                                                                    -maxX,
-                                                                    maxX
-                                                                )
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    } else if (activePointers.isEmpty()) {
-                                        if (isPanning) {
-                                            val velocity = velocityTracker.calculateVelocity()
-                                            val scale = globalScale.value
-                                            val maxX = (screenWidthPx * (scale - 1)) / 2f
-                                            val maxY = (screenHeightPx * (scale - 1)) / 2f
-
-                                            if (isHorizontalPan) {
-                                                scope.launch {
-                                                    globalOffsetX.updateBounds(-maxX, maxX)
-                                                    globalOffsetY.updateBounds(-maxY, maxY)
-
-                                                    launch {
-                                                        globalOffsetX.animateDecay(
-                                                            initialVelocity = velocity.x,
-                                                            animationSpec = exponentialDecay()
-                                                        )
-                                                    }
-                                                    launch {
-                                                        globalOffsetY.animateDecay(
-                                                            initialVelocity = velocity.y,
-                                                            animationSpec = exponentialDecay()
-                                                        )
-                                                    }
-                                                }
-                                            } else {
-                                                scope.launch {
-                                                    globalOffsetX.updateBounds(-maxX, maxX)
-                                                    globalOffsetY.updateBounds(-maxY, maxY)
-                                                    launch {
-                                                        globalOffsetX.animateDecay(
-                                                            initialVelocity = velocity.x,
-                                                            animationSpec = exponentialDecay()
-                                                        )
-                                                    }
-                                                    launch {
-                                                        globalOffsetY.animateDecay(
-                                                            initialVelocity = velocity.y,
-                                                            animationSpec = exponentialDecay()
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        // 彻底重置所有状态
-                                        isPanning = false
-                                        panOffset = Offset.Zero
-                                        isHorizontalPan = false
-                                        velocityTracker.resetTracking()
-                                    }
-                                }
-                            }
-                        }
-                        .pointerInput(isVerticalMode) {
-                            if (isVerticalMode) {
-                                detectTapGestures(
-                                    onDoubleTap = { tapOffset ->
-                                        scope.launch {
-                                            if (globalScale.value > 1f) {
-                                                launch { globalScale.animateTo(1f, tween(300)) }
-                                                launch { globalOffsetX.animateTo(0f, tween(300)) }
-                                                launch { globalOffsetY.animateTo(0f, tween(300)) }
-                                            } else {
-                                                val targetScale = 2.0f
-                                                val centerPx =
-                                                    Offset(screenWidthPx / 2f, screenHeightPx / 2f)
-                                                val targetOffsetX =
-                                                    (centerPx.x - tapOffset.x) * (targetScale - 1f)
-                                                val targetOffsetY =
-                                                    (centerPx.y - tapOffset.y) * (targetScale - 1f)
-                                                val maxX = (screenWidthPx * (targetScale - 1)) / 2f
-                                                val maxY = (screenHeightPx * (targetScale - 1)) / 2f
-
-                                                launch {
-                                                    globalScale.animateTo(
-                                                        targetScale,
-                                                        tween(300)
-                                                    )
-                                                }
-                                                launch {
-                                                    globalOffsetX.animateTo(
-                                                        targetOffsetX.coerceIn(
-                                                            -maxX,
-                                                            maxX
-                                                        ), tween(300)
-                                                    )
-                                                }
-                                                launch {
-                                                    globalOffsetY.animateTo(
-                                                        targetOffsetY.coerceIn(
-                                                            -maxY,
-                                                            maxY
-                                                        ), tween(300)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    },
-                                    onTap = { handleVerticalClick() }
-                                )
-                            }
-                        }
+                        .verticalMangaZoomGesture(
+                            handler = gestureHandler,
+                            scope = scope,
+                            onTap = handleVerticalClick,
+                            enabled = isVerticalMode
+                        )
                 ) {
                     if (isVerticalMode) {
                         LazyColumn(
