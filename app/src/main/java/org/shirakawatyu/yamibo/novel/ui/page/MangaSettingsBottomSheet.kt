@@ -53,20 +53,20 @@ fun MangaSettingsPanel(
     onBrightnessChange: (Float) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val offsetY = remember { Animatable(2000f) }
+    val offsetY = remember { Animatable(1000f) }
     val scrimAlpha = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     var dragJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(Unit) {
-        launch { offsetY.animateTo(0f, animationSpec = tween(350)) }
-        launch { scrimAlpha.animateTo(0.6f, animationSpec = tween(350)) }
+        launch { offsetY.animateTo(0f, animationSpec = tween(250)) }
+        launch { scrimAlpha.animateTo(0.6f, animationSpec = tween(250)) }
     }
 
     fun dismiss() {
         scope.launch {
-            launch { offsetY.animateTo(2000f, tween(350)) }
-            launch { scrimAlpha.animateTo(0f, tween(350)) }.join()
+            launch { offsetY.animateTo(1000f, tween(250)) }
+            launch { scrimAlpha.animateTo(0f, tween(250)) }.join()
             onDismiss()
         }
     }
