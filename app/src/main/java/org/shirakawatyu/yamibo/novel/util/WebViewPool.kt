@@ -60,18 +60,11 @@ object WebViewPool {
                 blockNetworkImage = true
             }
             clearFormData()
+            clearHistory()
             removeAllViews()
             (parent as? ViewGroup)?.removeView(this)
-
-            webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    super.onPageFinished(view, url)
-                    view?.clearHistory()
-                    view?.webViewClient = WebViewClient()
-                }
-            }
-
             loadDataWithBaseURL(null, "", "text/html", "utf-8", null)
+            onPause()
         }
 
         (webView.context as? MutableContextWrapper)?.baseContext =
@@ -80,10 +73,11 @@ object WebViewPool {
         val uses = webViewUseCount[webView] ?: 0
         if (uses >= MAX_USES_PER_WEBVIEW) {
             webViewUseCount.remove(webView)
+            val ctx = webView.context.applicationContext
             webView.destroy()
 
             if (pool.size < MAX_POOL_SIZE) {
-                val freshWebView = createWebView(webView.context)
+                val freshWebView = createWebView(ctx)
                 freshWebView.tag = "recycled_standby"
                 pool.add(freshWebView)
                 webViewUseCount[freshWebView] = 0
@@ -93,6 +87,7 @@ object WebViewPool {
             pool.add(webView)
         } else {
             webViewUseCount.remove(webView)
+            val ctx = webView.context.applicationContext
             webView.destroy()
         }
     }
@@ -102,21 +97,19 @@ object WebViewPool {
     fun discard(webView: WebView) {
         pool.remove(webView)
         webViewUseCount.remove(webView)
+        val ctx = webView.context.applicationContext
         try {
-            webView.apply {
-                stopLoading()
-                removeAllViews()
-                (parent as? ViewGroup)?.removeView(this)
-                destroy()
-            }
-            if (pool.size < MAX_POOL_SIZE) {
-                val freshWebView = createWebView(webView.context)
-                freshWebView.tag = "recycled_standby"
-                pool.add(freshWebView)
-                webViewUseCount[freshWebView] = 0
-            }
+            webView.stopLoading()
+            webView.removeAllViews()
+            (webView.parent as? ViewGroup)?.removeView(webView)
+            webView.destroy()
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+        if (pool.size < MAX_POOL_SIZE) {
+            val freshWebView = createWebView(ctx)
+            pool.add(freshWebView)
+            webViewUseCount[freshWebView] = 0
         }
     }
     private fun createWebView(context: Context): WebView {
