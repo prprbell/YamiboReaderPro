@@ -42,7 +42,7 @@ class YamiboApplication : Application(), ImageLoaderFactory {
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(168L * 1024 * 1024)
+                    .maxSizeBytes(300L * 1024 * 1024)
                     .build()
             }
             .crossfade(false)

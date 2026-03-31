@@ -1,6 +1,7 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.app.Activity
+import android.content.ComponentCallbacks2
 import android.os.Build
 import android.view.WindowManager
 import android.webkit.CookieManager
@@ -382,7 +383,7 @@ fun NativeMangaPage(
                     ctrl.show(WindowInsetsCompat.Type.systemBars())
                 }
                 bottomNavBarVM.setBottomNavBarVisibility(true)
-            }
+                context.imageLoader.memoryCache?.trimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)            }
         }
     }
     Box(
