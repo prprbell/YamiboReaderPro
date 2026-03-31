@@ -722,25 +722,6 @@ fun NativeMangaPage(
                                                     color = YamiboColors.tertiary
                                                 )
                                             }
-                                            AnimatedVisibility(
-                                                visible = probingUrl != null,
-                                                enter = fadeIn(tween(0)), // 瞬间变黑
-                                                exit = fadeOut(tween(150)),
-                                                modifier = Modifier.zIndex(100f) // 确保在最顶层
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .background(Color.Black)
-                                                        // 拦截一切手势，防止用户在黑屏期间乱点
-                                                        .pointerInput(Unit) { detectTapGestures { } }
-                                                ) {
-                                                    CircularProgressIndicator(
-                                                        modifier = Modifier.align(Alignment.Center),
-                                                        color = Color.White
-                                                    )
-                                                }
-                                            }
                                         }
                                     } else {
                                         Box(
@@ -752,6 +733,25 @@ fun NativeMangaPage(
                                     }
                                 }
                             }
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = probingUrl != null,
+                        enter = fadeIn(tween(0)), // 瞬间变黑
+                        exit = fadeOut(tween(150)),
+                        modifier = Modifier.zIndex(100f) // 确保在最顶层
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black)
+                                // 拦截一切手势，防止用户在黑屏期间乱点
+                                .pointerInput(Unit) { detectTapGestures { } }
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.align(Alignment.Center),
+                                color = Color.White
+                            )
                         }
                     }
                 }
