@@ -858,8 +858,9 @@ fun NativeMangaPage(
                                 val currentTid = MangaTitleCleaner.extractTidFromUrl(url)
                                 val sortedChapters =
                                     remember(mangaDirVM.currentDirectory?.chapters) {
-                                        mangaDirVM.currentDirectory?.chapters?.sortedBy { it.chapterNum }
+                                        mangaDirVM.currentDirectory?.chapters
                                     }
+
                                 val currentChapIndex = remember(sortedChapters, currentTid) {
                                     sortedChapters?.indexOfFirst { it.tid == currentTid } ?: -1
                                 }
