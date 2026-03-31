@@ -74,6 +74,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -88,6 +89,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -136,7 +138,7 @@ fun NativeMangaPage(
     val view = LocalView.current
     val activity = context as? Activity
     val scope = rememberCoroutineScope()
-
+    val haptic = LocalHapticFeedback.current
     val mangaDirVM: MangaDirectoryVM =
         viewModel(factory = ViewModelFactory(context.applicationContext))
     val favoriteVM: FavoriteVM = viewModel(
@@ -879,6 +881,7 @@ fun NativeMangaPage(
                                     IconButton(
                                         onClick = {
                                             prevChapter?.url?.let { targetUrl ->
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                 navigateToChapter(targetUrl)
                                             }
                                         },
@@ -919,6 +922,7 @@ fun NativeMangaPage(
                                     IconButton(
                                         onClick = {
                                             nextChapter?.url?.let { targetUrl ->
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                 navigateToChapter(targetUrl)
                                             }
                                         },
