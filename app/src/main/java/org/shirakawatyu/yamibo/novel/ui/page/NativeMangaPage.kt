@@ -430,7 +430,7 @@ fun NativeMangaPage(
             LaunchedEffect(toastChapterText) {
                 if (toastChapterText.isNotBlank()) {
                     showChapterToast = true
-                    delay(650)
+                    delay(1050)
 
                     showChapterToast = false
 
@@ -545,8 +545,8 @@ fun NativeMangaPage(
             val imageLoader = context.imageLoader
             LaunchedEffect(currentIndex, readerManager.flatPages.size) {
                 if (readerManager.flatPages.isEmpty()) return@LaunchedEffect
-                val windowStart = maxOf(0, currentIndex - 10)
-                val windowEnd = minOf(readerManager.flatPages.size - 1, currentIndex + 15)
+                val windowStart = maxOf(0, currentIndex - 2)
+                val windowEnd = minOf(readerManager.flatPages.size - 1, currentIndex + 4)
                 allowedIndices = (windowStart..windowEnd).toSet()
             }
 
@@ -606,61 +606,46 @@ fun NativeMangaPage(
                         ) else emptyList()
 
                         withContext(Dispatchers.IO) {
-                            // 当前页强制优先
-                            if (index in readerManager.flatPages.indices) {
-                                val req = ImageRequest.Builder(context.applicationContext)
-                                    .data(readerManager.flatPages[index].imageUrl)
+                            val validIndices = readerManager.flatPages.indices
+
+                            fun buildPreloadRequest(url: String): ImageRequest {
+                                return ImageRequest.Builder(context.applicationContext)
+                                    .data(url)
                                     .addHeader("Cookie", cookie)
                                     .addHeader("Referer", "https://bbs.yamibo.com/")
                                     .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED).build()
-                                imageLoader.execute(req)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build()
+                            }
+
+                            // 当前页优先下载
+                            if (index in validIndices) {
+                                imageLoader.execute(buildPreloadRequest(readerManager.flatPages[index].imageUrl))
                             }
 
                             // 附近页并发下载
                             if (nearbyBatch.isNotEmpty()) {
-                                for (batch in nearbyBatch.chunked(4)) {
+                                val validNearby = nearbyBatch.filter { it in validIndices }
+                                for (batch in validNearby.chunked(4)) {
                                     kotlinx.coroutines.coroutineScope {
-                                        batch.filter { it in readerManager.flatPages.indices }
-                                            .forEach { i ->
-                                                launch {
-                                                    val req =
-                                                        ImageRequest.Builder(context.applicationContext)
-                                                            .data(readerManager.flatPages[i].imageUrl)
-                                                            .addHeader("Cookie", cookie).addHeader(
-                                                                "Referer",
-                                                                "https://bbs.yamibo.com/"
-                                                            )
-                                                            .memoryCachePolicy(CachePolicy.ENABLED)
-                                                            .diskCachePolicy(CachePolicy.ENABLED)
-                                                            .build()
-                                                    imageLoader.execute(req)
-                                                }
+                                        batch.forEach { i ->
+                                            launch {
+                                                imageLoader.execute(buildPreloadRequest(readerManager.flatPages[i].imageUrl))
                                             }
+                                        }
                                     }
                                 }
                             }
-
-                            // 3. 剩余页后台下载
+                            // 剩余页后台下载
                             if (restBatch.isNotEmpty()) {
-                                for (batch in restBatch.chunked(3)) {
+                                val validRest = restBatch.filter { it in validIndices }
+                                for (batch in validRest.chunked(3)) {
                                     kotlinx.coroutines.coroutineScope {
-                                        batch.filter { it in readerManager.flatPages.indices }
-                                            .forEach { i ->
-                                                launch {
-                                                    val req =
-                                                        ImageRequest.Builder(context.applicationContext)
-                                                            .data(readerManager.flatPages[i].imageUrl)
-                                                            .addHeader("Cookie", cookie).addHeader(
-                                                                "Referer",
-                                                                "https://bbs.yamibo.com/"
-                                                            )
-                                                            .memoryCachePolicy(CachePolicy.ENABLED)
-                                                            .diskCachePolicy(CachePolicy.ENABLED)
-                                                            .build()
-                                                    imageLoader.execute(req)
-                                                }
+                                        batch.forEach { i ->
+                                            launch {
+                                                imageLoader.execute(buildPreloadRequest(readerManager.flatPages[i].imageUrl))
                                             }
+                                        }
                                     }
                                 }
                             }
