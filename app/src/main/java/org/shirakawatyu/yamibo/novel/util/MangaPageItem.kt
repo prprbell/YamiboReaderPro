@@ -44,9 +44,9 @@ class MangaReaderManager(
     var isManualJumping by mutableStateOf(false)
         private set
 
-    // 内存中最多保留3话
+    // 保留15话
     private val loadedChapters = mutableListOf<LoadedChapter>()
-    private val maxLoadedChapters = 3
+    private val maxLoadedChapters = 15
 
     fun initFirstChapter(tid: String, url: String, title: String, urls: List<String>) {
         val pages = urls.mapIndexed { index, imgUrl ->

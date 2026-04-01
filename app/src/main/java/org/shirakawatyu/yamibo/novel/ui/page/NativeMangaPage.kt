@@ -383,26 +383,30 @@ fun NativeMangaPage(
 
             val currentItem = readerManager.flatPages.getOrNull(currentIndex)
 
-            // 章节切换 Toast 提示状态
+            // 章节切换Toast提示状态
             var showChapterToast by remember { mutableStateOf(false) }
             var toastChapterText by remember { mutableStateOf("") }
             var previousTid by remember { mutableStateOf<String?>(null) }
 
-            // 监听章节变化触发 Toast 提示
+            // 监听章节变化触发Toast提示
             LaunchedEffect(currentItem?.tid) {
-                val currentTid = currentItem?.tid
-                if (currentTid != null) {
-                    if (previousTid != null && previousTid != currentTid) {
-                        val chap = mangaDirVM.currentDirectory?.chapters?.find { it.tid == currentTid }
-                        if (chap != null) {
-                            val displayNum = getDisplayChapterNum(chap.rawTitle, chap.chapterNum)
-                            toastChapterText = " $displayNum "
-                            showChapterToast = true
-                            delay(1000)
-                            showChapterToast = false
-                        }
+                val currentTid = currentItem?.tid ?: return@LaunchedEffect
+                if (previousTid != null && previousTid != currentTid) {
+                    val chap = mangaDirVM.currentDirectory?.chapters?.find { it.tid == currentTid }
+                    if (chap != null) {
+                        val displayNum = getDisplayChapterNum(chap.rawTitle, chap.chapterNum)
+                        toastChapterText = "第 $displayNum 话"
                     }
-                    previousTid = currentTid
+                }
+                previousTid = currentTid
+            }
+
+            LaunchedEffect(toastChapterText) {
+                if (toastChapterText.isNotBlank()) {
+                    showChapterToast = true
+                    delay(1200)
+                    showChapterToast = false
+                    toastChapterText = ""
                 }
             }
 
@@ -421,31 +425,36 @@ fun NativeMangaPage(
             var pullOverscrollAmount by remember { mutableFloatStateOf(0f) }
             val nestedScrollConnection = remember(isVerticalMode, lazyListState, pagerState) {
                 object : NestedScrollConnection {
-                    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+
+                    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                         if (source == NestedScrollSource.Drag) {
                             if (isVerticalMode) {
-                                // List 触顶时继续向下拉动
                                 if (available.y > 0 && lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0) {
                                     pullOverscrollAmount += available.y
-                                } else if (available.y < 0 && pullOverscrollAmount > 0) {
-                                    pullOverscrollAmount += available.y // 允许撤回手势
+                                    return Offset(0f, available.y)
+                                }
+                                else if (available.y < 0 && pullOverscrollAmount > 0) {
+                                    val consume = available.y.coerceAtLeast(-pullOverscrollAmount)
+                                    pullOverscrollAmount += consume
+                                    return Offset(0f, consume)
                                 }
                             } else {
-                                // Pager 触左时继续向右滑动
                                 if (available.x > 0 && pagerState.currentPage == 0) {
                                     pullOverscrollAmount += available.x
-                                } else if (available.x < 0 && pullOverscrollAmount > 0) {
-                                    pullOverscrollAmount += available.x
+                                    return Offset(available.x, 0f)
+                                }
+                                else if (available.x < 0 && pullOverscrollAmount > 0) {
+                                    val consume = available.x.coerceAtLeast(-pullOverscrollAmount)
+                                    pullOverscrollAmount += consume
+                                    return Offset(consume, 0f)
                                 }
                             }
-                            pullOverscrollAmount = pullOverscrollAmount.coerceAtLeast(0f)
                         }
                         return Offset.Zero
                     }
 
-                    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                    override suspend fun onPreFling(available: Velocity): Velocity {
                         if (pullOverscrollAmount > 150f) {
-                            // 阈值足够，触发加载 (通过手势触发的一律作为后台静默加载)
                             readerManager.loadPrevious(isManualJump = false)
                         }
                         pullOverscrollAmount = 0f
