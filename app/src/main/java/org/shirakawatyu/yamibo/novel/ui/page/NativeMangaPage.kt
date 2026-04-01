@@ -3,6 +3,7 @@ package org.shirakawatyu.yamibo.novel.ui.page
 import android.app.Activity
 import android.content.ComponentCallbacks2
 import android.os.Build
+import android.view.HapticFeedbackConstants
 import android.view.WindowManager
 import android.webkit.CookieManager
 import androidx.activity.ComponentActivity
@@ -17,6 +18,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -86,6 +89,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -110,6 +114,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -378,7 +383,28 @@ fun NativeMangaPage(
             val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { readerManager.flatPages.size })
 
             val currentIndex by remember(isVerticalMode, lazyListState, pagerState) {
-                derivedStateOf { if (isVerticalMode) lazyListState.firstVisibleItemIndex else pagerState.currentPage }
+                derivedStateOf {
+                    if (isVerticalMode) {
+                        val layoutInfo = lazyListState.layoutInfo
+                        if (layoutInfo.visibleItemsInfo.isEmpty()) {
+                            lazyListState.firstVisibleItemIndex
+                        } else {
+                            val readLine = layoutInfo.viewportStartOffset + (layoutInfo.viewportSize.height / 3)
+
+                            var activeIndex = lazyListState.firstVisibleItemIndex
+
+                            for (itemInfo in layoutInfo.visibleItemsInfo) {
+                                if (readLine >= itemInfo.offset && readLine <= (itemInfo.offset + itemInfo.size)) {
+                                    activeIndex = itemInfo.index
+                                    break
+                                }
+                            }
+                            activeIndex
+                        }
+                    } else {
+                        pagerState.currentPage
+                    }
+                }
             }
 
             val currentItem = readerManager.flatPages.getOrNull(currentIndex)
@@ -404,8 +430,11 @@ fun NativeMangaPage(
             LaunchedEffect(toastChapterText) {
                 if (toastChapterText.isNotBlank()) {
                     showChapterToast = true
-                    delay(1200)
+                    delay(650)
+
                     showChapterToast = false
+
+                    delay(350)
                     toastChapterText = ""
                 }
             }
@@ -421,43 +450,85 @@ fun NativeMangaPage(
                 }
             }
 
-            // 下拉/右滑 加载上一话的高级手势侦听 (NestedScrollConnection)
+            val density = LocalDensity.current.density
+
+            val triggerDistancePx = 120f * density
+            val showUiDistancePx = 30f * density
+
             var pullOverscrollAmount by remember { mutableFloatStateOf(0f) }
-            val nestedScrollConnection = remember(isVerticalMode, lazyListState, pagerState) {
+            var hasTriggeredHaptic by remember { mutableStateOf(false) }
+
+            LaunchedEffect(pullOverscrollAmount) {
+                if (pullOverscrollAmount >= triggerDistancePx) {
+                    if (!hasTriggeredHaptic) {
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        hasTriggeredHaptic = true
+                    }
+                } else {
+                    hasTriggeredHaptic = false
+                }
+            }
+
+            val nestedScrollConnection = remember(isVerticalMode, isRtl, lazyListState, pagerState, density) {
                 object : NestedScrollConnection {
 
                     override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                        if (source == NestedScrollSource.Drag) {
+                        if (source == NestedScrollSource.Drag || source.toString() == "UserInput") {
                             if (isVerticalMode) {
-                                if (available.y > 0 && lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0) {
-                                    pullOverscrollAmount += available.y
-                                    return Offset(0f, available.y)
-                                }
-                                else if (available.y < 0 && pullOverscrollAmount > 0) {
+                                val isAtTop = lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
+
+                                if (available.y < 0 && pullOverscrollAmount > 0) {
                                     val consume = available.y.coerceAtLeast(-pullOverscrollAmount)
                                     pullOverscrollAmount += consume
                                     return Offset(0f, consume)
                                 }
-                            } else {
-                                if (available.x > 0 && pagerState.currentPage == 0) {
-                                    pullOverscrollAmount += available.x
-                                    return Offset(available.x, 0f)
+                                else if (available.y > 0 && isAtTop) {
+                                    val dragMultiplier = (1f - (pullOverscrollAmount / (triggerDistancePx * 2.5f))).coerceIn(0.2f, 1f)
+                                    pullOverscrollAmount += available.y * dragMultiplier
+                                    return Offset(0f, available.y)
                                 }
-                                else if (available.x < 0 && pullOverscrollAmount > 0) {
-                                    val consume = available.x.coerceAtLeast(-pullOverscrollAmount)
-                                    pullOverscrollAmount += consume
-                                    return Offset(consume, 0f)
+                            } else {
+                                val isAtStart = pagerState.currentPage == 0
+
+                                val isPullingToLoadPrev = if (isRtl) available.x < 0 else available.x > 0
+                                val isPushingBack = if (isRtl) available.x > 0 else available.x < 0
+
+                                if (isPushingBack && pullOverscrollAmount > 0) {
+                                    val absX = kotlin.math.abs(available.x)
+                                    val consume = absX.coerceAtMost(pullOverscrollAmount)
+                                    pullOverscrollAmount -= consume
+                                    return Offset(if (available.x > 0) consume else -consume, 0f)
+                                } else if (isPullingToLoadPrev && isAtStart) {
+                                    val absX = kotlin.math.abs(available.x)
+                                    val dragMultiplier = (1f - (pullOverscrollAmount / (triggerDistancePx * 2.5f))).coerceIn(0.15f, 1f)
+                                    pullOverscrollAmount += absX * dragMultiplier
+                                    return Offset(available.x, 0f)
                                 }
                             }
                         }
                         return Offset.Zero
                     }
 
+                    // onPreFling 保持原样不变
                     override suspend fun onPreFling(available: Velocity): Velocity {
-                        if (pullOverscrollAmount > 150f) {
-                            readerManager.loadPrevious(isManualJump = false)
+                        if (pullOverscrollAmount >= triggerDistancePx) {
+                            readerManager.loadPrevious(isManualJump = false) {
+                                scope.launch {
+                                    delay(100)
+                                    if (isVerticalMode) {
+                                        lazyListState.animateScrollBy(
+                                            value = -800f,
+                                            animationSpec = tween(
+                                                durationMillis = 400,
+                                                easing = androidx.compose.animation.core.FastOutSlowInEasing
+                                            )
+                                        )
+                                    }
+                                }
+                            }
                         }
                         pullOverscrollAmount = 0f
+                        hasTriggeredHaptic = false
                         return Velocity.Zero
                     }
                 }
@@ -484,8 +555,8 @@ fun NativeMangaPage(
                 snapshotFlow { currentIndex }
                     .distinctUntilChanged()
                     .debounce(250L)
-                    .collect { index ->
-                        if (readerManager.flatPages.isEmpty() || index !in readerManager.flatPages.indices) return@collect
+                    .collectLatest { index ->
+                        if (readerManager.flatPages.isEmpty() || index !in readerManager.flatPages.indices) return@collectLatest
 
                         val totalPages = readerManager.flatPages.size
                         val currentItem = readerManager.flatPages[index]
@@ -670,14 +741,6 @@ fun NativeMangaPage(
                         userScrollEnabled = true,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // 顶部局部加载提示 (仅在非手动跳转的静默预加载时显示)
-                        if (readerManager.isLoadingPrev && !readerManager.isManualJumping) {
-                            item(key = "loading_prev_indicator") {
-                                Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(color = YamiboColors.tertiary)
-                                }
-                            }
-                        }
 
                         itemsIndexed(
                             items = readerManager.flatPages,
@@ -699,14 +762,6 @@ fun NativeMangaPage(
                             }
                         }
 
-                        // 底部局部加载提示 (仅在非手动跳转的静默预加载时显示)
-                        if (readerManager.isLoadingNext && !readerManager.isManualJumping) {
-                            item(key = "loading_next_indicator") {
-                                Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(color = YamiboColors.tertiary)
-                                }
-                            }
-                        }
                     }
                 } else {
                     CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
@@ -743,14 +798,53 @@ fun NativeMangaPage(
 
                 // 顶部加载上一话的提示浮层
                 AnimatedVisibility(
-                    visible = pullOverscrollAmount > 50f,
+                    visible = pullOverscrollAmount > showUiDistancePx,
                     enter = fadeIn(), exit = fadeOut(),
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp).zIndex(50f)
                 ) {
-                    Box(modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.7f)).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color.Black.copy(alpha = 0.7f))
+                            .padding(horizontal = 20.dp, vertical = 10.dp)
+                    ) {
+                        val tipText = remember(isVerticalMode, isRtl, pullOverscrollAmount) {
+                            val isReady = pullOverscrollAmount >= triggerDistancePx
+                            when {
+                                isVerticalMode -> if (isReady) "松开加载上一话" else "下拉加载上一话"
+                                isRtl -> if (isReady) "松开加载上一话" else "左滑加载上一话"
+                                else -> if (isReady) "松开加载上一话" else "右滑加载上一话"
+                            }
+                        }
+
                         Text(
-                            text = if (pullOverscrollAmount > 150f) "松开加载上一话" else "下拉加载上一话",
-                            color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp
+                            text = tipText,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = readerManager.isLoadingPrev && !readerManager.isManualJumping,
+                    enter = fadeIn(tween(300)),
+                    exit = fadeOut(tween(300)),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 24.dp)
+                        .zIndex(50f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color.Black.copy(alpha = 0.7f))
+                            .padding(10.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            color = YamiboColors.tertiary,
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.5.dp
                         )
                     }
                 }
@@ -770,11 +864,11 @@ fun NativeMangaPage(
                 // 滑动跨越多话时，显示当前的话数轻量级提示框
                 AnimatedVisibility(
                     visible = showChapterToast,
-                    enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 },
-                    exit = fadeOut(tween(300)) + slideOutVertically(tween(300)) { it / 2 },
+                    enter = fadeIn(tween(300)),
+                    exit = fadeOut(tween(300)),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 100.dp) // 悬浮偏上的位置，防止遮挡进度条区域
+                        .padding(bottom = 200.dp)
                         .zIndex(60f)
                 ) {
                     Box(

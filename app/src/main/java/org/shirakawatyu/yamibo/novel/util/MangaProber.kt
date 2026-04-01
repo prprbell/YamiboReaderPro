@@ -46,6 +46,11 @@ class MangaProber {
         onFallback: () -> Unit
     ) {
         val webView = WebViewPool.acquire(context)
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+        }
+
         val isFinished = AtomicBoolean(false)
         val finalUrl = if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
 
@@ -58,7 +63,7 @@ class MangaProber {
         }
 
         val extractJs = """
-            javascript:(function() {
+            (function() {
                 try {
                     var sectionHeader = document.querySelector('.header h2 a');
                     var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
