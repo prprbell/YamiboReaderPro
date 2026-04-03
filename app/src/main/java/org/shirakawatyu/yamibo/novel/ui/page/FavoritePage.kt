@@ -224,8 +224,9 @@ fun FavoritePage(
         Triple(3, "其他", Color(0xFFFF9800)),
         Triple(0, "未定", Color(0xFF9E9E9E))
     )
-    val currentCat =
-        categoryOptions.find { it.first == favoriteVM.currentCategory } ?: categoryOptions[0]
+
+    var currentCategoryId by rememberSaveable { mutableIntStateOf(favoriteVM.currentCategory) }
+    val currentCat = categoryOptions.find { it.first == currentCategoryId } ?: categoryOptions[0]
 
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
@@ -237,6 +238,7 @@ fun FavoritePage(
     if (statusBarsPadding.value > lockedStatusHeightValue) lockedStatusHeightValue =
         statusBarsPadding.value
     val lockedStatusHeight = lockedStatusHeightValue.dp
+
     Column(
         modifier = Modifier
             .padding(bottom = lockedNavHeight + 50.dp) // 使用锁死的底部高度
@@ -325,6 +327,7 @@ fun FavoritePage(
                                         )
                                     },
                                     onClick = {
+                                        currentCategoryId = typeId
                                         favoriteVM.setCategory(typeId)
                                         categoryMenuExpanded = false
                                     },

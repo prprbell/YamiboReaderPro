@@ -22,9 +22,24 @@ class TextUtil {
             }
         }
 
-        // ASCII 可打印字符范围
-        private const val ASCII_START = 0x0020
-        private const val ASCII_END = 0x007e
+        private val ASCII_CHAR_WIDTH_RATIOS = FloatArray(128).apply {
+            for (i in 0..127) {
+                val c = i.toChar()
+                this[i] = when (c) {
+                    'M', 'W', 'm', '@', '%' -> 0.85f
+                    'O', 'Q', 'G', 'C', 'D', 'w', '&', '~' -> 0.75f
+                    in 'A'..'Z', '+', '=', '<', '>' -> 0.65f
+                    'i', 'j', 'l', 'f', 't', 'r', 'I' -> 0.35f
+                    'c', 'k', 's', 'z' -> 0.5f
+                    in 'a'..'z', in '2'..'9', '0' -> 0.6f
+                    '1' -> 0.45f
+                    '.', ',', ':', ';', '\'', '"', '!', '|', '`', '-',
+                    '(', ')', '[', ']', '{', '}' -> 0.3f
+                    ' ' -> 0.25f
+                    else -> 0.55f
+                }
+            }
+        }
 
         fun pagingText(
             text: String,
@@ -34,28 +49,23 @@ class TextUtil {
             letterSpacing: TextUnit,
             lineHeight: TextUnit
         ): List<String> {
-            // 转换为像素值
             val targetPixelWidth = ValueUtil.dpToPx(width)
             val pageContentHeight = ValueUtil.dpToPx(height)
             val lineHeightPx = ValueUtil.spToPx(lineHeight)
-            // 使用安全区域计算最大行数
             val maxLine = calculateMaxLines(pageContentHeight, lineHeightPx)
 
-            // 边界保护：无法显示任何行
             if (maxLine <= 0 || text.isEmpty()) {
                 return emptyList()
             }
 
             val fontSizePx = ValueUtil.spToPx(fontSize)
             val letterSpacingPx = ValueUtil.spToPx(letterSpacing)
-            val halfWidthPx = (0.5f * fontSizePx) + letterSpacingPx
             val fullWidthPx = fontSizePx + letterSpacingPx
 
             return performPaging(
                 text = text,
                 targetPixelWidth = targetPixelWidth,
                 maxLine = maxLine,
-                halfWidthPx = halfWidthPx,
                 fullWidthPx = fullWidthPx
             )
         }
@@ -63,12 +73,12 @@ class TextUtil {
         private fun calculateMaxLines(
             totalHeightPx: Float,
             lineHeightPx: Float,
-            safeAreaRatio: Float = 1.0f // 为了竖直滑动时无空白，不设置安全区了
+            safeAreaRatio: Float = 1.0f
         ): Int {
-            val safeHeight = totalHeightPx * safeAreaRatio
+            // 底部安全距离
+            val bottomSafePaddingPx = lineHeightPx * 0.25f
+            val safeHeight = (totalHeightPx * safeAreaRatio) - bottomSafePaddingPx
             val calculatedLines = (safeHeight / lineHeightPx).toInt()
-
-            // 确保至少有1行，且不会超出安全区域
             return calculatedLines.coerceAtLeast(1)
         }
 
@@ -76,73 +86,55 @@ class TextUtil {
             text: String,
             targetPixelWidth: Float,
             maxLine: Int,
-            halfWidthPx: Float,
             fullWidthPx: Float
         ): List<String> {
-            // 预估行数
             val avgCharsPerLine = (targetPixelWidth / fullWidthPx).toInt().coerceAtLeast(1)
             val estimatedTotalLines = (text.length / avgCharsPerLine).coerceAtLeast(1)
             val resultLines = ArrayList<String>(estimatedTotalLines)
-            var isStartOfParagraph = true // 标记是否为段落首行
-            // 1. 将源文本拆分为 "内容行" 和 "段落标记行" ("")
-            text.lineSequence()
-                .forEach { line ->
-                    if (line.isBlank()) {
-                        // 这是一个段落分隔符
-                        if (resultLines.isNotEmpty() && resultLines.last().isNotEmpty()) {
-                            resultLines.add("") // 添加标记行
-                        }
-                        isStartOfParagraph = true
-                    } else {
-                        // 这是一个内容行，对其进行分行
-                        val lineToChunk: String
-                        if (isStartOfParagraph) {
-                            // 1. 移除所有行首的空白符 (包括全角和半角)
-                            val trimmedLine = line.trimStart(' ', '　')
-                            // 2. 统一添加两个全角空格
-                            lineToChunk = "　　$trimmedLine"
-                            isStartOfParagraph = false // 重置标记
-                        } else {
-                            lineToChunk = line // 不是段落首行，保持原样
-                        }
-                        chunkLineOptimized(
-                            line = lineToChunk,
-                            targetPixelWidth = targetPixelWidth,
-                            halfWidthPx = halfWidthPx,
-                            fullWidthPx = fullWidthPx,
-                            output = resultLines
-                        )
-                    }
-                }
+            var isStartOfParagraph = true
 
-            // 2. 按"内容行"数量(maxLine)组装页面
+            text.lineSequence().forEach { line ->
+                if (line.isBlank()) {
+                    if (resultLines.isNotEmpty() && resultLines.last().isNotEmpty()) {
+                        resultLines.add("")
+                    }
+                    isStartOfParagraph = true
+                } else {
+                    val lineToChunk: String
+                    if (isStartOfParagraph) {
+                        val trimmedLine = line.trimStart(' ', '　')
+                        lineToChunk = "　　$trimmedLine"
+                        isStartOfParagraph = false
+                    } else {
+                        lineToChunk = line
+                    }
+                    chunkLineOptimized(
+                        line = lineToChunk,
+                        targetPixelWidth = targetPixelWidth,
+                        fullWidthPx = fullWidthPx,
+                        output = resultLines
+                    )
+                }
+            }
+
             val estimatedPages = (resultLines.size / maxLine).coerceAtLeast(1)
             val pages = ArrayList<String>(estimatedPages)
+            var lineIndex = 0
 
-            var lineIndex = 0 // resultLines的总游标
             while (lineIndex < resultLines.size) {
                 val pageBuilder = StringBuilder()
-                var contentLinesOnThisPage = 0 // 当前页已添加的内容行数量
-                var lastIndexForThisPage = lineIndex // 当前页的结束游标
+                var contentLinesOnThisPage = 0
+                var lastIndexForThisPage = lineIndex
 
-                // 循环查找当前页的结束位置
                 while (lastIndexForThisPage < resultLines.size) {
                     val currentLine = resultLines[lastIndexForThisPage]
-
                     if (currentLine.isNotEmpty()) {
-                        // 这是一个内容行
-                        if (contentLinesOnThisPage >= maxLine) {
-                            // 内容行已满, 这行属于下一页
-                            break // 停止, [lastIndexForThisPage]将是下一页的开头
-                        }
-                        contentLinesOnThisPage++ // 计入内容行
+                        if (contentLinesOnThisPage >= maxLine) break
+                        contentLinesOnThisPage++
                     }
-                    // else: 这是一个 "" 标记行, 把它包含在当前页, 且不计入maxLine
-
-                    lastIndexForThisPage++ // 将这行包含在当前页
+                    lastIndexForThisPage++
                 }
 
-                // 3. 根据计算好的起止索引, 构建页面字符串
                 for (k in lineIndex until lastIndexForThisPage) {
                     pageBuilder.append(resultLines[k])
                     if (k < lastIndexForThisPage - 1) {
@@ -150,12 +142,9 @@ class TextUtil {
                     }
                 }
 
-                // 4. 添加页面(确保非空)
                 if (pageBuilder.isNotEmpty()) {
                     pages.add(pageBuilder.toString())
                 }
-
-                // 5. 设置下一页的起始索引
                 lineIndex = lastIndexForThisPage
             }
 
@@ -165,133 +154,53 @@ class TextUtil {
         private fun chunkLineOptimized(
             line: String,
             targetPixelWidth: Float,
-            halfWidthPx: Float,
             fullWidthPx: Float,
             output: MutableList<String>
         ) {
             val lineLength = line.length
-            val lineBuilder = StringBuilder()
-            var currentWidth = 0.0f
+            var startIndex = 0
             var i = 0
+            var currentWidth = 0.0f
 
             while (i < lineLength) {
                 val c = line[i]
-                val charWidth = getCharWidth(c, halfWidthPx, fullWidthPx)
+                val charWidth = if (c.code > 127) fullWidthPx else ASCII_CHAR_WIDTH_RATIOS[c.code] * fullWidthPx
 
-                if (currentWidth + charWidth > targetPixelWidth && lineBuilder.isNotEmpty()) {
-                    val newWidth = handlePunctuationOptimized(
-                        lineBuilder = lineBuilder,
-                        currentChar = c,
-                        chunks = output,
-                        halfWidthPx = halfWidthPx,
-                        fullWidthPx = fullWidthPx
-                    )
+                if (currentWidth + charWidth > targetPixelWidth && i > startIndex) {
+                    val lastChar = line[i - 1]
 
-                    if (newWidth != null) {
-                        currentWidth = newWidth
-                        i++
+                    // 避头
+                    if (c.code < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[c.code]) {
+                        output.add(line.substring(startIndex, i + 1))
+                        startIndex = i + 1
+                        i = startIndex
+                        currentWidth = 0.0f
                         continue
                     }
 
-                    // 正常换行
-                    output.add(lineBuilder.toString())
-                    lineBuilder.clear()
+                    // 避尾
+                    if (lastChar.code < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[lastChar.code]) {
+                        if (i - 1 > startIndex) {
+                            output.add(line.substring(startIndex, i - 1))
+                            startIndex = i - 1
+                            i = startIndex
+                            currentWidth = 0.0f
+                            continue
+                        }
+                    }
+
+                    output.add(line.substring(startIndex, i))
+                    startIndex = i
                     currentWidth = 0.0f
-                }
-
-                currentWidth += charWidth
-                lineBuilder.append(c)
-                i++
-            }
-
-            if (lineBuilder.isNotEmpty()) {
-                output.add(lineBuilder.toString())
-            }
-        }
-
-        private fun getCharWidth(c: Char, halfWidthPx: Float, fullWidthPx: Float): Float {
-            // 1. CJK 汉字、全角标点及日文「」等拦截
-            if (c.code > 127) return fullWidthPx
-
-            // 2. 基于无衬线字体（Sans-serif）的字距统计学分类
-            return when (c) {
-                // --- [极宽字符] ~85%全宽 ---
-                'M', 'W', 'm', '@', '%' -> fullWidthPx * 0.85f
-
-                // --- [偏宽字符] ~75%全宽 ---
-                // 饱满的圆形大写字母、较宽的小写 w 等
-                'O', 'Q', 'G', 'C', 'D', 'w', '&', '~' -> fullWidthPx * 0.75f
-
-                // --- [普通大写 & 宽数学符号] ~65%全宽 ---
-                // 注意：这里的 in 'A'..'Z' 会被上面的 'O','Q' 等提前拦截，顺序非常重要
-                in 'A'..'Z', '+', '=', '<', '>' -> fullWidthPx * 0.65f
-
-                // --- [极窄字母] ~35%全宽 ---
-                // 带有单竖线特征的字母
-                'i', 'j', 'l', 'f', 't', 'r', 'I' -> fullWidthPx * 0.35f
-
-                // --- [偏窄小写字母] ~50%全宽 (严格的半宽) ---
-                'c', 'k', 's', 'z' -> fullWidthPx * 0.5f
-
-                // --- [常规小写 & 大部分数字] ~58%全宽 ---
-                // 核心修正点：像 e, a, o, n 等字母，实际比半宽(0.5)要胖
-                // 稍微高估一点它们的宽度，遵循“宁可右侧轻微留白，也绝不让文字溢出屏幕”的原则
-                in 'a'..'z', in '2'..'9', '0' -> fullWidthPx * 0.6f
-
-                // 数字 1 单独处理，通常比其他数字窄
-                '1' -> fullWidthPx * 0.45f
-
-                // --- [标点符号] ~30%全宽 ---
-                '.', ',', ':', ';', '\'', '"', '!', '|', '`', '-',
-                '(', ')', '[', ']', '{', '}' -> fullWidthPx * 0.3f
-
-                // --- [半角空格] ~25%全宽 ---
-                ' ' -> fullWidthPx * 0.25f
-
-                // --- [兜底] ---
-                // 漏网的特殊 ASCII 符号（如 $ ^ \ / 等）统一按稍微宽一点的比例处理
-                else -> fullWidthPx * 0.55f
-            }
-        }
-
-        private fun handlePunctuationOptimized(
-            lineBuilder: StringBuilder,
-            currentChar: Char,
-            chunks: MutableList<String>,
-            halfWidthPx: Float,
-            fullWidthPx: Float
-        ): Float? {
-            if (lineBuilder.isEmpty()) return null
-
-            val lastChar = lineBuilder[lineBuilder.length - 1]
-
-            // 避头：当前字符不能在行首
-            if (currentChar.code < PUNCTUATION_LINE_START_DENY_SET.size &&
-                PUNCTUATION_LINE_START_DENY_SET[currentChar.code]
-            ) {
-                lineBuilder.append(currentChar)
-                chunks.add(lineBuilder.toString())
-                lineBuilder.clear()
-                return 0.0f
-            }
-
-            // 避尾：上一字符不能在行尾
-            if (lastChar.code < PUNCTUATION_LINE_END_DENY_SET.size &&
-                PUNCTUATION_LINE_END_DENY_SET[lastChar.code]
-            ) {
-                val newLineLength = lineBuilder.length - 1
-                if (newLineLength > 0) {
-                    chunks.add(lineBuilder.substring(0, newLineLength))
-                    lineBuilder.clear()
-                    lineBuilder.append(lastChar).append(currentChar)
-
-                    val lastCharWidth = getCharWidth(lastChar, halfWidthPx, fullWidthPx)
-                    val currentCharWidth = getCharWidth(currentChar, halfWidthPx, fullWidthPx)
-                    return lastCharWidth + currentCharWidth
+                } else {
+                    currentWidth += charWidth
+                    i++
                 }
             }
 
-            return null
+            if (startIndex < lineLength) {
+                output.add(line.substring(startIndex, lineLength))
+            }
         }
 
         fun pagingTextVertical(
@@ -304,39 +213,32 @@ class TextUtil {
             val targetPixelWidth = ValueUtil.dpToPx(width)
             val fontSizePx = ValueUtil.spToPx(fontSize)
             val letterSpacingPx = ValueUtil.spToPx(letterSpacing)
-            val halfWidthPx = (0.5f * fontSizePx) + letterSpacingPx
             val fullWidthPx = fontSizePx + letterSpacingPx
 
-            // 结果列表
             val resultLines = ArrayList<Content>()
-            var isStartOfParagraph = true // 标记是否为段落首行
+            var isStartOfParagraph = true
 
             for (content in rawContentList) {
                 if (content.type == ContentType.IMG) {
-                    resultLines.add(content) // 图片保持原样
-                    isStartOfParagraph = true // 图片后面强制认为是新段落
+                    resultLines.add(content)
+                    isStartOfParagraph = true
                     continue
                 }
 
                 if (content.type == ContentType.TEXT) {
                     val text = content.data
-                    val chapterTitle = content.chapterTitle // 保留章节标题
+                    val chapterTitle = content.chapterTitle
 
-                    // 按换行符分割
                     text.lineSequence().forEach { line ->
                         if (line.isBlank()) {
-                            // 这是一个段落分隔符
                             if (resultLines.isNotEmpty()) {
-                                // 添加一个空的TEXT Content作为段落标记
                                 val lastContent = resultLines.last()
-                                // 避免连续添加空行
                                 if (lastContent.type != ContentType.TEXT || lastContent.data.isNotEmpty()) {
                                     resultLines.add(Content("", ContentType.TEXT, chapterTitle))
                                 }
                             }
                             isStartOfParagraph = true
                         } else {
-                            // 这是一个内容行
                             val lineToChunk: String
                             if (isStartOfParagraph) {
                                 val trimmedLine = line.trimStart(' ', '　')
@@ -346,11 +248,9 @@ class TextUtil {
                                 lineToChunk = line
                             }
 
-                            // 调用 chunkLineOptimized
                             chunkLineOptimizedVertical(
                                 line = lineToChunk,
                                 targetPixelWidth = targetPixelWidth,
-                                halfWidthPx = halfWidthPx,
                                 fullWidthPx = fullWidthPx,
                                 chapterTitle = chapterTitle,
                                 output = resultLines
@@ -365,103 +265,52 @@ class TextUtil {
         private fun chunkLineOptimizedVertical(
             line: String,
             targetPixelWidth: Float,
-            halfWidthPx: Float,
             fullWidthPx: Float,
             chapterTitle: String?,
             output: MutableList<Content>
         ) {
             val lineLength = line.length
-            val lineBuilder = StringBuilder()
-            var currentWidth = 0.0f
+            var startIndex = 0
             var i = 0
+            var currentWidth = 0.0f
 
             while (i < lineLength) {
                 val c = line[i]
-                val charWidth = getCharWidth(c, halfWidthPx, fullWidthPx)
+                val charWidth = if (c.code > 127) fullWidthPx else ASCII_CHAR_WIDTH_RATIOS[c.code] * fullWidthPx
 
-                if (currentWidth + charWidth > targetPixelWidth && lineBuilder.isNotEmpty()) {
-                    val newWidth = handlePunctuationOptimizedVertical(
-                        lineBuilder = lineBuilder,
-                        currentChar = c,
-                        chapterTitle = chapterTitle,
-                        chunks = output,
-                        halfWidthPx = halfWidthPx,
-                        fullWidthPx = fullWidthPx
-                    )
+                if (currentWidth + charWidth > targetPixelWidth && i > startIndex) {
+                    val lastChar = line[i - 1]
 
-                    if (newWidth != null) {
-                        currentWidth = newWidth
-                        i++
+                    if (c.code < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[c.code]) {
+                        output.add(Content(line.substring(startIndex, i + 1), ContentType.TEXT, chapterTitle))
+                        startIndex = i + 1
+                        i = startIndex
+                        currentWidth = 0.0f
                         continue
                     }
 
-                    // 正常换行
-                    output.add(
-                        Content(
-                            lineBuilder.toString(),
-                            ContentType.TEXT,
-                            chapterTitle
-                        )
-                    )
-                    lineBuilder.clear()
+                    if (lastChar.code < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[lastChar.code]) {
+                        if (i - 1 > startIndex) {
+                            output.add(Content(line.substring(startIndex, i - 1), ContentType.TEXT, chapterTitle))
+                            startIndex = i - 1
+                            i = startIndex
+                            currentWidth = 0.0f
+                            continue
+                        }
+                    }
+
+                    output.add(Content(line.substring(startIndex, i), ContentType.TEXT, chapterTitle))
+                    startIndex = i
                     currentWidth = 0.0f
-                }
-
-                currentWidth += charWidth
-                lineBuilder.append(c)
-                i++
-            }
-
-            if (lineBuilder.isNotEmpty()) {
-                output.add(Content(lineBuilder.toString(), ContentType.TEXT, chapterTitle))
-            }
-        }
-
-        private fun handlePunctuationOptimizedVertical(
-            lineBuilder: StringBuilder,
-            currentChar: Char,
-            chapterTitle: String?,
-            chunks: MutableList<Content>,
-            halfWidthPx: Float,
-            fullWidthPx: Float
-        ): Float? {
-            if (lineBuilder.isEmpty()) return null
-
-            val lastChar = lineBuilder[lineBuilder.length - 1]
-
-            // 避头
-            if (currentChar.code < PUNCTUATION_LINE_START_DENY_SET.size &&
-                PUNCTUATION_LINE_START_DENY_SET[currentChar.code]
-            ) {
-                lineBuilder.append(currentChar)
-                chunks.add(Content(lineBuilder.toString(), ContentType.TEXT, chapterTitle))
-                lineBuilder.clear()
-                return 0.0f
-            }
-
-            // 避尾
-            if (lastChar.code < PUNCTUATION_LINE_END_DENY_SET.size &&
-                PUNCTUATION_LINE_END_DENY_SET[lastChar.code]
-            ) {
-                val newLineLength = lineBuilder.length - 1
-                if (newLineLength > 0) {
-                    chunks.add(
-                        Content(
-                            lineBuilder.substring(0, newLineLength),
-                            ContentType.TEXT,
-                            chapterTitle
-                        )
-                    )
-                    lineBuilder.clear()
-                    lineBuilder.append(lastChar).append(currentChar)
-
-                    val lastCharWidth = getCharWidth(lastChar, halfWidthPx, fullWidthPx)
-                    val currentCharWidth = getCharWidth(currentChar, halfWidthPx, fullWidthPx)
-                    return lastCharWidth + currentCharWidth
+                } else {
+                    currentWidth += charWidth
+                    i++
                 }
             }
 
-            return null
+            if (startIndex < lineLength) {
+                output.add(Content(line.substring(startIndex, lineLength), ContentType.TEXT, chapterTitle))
+            }
         }
     }
 }

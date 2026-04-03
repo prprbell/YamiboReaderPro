@@ -62,6 +62,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -110,15 +111,21 @@ import coil.compose.SubcomposeAsyncImage
 import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 import org.shirakawatyu.yamibo.novel.bean.MangaSettings
 import org.shirakawatyu.yamibo.novel.global.GlobalData
@@ -170,8 +177,8 @@ fun NativeMangaPage(
     val screenWidthPx = with(LocalDensity.current) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() }
     val isRtl = readMode == 2
-    var activePointers by remember { mutableIntStateOf(0) }
-    val isMultiTouch by remember { derivedStateOf { activePointers > 1 } }
+
+    var isMultiTouch by remember { mutableStateOf(false) }
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
 
     val handleVerticalClick: () -> Unit = remember {
@@ -186,7 +193,6 @@ fun NativeMangaPage(
     }
     val previousRoute = navController.previousBackStackEntry?.destination?.route
 
-    // 格式化话数显示的通用方法，避免多处代码重复
     val getDisplayChapterNum = remember {
         { rawTitle: String, chapterNum: Float ->
             when {
@@ -204,7 +210,6 @@ fun NativeMangaPage(
         }
     }
 
-    // 传统的回退导航 (处理断层跳页时的Fallback)
     val fallbackNavigate = { targetUrl: String ->
         showUi = false
         showChapterList = false
@@ -248,7 +253,6 @@ fun NativeMangaPage(
         }
     }
 
-    // 初始化无缝加载管理器
     val readerManager = remember {
         MangaReaderManager(context, mangaDirVM, scope) { fallbackUrl -> fallbackNavigate(fallbackUrl) }
     }
@@ -345,7 +349,7 @@ fun NativeMangaPage(
     DisposableEffect(lifecycleOwner) {
         val window = activity?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
-        if (window != null && controller != null) {
+        if (window != null) {
             WindowCompat.setDecorFitsSystemWindows(window, false)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
@@ -362,6 +366,11 @@ fun NativeMangaPage(
         }
     }
 
+    val cookieState = produceState(initialValue = "-1") {
+        value = withContext(Dispatchers.IO) { CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: "" }
+    }
+    val cookie = cookieState.value
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -370,15 +379,15 @@ fun NativeMangaPage(
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
-                        activePointers = event.changes.count { it.pressed }
+                        val active = event.changes.count { it.pressed } > 1
+                        if (isMultiTouch != active) {
+                            isMultiTouch = active
+                        }
                     }
                 }
             }
     ) {
-        if (readerManager.flatPages.isNotEmpty()) {
-            val cookie = CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
-
-            // 列表状态绑定
+        if (readerManager.flatPages.isNotEmpty() && cookie != "-1") {
             val lazyListState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
             val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { readerManager.flatPages.size })
 
@@ -390,9 +399,7 @@ fun NativeMangaPage(
                             lazyListState.firstVisibleItemIndex
                         } else {
                             val readLine = layoutInfo.viewportStartOffset + (layoutInfo.viewportSize.height / 3)
-
                             var activeIndex = lazyListState.firstVisibleItemIndex
-
                             for (itemInfo in layoutInfo.visibleItemsInfo) {
                                 if (readLine >= itemInfo.offset && readLine <= (itemInfo.offset + itemInfo.size)) {
                                     activeIndex = itemInfo.index
@@ -409,12 +416,10 @@ fun NativeMangaPage(
 
             val currentItem = readerManager.flatPages.getOrNull(currentIndex)
 
-            // 章节切换Toast提示状态
             var showChapterToast by remember { mutableStateOf(false) }
             var toastChapterText by remember { mutableStateOf("") }
             var previousTid by remember { mutableStateOf<String?>(null) }
 
-            // 监听章节变化触发Toast提示
             LaunchedEffect(currentItem?.tid) {
                 val currentTid = currentItem?.tid ?: return@LaunchedEffect
                 if (previousTid != null && previousTid != currentTid) {
@@ -431,15 +436,12 @@ fun NativeMangaPage(
                 if (toastChapterText.isNotBlank()) {
                     showChapterToast = true
                     delay(1050)
-
                     showChapterToast = false
-
                     delay(350)
                     toastChapterText = ""
                 }
             }
 
-            // 更新当前阅读进度
             LaunchedEffect(currentItem?.tid, currentItem?.localIndex, mangaDirVM.currentDirectory) {
                 val tid = currentItem?.tid ?: return@LaunchedEffect
                 val chapter = mangaDirVM.currentDirectory?.chapters?.find { it.tid == tid }
@@ -451,7 +453,6 @@ fun NativeMangaPage(
             }
 
             val density = LocalDensity.current.density
-
             val triggerDistancePx = 120f * density
             val showUiDistancePx = 30f * density
 
@@ -509,13 +510,16 @@ fun NativeMangaPage(
                         return Offset.Zero
                     }
 
-                    // onPreFling 保持原样不变
                     override suspend fun onPreFling(available: Velocity): Velocity {
                         if (pullOverscrollAmount >= triggerDistancePx) {
+                            val initialSize = readerManager.flatPages.size
                             readerManager.loadPrevious(isManualJump = false) {
                                 scope.launch {
-                                    delay(100)
                                     if (isVerticalMode) {
+                                        withTimeoutOrNull(1500) {
+                                            snapshotFlow { lazyListState.layoutInfo.totalItemsCount }
+                                                .first { it > initialSize }
+                                        }
                                         lazyListState.animateScrollBy(
                                             value = -800f,
                                             animationSpec = tween(
@@ -534,119 +538,52 @@ fun NativeMangaPage(
                 }
             }
 
-            // 预加载下一话
             LaunchedEffect(currentIndex, readerManager.flatPages.size) {
                 if (currentIndex >= readerManager.flatPages.size - 6) {
                     readerManager.loadNext(isManualJump = false)
                 }
             }
 
-            var allowedIndices by remember { mutableStateOf(setOf(currentIndex)) }
+            var allowedUniqueIds by remember { mutableStateOf(setOf<String>()) }
             val imageLoader = context.imageLoader
+
             LaunchedEffect(currentIndex, readerManager.flatPages.size) {
-                if (readerManager.flatPages.isEmpty()) return@LaunchedEffect
+                val pagesSnapshot = readerManager.flatPages
+                if (pagesSnapshot.isEmpty() || currentIndex !in pagesSnapshot.indices) return@LaunchedEffect
                 val windowStart = maxOf(0, currentIndex - 2)
-                val windowEnd = minOf(readerManager.flatPages.size - 1, currentIndex + 4)
-                allowedIndices = (windowStart..windowEnd).toSet()
+                val windowEnd = minOf(pagesSnapshot.size - 1, currentIndex + 4)
+                allowedUniqueIds = pagesSnapshot.subList(windowStart, windowEnd + 1).map { it.uniqueId }.toSet()
             }
 
-            // 预加载逻辑
-            LaunchedEffect(Unit) {
+            LaunchedEffect(cookie) {
                 snapshotFlow { currentIndex }
                     .distinctUntilChanged()
                     .debounce(250L)
                     .collectLatest { index ->
-                        if (readerManager.flatPages.isEmpty() || index !in readerManager.flatPages.indices) return@collectLatest
+                        val pagesSnapshot = readerManager.flatPages
+                        if (pagesSnapshot.isEmpty() || index !in pagesSnapshot.indices) return@collectLatest
 
-                        val totalPages = readerManager.flatPages.size
-                        val currentItem = readerManager.flatPages[index]
+                        val totalSize = pagesSnapshot.size
+                        val windowStart = maxOf(0, index - 3)
+                        val windowEnd = minOf(totalSize - 1, index + 6)
 
-                        val loadSequence = mutableListOf(index)
-                        val maxOffset = maxOf(index, totalPages - 1 - index)
-
-                        for (offset in 1..maxOffset) {
-                            val forwardIndex = index + offset
-                            val backwardIndex = index - offset
-
-                            if (forwardIndex < totalPages) {
-                                val targetItem = readerManager.flatPages[forwardIndex]
-                                if (targetItem.tid == currentItem.tid) {
-                                    loadSequence.add(forwardIndex)
-                                } else {
-                                    val distanceToEnd =
-                                        currentItem.chapterTotalPages - currentItem.localIndex - 1
-                                    val allowedNextPreload = if (distanceToEnd > 2) 3 else 6
-                                    if (targetItem.localIndex < allowedNextPreload) {
-                                        loadSequence.add(forwardIndex)
-                                    }
-                                }
-                            }
-
-                            if (backwardIndex >= 0) {
-                                val targetItem = readerManager.flatPages[backwardIndex]
-                                if (targetItem.tid == currentItem.tid) {
-                                    loadSequence.add(backwardIndex)
-                                } else {
-                                    val distanceToStart = currentItem.localIndex
-                                    val allowedPrevPreload = if (distanceToStart > 2) 3 else 6
-                                    val pagesFromEndOfPrevChapter =
-                                        targetItem.chapterTotalPages - targetItem.localIndex
-                                    if (pagesFromEndOfPrevChapter <= allowedPrevPreload) {
-                                        loadSequence.add(backwardIndex)
-                                    }
-                                }
-                            }
-                        }
-
-                        val nearbyCount = 8.coerceAtMost(loadSequence.size)
-                        val nearbyBatch = loadSequence.subList(0, nearbyCount)
-                        val restBatch = if (nearbyCount < loadSequence.size) loadSequence.subList(
-                            nearbyCount,
-                            loadSequence.size
-                        ) else emptyList()
+                        val urlsToLoad = pagesSnapshot.subList(windowStart, windowEnd + 1)
+                            .sortedBy { kotlin.math.abs(it.globalIndex - index) }
+                            .map { it.imageUrl }
+                            .distinct()
 
                         withContext(Dispatchers.IO) {
-                            val validIndices = readerManager.flatPages.indices
-
-                            fun buildPreloadRequest(url: String): ImageRequest {
-                                return ImageRequest.Builder(context.applicationContext)
-                                    .data(url)
-                                    .addHeader("Cookie", cookie)
-                                    .addHeader("Referer", "https://bbs.yamibo.com/")
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .build()
-                            }
-
-                            // 当前页优先下载
-                            if (index in validIndices) {
-                                imageLoader.execute(buildPreloadRequest(readerManager.flatPages[index].imageUrl))
-                            }
-
-                            // 附近页并发下载
-                            if (nearbyBatch.isNotEmpty()) {
-                                val validNearby = nearbyBatch.filter { it in validIndices }
-                                for (batch in validNearby.chunked(4)) {
-                                    kotlinx.coroutines.coroutineScope {
-                                        batch.forEach { i ->
-                                            launch {
-                                                imageLoader.execute(buildPreloadRequest(readerManager.flatPages[i].imageUrl))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            // 剩余页后台下载
-                            if (restBatch.isNotEmpty()) {
-                                val validRest = restBatch.filter { it in validIndices }
-                                for (batch in validRest.chunked(3)) {
-                                    kotlinx.coroutines.coroutineScope {
-                                        batch.forEach { i ->
-                                            launch {
-                                                imageLoader.execute(buildPreloadRequest(readerManager.flatPages[i].imageUrl))
-                                            }
-                                        }
-                                    }
+                            urlsToLoad.forEach { url ->
+                                launch {
+                                    ensureActive()
+                                    val request = ImageRequest.Builder(context.applicationContext)
+                                        .data(url)
+                                        .addHeader("Cookie", cookie)
+                                        .addHeader("Referer", "https://bbs.yamibo.com/")
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .diskCachePolicy(CachePolicy.ENABLED)
+                                        .build()
+                                    imageLoader.execute(request)
                                 }
                             }
                         }
@@ -683,7 +620,6 @@ fun NativeMangaPage(
                 }
             }
 
-            // 主体渲染容器
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -729,10 +665,10 @@ fun NativeMangaPage(
 
                         itemsIndexed(
                             items = readerManager.flatPages,
-                            key = { _, item -> item.uniqueId } // 重点：利用 uniqueId 作为锚点，前置插入时不会导致视觉跳跃
-                        ) { index, item ->
-                            if (index in allowedIndices) {
-                                val request = remember(item.imageUrl) {
+                            key = { _, item -> item.uniqueId }
+                        ) { _, item ->
+                            if (item.uniqueId in allowedUniqueIds) {
+                                val request = remember(item.imageUrl, cookie) {
                                     ImageRequest.Builder(context.applicationContext)
                                         .data(item.imageUrl).addHeader("Cookie", cookie).addHeader("Referer", "https://bbs.yamibo.com/")
                                         .memoryCachePolicy(CachePolicy.ENABLED).crossfade(false).build()
@@ -752,16 +688,17 @@ fun NativeMangaPage(
                     CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
                         HorizontalPager(
                             state = pagerState,
-                            key = { readerManager.flatPages.getOrNull(it)?.uniqueId ?: it }, // 利用 uniqueId 作为锚点
+                            key = { readerManager.flatPages.getOrNull(it)?.uniqueId ?: it },
                             modifier = Modifier.fillMaxSize(),
                             pageSpacing = 16.dp,
                             userScrollEnabled = !isMultiTouch
                         ) { page ->
                             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                                if (page in allowedIndices) {
-                                    val item = readerManager.flatPages[page]
+                                val item = readerManager.flatPages.getOrNull(page)
+
+                                if (item != null && item.uniqueId in allowedUniqueIds) {
                                     var isImageLoading by remember(item.imageUrl) { mutableStateOf(true) }
-                                    val request = remember(item.imageUrl) {
+                                    val request = remember(item.imageUrl, cookie) {
                                         ImageRequest.Builder(context.applicationContext)
                                             .data(item.imageUrl).addHeader("Cookie", cookie).addHeader("Referer", "https://bbs.yamibo.com/")
                                             .memoryCachePolicy(CachePolicy.ENABLED).crossfade(false)
@@ -781,9 +718,10 @@ fun NativeMangaPage(
                     }
                 }
 
-                // 顶部加载上一话的提示浮层
+                val showPullUi by remember { derivedStateOf { pullOverscrollAmount > showUiDistancePx } }
+
                 AnimatedVisibility(
-                    visible = pullOverscrollAmount > showUiDistancePx,
+                    visible = showPullUi,
                     enter = fadeIn(), exit = fadeOut(),
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp).zIndex(50f)
                 ) {
@@ -793,13 +731,11 @@ fun NativeMangaPage(
                             .background(Color.Black.copy(alpha = 0.7f))
                             .padding(horizontal = 20.dp, vertical = 10.dp)
                     ) {
-                        val tipText = remember(isVerticalMode, isRtl, pullOverscrollAmount) {
-                            val isReady = pullOverscrollAmount >= triggerDistancePx
-                            when {
-                                isVerticalMode -> if (isReady) "松开加载上一话" else "下拉加载上一话"
-                                isRtl -> if (isReady) "松开加载上一话" else "左滑加载上一话"
-                                else -> if (isReady) "松开加载上一话" else "右滑加载上一话"
-                            }
+                        val isReady = pullOverscrollAmount >= triggerDistancePx
+                        val tipText = when {
+                            isVerticalMode -> if (isReady) "松开加载上一话" else "下拉加载上一话"
+                            isRtl -> if (isReady) "松开加载上一话" else "左滑加载上一话"
+                            else -> if (isReady) "松开加载上一话" else "右滑加载上一话"
                         }
 
                         Text(
@@ -834,7 +770,6 @@ fun NativeMangaPage(
                     }
                 }
 
-                // 强制转场黑屏掩护（仅在断层跳页 或 手动点击目录/上下话跳转时显示）
                 AnimatedVisibility(
                     visible = probingUrl != null || readerManager.isManualJumping,
                     enter = fadeIn(tween(150)),
@@ -846,7 +781,6 @@ fun NativeMangaPage(
                     }
                 }
 
-                // 滑动跨越多话时，显示当前的话数轻量级提示框
                 AnimatedVisibility(
                     visible = showChapterToast,
                     enter = fadeIn(tween(300)),
@@ -876,7 +810,6 @@ fun NativeMangaPage(
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 1f - imageBrightness)).pointerInput(Unit){})
             }
 
-            // 顶部栏
             AnimatedVisibility(
                 visible = showUi && !showChapterList && !showSettingsPanel,
                 enter = fadeIn() + slideInVertically { -it }, exit = fadeOut() + slideOutVertically { -it },
@@ -907,7 +840,6 @@ fun NativeMangaPage(
                 }
             }
 
-            // 底部悬浮菜单栏
             AnimatedVisibility(
                 visible = showUi && !showChapterList && !showSettingsPanel,
                 enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 }, exit = fadeOut(tween(300)) + slideOutVertically(tween(300)) { it / 2 },
@@ -916,7 +848,6 @@ fun NativeMangaPage(
                 Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color(0xFF1E1E22).copy(alpha = 0.90f)).pointerInput(Unit) { detectTapGestures {} }) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
 
-                        // 进度条与翻话区域
                         if (currentItem != null) {
                             val sortedChapters = mangaDirVM.currentDirectory?.chapters
                             val currentChapIndex = sortedChapters?.indexOfFirst { it.tid == currentItem.tid } ?: -1
@@ -924,7 +855,6 @@ fun NativeMangaPage(
                             val nextChapter = if (currentChapIndex != -1 && sortedChapters != null && currentChapIndex < sortedChapters.size - 1) sortedChapters[currentChapIndex + 1] else null
 
                             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                // 左侧：上一话箭头按钮，点击触发无缝跳转
                                 IconButton(
                                     onClick = {
                                         prevChapter?.url?.let { targetUrl ->
@@ -936,7 +866,6 @@ fun NativeMangaPage(
                                     enabled = prevChapter != null
                                 ) { Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一话", tint = if (prevChapter != null) Color.White else Color.DarkGray) }
 
-                                // 中间：基于单话的局部进度条
                                 Slider(
                                     value = currentItem.localIndex.toFloat(),
                                     valueRange = 0f..maxOf(0f, (currentItem.chapterTotalPages - 1).toFloat()),
@@ -950,7 +879,6 @@ fun NativeMangaPage(
                                     colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color(0xFF4A4A52))
                                 )
 
-                                // 右侧：下一话箭头按钮
                                 IconButton(
                                     onClick = {
                                         nextChapter?.url?.let { targetUrl ->
@@ -965,14 +893,12 @@ fun NativeMangaPage(
                             Spacer(modifier = Modifier.height(8.dp))
                         }
 
-                        // 底部操作栏（设置 - 局部页码 - 目录）
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { showSettingsPanel = true }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
                                 Text("设置", color = Color.LightGray, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                             }
                             Spacer(modifier = Modifier.width(50.dp))
                             Box(modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0x552C2C32)).padding(horizontal = 16.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-                                // 永远只展示当前话里的局部进度
                                 val displayLocal = (currentItem?.localIndex ?: 0) + 1
                                 val displayTotal = currentItem?.chapterTotalPages ?: 1
                                 Text(text = "$displayLocal / $displayTotal", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -1019,7 +945,6 @@ fun NativeMangaPage(
                     },
                     onChapterClick = { chapter ->
                         if (chapter.url.isNotEmpty()) {
-                            // 目录跳话也使用无缝管理
                             readerManager.jumpToChapter(chapter.url) { globalIdx ->
                                 scope.launch {
                                     showUi = false
