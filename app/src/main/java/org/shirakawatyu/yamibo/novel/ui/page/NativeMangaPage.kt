@@ -536,7 +536,7 @@ fun NativeMangaPage(
 
             // 预加载下一话
             LaunchedEffect(currentIndex, readerManager.flatPages.size) {
-                if (currentIndex >= readerManager.flatPages.size - 8) {
+                if (currentIndex >= readerManager.flatPages.size - 6) {
                     readerManager.loadNext(isManualJump = false)
                 }
             }
@@ -575,7 +575,7 @@ fun NativeMangaPage(
                                 } else {
                                     val distanceToEnd =
                                         currentItem.chapterTotalPages - currentItem.localIndex - 1
-                                    val allowedNextPreload = if (distanceToEnd > 2) 4 else 8
+                                    val allowedNextPreload = if (distanceToEnd > 2) 3 else 6
                                     if (targetItem.localIndex < allowedNextPreload) {
                                         loadSequence.add(forwardIndex)
                                     }
@@ -588,7 +588,7 @@ fun NativeMangaPage(
                                     loadSequence.add(backwardIndex)
                                 } else {
                                     val distanceToStart = currentItem.localIndex
-                                    val allowedPrevPreload = if (distanceToStart > 2) 4 else 8
+                                    val allowedPrevPreload = if (distanceToStart > 2) 3 else 6
                                     val pagesFromEndOfPrevChapter =
                                         targetItem.chapterTotalPages - targetItem.localIndex
                                     if (pagesFromEndOfPrevChapter <= allowedPrevPreload) {
