@@ -544,16 +544,7 @@ fun NativeMangaPage(
                 }
             }
 
-            var allowedUniqueIds by remember { mutableStateOf(setOf<String>()) }
             val imageLoader = context.imageLoader
-
-            LaunchedEffect(currentIndex, readerManager.flatPages.size) {
-                val pagesSnapshot = readerManager.flatPages
-                if (pagesSnapshot.isEmpty() || currentIndex !in pagesSnapshot.indices) return@LaunchedEffect
-                val windowStart = maxOf(0, currentIndex - 2)
-                val windowEnd = minOf(pagesSnapshot.size - 1, currentIndex + 4)
-                allowedUniqueIds = pagesSnapshot.subList(windowStart, windowEnd + 1).map { it.uniqueId }.toSet()
-            }
 
             LaunchedEffect(cookie) {
                 snapshotFlow { currentIndex }
@@ -667,20 +658,26 @@ fun NativeMangaPage(
                             items = readerManager.flatPages,
                             key = { _, item -> item.uniqueId }
                         ) { _, item ->
-                            if (item.uniqueId in allowedUniqueIds) {
-                                val request = remember(item.imageUrl, cookie) {
-                                    ImageRequest.Builder(context.applicationContext)
-                                        .data(item.imageUrl).addHeader("Cookie", cookie).addHeader("Referer", "https://bbs.yamibo.com/")
-                                        .memoryCachePolicy(CachePolicy.ENABLED).crossfade(false).build()
-                                }
-                                SubcomposeAsyncImage(
-                                    model = request, contentDescription = null, contentScale = ContentScale.FillWidth,
-                                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 400.dp),
-                                    loading = { Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = YamiboColors.tertiary) } }
-                                )
-                            } else {
-                                Box(modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 400.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color.LightGray) }
+                            val request = remember(item.imageUrl, cookie) {
+                                ImageRequest.Builder(context.applicationContext)
+                                    .data(item.imageUrl)
+                                    .addHeader("Cookie", cookie)
+                                    .addHeader("Referer", "https://bbs.yamibo.com/")
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .crossfade(false)
+                                    .build()
                             }
+                            SubcomposeAsyncImage(
+                                model = request,
+                                contentDescription = null,
+                                contentScale = ContentScale.FillWidth,
+                                modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 400.dp),
+                                loading = {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(color = YamiboColors.tertiary)
+                                    }
+                                }
+                            )
                         }
 
                     }
@@ -696,22 +693,42 @@ fun NativeMangaPage(
                             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                                 val item = readerManager.flatPages.getOrNull(page)
 
-                                if (item != null && item.uniqueId in allowedUniqueIds) {
-                                    var isImageLoading by remember(item.imageUrl) { mutableStateOf(true) }
+                                if (item != null) {
+                                    var isImageLoading by remember(item.imageUrl) {
+                                        mutableStateOf(
+                                            true
+                                        )
+                                    }
                                     val request = remember(item.imageUrl, cookie) {
                                         ImageRequest.Builder(context.applicationContext)
-                                            .data(item.imageUrl).addHeader("Cookie", cookie).addHeader("Referer", "https://bbs.yamibo.com/")
-                                            .memoryCachePolicy(CachePolicy.ENABLED).crossfade(false)
-                                            .listener(onStart = { isImageLoading = true }, onSuccess = { _, _ -> isImageLoading = false }, onError = { _, _ -> isImageLoading = false }, onCancel = { isImageLoading = false }).build()
+                                            .data(item.imageUrl)
+                                            .addHeader("Cookie", cookie)
+                                            .addHeader("Referer", "https://bbs.yamibo.com/")
+                                            .memoryCachePolicy(CachePolicy.ENABLED)
+                                            .crossfade(false)
+                                            .listener(
+                                                onStart = { isImageLoading = true },
+                                                onSuccess = { _, _ -> isImageLoading = false },
+                                                onError = { _, _ -> isImageLoading = false },
+                                                onCancel = { isImageLoading = false }
+                                            ).build()
                                     }
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         ZoomableAsyncImage(
-                                            model = request, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit, onClick = horizontalPagerClick
+                                            model = request,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Fit,
+                                            onClick = horizontalPagerClick
                                         )
-                                        if (isImageLoading) CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = YamiboColors.tertiary)
+                                        if (isImageLoading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.align(
+                                                    Alignment.Center
+                                                ), color = YamiboColors.tertiary
+                                            )
+                                        }
                                     }
-                                } else {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = YamiboColors.primary) }
                                 }
                             }
                         }

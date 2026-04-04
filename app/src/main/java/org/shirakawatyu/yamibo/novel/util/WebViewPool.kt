@@ -127,6 +127,7 @@ object WebViewPool {
                 loadsImagesAutomatically = false
                 blockNetworkImage = true
             }
+            loadDataWithBaseURL(null, "", "text/html", "utf-8", null)
         }
     }
 }

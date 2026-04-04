@@ -132,41 +132,44 @@ class MangaProber {
 
             webView.webViewClient = object : YamiboWebViewClient() {
 
-                private val fatalErrors = listOf(
-                    ERROR_HOST_LOOKUP, // -2: 找不到服务器
-                    ERROR_CONNECT,     // -6: 连接不到服务器
-                    ERROR_BAD_URL      // -12: 错误的URL
+                private val transientErrors = listOf(
+                    ERROR_HOST_LOOKUP, // -2: 瞬发性 DNS 失败
+                    ERROR_CONNECT,     // -6: 瞬发性连接失败
+                    ERROR_TIMEOUT      // -8: 请求超时
                 )
 
-                // 旧版API
-                override fun onReceivedError(
-                    view: WebView?,
-                    errorCode: Int,
-                    description: String?,
-                    failingUrl: String?
-                ) {
-                    super.onReceivedError(view, errorCode, description, failingUrl)
-                    if (!isFinished.get() && failingUrl == view?.url) {
-                        if (fatalErrors.contains(errorCode)) {
+                private var retryCount = 0
+                private val MAX_RETRIES = 3
+
+                private fun handlePotentialTransientError(view: WebView?, errorCode: Int) {
+                    if (!isFinished.get()) {
+                        if (transientErrors.contains(errorCode) && retryCount < MAX_RETRIES) {
+                            retryCount++
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                if (!isFinished.get()) view?.reload()
+                            }, (retryCount * 800).toLong()) // 800ms, 1600ms, 2400ms 退避重试
+                            return
+                        }
+
+                        if (errorCode == ERROR_BAD_URL || retryCount >= MAX_RETRIES) {
                             cleanupAndFinish()
                             onFallback()
                         }
                     }
                 }
 
-                // 新版API
-                override fun onReceivedError(
-                    view: WebView?,
-                    request: WebResourceRequest?,
-                    error: WebResourceError?
-                ) {
+                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                     super.onReceivedError(view, request, error)
-                    if (request?.isForMainFrame == true && !isFinished.get()) {
-                        val errorCode = error?.errorCode ?: 0
-                        if (fatalErrors.contains(errorCode)) {
-                            cleanupAndFinish()
-                            onFallback()
-                        }
+                    if (request?.isForMainFrame == true) {
+                        handlePotentialTransientError(view, error?.errorCode ?: 0)
+                    }
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+                    super.onReceivedError(view, errorCode, description, failingUrl)
+                    if (failingUrl == view?.url) {
+                        handlePotentialTransientError(view, errorCode)
                     }
                 }
 
