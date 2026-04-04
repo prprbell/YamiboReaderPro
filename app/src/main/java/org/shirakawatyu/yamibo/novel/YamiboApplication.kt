@@ -20,9 +20,9 @@ class YamiboApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
 
-        Looper.myQueue().addIdleHandler {
-            WebViewPool.init(this@YamiboApplication)
+        WebViewPool.init(this)
 
+        Looper.myQueue().addIdleHandler {
             try {
                 systemUserAgent = WebSettings.getDefaultUserAgent(this@YamiboApplication)
             } catch (e: Exception) {
