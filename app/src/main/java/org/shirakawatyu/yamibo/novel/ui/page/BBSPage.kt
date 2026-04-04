@@ -86,6 +86,7 @@ object BBSPageState {
     var hasSuccessfullyLoaded: Boolean = false
     var fullscreenApi: FullscreenApi? = null
     var nativeMangaApi: NativeMangaJSInterface? = null
+    var isErrorState: Boolean = false
 }
 
 // 用于接收大图打开/关闭的通知
@@ -139,7 +140,10 @@ fun BBSPage(
 
     var canGoBack by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
-    var showLoadError by remember { mutableStateOf(false) }
+    var showLoadError by remember { mutableStateOf(BBSPageState.isErrorState) }
+    LaunchedEffect(showLoadError) {
+        BBSPageState.isErrorState = showLoadError
+    }
     val scope = rememberCoroutineScope()
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
@@ -498,45 +502,6 @@ fun BBSPage(
             }
         }
     }
-    // 当页面被选中时，持续监听登录状态变化
-    // 当页面被选中时，持续监听登录状态变化
-    LaunchedEffect(isSelected) {
-        if (!isSelected) {
-            timeoutJob?.cancel()
-            retryCount = 0
-            isLoading = false
-            return@LaunchedEffect
-        }
-
-        webView.onResume()
-
-        while (true) {
-            val cookieManager = android.webkit.CookieManager.getInstance()
-            // 直接读取底层实时 Cookie
-            val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
-            val currentLoginState = isLoggedIn(currentCookie)
-
-            val isWebViewBlank = webView.url.isNullOrEmpty() || webView.url == "about:blank"
-
-            if (isLoading) {
-                BBSPageState.lastLoginState = currentLoginState
-            }
-            else if (isWebViewBlank) {
-                BBSPageState.lastLoginState = currentLoginState
-                startLoading(mobileIndexUrl)
-            }
-            else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
-                Log.i("BBSPage", "状态变更: ${BBSPageState.lastLoginState} -> $currentLoginState, 准备刷新")
-                BBSPageState.lastLoginState = currentLoginState
-                startLoading(mobileIndexUrl)
-            }
-            else if (BBSPageState.lastLoginState == null) {
-                BBSPageState.lastLoginState = currentLoginState
-            }
-
-            delay(500)
-        }
-    }
     LaunchedEffect(Unit) {
         bottomNavBarVM.refreshEvent.collect { route ->
             if (route == "BBSPage") {
@@ -564,8 +529,12 @@ fun BBSPage(
             }
         }
     }
+
     LaunchedEffect(webView, isSelected) {
         if (!isSelected) {
+            timeoutJob?.cancel()
+            retryCount = 0
+            isLoading = false
             return@LaunchedEffect
         }
 
@@ -588,9 +557,8 @@ fun BBSPage(
                             return;
                         }
                         window.__globalPswpAttached = true;
-                        
                         var checkState = function() {
-                            var isOpen = pswp.classList.contains('pswp--open') || 
+                            var isOpen = pswp.classList.contains('pswp--open') ||
                                          pswp.classList.contains('pswp--visible') || 
                                          (getComputedStyle(pswp).display !== 'none' && getComputedStyle(pswp).opacity > 0);
                             if (window.__pswpLastState !== isOpen) {
@@ -601,13 +569,11 @@ fun BBSPage(
                                 }
                             }
                         };
-                        
                         var pswpObserver = new MutationObserver(checkState);
                         pswpObserver.observe(pswp, { attributes: true, attributeFilter: ['class', 'style'] });
                         checkState();
                     };
                     window.__pswpInit();
-                    
                     var a = document.querySelector('.header h2 a');
                     var isManga = false;
                     if (a) {
@@ -659,7 +625,8 @@ fun BBSPage(
                                     var urls = [];
                                     var clickedIndex = 0;
                                     for (var i = 0; i < allImgs.length; i++) {
-                                        var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
+                                        var rawSrc = allImgs[i].getAttribute('zsrc') ||
+                                        allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
                                         if (rawSrc) {
                                             var absoluteUrl = new URL(rawSrc, document.baseURI).href;
                                             urls.push(absoluteUrl);
@@ -671,7 +638,7 @@ fun BBSPage(
                                     }
                                 }
                             }
-                        }, true); 
+                        }, true);
                     }
                     return isManga ? 'true' : 'false';
                 })()
@@ -706,13 +673,11 @@ fun BBSPage(
                     if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
                         !urlStr.contains("common") && !urlStr.contains("static/image")
                     ) {
-
                         val count = synchronized(this) { contentImageCount++ }
                         val isHomePage = currentUrl == indexUrl ||
                                 currentUrl == mobileIndexUrl ||
                                 currentUrl == bbsUrl ||
                                 currentUrl == baseBbsUrl ||
-
                                 (currentUrl?.startsWith("https://bbs.yamibo.com/forum.php") == true && currentUrl?.contains(
                                     "mod="
                                 ) == false)
@@ -746,9 +711,7 @@ fun BBSPage(
 
             override fun onPageCommitVisible(view: WebView?, url: String?) {
                 super.onPageCommitVisible(view, url)
-
                 pageTitle = view?.title ?: ""
-
                 if (!hasError && isLoading) {
                     timeoutJob?.cancel()
                     retryCount = 0
@@ -770,7 +733,8 @@ fun BBSPage(
                 super.onPageFinished(view, url)
                 canGoBack = view?.canGoBack() ?: false
                 if (view != null && url != null) {
-                    val isHomepage = url == indexUrl || url == bbsUrl || url == baseBbsUrl  || url  == mobileIndexUrl
+                    val isHomepage =
+                        url == indexUrl || url == bbsUrl || url == baseBbsUrl || url == mobileIndexUrl
                     if (isHomepage) {
                         view.clearHistory()
                     }
@@ -823,8 +787,34 @@ fun BBSPage(
         }
 
         canGoBack = webView.canGoBack()
-    }
+        webView.onResume()
 
+        while (true) {
+            val cookieManager = android.webkit.CookieManager.getInstance()
+            val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
+            val currentLoginState = isLoggedIn(currentCookie)
+
+            val isWebViewBlank = webView.url.isNullOrEmpty() || webView.url == "about:blank"
+
+            if (isLoading) {
+                BBSPageState.lastLoginState = currentLoginState
+            } else if (isWebViewBlank) {
+                BBSPageState.lastLoginState = currentLoginState
+                startLoading(mobileIndexUrl)
+            } else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
+                Log.i(
+                    "BBSPage",
+                    "状态变更: ${BBSPageState.lastLoginState} -> $currentLoginState, 准备刷新"
+                )
+                BBSPageState.lastLoginState = currentLoginState
+                startLoading(mobileIndexUrl)
+            } else if (BBSPageState.lastLoginState == null) {
+                BBSPageState.lastLoginState = currentLoginState
+            }
+
+            delay(500)
+        }
+    }
     // 监听页面离开，保存当前URL
     DisposableEffect(isSelected) {
         onDispose {
