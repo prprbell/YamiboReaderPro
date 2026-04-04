@@ -103,7 +103,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -584,20 +583,21 @@ fun ReaderPage(
                     }
 
                     var hasTriggeredLoad by remember(url) { mutableStateOf(false) }
+                    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+                    val screenWidthDp = configuration.screenWidthDp.dp
+                    val availableHeightDp = configuration.screenHeightDp.dp - statusBarHeight
+
+                    LaunchedEffect(url, screenWidthDp, availableHeightDp) {
+                        if (!hasTriggeredLoad && screenWidthDp > 0.dp && availableHeightDp > 0.dp) {
+                            readerVM.firstLoad(url, availableHeightDp, screenWidthDp)
+                            hasTriggeredLoad = true
+                        }
+                    }
 
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(top = statusBarHeight)
-                            .onSizeChanged { size ->
-                                if (!hasTriggeredLoad && size.height > 0 && size.width > 0) {
-                                    val heightDp = with(density) { size.height.toDp() }
-                                    val widthDp = with(density) { size.width.toDp() }
-
-                                    readerVM.firstLoad(url, heightDp, widthDp)
-                                    hasTriggeredLoad = true
-                                }
-                            }
                     ) {
                         // --- 内部状态渲染 ---
                         if (uiState.isError) {

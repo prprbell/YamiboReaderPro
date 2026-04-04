@@ -37,6 +37,8 @@ object WebViewPool {
             }
         }
 
+        webView.stopLoading()
+
         (webView.context as? MutableContextWrapper)?.baseContext = context
 
         val currentUses = webViewUseCount[webView] ?: 0
@@ -87,10 +89,10 @@ object WebViewPool {
             pool.add(webView)
         } else {
             webViewUseCount.remove(webView)
-            val ctx = webView.context.applicationContext
             webView.destroy()
         }
     }
+
     /**
      * 用于处理渲染进程崩溃的僵尸WebView
      */
@@ -112,6 +114,7 @@ object WebViewPool {
             webViewUseCount[freshWebView] = 0
         }
     }
+
     private fun createWebView(context: Context): WebView {
         val contextWrapper = MutableContextWrapper(context.applicationContext)
         return WebView(contextWrapper).apply {
