@@ -252,7 +252,7 @@ fun ContentViewer(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 20.dp, end = 20.dp, top = 1.dp, bottom = 8.dp)
+                    .padding(start = 20.dp, end = 20.dp, top = 1.dp, bottom = 7.dp)
                     .height(87.dp),
                 verticalAlignment = Alignment.Bottom
             ) {

@@ -121,16 +121,12 @@ fun JustifiedText(
                     // --- 横屏模式计算 ---
                     val lines = text.split('\n')
 
-                    // 【关键修复 1】：只统计真正有文字的行数，忽略不可见的空行
                     val validLineCount = lines.count { it.isNotEmpty() }
 
                     val totalStandardHeight = validLineCount * lineHeightPx
                     val safeAvailableHeight = availableHeight - (fontSizePx * 0.2f)
                     val emptySpace = (safeAvailableHeight - totalStandardHeight).coerceAtLeast(0f)
 
-                    // 【关键修复 2】：平摊空余空间，但加入限制！
-                    // 如果空余空间超过了3倍行高，说明这是本章最后一页（没写满），就不强行拉伸了。
-                    // 只有当空余空间小于3行（通常是导航栏高度差或除不尽的余白），才将其完美平分。
                     val extraSpacingPerLine =
                         if (validLineCount > 1 && emptySpace < lineHeightPx * 3) {
                             emptySpace / (validLineCount - 1)
@@ -180,7 +176,6 @@ fun JustifiedText(
                                 finalMultiplier
                             )
                         )
-                        // 加上基础行高和我们平摊的额外间距
                         currentY += (lineHeightPx + extraSpacingPerLine)
                     }
                 }
