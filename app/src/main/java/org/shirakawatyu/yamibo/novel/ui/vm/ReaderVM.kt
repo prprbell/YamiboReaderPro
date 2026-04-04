@@ -693,7 +693,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private fun getAvgItemsPerHorizontalPage(): Int {
         val state = _uiState.value
         val topPadding = 24.dp
-        val footerHeight = 75.dp
+        val footerHeight = 87.dp
         val pageContentHeight = maxHeight - topPadding - footerHeight
         val pageContentHeightPx = ValueUtil.dpToPx(pageContentHeight)
         val lineHeightPx = ValueUtil.spToPx(state.lineHeight)
@@ -1024,7 +1024,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         } else {
             val passagesList = ArrayList<Content>()
             val topPadding = 24.dp
-            val footerHeight = 75.dp
+            val footerHeight = 87.dp
             val pageContentHeight = maxHeight - topPadding - footerHeight
             val pageContentWidth = maxWidth - (state.padding + state.padding)
 

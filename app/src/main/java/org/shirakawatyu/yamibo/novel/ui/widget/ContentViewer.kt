@@ -252,8 +252,8 @@ fun ContentViewer(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 1.dp, bottom = 5.dp)
-                    .height(75.dp),
+                    .padding(start = 20.dp, end = 20.dp, top = 1.dp, bottom = 8.dp)
+                    .height(87.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
                 // 书籍标题
