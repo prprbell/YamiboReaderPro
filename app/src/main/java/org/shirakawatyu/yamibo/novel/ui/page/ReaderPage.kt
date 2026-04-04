@@ -104,7 +104,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -139,6 +138,7 @@ import org.shirakawatyu.yamibo.novel.ui.widget.CustomStatusBar
 import org.shirakawatyu.yamibo.novel.ui.widget.PassageWebView
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.detectReaderTransformGestures
+import org.shirakawatyu.yamibo.novel.util.rememberScreenCorner
 import kotlin.math.roundToInt
 
 private val backgroundColors = listOf(
@@ -179,7 +179,6 @@ fun ReaderPage(
 
     // 全屏与状态栏高度处理
     val context = LocalContext.current
-    val density = LocalDensity.current
 
     val window = remember(context) { context.findActivity()?.window }
     val view = remember(window) { window?.decorView }
@@ -197,18 +196,12 @@ fun ReaderPage(
     if (navBarsPadding > rememberedNavBarHeight.value) {
         rememberedNavBarHeight.value = navBarsPadding
     }
-    val navBarHeight =
-        if (rememberedNavBarHeight.value > 0.dp) rememberedNavBarHeight.value else 48.dp
 
     var isFullScreen by remember { mutableStateOf(true) }
 
     // 记录进入阅读器前的系统栏状态，退出时恢复，避免上一页上下栏抖动
-    val originalStatusBarColor = remember { mutableStateOf(window?.statusBarColor ?: 0) }
     val originalBehavior = remember { mutableStateOf(0) }
-    val originalLightStatusBars = remember { mutableStateOf(false) }
-    val originalCutoutMode = remember { mutableStateOf(0) }
     var hasCapturedOriginal by remember { mutableStateOf(false) }
-    val hasRestoredSystemUi = remember { mutableStateOf(false) }
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
     var isExiting by remember { mutableStateOf(false) }
     var isFirstEnter by remember { mutableStateOf(true) }
@@ -218,6 +211,7 @@ fun ReaderPage(
         rawTitle.replace(Regex("(\\[.*?]|【.*?】|\\(.*?\\)|（.*?）)"), "").replace(Regex("\\s+"), " ")
             .trim()
     }
+
     DisposableEffect(window, view) {
         if (window == null || view == null) {
             onDispose { }
@@ -269,7 +263,7 @@ fun ReaderPage(
         val smoothScrollAnimation =
             remember { tween<Float>(durationMillis = 432, easing = EaseOut) }
         val focusRequester = remember { FocusRequester() }
-
+        val screenCorner = rememberScreenCorner()
         LaunchedEffect(uiState.showChapterDrawer) {
             if (uiState.showChapterDrawer) drawerState.open() else drawerState.close()
         }
@@ -283,7 +277,6 @@ fun ReaderPage(
         val lifecycleOwner = LocalLifecycleOwner.current
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
         val isAnimationFinished = lifecycleState == Lifecycle.State.RESUMED
-
         val hasRealContent = remember(uiState.htmlList) {
             uiState.htmlList.size > 1 || uiState.htmlList.any { it.chapterTitle != "footer" }
         }
@@ -488,7 +481,7 @@ fun ReaderPage(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp))
+                    .clip(RoundedCornerShape(topStart = screenCorner, bottomStart = screenCorner))
                     .background(finalBackground)
                     .focusRequester(focusRequester)
                     .focusable()
