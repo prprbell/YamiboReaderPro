@@ -7,6 +7,7 @@ import android.webkit.WebSettings
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
+import coil.imageLoader
 import coil.memory.MemoryCache
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 
@@ -36,7 +37,7 @@ class YamiboApplication : Application(), ImageLoaderFactory {
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.40)
+                    .maxSizePercent(0.30)
                     .build()
             }
             .diskCache {
