@@ -108,13 +108,12 @@ fun ProbingPage(url: String, navController: NavController) {
 
     LaunchedEffect(webViewRef) {
         val webView = webViewRef ?: return@LaunchedEffect
-        var timeWaited = 0
         val checkInterval = 500L
-        val maxWaitTime = 8000 // 8秒兜底
+        val maxWaitTime = 8000L // 8秒兜底
+        val startTime = System.currentTimeMillis()
 
-        while (timeWaited < maxWaitTime && !isRedirecting) {
+        while (!isRedirecting && (System.currentTimeMillis() - startTime) < maxWaitTime) {
             kotlinx.coroutines.delay(checkInterval)
-            timeWaited += checkInterval.toInt()
 
             withContext(Dispatchers.Main) {
                 if (isRedirecting) return@withContext
@@ -227,33 +226,62 @@ fun ProbingPage(url: String, navController: NavController) {
                                 return true
                             }
 
+                            private fun handleFatalError() {
+                                if (!isRedirecting) {
+                                    isRedirecting = true
+                                    val encoded = URLEncoder.encode(url, "utf-8")
+                                    scope.launch(Dispatchers.Main) {
+                                        navController.navigate("OtherWebPage/$encoded") {
+                                            popUpTo("ProbingPage/{url}") { inclusive = true }
+                                        }
+                                    }
+                                }
+                            }
+
                             override fun onReceivedError(
                                 view: WebView?,
                                 request: android.webkit.WebResourceRequest?,
                                 error: android.webkit.WebResourceError?
                             ) {
                                 super.onReceivedError(view, request, error)
-                                if (request?.isForMainFrame == true && !isRedirecting) {
+                                if (request?.isForMainFrame == true) {
                                     val errorCode = error?.errorCode ?: 0
                                     val fatalErrors = listOf(
                                         ERROR_HOST_LOOKUP,
                                         ERROR_CONNECT,
-                                        ERROR_BAD_URL
+                                        ERROR_BAD_URL,
+                                        ERROR_TIMEOUT,
+                                        ERROR_UNKNOWN,
+                                        ERROR_FAILED_SSL_HANDSHAKE
                                     )
                                     if (fatalErrors.contains(errorCode)) {
-                                        isRedirecting = true
-                                        val encoded = URLEncoder.encode(url, "utf-8")
-                                        scope.launch(Dispatchers.Main) {
-                                            navController.navigate("OtherWebPage/$encoded") {
-                                                popUpTo("ProbingPage/{url}") { inclusive = true }
-                                            }
-                                        }
+                                        handleFatalError()
+                                    }
+                                }
+                            }
+
+                            @Deprecated("Deprecated in Java")
+                            override fun onReceivedError(
+                                view: WebView?,
+                                errorCode: Int,
+                                description: String?,
+                                failingUrl: String?
+                            ) {
+                                super.onReceivedError(view, errorCode, description, failingUrl)
+                                if (failingUrl == view?.url) {
+                                    val fatalErrors = listOf(
+                                        ERROR_HOST_LOOKUP, ERROR_CONNECT, ERROR_BAD_URL,
+                                        ERROR_TIMEOUT, ERROR_UNKNOWN, ERROR_FAILED_SSL_HANDSHAKE
+                                    )
+                                    if (fatalErrors.contains(errorCode)) {
+                                        handleFatalError()
                                     }
                                 }
                             }
                         }
                         webViewRef = this
-                        val finalUrl = if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
+                        val finalUrl =
+                            if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
 
                         resumeTimers()
 

@@ -231,7 +231,13 @@ object WebViewPool {
             removeAllViews()
             (parent as? ViewGroup)?.removeView(this)
 
-            loadDataWithBaseURL(null, "", "text/html", "utf-8", null)
+            loadDataWithBaseURL(
+                "https://bbs.yamibo.com/",
+                "<html><body></body></html>",
+                "text/html",
+                "utf-8",
+                null
+            )
             onPause()
         }
 
@@ -298,7 +304,13 @@ object WebViewPool {
                 loadsImagesAutomatically = false
                 blockNetworkImage = true
             }
-            loadDataWithBaseURL(null, "", "text/html", "utf-8", null)
+            loadDataWithBaseURL(
+                "https://bbs.yamibo.com/",
+                "<html><body></body></html>",
+                "text/html",
+                "utf-8",
+                null
+            )
         }
         return WebViewHolder(webView, contextWrapper)
     }

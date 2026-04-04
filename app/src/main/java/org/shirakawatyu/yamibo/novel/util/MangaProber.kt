@@ -1,13 +1,16 @@
 package org.shirakawatyu.yamibo.novel.util
 
+import android.app.Activity
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.annotation.Keep
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -51,6 +54,16 @@ class MangaProber {
             domStorageEnabled = true
         }
 
+        val activity = context as? Activity
+        val decorView = activity?.window?.decorView as? ViewGroup
+        if (decorView != null && webView.parent == null) {
+            val layoutParams = FrameLayout.LayoutParams(1, 1).apply {
+                leftMargin = -10000
+                topMargin = -10000
+            }
+            decorView.addView(webView, layoutParams)
+        }
+
         val isFinished = AtomicBoolean(false)
         val finalUrl = if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
 
@@ -58,6 +71,7 @@ class MangaProber {
             if (isFinished.compareAndSet(false, true)) {
                 webView.removeJavascriptInterface("ProberApi")
                 webView.stopLoading()
+                (webView.parent as? ViewGroup)?.removeView(webView)
                 WebViewPool.release(webView)
             }
         }
@@ -65,6 +79,7 @@ class MangaProber {
         val extractJs = """
             (function() {
                 try {
+                    if (document.readyState === 'loading') return;
                     var sectionHeader = document.querySelector('.header h2 a');
                     var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
                     if (sectionName !== '') {
@@ -103,6 +118,10 @@ class MangaProber {
             })();
         """.trimIndent()
 
+        val startTime = System.currentTimeMillis()
+        var absoluteMaxTimeout = 12000L // 基础超时：12秒
+        val MAX_ABSOLUTE_TIMEOUT = 18000L // 哪怕网络疯狂重试，绝对不可超过 18 秒
+
         try {
             webView.addJavascriptInterface(
                 ProberJSInterface(
@@ -133,21 +152,28 @@ class MangaProber {
             webView.webViewClient = object : YamiboWebViewClient() {
 
                 private val transientErrors = listOf(
-                    ERROR_HOST_LOOKUP, // -2: 瞬发性 DNS 失败
-                    ERROR_CONNECT,     // -6: 瞬发性连接失败
-                    ERROR_TIMEOUT      // -8: 请求超时
+                    ERROR_HOST_LOOKUP,
+                    ERROR_CONNECT,
+                    ERROR_TIMEOUT,
+                    ERROR_UNKNOWN,
+                    ERROR_FAILED_SSL_HANDSHAKE
                 )
 
                 private var retryCount = 0
-                private val MAX_RETRIES = 3
+                private val MAX_RETRIES = 2
 
                 private fun handlePotentialTransientError(view: WebView?, errorCode: Int) {
                     if (!isFinished.get()) {
                         if (transientErrors.contains(errorCode) && retryCount < MAX_RETRIES) {
                             retryCount++
+                            val delayMs = (retryCount * 1500).toLong()
+
+                            absoluteMaxTimeout =
+                                minOf(absoluteMaxTimeout + delayMs, MAX_ABSOLUTE_TIMEOUT)
+
                             Handler(Looper.getMainLooper()).postDelayed({
-                                if (!isFinished.get()) view?.reload()
-                            }, (retryCount * 800).toLong()) // 800ms, 1600ms, 2400ms 退避重试
+                                if (!isFinished.get()) view?.loadUrl(view.url ?: finalUrl)
+                            }, delayMs)
                             return
                         }
 
@@ -158,7 +184,11 @@ class MangaProber {
                     }
                 }
 
-                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    error: WebResourceError?
+                ) {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame == true) {
                         handlePotentialTransientError(view, error?.errorCode ?: 0)
@@ -166,14 +196,22 @@ class MangaProber {
                 }
 
                 @Deprecated("Deprecated in Java")
-                override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+                override fun onReceivedError(
+                    view: WebView?,
+                    errorCode: Int,
+                    description: String?,
+                    failingUrl: String?
+                ) {
                     super.onReceivedError(view, errorCode, description, failingUrl)
                     if (failingUrl == view?.url) {
                         handlePotentialTransientError(view, errorCode)
                     }
                 }
 
-                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                override fun onRenderProcessGone(
+                    view: WebView?,
+                    detail: RenderProcessGoneDetail?
+                ): Boolean {
                     if (isFinished.compareAndSet(false, true)) {
                         WebViewPool.discard(webView)
                         onFallback()
@@ -184,13 +222,15 @@ class MangaProber {
             webView.resumeTimers()
             webView.loadUrl(finalUrl)
 
-            var timeWaited = 0
-            val maxWaitTime = 8000 // 探测的生命周期上限为8秒
-            val checkInterval = 500
+            val checkInterval = 500L
 
-            while (timeWaited < maxWaitTime && !isFinished.get()) {
-                delay(checkInterval.toLong())
-                timeWaited += checkInterval
+            while (!isFinished.get()) {
+                val elapsed = System.currentTimeMillis() - startTime
+                if (elapsed >= absoluteMaxTimeout) {
+                    break // 超过硬上限，立刻砸碎循环触发兜底
+                }
+
+                delay(checkInterval)
 
                 if (!isFinished.get()) {
                     withContext(Dispatchers.Main) {

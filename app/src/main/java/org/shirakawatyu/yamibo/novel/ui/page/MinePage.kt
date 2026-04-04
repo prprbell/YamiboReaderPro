@@ -187,7 +187,7 @@ fun MinePage(
                 showLoadError = true
                 webView.stopLoading()
             }
-            webView.reload()
+            webView.loadUrl(url)
         }
 
         webView.loadUrl(url)
@@ -666,6 +666,7 @@ fun MinePage(
                     showLoadError = true
                 }
             }
+
             override fun onRenderProcessGone(
                 view: WebView?,
                 detail: android.webkit.RenderProcessGoneDetail?
@@ -679,6 +680,7 @@ fun MinePage(
 
                 return true
             }
+
             @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
             override fun onReceivedHttpError(
                 view: WebView?,
@@ -991,7 +993,7 @@ fun MinePage(
                         val currentWebViewUrl = mineWebView.url
                         // 优先尝试原地刷新，失败则回退初始页
                         if (!currentWebViewUrl.isNullOrEmpty() && currentWebViewUrl != "about:blank") {
-                            mineWebView.reload()
+                            mineWebView.loadUrl(currentWebViewUrl)
                         } else {
                             startLoading(mineWebView, mineUrl)
                         }

@@ -73,7 +73,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 updateUiList()
                 refreshCacheInfo(localCache.index.value)
                 val titleMap = fullList.associate {
-                    val cleanTitle = it.title.replace(Regex("^(?:【.*?】|\\[.*?\\]|\\s)+"), "").ifBlank { it.title }
+                    val cleanTitle = it.title.replace(Regex("^(?:【.*?】|\\[.*?\\]|\\s)+"), "")
+                        .ifBlank { it.title }
                     it.url to cleanTitle
                 }
                 localCache.updateCacheTitles(titleMap)
@@ -209,7 +210,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         isSmartSync: Boolean,
         isBackground: Boolean,
         totalPages: Int,
-        generation: Long
+        generation: Long,
+        isRetry: Boolean = false
     ) {
         // 进入递归前，检查是不是已经被覆盖的旧任务
         if (generation != fetchGeneration.get()) return
@@ -327,16 +329,58 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                                 _uiState.value = _uiState.value.copy(isRefreshing = false)
                             }
 
-                            // 直接通过Cookie里的auth字段判断真实登录状态
-                            val isLoggedIn = GlobalData.currentCookie.contains("EeqY_2132_auth=")
                             val htmlStr = respHTML ?: ""
-                            // 如果确实未登录，或者这是一次全量刷新，则清空本地数据
-                            if (!isLoggedIn || !isSmartSync || htmlStr.contains("您还没有添加任何收藏")) {
+                            val isRealEmptyPage = htmlStr.contains("您还没有添加任何收藏")
+
+                            if (isRealEmptyPage) {
+                                viewModelScope.launch(Dispatchers.Main) {
+                                    _uiState.value = _uiState.value.copy(isRefreshing = false)
+                                }
                                 FavoriteUtil.cleanupDeletedFavorites(emptyList())
+                                releaseStateIfCurrent(generation)
+
+                            } else if (!isRetry) {
+
+                                viewModelScope.launch(Dispatchers.IO) {
+                                    kotlinx.coroutines.delay(1500L)
+                                    if (generation != fetchGeneration.get()) return@launch
+
+                                    fetchAllFavorites(
+                                        page = 1,
+                                        accumulatedList = accumulatedList,
+                                        isSmartSync = isSmartSync,
+                                        isBackground = isBackground,
+                                        totalPages = totalPages,
+                                        generation = generation,
+                                        isRetry = true
+                                    )
+                                }
+                                return@launch
+
+                            } else {
+                                val isLoggedIn =
+                                    GlobalData.currentCookie.contains("EeqY_2132_auth=")
+                                viewModelScope.launch(Dispatchers.Main) {
+                                    _uiState.value = _uiState.value.copy(isRefreshing = false)
+                                    if (!isLoggedIn) {
+                                        android.widget.Toast.makeText(
+                                            applicationContext,
+                                            "登录状态异常",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        android.widget.Toast.makeText(
+                                            applicationContext,
+                                            "网络状态异常",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                                releaseStateIfCurrent(generation)
                             }
+                        } else {
+                            releaseStateIfCurrent(generation)
                         }
-                        // 第一页没数据，释放锁
-                        releaseStateIfCurrent(generation)
                     }
                 }
             }
@@ -501,7 +545,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                     val totalPages = novelCache.pages.size
                     val totalSize = novelCache.pages.values.sumOf { it.fileSize }
                     val pagesWithImages = novelCache.pages.values.count { it.hasImages }
-                    cacheInfoMap[url] = CacheInfo(url, totalPages, totalSize, pagesWithImages, novelCache.title)
+                    cacheInfoMap[url] =
+                        CacheInfo(url, totalPages, totalSize, pagesWithImages, novelCache.title)
                 }
             }
             _uiState.value = _uiState.value.copy(cacheInfoMap = cacheInfoMap)
