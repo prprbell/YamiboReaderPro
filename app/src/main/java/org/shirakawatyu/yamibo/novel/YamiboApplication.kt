@@ -1,6 +1,8 @@
 package org.shirakawatyu.yamibo.novel
 
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
 import android.os.Looper
 import android.webkit.WebSettings
 import coil.ImageLoader
@@ -12,24 +14,45 @@ import org.shirakawatyu.yamibo.novel.util.WebViewPool
 class YamiboApplication : Application(), ImageLoaderFactory {
 
     companion object {
-        // 用于全局保存系统真实的WebView UA
         var systemUserAgent: String = ""
     }
 
     override fun onCreate() {
         super.onCreate()
 
-        // 启动时获取当前设备真实的User-Agent
-        try {
-            systemUserAgent = WebSettings.getDefaultUserAgent(this)
-        } catch (e: Exception) {
-            systemUserAgent = System.getProperty("http.agent") ?: ""
-        }
-
         Looper.myQueue().addIdleHandler {
             WebViewPool.init(this@YamiboApplication)
+
+            try {
+                systemUserAgent = WebSettings.getDefaultUserAgent(this@YamiboApplication)
+            } catch (e: Exception) {
+                systemUserAgent = System.getProperty("http.agent") ?: ""
+            }
             false
         }
+
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            private var hasWarmedUp = false
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+                if (!hasWarmedUp) {
+                    Looper.myQueue().addIdleHandler {
+                        if (!activity.isFinishing && !activity.isDestroyed) {
+                            WebViewPool.deepWarmUp(activity)
+                            hasWarmedUp = true
+                        }
+                        false
+                    }
+                }
+            }
+
+            override fun onActivityStarted(activity: Activity) {}
+            override fun onActivityResumed(activity: Activity) {}
+            override fun onActivityPaused(activity: Activity) {}
+            override fun onActivityStopped(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {}
+        })
     }
 
     override fun newImageLoader(): ImageLoader {

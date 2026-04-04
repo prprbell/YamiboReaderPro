@@ -693,7 +693,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private fun getAvgItemsPerHorizontalPage(): Int {
         val state = _uiState.value
         val topPadding = 24.dp
-        val footerHeight = 50.dp
+        val footerHeight = 75.dp
         val pageContentHeight = maxHeight - topPadding - footerHeight
         val pageContentHeightPx = ValueUtil.dpToPx(pageContentHeight)
         val lineHeightPx = ValueUtil.spToPx(state.lineHeight)
@@ -1024,7 +1024,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         } else {
             val passagesList = ArrayList<Content>()
             val topPadding = 24.dp
-            val footerHeight = 50.dp
+            val footerHeight = 75.dp
             val pageContentHeight = maxHeight - topPadding - footerHeight
             val pageContentWidth = maxWidth - (state.padding + state.padding)
 
@@ -1311,10 +1311,11 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         viewModelScope.launch {
             showLoadingScrim = true
 
-            val oldPageCount = _uiState.value.htmlList.size.coerceAtLeast(1)
+            val realPageCount = _uiState.value.htmlList.size
+            val oldPageCount = realPageCount.coerceAtLeast(1)
             val oldPercent = currentPage.toFloat() / oldPageCount
 
-            val (oldChapterTitle, oldItemInChapter) = if (currentPage >= 0 && currentPage < oldPageCount) {
+            val (oldChapterTitle, oldItemInChapter) = if (currentPage in 0..<realPageCount) {
                 val oldChapterTitle = _uiState.value.htmlList[currentPage].chapterTitle
                 val oldChapterStartIndex =
                     _uiState.value.chapterList.find { it.title == oldChapterTitle }?.startIndex ?: 0
@@ -1432,9 +1433,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             viewModelScope.launch {
                 showLoadingScrim = true
 
-                val oldPageCount = _uiState.value.htmlList.size.coerceAtLeast(1)
+                val realPageCount = _uiState.value.htmlList.size
+                val oldPageCount = realPageCount.coerceAtLeast(1)
                 val oldPercent = currentPage.toFloat() / oldPageCount
-                val (oldChapterTitle, oldItemInChapter) = if (currentPage >= 0 && currentPage < oldPageCount) {
+                val (oldChapterTitle, oldItemInChapter) = if (currentPage in 0..<realPageCount) {
                     val title = _uiState.value.htmlList[currentPage].chapterTitle
                     val startIndex =
                         _uiState.value.chapterList.find { it.title == title }?.startIndex ?: 0
@@ -1523,9 +1525,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 showLoadingScrim = true
 
                 // 记录当前章节和进度，用于转换后恢复位置
-                val oldPageCount = _uiState.value.htmlList.size.coerceAtLeast(1)
+                val realPageCount = _uiState.value.htmlList.size
+                val oldPageCount = realPageCount.coerceAtLeast(1)
                 val oldPercent = currentPage.toFloat() / oldPageCount
-                val (oldChapterTitle, oldItemInChapter) = if (currentPage >= 0 && currentPage < oldPageCount) {
+                val (oldChapterTitle, oldItemInChapter) = if (currentPage in 0..<realPageCount) {
                     val title = _uiState.value.htmlList[currentPage].chapterTitle
                     val startIndex =
                         _uiState.value.chapterList.find { it.title == title }?.startIndex ?: 0

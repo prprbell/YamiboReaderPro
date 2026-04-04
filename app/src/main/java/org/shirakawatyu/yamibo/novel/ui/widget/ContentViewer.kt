@@ -252,9 +252,9 @@ fun ContentViewer(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 1.dp, bottom = 4.dp)
-                    .height(50.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(start = 16.dp, end = 16.dp, top = 1.dp, bottom = 5.dp)
+                    .height(75.dp),
+                verticalAlignment = Alignment.Bottom
             ) {
                 // 书籍标题
                 if (bookTitle.isNotBlank()) {
