@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 
 /**
@@ -28,7 +29,8 @@ fun rememberScreenCorner(): Dp {
                 val insets = view.rootWindowInsets
                 val topLeftCorner = insets?.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)
                 val radiusPx = topLeftCorner?.radius ?: 0
-                cornerRadius = with(density) { radiusPx.toDp() }
+                val rawDp = with(density) { radiusPx.toDp() }
+                cornerRadius = (rawDp - 8.dp).coerceIn(0.dp, 24.dp)
             }
         }
     }

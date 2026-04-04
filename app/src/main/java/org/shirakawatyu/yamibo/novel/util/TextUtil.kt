@@ -35,6 +35,7 @@ class TextUtil {
                     '1' -> 0.45f
                     '.', ',', ':', ';', '\'', '"', '!', '|', '`', '-',
                     '(', ')', '[', ']', '{', '}' -> 0.3f
+
                     ' ' -> 0.25f
                     else -> 0.55f
                 }
@@ -75,10 +76,7 @@ class TextUtil {
             lineHeightPx: Float,
             safeAreaRatio: Float = 1.0f
         ): Int {
-            // 底部安全距离
-            val bottomSafePaddingPx = lineHeightPx * 0.25f
-            val safeHeight = (totalHeightPx * safeAreaRatio) - bottomSafePaddingPx
-            val calculatedLines = (safeHeight / lineHeightPx).toInt()
+            val calculatedLines = ((totalHeightPx * safeAreaRatio) / lineHeightPx).toInt()
             return calculatedLines.coerceAtLeast(1)
         }
 
@@ -164,7 +162,8 @@ class TextUtil {
 
             while (i < lineLength) {
                 val c = line[i]
-                val charWidth = if (c.code > 127) fullWidthPx else ASCII_CHAR_WIDTH_RATIOS[c.code] * fullWidthPx
+                val charWidth =
+                    if (c.code > 127) fullWidthPx else ASCII_CHAR_WIDTH_RATIOS[c.code] * fullWidthPx
 
                 if (currentWidth + charWidth > targetPixelWidth && i > startIndex) {
                     val lastChar = line[i - 1]
@@ -276,13 +275,20 @@ class TextUtil {
 
             while (i < lineLength) {
                 val c = line[i]
-                val charWidth = if (c.code > 127) fullWidthPx else ASCII_CHAR_WIDTH_RATIOS[c.code] * fullWidthPx
+                val charWidth =
+                    if (c.code > 127) fullWidthPx else ASCII_CHAR_WIDTH_RATIOS[c.code] * fullWidthPx
 
                 if (currentWidth + charWidth > targetPixelWidth && i > startIndex) {
                     val lastChar = line[i - 1]
 
                     if (c.code < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[c.code]) {
-                        output.add(Content(line.substring(startIndex, i + 1), ContentType.TEXT, chapterTitle))
+                        output.add(
+                            Content(
+                                line.substring(startIndex, i + 1),
+                                ContentType.TEXT,
+                                chapterTitle
+                            )
+                        )
                         startIndex = i + 1
                         i = startIndex
                         currentWidth = 0.0f
@@ -291,7 +297,13 @@ class TextUtil {
 
                     if (lastChar.code < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[lastChar.code]) {
                         if (i - 1 > startIndex) {
-                            output.add(Content(line.substring(startIndex, i - 1), ContentType.TEXT, chapterTitle))
+                            output.add(
+                                Content(
+                                    line.substring(startIndex, i - 1),
+                                    ContentType.TEXT,
+                                    chapterTitle
+                                )
+                            )
                             startIndex = i - 1
                             i = startIndex
                             currentWidth = 0.0f
@@ -299,7 +311,13 @@ class TextUtil {
                         }
                     }
 
-                    output.add(Content(line.substring(startIndex, i), ContentType.TEXT, chapterTitle))
+                    output.add(
+                        Content(
+                            line.substring(startIndex, i),
+                            ContentType.TEXT,
+                            chapterTitle
+                        )
+                    )
                     startIndex = i
                     currentWidth = 0.0f
                 } else {
@@ -309,7 +327,13 @@ class TextUtil {
             }
 
             if (startIndex < lineLength) {
-                output.add(Content(line.substring(startIndex, lineLength), ContentType.TEXT, chapterTitle))
+                output.add(
+                    Content(
+                        line.substring(startIndex, lineLength),
+                        ContentType.TEXT,
+                        chapterTitle
+                    )
+                )
             }
         }
     }

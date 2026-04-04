@@ -1,13 +1,11 @@
 package org.shirakawatyu.yamibo.novel
 
 import android.app.Application
-import android.os.Handler
 import android.os.Looper
 import android.webkit.WebSettings
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
-import coil.imageLoader
 import coil.memory.MemoryCache
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 
@@ -28,9 +26,10 @@ class YamiboApplication : Application(), ImageLoaderFactory {
             systemUserAgent = System.getProperty("http.agent") ?: ""
         }
 
-        Handler(Looper.getMainLooper()).postDelayed({
-            WebViewPool.init(this)
-        }, 1500)
+        Looper.myQueue().addIdleHandler {
+            WebViewPool.init(this@YamiboApplication)
+            false
+        }
     }
 
     override fun newImageLoader(): ImageLoader {

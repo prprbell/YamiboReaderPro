@@ -78,7 +78,8 @@ fun JustifiedText(
 
                 layoutCache.renderLines.clear()
 
-                val baseLetterSpacingMultiplier = if (fontSizePx > 0) letterSpacingPx / fontSizePx else 0f
+                val baseLetterSpacingMultiplier =
+                    if (fontSizePx > 0) letterSpacingPx / fontSizePx else 0f
                 textPaint.textSize = fontSizePx
                 textPaint.letterSpacing = baseLetterSpacingMultiplier
 
@@ -101,12 +102,20 @@ fun JustifiedText(
                     if (!isShortLine && remainingSpace > 0 && textToDraw.length > 1) {
                         val gaps = textToDraw.length - 1
                         val justificationSpacingPx = remainingSpace / gaps
-                        val justificationMultiplier = if (fontSizePx > 0) justificationSpacingPx / fontSizePx else 0f
+                        val justificationMultiplier =
+                            if (fontSizePx > 0) justificationSpacingPx / fontSizePx else 0f
                         finalMultiplier = baseLetterSpacingMultiplier + justificationMultiplier
                     }
 
                     // 存入缓存
-                    layoutCache.renderLines.add(LineRenderInfo(textToDraw, drawX, baselineY, finalMultiplier))
+                    layoutCache.renderLines.add(
+                        LineRenderInfo(
+                            textToDraw,
+                            drawX,
+                            baselineY,
+                            finalMultiplier
+                        )
+                    )
 
                 } else {
                     // --- 横屏模式计算 ---
@@ -131,19 +140,28 @@ fun JustifiedText(
                         val remainingSpace = availableWidth - drawX - originalWidth
 
                         val isEndOfParagraph = index < lines.lastIndex && lines[index + 1].isEmpty()
-                        val isEndOfChapterShortLine = index == lines.lastIndex && remainingSpace > fontSizePx * 3f
+                        val isEndOfChapterShortLine =
+                            index == lines.lastIndex && remainingSpace > fontSizePx * 3f
                         val skipJustification = isEndOfParagraph || isEndOfChapterShortLine
 
                         var finalMultiplier = baseLetterSpacingMultiplier
                         if (!skipJustification && remainingSpace > 0 && textToDraw.length > 1) {
                             val gaps = textToDraw.length - 1
                             val justificationSpacingPx = remainingSpace / gaps
-                            val justificationMultiplier = if (fontSizePx > 0) justificationSpacingPx / fontSizePx else 0f
+                            val justificationMultiplier =
+                                if (fontSizePx > 0) justificationSpacingPx / fontSizePx else 0f
                             finalMultiplier = baseLetterSpacingMultiplier + justificationMultiplier
                         }
 
                         // 存入缓存
-                        layoutCache.renderLines.add(LineRenderInfo(textToDraw, drawX, currentY, finalMultiplier))
+                        layoutCache.renderLines.add(
+                            LineRenderInfo(
+                                textToDraw,
+                                drawX,
+                                currentY,
+                                finalMultiplier
+                            )
+                        )
                         currentY += lineHeightPx
                     }
                 }
