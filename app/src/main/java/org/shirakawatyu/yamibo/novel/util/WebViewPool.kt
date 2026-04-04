@@ -88,11 +88,13 @@ object WebViewPool {
         }
         activity.application.registerActivityLifecycleCallbacks(lifecycleCallback)
 
-        val layoutParams = FrameLayout.LayoutParams(1, 1)
+        val layoutParams = FrameLayout.LayoutParams(1, 1).apply {
+            leftMargin = -10000
+            topMargin = -10000
+        }
 
         try {
             holder.contextWrapper.baseContext = activity
-            webView.alpha = 0.01f
             decorView.addView(webView, layoutParams)
             webView.loadDataWithBaseURL(
                 "https://bbs.yamibo.com/",
@@ -148,7 +150,7 @@ object WebViewPool {
 
         holder.contextWrapper.baseContext = context
         holder.useCount++
-        holder.webView.alpha = 1.0f
+
         holder.webView.layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
