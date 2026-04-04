@@ -33,6 +33,7 @@ class YamiboApplication : Application(), ImageLoaderFactory {
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             private var hasWarmedUp = false
+            private var startedActivityCount = 0
 
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
                 if (!hasWarmedUp) {
@@ -46,10 +47,22 @@ class YamiboApplication : Application(), ImageLoaderFactory {
                 }
             }
 
-            override fun onActivityStarted(activity: Activity) {}
+            override fun onActivityStarted(activity: Activity) {
+                startedActivityCount++
+                if (startedActivityCount == 1) {
+                    WebViewPool.cancelCleanup()
+                }
+            }
+
+            override fun onActivityStopped(activity: Activity) {
+                startedActivityCount--
+                if (startedActivityCount == 0) {
+                    WebViewPool.scheduleCleanup()
+                }
+            }
+
             override fun onActivityResumed(activity: Activity) {}
             override fun onActivityPaused(activity: Activity) {}
-            override fun onActivityStopped(activity: Activity) {}
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: Activity) {}
         })

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.MutableContextWrapper
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
@@ -30,15 +31,60 @@ object WebViewPool {
     private const val MAX_POOL_SIZE = 3
     private const val MAX_USES_PER_WEBVIEW = 8
 
-    private val EMPTY_WEB_CLIENT = WebViewClient()
+    private val EMPTY_WEB_CLIENT = object : WebViewClient() {
+        override fun onRenderProcessGone(
+            view: WebView?,
+            detail: android.webkit.RenderProcessGoneDetail?
+        ): Boolean {
+            Handler(Looper.getMainLooper()).post {
+                view?.let { discard(it) }
+            }
+            return true // 拦截崩溃
+        }
+    }
     private val EMPTY_CHROME_CLIENT = WebChromeClient()
 
     // 防止重复注册 IdleHandler
     private var isReplenishing = false
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val cleanupRunnable = Runnable { clearIdlePool() }
+    private fun clearIdlePool() {
+        checkMainThread("clearIdlePool")
+        while (pool.isNotEmpty()) {
+            discardHolder(pool.removeFirst())
+        }
+    }
+
+    fun scheduleCleanup() {
+        mainHandler.removeCallbacks(cleanupRunnable)
+        mainHandler.postDelayed(cleanupRunnable, 10 * 60 * 1000L)
+    }
+
+    fun cancelCleanup() {
+        mainHandler.removeCallbacks(cleanupRunnable)
+    }
+
     fun init(context: Context) {
         checkMainThread("init")
         triggerAsyncReplenish(context.applicationContext)
+
+        context.applicationContext.registerComponentCallbacks(object :
+            android.content.ComponentCallbacks2 {
+            override fun onTrimMemory(level: Int) {
+                if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+                    Handler(Looper.getMainLooper()).post {
+                        clearIdlePool()
+                    }
+                }
+            }
+
+            override fun onLowMemory() {
+                Handler(Looper.getMainLooper()).post { clearIdlePool() }
+            }
+
+            override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {}
+        })
     }
 
     private fun triggerAsyncReplenish(appContext: Context) {
@@ -217,6 +263,17 @@ object WebViewPool {
         checkMainThread("discard")
         activeHolders.remove(webView)?.let { discardHolder(it) }
         warmingUpSet.remove(webView)?.let { discardHolder(it) }
+
+        val iterator = pool.iterator()
+        while (iterator.hasNext()) {
+            val holder = iterator.next()
+            if (holder.webView === webView) {
+                iterator.remove()
+                discardHolder(holder)
+                break
+            }
+        }
+
         triggerAsyncReplenish(webView.context.applicationContext)
     }
 
