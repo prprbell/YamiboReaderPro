@@ -52,56 +52,66 @@ fun ProbingPage(url: String, navController: NavController) {
             var currentUrl = window.location.href;
             if (!currentUrl || currentUrl === 'about:blank') return 'WAIT';
             
+            // 如果 body 不存在，或者 body 里根本没有子节点（<html><body></body></html>），说明还没开始加载真实网页
+            if (!document.body || document.body.children.length === 0) return 'WAIT';
+            
+            // Yamibo 论坛一般带有 .header, #wp, .message 这些标志性 DOM
+            var hasForumStructure = document.querySelector('.header, #wp, .view_tit, .message');
+            if (!hasForumStructure) return 'WAIT';
+            
             var sectionHeader = document.querySelector('.header h2 a');
             var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
             
-            // 如果页面连基本的导航结构都没出来，且没有加载完成，就继续等
-            var hasStructure = document.querySelector('.header, .view_tit, .message');
-            if (!hasStructure && document.readyState !== 'complete') return 'WAIT';
-            
             var mangaSections = ['中文百合漫画区', '贴图区', '貼圖區', '原创图作区', '百合漫画图源区'];
             var isManga = mangaSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=30') !== -1;
+            
             var novelSections = ['文學區', '文学区', '轻小说/译文区', 'TXT小说区'];
             var isNovel = novelSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=55') !== -1;
             
-            var type = 3;
-            var authorId = "";
-            
+            // 1. 如果明确是【小说区】
             if (isNovel) {
-                type = 1;
                 var onlyOpBtn = document.querySelector('.nav-more-item');
+                var authorId = "";
                 if (onlyOpBtn && onlyOpBtn.href) {
                     var match = onlyOpBtn.href.match(/authorid=(\d+)/);
                     if (match) authorId = match[1];
+                    return "1:::" + authorId;
                 }
-            } else if (isManga) {
-                type = 2;
+                if (document.querySelector('.message') || document.readyState === 'complete') {
+                    return "1:::"; 
+                }
+                return 'WAIT';
             }
 
-            if (type === 1) return "1:::" + authorId;
-            
-            if (type === 2) {
+            // 2. 如果明确是【漫画区】
+            if (isManga) {
                 var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                // 如果是漫画区但还没刷出图片，容忍等待一下
-                if (allImgs.length === 0 && document.readyState !== 'complete') return 'WAIT';
-                
-                var urls = [];
-                for (var i = 0; i < allImgs.length; i++) {
-                    var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
-                    if (rawSrc) urls.push(new URL(rawSrc, document.baseURI).href);
-                }
-                
-                // 确实没有图片（可能被吞了），不再死等，直接降级为普通网页
-                if (urls.length === 0 && document.readyState === 'complete') return "3";
-                
-                if (urls.length > 0) {
+                if (allImgs.length > 0) {
+                    var urls = [];
+                    for (var i = 0; i < allImgs.length; i++) {
+                        var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
+                        if (rawSrc) urls.push(new URL(rawSrc, document.baseURI).href);
+                    }
                     var encodedTitle = encodeURIComponent(document.title);
                     var encodedHtml = encodeURIComponent(document.documentElement.outerHTML);
                     return "2:::" + encodedTitle + ":::" + urls.join('|||') + ":::" + encodedHtml;
                 }
+                if (document.readyState === 'complete') return "3";
                 return 'WAIT';
             }
-            return type.toString();
+
+            // 3. 既不是小说也不是漫画
+            // 如果已经抓到了板块名称，确认是其他区，直接去原贴
+            if (sectionName !== "") {
+                return "3";
+            }
+
+            if (document.readyState !== 'complete') {
+                return 'WAIT';
+            }
+
+            // 兜底
+            return "3";
         })();
         """.trimIndent()
     }
@@ -109,7 +119,7 @@ fun ProbingPage(url: String, navController: NavController) {
     LaunchedEffect(webViewRef) {
         val webView = webViewRef ?: return@LaunchedEffect
         var timeWaited = 0
-        val checkInterval = 500L
+        val checkInterval = 250L
         val maxWaitTime = 8000 // 8秒兜底
 
         while (timeWaited < maxWaitTime && !isRedirecting) {
