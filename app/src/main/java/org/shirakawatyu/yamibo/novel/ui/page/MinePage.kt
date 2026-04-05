@@ -386,6 +386,13 @@ fun MinePage(
         mineWebView.webViewClient = object : YamiboWebViewClient() {
             var contentImageCount = 0
             var hasError = false
+            override fun onFormResubmission(
+                view: WebView?,
+                dontResend: android.os.Message?,
+                resend: android.os.Message?
+            ) {
+                resend?.sendToTarget()
+            }
 
             val checkSectionAndInjectJs = """
                 (function(){
@@ -925,12 +932,20 @@ fun MinePage(
             AndroidView(
                 factory = { _ ->
                     (mineWebView.parent as? ViewGroup)?.removeView(mineWebView)
+                    mineWebView.layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+
                     mineWebView
                 },
                 update = { webView ->
                     canGoBack = webView.canGoBack()
                     currentUrl = webView.url
                     pageTitle = webView.title ?: ""
+
+                    webView.requestLayout()
+                    webView.invalidate()
                 },
                 onRelease = { webView ->
                     timeoutJob?.cancel()

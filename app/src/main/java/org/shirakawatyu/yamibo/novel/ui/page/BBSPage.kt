@@ -653,6 +653,14 @@ fun BBSPage(
                 canGoBack = view?.canGoBack() ?: false
             }
 
+            override fun onFormResubmission(
+                view: WebView?,
+                dontResend: android.os.Message?,
+                resend: android.os.Message?
+            ) {
+                resend?.sendToTarget()
+            }
+
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: WebResourceRequest?
@@ -825,8 +833,22 @@ fun BBSPage(
     }
 
     BackHandler(enabled = true) {
+        // 判断当前是否已经在各类首页变体上
+        val isHomepage = currentUrl == indexUrl || currentUrl == mobileIndexUrl ||
+                currentUrl == bbsUrl || currentUrl == baseBbsUrl ||
+                (currentUrl?.startsWith("https://bbs.yamibo.com/forum.php") == true && currentUrl?.contains(
+                    "mod="
+                ) == false)
+
         when {
-            canGoBack -> webView.goBack()
+            canGoBack -> {
+                webView.goBack()
+            }
+
+            !isHomepage -> {
+                startLoading(mobileIndexUrl)
+            }
+
             navController.currentBackStack.value.size > 1 -> {
                 navController.popBackStack()
             }
@@ -875,6 +897,10 @@ fun BBSPage(
             AndroidView(
                 factory = {
                     (webView.parent as? ViewGroup)?.removeView(webView)
+                    webView.layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
                     webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
                     webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
                     webView
@@ -883,6 +909,8 @@ fun BBSPage(
                     canGoBack = view.canGoBack()
                     currentUrl = view.url
                     pageTitle = view.title ?: ""
+                    view.requestLayout()
+                    view.invalidate()
                 },
                 onRelease = {
                     it.onPause()
