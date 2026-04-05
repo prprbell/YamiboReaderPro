@@ -55,14 +55,27 @@ fun ProbingPage(url: String, navController: NavController) {
             var sectionHeader = document.querySelector('.header h2 a');
             var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
             
-            // 如果页面连基本的导航结构都没出来，且没有加载完成，就继续等
-            var hasStructure = document.querySelector('.header, .view_tit, .message');
-            if (!hasStructure && document.readyState !== 'complete') return 'WAIT';
+            var hasExplicitSection = (sectionName !== ''); 
             
             var mangaSections = ['中文百合漫画区', '贴图区', '貼圖區', '原创图作区', '百合漫画图源区'];
             var isManga = mangaSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=30') !== -1;
+            
             var novelSections = ['文學區', '文学区', '轻小说/译文区', 'TXT小说区'];
             var isNovel = novelSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=55') !== -1;
+            
+            if (hasExplicitSection && !isManga && !isNovel) {
+                return "3";
+            }
+            
+            var isSystemPage = document.querySelector('.footer, #footer, .a_ft, #toptb');
+            
+            if (isSystemPage && !isManga && !isNovel) {
+                return "3";
+            }
+            
+            if (!hasExplicitSection && !isSystemPage && document.readyState !== 'complete') {
+                return 'WAIT';
+            }
             
             var type = 3;
             var authorId = "";
@@ -74,15 +87,12 @@ fun ProbingPage(url: String, navController: NavController) {
                     var match = onlyOpBtn.href.match(/authorid=(\d+)/);
                     if (match) authorId = match[1];
                 }
+                return "1:::" + authorId;
             } else if (isManga) {
                 type = 2;
-            }
-
-            if (type === 1) return "1:::" + authorId;
-            
-            if (type === 2) {
                 var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                // 如果是漫画区但还没刷出图片，容忍等待一下
+                
+                // 漫画区特供：如果图片还没刷出来，容忍等待一下
                 if (allImgs.length === 0 && document.readyState !== 'complete') return 'WAIT';
                 
                 var urls = [];
@@ -91,7 +101,6 @@ fun ProbingPage(url: String, navController: NavController) {
                     if (rawSrc) urls.push(new URL(rawSrc, document.baseURI).href);
                 }
                 
-                // 确实没有图片（可能被吞了），不再死等，直接降级为普通网页
                 if (urls.length === 0 && document.readyState === 'complete') return "3";
                 
                 if (urls.length > 0) {
@@ -101,6 +110,7 @@ fun ProbingPage(url: String, navController: NavController) {
                 }
                 return 'WAIT';
             }
+            
             return type.toString();
         })();
         """.trimIndent()
