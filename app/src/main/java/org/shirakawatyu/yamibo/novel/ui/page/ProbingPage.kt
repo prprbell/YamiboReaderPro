@@ -55,27 +55,14 @@ fun ProbingPage(url: String, navController: NavController) {
             var sectionHeader = document.querySelector('.header h2 a');
             var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
             
-            var hasExplicitSection = (sectionName !== ''); 
+            // 如果页面连基本的导航结构都没出来，且没有加载完成，就继续等
+            var hasStructure = document.querySelector('.header, .view_tit, .message');
+            if (!hasStructure && document.readyState !== 'complete') return 'WAIT';
             
             var mangaSections = ['中文百合漫画区', '贴图区', '貼圖區', '原创图作区', '百合漫画图源区'];
             var isManga = mangaSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=30') !== -1;
-            
             var novelSections = ['文學區', '文学区', '轻小说/译文区', 'TXT小说区'];
             var isNovel = novelSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=55') !== -1;
-            
-            if (hasExplicitSection && !isManga && !isNovel) {
-                return "3";
-            }
-            
-            var isSystemPage = document.querySelector('.footer, #footer, .a_ft, #toptb');
-            
-            if (isSystemPage && !isManga && !isNovel) {
-                return "3";
-            }
-            
-            if (!hasExplicitSection && !isSystemPage && document.readyState !== 'complete') {
-                return 'WAIT';
-            }
             
             var type = 3;
             var authorId = "";
@@ -87,12 +74,15 @@ fun ProbingPage(url: String, navController: NavController) {
                     var match = onlyOpBtn.href.match(/authorid=(\d+)/);
                     if (match) authorId = match[1];
                 }
-                return "1:::" + authorId;
             } else if (isManga) {
                 type = 2;
+            }
+
+            if (type === 1) return "1:::" + authorId;
+            
+            if (type === 2) {
                 var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                
-                // 漫画区特供：如果图片还没刷出来，容忍等待一下
+                // 如果是漫画区但还没刷出图片，容忍等待一下
                 if (allImgs.length === 0 && document.readyState !== 'complete') return 'WAIT';
                 
                 var urls = [];
@@ -101,6 +91,7 @@ fun ProbingPage(url: String, navController: NavController) {
                     if (rawSrc) urls.push(new URL(rawSrc, document.baseURI).href);
                 }
                 
+                // 确实没有图片（可能被吞了），不再死等，直接降级为普通网页
                 if (urls.length === 0 && document.readyState === 'complete') return "3";
                 
                 if (urls.length > 0) {
@@ -110,7 +101,6 @@ fun ProbingPage(url: String, navController: NavController) {
                 }
                 return 'WAIT';
             }
-            
             return type.toString();
         })();
         """.trimIndent()
@@ -118,12 +108,13 @@ fun ProbingPage(url: String, navController: NavController) {
 
     LaunchedEffect(webViewRef) {
         val webView = webViewRef ?: return@LaunchedEffect
+        var timeWaited = 0
         val checkInterval = 500L
-        val maxWaitTime = 8000L // 8秒兜底
-        val startTime = System.currentTimeMillis()
+        val maxWaitTime = 8000 // 8秒兜底
 
-        while (!isRedirecting && (System.currentTimeMillis() - startTime) < maxWaitTime) {
+        while (timeWaited < maxWaitTime && !isRedirecting) {
             kotlinx.coroutines.delay(checkInterval)
+            timeWaited += checkInterval.toInt()
 
             withContext(Dispatchers.Main) {
                 if (isRedirecting) return@withContext
@@ -236,55 +227,27 @@ fun ProbingPage(url: String, navController: NavController) {
                                 return true
                             }
 
-                            private fun handleFatalError() {
-                                if (!isRedirecting) {
-                                    isRedirecting = true
-                                    val encoded = URLEncoder.encode(url, "utf-8")
-                                    scope.launch(Dispatchers.Main) {
-                                        navController.navigate("OtherWebPage/$encoded") {
-                                            popUpTo("ProbingPage/{url}") { inclusive = true }
-                                        }
-                                    }
-                                }
-                            }
-
                             override fun onReceivedError(
                                 view: WebView?,
                                 request: android.webkit.WebResourceRequest?,
                                 error: android.webkit.WebResourceError?
                             ) {
                                 super.onReceivedError(view, request, error)
-                                if (request?.isForMainFrame == true) {
+                                if (request?.isForMainFrame == true && !isRedirecting) {
                                     val errorCode = error?.errorCode ?: 0
                                     val fatalErrors = listOf(
                                         ERROR_HOST_LOOKUP,
                                         ERROR_CONNECT,
-                                        ERROR_BAD_URL,
-                                        ERROR_TIMEOUT,
-                                        ERROR_UNKNOWN,
-                                        ERROR_FAILED_SSL_HANDSHAKE
+                                        ERROR_BAD_URL
                                     )
                                     if (fatalErrors.contains(errorCode)) {
-                                        handleFatalError()
-                                    }
-                                }
-                            }
-
-                            @Deprecated("Deprecated in Java")
-                            override fun onReceivedError(
-                                view: WebView?,
-                                errorCode: Int,
-                                description: String?,
-                                failingUrl: String?
-                            ) {
-                                super.onReceivedError(view, errorCode, description, failingUrl)
-                                if (failingUrl == view?.url) {
-                                    val fatalErrors = listOf(
-                                        ERROR_HOST_LOOKUP, ERROR_CONNECT, ERROR_BAD_URL,
-                                        ERROR_TIMEOUT, ERROR_UNKNOWN, ERROR_FAILED_SSL_HANDSHAKE
-                                    )
-                                    if (fatalErrors.contains(errorCode)) {
-                                        handleFatalError()
+                                        isRedirecting = true
+                                        val encoded = URLEncoder.encode(url, "utf-8")
+                                        scope.launch(Dispatchers.Main) {
+                                            navController.navigate("OtherWebPage/$encoded") {
+                                                popUpTo("ProbingPage/{url}") { inclusive = true }
+                                            }
+                                        }
                                     }
                                 }
                             }
