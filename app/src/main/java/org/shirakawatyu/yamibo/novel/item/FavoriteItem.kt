@@ -192,7 +192,15 @@ fun FavoriteItem(
                         modifier = Modifier.fillMaxWidth(),
                         fontSize = 16.sp,
                         color = Color.Black,
-                        maxLines = if (collapsed) 2 else 3,
+                        maxLines = if (collapsed) {
+                            2
+                        } else {
+                            if (isGlobalCollapsed) {
+                                6
+                            } else {
+                                3
+                            }
+                        },
                         text = displayTitle,
                         fontWeight = FontWeight.Medium,
                         style = TextStyle(
@@ -212,7 +220,7 @@ fun FavoriteItem(
                         modifier = Modifier.padding(top = 6.dp)
                     ) {
                         // 显示最近阅读章节名
-                        if (lastChapter != null && lastChapter.isNotBlank()) {
+                        if (!lastChapter.isNullOrBlank()) {
                             Text(
                                 modifier = Modifier.padding(0.dp, 2.dp),
                                 color = Color.Black.copy(alpha = 0.7f),
