@@ -499,8 +499,9 @@ fun MinePage(
                 })()
             """.trimIndent()
 
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                if (url == "about:blank" || url?.contains("warmup=true") == true) return
+
                 val checkUrl = url ?: ""
 
                 val isHomepage = when (checkUrl) {
@@ -567,7 +568,11 @@ fun MinePage(
 
                         val isHomePage =
                             currentUrl == mineUrl || currentUrl?.contains("do=profile") == true
-                        if (GlobalData.isDataSaverMode.value && !isHomePage) {
+                        if (isHomePage) {
+                            return super.shouldInterceptRequest(view, request)
+                        }
+
+                        if (GlobalData.isDataSaverMode.value) {
                             if (count >= 3) {
                                 return WebResourceResponse(
                                     "image/png",
@@ -578,8 +583,8 @@ fun MinePage(
                         } else {
                             val delayMs = when {
                                 count < 2 -> 0L
-                                count < 7 -> (count - 1) * 400L
-                                else -> 2000L
+                                count < 7 -> (count - 1) * 200L
+                                else -> 1000L
                             }
 
                             if (delayMs > 0L) {
@@ -606,6 +611,7 @@ fun MinePage(
 
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageCommitVisible(view: WebView?, url: String?) {
+                if (url == "about:blank" || url?.contains("warmup=true") == true) return
                 super.onPageCommitVisible(view, url)
 
                 pageTitle = view?.title ?: ""

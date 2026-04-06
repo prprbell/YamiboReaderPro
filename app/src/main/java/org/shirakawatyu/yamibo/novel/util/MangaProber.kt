@@ -172,7 +172,7 @@ class MangaProber {
                                 minOf(absoluteMaxTimeout + delayMs, MAX_ABSOLUTE_TIMEOUT)
 
                             Handler(Looper.getMainLooper()).postDelayed({
-                                if (!isFinished.get()) view?.loadUrl(view.url ?: finalUrl)
+                                if (!isFinished.get()) view?.loadUrl(finalUrl)
                             }, delayMs)
                             return
                         }
@@ -190,6 +190,10 @@ class MangaProber {
                     error: WebResourceError?
                 ) {
                     super.onReceivedError(view, request, error)
+
+                    val requestUrl = request?.url?.toString() ?: ""
+                    if (requestUrl == "about:blank" || requestUrl.contains("warmup=true")) return
+
                     if (request?.isForMainFrame == true) {
                         handlePotentialTransientError(view, error?.errorCode ?: 0)
                     }
@@ -203,7 +207,9 @@ class MangaProber {
                     failingUrl: String?
                 ) {
                     super.onReceivedError(view, errorCode, description, failingUrl)
-                    if (failingUrl == view?.url) {
+
+                    if (failingUrl == "about:blank" || failingUrl?.contains("warmup=true") == true) return
+                    if (failingUrl == view?.url || failingUrl == finalUrl) {
                         handlePotentialTransientError(view, errorCode)
                     }
                 }
@@ -227,7 +233,7 @@ class MangaProber {
             while (!isFinished.get()) {
                 val elapsed = System.currentTimeMillis() - startTime
                 if (elapsed >= absoluteMaxTimeout) {
-                    break // 超过硬上限，立刻砸碎循环触发兜底
+                    break
                 }
 
                 delay(checkInterval)

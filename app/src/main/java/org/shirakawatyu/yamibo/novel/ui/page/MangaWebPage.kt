@@ -409,7 +409,7 @@ fun MangaWebPage(
             override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, pageUrl, favicon)
 
-                if (pageUrl == "about:blank") return
+                if (url == "about:blank" || url.contains("warmup=true")) return
 
                 isLoading = true
                 currentUrl = pageUrl
@@ -428,6 +428,7 @@ fun MangaWebPage(
 
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageCommitVisible(view: WebView?, commitUrl: String?) {
+                if (commitUrl == "about:blank" || commitUrl?.contains("warmup=true") == true) return
                 super.onPageCommitVisible(view, commitUrl)
                 if (isLoading) {
                     timeoutJob?.cancel()

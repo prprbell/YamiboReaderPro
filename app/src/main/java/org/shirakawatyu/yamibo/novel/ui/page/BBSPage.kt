@@ -701,8 +701,8 @@ fun BBSPage(
                         } else {
                             val delayMs = when {
                                 count < 2 -> 0L
-                                count < 7 -> (count - 1) * 400L
-                                else -> 2000L
+                                count < 7 -> (count - 1) * 200L
+                                else -> 1000L
                             }
 
                             if (delayMs > 0L) {

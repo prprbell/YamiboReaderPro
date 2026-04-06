@@ -143,7 +143,7 @@ object WebViewPool {
             holder.contextWrapper.baseContext = activity
             decorView.addView(webView, layoutParams)
             webView.loadDataWithBaseURL(
-                "https://bbs.yamibo.com/",
+                "https://bbs.yamibo.com/?warmup=true",
                 "<html><body></body></html>",
                 "text/html",
                 "utf-8",
@@ -232,7 +232,7 @@ object WebViewPool {
             (parent as? ViewGroup)?.removeView(this)
 
             loadDataWithBaseURL(
-                "https://bbs.yamibo.com/",
+                "https://bbs.yamibo.com/?warmup=true",
                 "<html><body></body></html>",
                 "text/html",
                 "utf-8",
@@ -305,7 +305,7 @@ object WebViewPool {
                 blockNetworkImage = true
             }
             loadDataWithBaseURL(
-                "https://bbs.yamibo.com/",
+                "https://bbs.yamibo.com/?warmup=true",
                 "<html><body></body></html>",
                 "text/html",
                 "utf-8",
