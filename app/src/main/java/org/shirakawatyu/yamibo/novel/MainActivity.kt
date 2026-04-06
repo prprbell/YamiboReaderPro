@@ -243,6 +243,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                 SettingsUtil.getDataSaverMode { isDataSaver ->
                     GlobalData.isDataSaverMode.value = isDataSaver
                 }
+                SettingsUtil.getFavoriteCollapseMode { isCollapsed ->
+                    GlobalData.isFavoriteCollapsed.value = isCollapsed
+                }
                 GlobalData.isAppInitialized = true
             }
         }

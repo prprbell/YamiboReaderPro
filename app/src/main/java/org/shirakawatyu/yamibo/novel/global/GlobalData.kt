@@ -32,6 +32,7 @@ class GlobalData {
         var tempTitle: String = ""
 
         val isDataSaverMode = MutableStateFlow(false)
+        val isFavoriteCollapsed = MutableStateFlow(false)
         val webProgress = MutableStateFlow(0)
     }
 }

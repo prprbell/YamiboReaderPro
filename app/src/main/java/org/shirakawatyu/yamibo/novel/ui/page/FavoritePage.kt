@@ -127,6 +127,7 @@ fun FavoritePage(
     var cacheInfoMap = uiState.cacheInfoMap
     var showCacheManagement by remember { mutableStateOf(false) }
     val isDataSaverMode by GlobalData.isDataSaverMode.collectAsState()
+    val isFavoriteCollapsed by GlobalData.isFavoriteCollapsed.collectAsState()
     var showDataSaverDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { favoriteVM.refreshCacheInfo() }
@@ -410,6 +411,22 @@ fun FavoritePage(
                                 .background(Color(0xFFFFFCF0))
                                 .clip(RoundedCornerShape(12.dp))
                         ) {
+                            DropdownMenuItem(
+                                text = { Text(if (isFavoriteCollapsed) "关闭折叠" else "开启折叠") },
+                                onClick = {
+                                    val newState = !isFavoriteCollapsed
+                                    GlobalData.isFavoriteCollapsed.value = newState
+                                    SettingsUtil.saveFavoriteCollapseMode(newState)
+                                    menuExpanded = false
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            )
                             // 管理缓存、管理书签、管理目录、管理收藏、刷新列表
                             DropdownMenuItem(
                                 text = { Text("管理缓存") },
@@ -599,6 +616,7 @@ fun FavoritePage(
                             isHidden = item.isHidden,
                             type = item.type,
                             cacheInfo = cacheInfoMap[item.url],
+                            isGlobalCollapsed = isFavoriteCollapsed,
                             dragHandle = {
                                 if (!isInManageMode) {
                                     Icon(

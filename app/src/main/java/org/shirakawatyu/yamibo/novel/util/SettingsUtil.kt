@@ -7,12 +7,14 @@ import org.shirakawatyu.yamibo.novel.bean.ReaderSettings
 
 /**
  * 设置管理工具
- * 负责保存和读取阅读器设置和省流模式开关
+ * 负责保存和读取阅读器设置、省流模式开关以及折叠模式状态
  */
 class SettingsUtil {
     companion object {
         private val key = stringPreferencesKey("settings")
         private val dataSaverKey = stringPreferencesKey("data_saver_mode")
+        private val collapseModeKey = stringPreferencesKey("favorite_collapse_mode")
+
         fun saveSettings(settings: ReaderSettings) {
             DataStoreUtil.addData(JSON.toJSONString(settings), key)
         }
@@ -34,6 +36,18 @@ class SettingsUtil {
 
         fun getDataSaverMode(callback: (isDataSaver: Boolean) -> Unit) {
             DataStoreUtil.getData(dataSaverKey, callback = {
+                callback(it.toBooleanStrictOrNull() ?: false)
+            }, onNull = {
+                callback(false)
+            })
+        }
+
+        fun saveFavoriteCollapseMode(isCollapsed: Boolean) {
+            DataStoreUtil.addData(isCollapsed.toString(), collapseModeKey)
+        }
+
+        fun getFavoriteCollapseMode(callback: (isCollapsed: Boolean) -> Unit) {
+            DataStoreUtil.getData(collapseModeKey, callback = {
                 callback(it.toBooleanStrictOrNull() ?: false)
             }, onNull = {
                 callback(false)
