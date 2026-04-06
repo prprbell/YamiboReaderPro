@@ -1,6 +1,8 @@
 package org.shirakawatyu.yamibo.novel.item
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -11,6 +13,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -101,7 +104,7 @@ fun FavoriteItem(
                     addStyle(
                         style = SpanStyle(
                             fontSize = 14.sp,
-                            color = Color.Black.copy(alpha = 0.7f)
+                            color = Color.Black.copy(alpha = 0.6f)
                         ),
                         start = tag.range.first,
                         end = tag.range.last + 1
@@ -172,19 +175,32 @@ fun FavoriteItem(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(Modifier.weight(1f)) {
-                Text(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .animateContentSize(animationSpec = tween(250, easing = FastOutSlowInEasing)),
-                    fontSize = 16.sp,
-                    color = Color.Black,
-                    maxLines = if (isEffectivelyCollapsed) 2 else 3,
-                    text = displayTitle,
-                    fontWeight = FontWeight.Medium,
-                    style = TextStyle(
-                        lineBreak = LineBreak.Simple
+
+                AnimatedContent(
+                    targetState = isEffectivelyCollapsed,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(250, easing = FastOutSlowInEasing)) togetherWith
+                                fadeOut(animationSpec = tween(250, easing = FastOutSlowInEasing)) using
+                                SizeTransform { _, _ ->
+                                    tween(250, easing = FastOutSlowInEasing)
+                                }
+                    },
+                    label = "title_animated_content",
+                    modifier = Modifier.fillMaxWidth()
+                ) { collapsed ->
+                    Text(
+                        modifier = Modifier.fillMaxWidth(),
+                        fontSize = 16.sp,
+                        color = Color.Black,
+                        maxLines = if (collapsed) 2 else 3,
+                        overflow = TextOverflow.Ellipsis,
+                        text = displayTitle,
+                        fontWeight = FontWeight.Medium,
+                        style = TextStyle(
+                            lineBreak = LineBreak.Simple
+                        )
                     )
-                )
+                }
 
                 AnimatedVisibility(
                     visible = !isEffectivelyCollapsed,
