@@ -193,7 +193,6 @@ fun FavoriteItem(
                         fontSize = 16.sp,
                         color = Color.Black,
                         maxLines = if (collapsed) 2 else 3,
-                        overflow = TextOverflow.Ellipsis,
                         text = displayTitle,
                         fontWeight = FontWeight.Medium,
                         style = TextStyle(
