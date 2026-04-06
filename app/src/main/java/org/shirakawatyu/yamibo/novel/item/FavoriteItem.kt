@@ -281,7 +281,7 @@ fun FavoriteItem(
                 if (isGlobalCollapsed && !isManageMode) {
                     IconButton(
                         onClick = { isExpandedLocally = !isExpandedLocally },
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = if (isExpandedLocally) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
