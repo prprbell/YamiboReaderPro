@@ -139,6 +139,7 @@ fun MinePage(
     var globalMineWebState: Bundle? = null
 
     var canGoBack by remember { mutableStateOf(false) }
+    var baseIndex by remember { mutableIntStateOf(-1) }
     var isLoading by remember { mutableStateOf(false) }
     var showLoadError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -529,7 +530,15 @@ fun MinePage(
                 contentImageCount = 0
                 super.onPageStarted(view, url, favicon)
                 currentUrl = url
-                canGoBack = view?.canGoBack() ?: false
+
+                if (view != null) {
+                    val list = view.copyBackForwardList()
+                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
+                }
+
                 isLoading = true
 
                 timeoutJob?.cancel()
@@ -603,9 +612,19 @@ fun MinePage(
                 super.doUpdateVisitedHistory(view, url, isReload)
                 if (url != null && url.startsWith("https://bbs.yamibo.com/home.php?mod=space&do=profile")) {
                     view?.clearHistory()
-                    canGoBack = false
-                } else {
-                    canGoBack = view?.canGoBack() ?: false
+                    if (view != null) {
+                        val list = view.copyBackForwardList()
+                        baseIndex = list.currentIndex
+                        canGoBack = false
+                    }
+                } else if (view != null) {
+                    val list = view.copyBackForwardList()
+                    if (baseIndex == -1) {
+                        baseIndex = list.currentIndex
+                    } else if (list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
                 }
             }
 
@@ -638,9 +657,20 @@ fun MinePage(
                 currentUrl = url
                 if (url != null && url.startsWith("https://bbs.yamibo.com/home.php?mod=space&do=profile")) {
                     view?.clearHistory()
+                    if (view != null) {
+                        val list = view.copyBackForwardList()
+                        baseIndex = list.currentIndex
+                    }
                 }
 
-                canGoBack = view?.canGoBack() ?: false
+                canGoBack = view?.let {
+                    val list = it.copyBackForwardList()
+                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    baseIndex != -1 && list.currentIndex > baseIndex
+                } ?: false
+
                 view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
                     isMangaSection = result == "true" || result == "\"true\""
                 }
@@ -727,7 +757,11 @@ fun MinePage(
                 startLoading(mineWebView, mineUrl)
             }
         } else {
-            canGoBack = mineWebView.canGoBack()
+            val list = mineWebView.copyBackForwardList()
+            if (baseIndex != -1 && list.currentIndex < baseIndex) {
+                baseIndex = list.currentIndex
+            }
+            canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
         }
     }
     LaunchedEffect(isSelected) {
@@ -946,7 +980,11 @@ fun MinePage(
                     mineWebView
                 },
                 update = { webView ->
-                    canGoBack = webView.canGoBack()
+                    val list = webView.copyBackForwardList()
+                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
                     currentUrl = webView.url
                     pageTitle = webView.title ?: ""
 

@@ -395,12 +395,16 @@ fun NativeMangaPage(
                 derivedStateOf {
                     if (isVerticalMode) {
                         val layoutInfo = lazyListState.layoutInfo
-                        if (layoutInfo.visibleItemsInfo.isEmpty()) {
+                        val visibleItems = layoutInfo.visibleItemsInfo
+
+                        if (visibleItems.isEmpty()) {
                             lazyListState.firstVisibleItemIndex
+                        } else if (!lazyListState.canScrollForward) {
+                            visibleItems.last().index
                         } else {
-                            val readLine = layoutInfo.viewportStartOffset + (layoutInfo.viewportSize.height / 3)
+                            val readLine = layoutInfo.viewportStartOffset + (layoutInfo.viewportSize.height * 0.55f).toInt()
                             var activeIndex = lazyListState.firstVisibleItemIndex
-                            for (itemInfo in layoutInfo.visibleItemsInfo) {
+                            for (itemInfo in visibleItems) {
                                 if (readLine >= itemInfo.offset && readLine <= (itemInfo.offset + itemInfo.size)) {
                                     activeIndex = itemInfo.index
                                     break

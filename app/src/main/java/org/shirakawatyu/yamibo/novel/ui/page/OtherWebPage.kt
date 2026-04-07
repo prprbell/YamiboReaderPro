@@ -125,6 +125,7 @@ fun OtherWebPage(
         if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
     }
     var canGoBack by remember { mutableStateOf(false) }
+    var baseIndex by remember { mutableIntStateOf(-1) }
     var isLoading by remember { mutableStateOf(true) }
     var showLoadError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -341,7 +342,14 @@ fun OtherWebPage(
                 if (url == "about:blank" || url.contains("warmup=true")) return
                 isLoading = true
                 currentUrl = pageUrl
-                canGoBack = view?.canGoBack() ?: false
+
+                if (view != null) {
+                    val list = view.copyBackForwardList()
+                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
+                }
 
                 view?.evaluateJavascript(hideCommand, null)
             }
@@ -352,7 +360,15 @@ fun OtherWebPage(
                 isReload: Boolean
             ) {
                 super.doUpdateVisitedHistory(view, historyUrl, isReload)
-                canGoBack = view?.canGoBack() ?: false
+                if (view != null) {
+                    val list = view.copyBackForwardList()
+                    if (baseIndex == -1) {
+                        baseIndex = list.currentIndex
+                    } else if (list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
+                }
             }
 
             @RequiresApi(Build.VERSION_CODES.M)
@@ -426,10 +442,18 @@ fun OtherWebPage(
                 )
                 if (!isHistoryCleared) {
                     view?.clearHistory()
-                    canGoBack = false
                     isHistoryCleared = true
                 }
                 isLoading = false
+
+                canGoBack = view?.let {
+                    val list = it.copyBackForwardList()
+                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    baseIndex != -1 && list.currentIndex > baseIndex
+                } ?: false
+
                 val currentTid = MangaTitleCleaner.extractTidFromUrl(finishedUrl ?: "")
                 val originalTid = MangaTitleCleaner.extractTidFromUrl(url)
 
@@ -655,22 +679,13 @@ fun OtherWebPage(
     }
 
     BackHandler(enabled = true) {
-        if (otherWebView.canGoBack()) {
-            val list = otherWebView.copyBackForwardList()
-            if (list.currentIndex > 0) {
-                val prevItem = list.getItemAtIndex(list.currentIndex - 1)
-                if (prevItem.url == "about:blank") {
-                    performExit()
-                } else {
-                    otherWebView.goBack()
-                }
-            } else {
-                performExit()
-            }
+        if (canGoBack) {
+            otherWebView.goBack()
         } else {
             performExit()
         }
     }
+
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
     if (navBarsPadding.value > lockedNavHeightValue) lockedNavHeightValue = navBarsPadding.value
@@ -680,7 +695,6 @@ fun OtherWebPage(
     var lockedStatusHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
     if (statusBarsPaddingVal.value > lockedStatusHeightValue) lockedStatusHeightValue = statusBarsPaddingVal.value
     val lockedStatusHeight = lockedStatusHeightValue.dp
-    // -------------------------
 
     val isFullscreen = isFullscreenState.value || autoOpenMangaMode
     val topSpacerColor = if (isFullscreen) Color.Black else YamiboColors.primary
@@ -712,7 +726,11 @@ fun OtherWebPage(
                     otherWebView
                 },
                 update = {
-                    canGoBack = it.canGoBack()
+                    val list = it.copyBackForwardList()
+                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
                     currentUrl = it.url
                 },
                 onRelease = {

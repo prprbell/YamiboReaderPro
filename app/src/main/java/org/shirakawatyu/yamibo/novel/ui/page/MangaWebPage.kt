@@ -149,6 +149,7 @@ fun MangaWebPage(
         if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
     }
     var canGoBack by remember { mutableStateOf(false) }
+    var baseIndex by remember { mutableIntStateOf(-1) }
     var isLoading by remember { mutableStateOf(false) }
     var showLoadError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -403,6 +404,8 @@ fun MangaWebPage(
         }
     }
 
+    var isHistoryCleared by remember { mutableStateOf(false) }
+
     LaunchedEffect(mangaWebView) {
         mangaWebView.webViewClient = object : YamiboWebViewClient() {
             @RequiresApi(Build.VERSION_CODES.M)
@@ -413,7 +416,15 @@ fun MangaWebPage(
 
                 isLoading = true
                 currentUrl = pageUrl
-                canGoBack = view?.canGoBack() ?: false
+
+                if (view != null) {
+                    val list = view.copyBackForwardList()
+                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
+                }
+
                 view?.loadUrl(hideCommand)
             }
 
@@ -423,7 +434,15 @@ fun MangaWebPage(
                 isReload: Boolean
             ) {
                 super.doUpdateVisitedHistory(view, historyUrl, isReload)
-                canGoBack = view?.canGoBack() ?: false
+                if (view != null) {
+                    val list = view.copyBackForwardList()
+                    if (baseIndex == -1) {
+                        baseIndex = list.currentIndex
+                    } else if (list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
+                }
             }
 
             @RequiresApi(Build.VERSION_CODES.M)
@@ -444,8 +463,22 @@ fun MangaWebPage(
 
                 if (finishedUrl == "about:blank") return
 
+                if (!isHistoryCleared) {
+                    view?.clearHistory()
+                    isHistoryCleared = true
+                }
+
                 isLoading = false
                 currentUrl = finishedUrl
+
+                canGoBack = view?.let {
+                    val list = it.copyBackForwardList()
+                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    baseIndex != -1 && list.currentIndex > baseIndex
+                } ?: false
+
                 if (mangaWebView.url == null) {
                     val finalUrl =
                         if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
@@ -639,7 +672,11 @@ fun MangaWebPage(
         view.post { navController.navigateUp() }
     }
     BackHandler(enabled = true) {
-        performExit()
+        if (canGoBack) {
+            mangaWebView.goBack()
+        } else {
+            performExit()
+        }
     }
     LaunchedEffect(mangaDirVM.currentDirectory, currentUrl, isLoading) {
         if (isLoading) return@LaunchedEffect
@@ -718,7 +755,11 @@ fun MangaWebPage(
                     it.onResume()
                     it.resumeTimers()
 
-                    canGoBack = it.canGoBack()
+                    val list = it.copyBackForwardList()
+                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
+                        baseIndex = list.currentIndex
+                    }
+                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
                     currentUrl = it.url
                 },
                 onRelease = { webView ->
