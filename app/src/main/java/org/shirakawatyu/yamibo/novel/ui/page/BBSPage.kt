@@ -11,6 +11,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -895,25 +896,39 @@ fun BBSPage(
                 )
         ) {
             AndroidView(
-                factory = {
-                    (webView.parent as? ViewGroup)?.removeView(webView)
-                    webView.layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
-                    webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
-                    webView
+                factory = { context ->
+                    FrameLayout(context).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+
+                        (webView.parent as? ViewGroup)?.removeView(webView)
+
+                        addView(
+                            webView,
+                            ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        )
+
+                        webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
+                        webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
+                    }
                 },
-                update = { view ->
-                    canGoBack = view.canGoBack()
-                    currentUrl = view.url
-                    pageTitle = view.title ?: ""
-                    view.requestLayout()
-                    view.invalidate()
+                update = { _ ->
+                    canGoBack = webView.canGoBack()
+                    currentUrl = webView.url
+                    pageTitle = webView.title ?: ""
+
+                    webView.post {
+                        webView.requestLayout()
+                        webView.invalidate()
+                    }
                 },
                 onRelease = {
-                    it.onPause()
+                    webView.onPause()
                 }
             )
 
