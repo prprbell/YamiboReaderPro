@@ -799,7 +799,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
             val (passages, chapters) = withContext(Dispatchers.Default) {
                 parseHtmlToContent(html)
-                paginateContent(isFromCache)
+                paginateContent(isFromCache, loadedPageNum)
             }
 
             if (isPreloading) {
@@ -997,10 +997,11 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         }
     }
 
-    private fun paginateContent(isFromCache: Boolean = false): Pair<List<Content>, List<ChapterInfo>> {
+    private fun paginateContent(isFromCache: Boolean = false, targetWebPage: Int? = null): Pair<List<Content>, List<ChapterInfo>> {
         val contentSnapshot = rawContentList.toList()
         val state = _uiState.value
 
+        val webPageNum = targetWebPage ?: state.currentView
         val passages: List<Content>
 
         if (state.isVerticalMode) {
@@ -1014,7 +1015,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
             if (nextHtmlList != null && nextHtmlList!!.isNotEmpty()) {
                 lines.add(nextHtmlList!!.first())
-            } else if (uiState.value.currentView < uiState.value.maxWebView) {
+            } else if (webPageNum < state.maxWebView) {
                 lines.add(Content("正在加载...", ContentType.TEXT, "footer"))
             } else {
                 lines.add(Content("刷新本页内容", ContentType.TEXT, "footer"))
@@ -1048,7 +1049,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
             if (nextHtmlList != null && nextHtmlList!!.isNotEmpty()) {
                 passagesList.add(nextHtmlList!!.first())
-            } else if (uiState.value.currentView < uiState.value.maxWebView) {
+            } else if (webPageNum < state.maxWebView) {
                 passagesList.add(Content("正在加载...", ContentType.TEXT, "footer"))
             } else {
                 passagesList.add(Content("刷新本页内容", ContentType.TEXT, "footer"))
