@@ -757,7 +757,15 @@ fun BBSPage(
                     isMangaSection = result == "true" || result == "\"true\""
                 }
             }
-
+            override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                timeoutJob?.cancel()
+                retryCount = 0
+                hasError = true
+                isLoading = false
+                showLoadError = true
+                BBSPageState.hasSuccessfullyLoaded = false
+                return true
+            }
             @Deprecated("Deprecated in Java")
             override fun onReceivedError(
                 view: WebView?,
@@ -807,7 +815,9 @@ fun BBSPage(
 
             if (isLoading) {
                 BBSPageState.lastLoginState = currentLoginState
-            } else if (isWebViewBlank) {
+            } else if (showLoadError) {
+                BBSPageState.lastLoginState = currentLoginState
+            }else if (isWebViewBlank) {
                 BBSPageState.lastLoginState = currentLoginState
                 startLoading(mobileIndexUrl)
             } else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {

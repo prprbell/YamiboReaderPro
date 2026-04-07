@@ -1280,14 +1280,12 @@ fun ChapterDrawerContent(
     val currentChapterIndex = remember(currentChapterTitle, chapterList) {
         chapterList.indexOfFirst { it.title == currentChapterTitle }.coerceAtLeast(0)
     }
-    // 当抽屉打开时，自动滚动到当前章节位置
-    LaunchedEffect(drawerState.isOpen, currentChapterIndex) {
-        if (drawerState.isOpen) {
+    // 抽屉打开
+    LaunchedEffect(drawerState.targetValue) {
+        if (drawerState.targetValue == DrawerValue.Open) {
             val scrollOffsetItems = 4
             val targetIndex = (currentChapterIndex - scrollOffsetItems).coerceAtLeast(0)
-            scope.launch {
-                lazyListState.animateScrollToItem(index = targetIndex)
-            }
+            lazyListState.scrollToItem(index = targetIndex)
         }
     }
     ModalDrawerSheet(

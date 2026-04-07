@@ -174,6 +174,7 @@ class MainActivity : ComponentActivity() {
             bbsWebViewState = createBbsWebView(this, customWebChromeClient)
         } else {
             bbsWebViewState?.onResume()
+            bbsWebViewState?.resumeTimers()
         }
     }
 
