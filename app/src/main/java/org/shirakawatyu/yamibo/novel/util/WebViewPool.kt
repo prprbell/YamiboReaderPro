@@ -15,7 +15,6 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import java.util.IdentityHashMap
 
-
 object WebViewPool {
     private class WebViewHolder(
         val webView: WebView,
@@ -30,6 +29,32 @@ object WebViewPool {
 
     private const val MAX_POOL_SIZE = 3
     private const val MAX_USES_PER_WEBVIEW = 8
+
+    // 用于记录是否已经有 WebView 执行过静态资源预下载
+    private var hasPreloadedResources = false
+
+    // 最轻量的空白页，用于普通的初始化和洗白
+    private const val BLANK_HTML = "<html><body></body></html>"
+
+    // 预热HTML
+    private val WARMUP_HTML = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <!-- 预加载核心 CSS -->
+            <link rel="preload" href="static/image/mobile/style.css?JXg" as="style">
+            <link rel="preload" href="static/image/mobile/font/dzmicon.css?JXg" as="style">
+            <link rel="preload" href="template/oyeeh_com_baihe_f_x35/touch/common/common.css?JXg" as="style">
+            <!-- 预加载核心 JS -->
+            <link rel="preload" href="static/js/mobile/jquery.min.js?JXg" as="script">
+            <link rel="preload" href="static/js/mobile/common.js?JXg" as="script">
+            <link rel="preload" href="static/js/swiper/swiper-bundle.min.js?JXg" as="script">
+            <link rel="preload" href="template/oyeeh_com_baihe_f_x35/touch/common/common-footer.js?JXg" as="script">
+        </head>
+        <body></body>
+        </html>
+    """.trimIndent()
 
     private val EMPTY_WEB_CLIENT = object : WebViewClient() {
         override fun onRenderProcessGone(
@@ -49,6 +74,7 @@ object WebViewPool {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val cleanupRunnable = Runnable { clearIdlePool() }
+
     private fun clearIdlePool() {
         checkMainThread("clearIdlePool")
         while (pool.isNotEmpty()) {
@@ -142,9 +168,10 @@ object WebViewPool {
         try {
             holder.contextWrapper.baseContext = activity
             decorView.addView(webView, layoutParams)
+
             webView.loadDataWithBaseURL(
                 "https://bbs.yamibo.com/?warmup=true",
-                "<html><body></body></html>",
+                BLANK_HTML,
                 "text/html",
                 "utf-8",
                 null
@@ -231,9 +258,10 @@ object WebViewPool {
             removeAllViews()
             (parent as? ViewGroup)?.removeView(this)
 
+            // 回收时，底层缓存已就绪，只需要最轻量的BLANK_HTML来清空DOM树即可
             loadDataWithBaseURL(
                 "https://bbs.yamibo.com/?warmup=true",
-                "<html><body></body></html>",
+                BLANK_HTML,
                 "text/html",
                 "utf-8",
                 null
@@ -302,11 +330,21 @@ object WebViewPool {
                 useWideViewPort = true
                 domStorageEnabled = true
                 loadsImagesAutomatically = false
-                blockNetworkImage = true
+                blockNetworkImage = true // 不加载图片
             }
+
+            // 整个生命周期内，只让第一个被创建的WebView承担预下载静态资源的任务
+            val htmlToLoad = if (!hasPreloadedResources) {
+                hasPreloadedResources = true
+                WARMUP_HTML
+            } else {
+                BLANK_HTML
+            }
+
+            // 初始化时装载HTML
             loadDataWithBaseURL(
                 "https://bbs.yamibo.com/?warmup=true",
-                "<html><body></body></html>",
+                htmlToLoad,
                 "text/html",
                 "utf-8",
                 null

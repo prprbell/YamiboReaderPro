@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -52,6 +53,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -145,6 +147,7 @@ fun BBSPage(
     LaunchedEffect(showLoadError) {
         BBSPageState.isErrorState = showLoadError
     }
+    var hasError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
@@ -414,14 +417,17 @@ fun BBSPage(
 
     startLoading = { url: String ->
         isLoading = true
+        hasError = false
         showLoadError = false
         retryCount = 0
-
+        CookieManager.getInstance().setCookie(url, GlobalData.currentCookie)
+        CookieManager.getInstance().flush()
         runTimeout {
             webView.stopLoading()
             retryCount++
 
             runTimeout {
+                hasError = true
                 isLoading = false
                 showLoadError = true
                 webView.stopLoading()
@@ -541,7 +547,6 @@ fun BBSPage(
 
         webView.webViewClient = object : YamiboWebViewClient() {
             var contentImageCount = 0
-            var hasError = false
             val checkSectionAndInjectJs = """
                 (function(){
                 window.__pswpInit = function() {
@@ -648,7 +653,9 @@ fun BBSPage(
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 GlobalData.webProgress.value = 0
                 contentImageCount = 0
-                hasError = false
+                if (!showLoadError) {
+                    hasError = false
+                }
                 super.onPageStarted(view, url, favicon)
                 currentUrl = url
                 canGoBack = view?.canGoBack() ?: false
@@ -906,6 +913,7 @@ fun BBSPage(
                 )
         ) {
             AndroidView(
+                modifier = Modifier.alpha(if (isLoading) 0.01f else 1f),
                 factory = { context ->
                     FrameLayout(context).apply {
                         layoutParams = ViewGroup.LayoutParams(
@@ -974,21 +982,7 @@ fun BBSPage(
                     Button(onClick = {
                         val currentUrl = webView.url
                         if (!currentUrl.isNullOrEmpty() && currentUrl != "about:blank") {
-                            isLoading = true
-                            showLoadError = false
-                            retryCount = 0
-
-                            runTimeout {
-                                webView.stopLoading()
-                                retryCount++
-                                runTimeout {
-                                    isLoading = false
-                                    showLoadError = true
-                                    webView.stopLoading()
-                                }
-                                webView.reload()
-                            }
-                            webView.reload()
+                            startLoading(currentUrl)
                         } else {
                             startLoading(mobileIndexUrl)
                         }

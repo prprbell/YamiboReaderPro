@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -56,6 +57,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -87,7 +89,6 @@ import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 
-
 class FullscreenApiMine {
     var onStateChange: ((Boolean) -> Unit)? = null
     var onMangaActionDone: (() -> Unit)? = null
@@ -105,7 +106,6 @@ class FullscreenApiMine {
 
 class NativeMangaMineJSInterface {
     var onTriggerManga: ((String, Int, String) -> Unit)? = null
-
     private var lastNavTime = 0L
 
     @JavascriptInterface
@@ -120,11 +120,6 @@ class NativeMangaMineJSInterface {
     }
 }
 
-/**
- * 个人中心，WebView每次访问时创建，离开时销毁
- *
- * @param isSelected 表示当前页面是否被选中，用于控制页面加载逻辑和状态更新。
- */
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun MinePage(
@@ -134,14 +129,17 @@ fun MinePage(
 ) {
     val mineUrl = "https://bbs.yamibo.com/home.php?mod=space&do=profile&mycenter=1&mobile=2"
     val bbsUrl = "https://bbs.yamibo.com/?mobile=2"
-    val baseBbsUrl = "https://bbs.yamibo.com/"      // 根URL
-    val indexUrl = "https://bbs.yamibo.com/forum.php" // 论坛主页
+    val baseBbsUrl = "https://bbs.yamibo.com/"
+    val indexUrl = "https://bbs.yamibo.com/forum.php"
     var globalMineWebState: Bundle? = null
 
     var canGoBack by remember { mutableStateOf(false) }
     var baseIndex by remember { mutableIntStateOf(-1) }
-    var isLoading by remember { mutableStateOf(false) }
+
+    var isLoading by remember { mutableStateOf(true) }
+
     var showLoadError by remember { mutableStateOf(false) }
+    var hasError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
@@ -171,12 +169,13 @@ fun MinePage(
         }
     }
 
-
     startLoading = { webView: WebView, url: String ->
         isLoading = true
+        hasError = false
         showLoadError = false
         retryCount = 0
-
+        CookieManager.getInstance().setCookie(url, GlobalData.currentCookie)
+        CookieManager.getInstance().flush()
         runTimeout(webView) {
             Log.w("MinePage", "WebView loading timed out. Retrying...")
             webView.stopLoading()
@@ -184,6 +183,7 @@ fun MinePage(
 
             runTimeout(webView) {
                 Log.e("MinePage", "Retry timed out. Giving up.")
+                hasError = true
                 isLoading = false
                 showLoadError = true
                 webView.stopLoading()
@@ -386,7 +386,6 @@ fun MinePage(
     LaunchedEffect(mineWebView, isSelected) {
         mineWebView.webViewClient = object : YamiboWebViewClient() {
             var contentImageCount = 0
-            var hasError = false
             override fun onFormResubmission(
                 view: WebView?,
                 dontResend: android.os.Message?,
@@ -501,7 +500,7 @@ fun MinePage(
             """.trimIndent()
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                if (url == "about:blank" || url?.contains("warmup=true") == true) return
+                if (url == "about:blank" || url?.contains("warmup=true") == true || url?.contains("misc.php?mod=faq") == true || url?.startsWith("data:") == true) return
 
                 val checkUrl = url ?: ""
 
@@ -516,7 +515,6 @@ fun MinePage(
                     "https://bbs.yamibo.com/forum.php",
                     "https://bbs.yamibo.com/forum.php?mobile=2",
                     "https://bbs.yamibo.com/forum.php?mobile=no" -> true
-
                     else -> false
                 }
                 if (isSelected && isHomepage && view != null) {
@@ -526,8 +524,10 @@ fun MinePage(
                 }
 
                 GlobalData.webProgress.value = 0
-                hasError = false
                 contentImageCount = 0
+                if (!showLoadError) {
+                    hasError = false
+                }
                 super.onPageStarted(view, url, favicon)
                 currentUrl = url
 
@@ -545,6 +545,7 @@ fun MinePage(
                 timeoutJob = scope.launch {
                     delay(8000)
                     if (isLoading) {
+                        hasError = true
                         view?.stopLoading()
                         isLoading = false
                         showLoadError = true
@@ -630,7 +631,7 @@ fun MinePage(
 
             @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageCommitVisible(view: WebView?, url: String?) {
-                if (url == "about:blank" || url?.contains("warmup=true") == true) return
+                if (url == "about:blank" || url?.contains("warmup=true") == true || url?.contains("misc.php?mod=faq") == true) return
                 super.onPageCommitVisible(view, url)
 
                 pageTitle = view?.title ?: ""
@@ -686,7 +687,7 @@ fun MinePage(
                 retryCount = 0
                 super.onReceivedError(view, request, error)
                 if (request?.isForMainFrame == true) {
-                    hasError = true // 【新增】：标记加载失败
+                    hasError = true
                     isLoading = false
                     if (retryCount == 0) {
                         showLoadError = true
@@ -746,17 +747,16 @@ fun MinePage(
         if (isSelected && (mineWebView.url == null || mineWebView.tag?.toString()
                 ?.startsWith("recycled") == true || mineWebView.url == "about:blank")
         ) {
-            mineWebView.tag = null // 页面消费完 tag 后将其清空
-            // 从漫画返回
+            mineWebView.tag = null
             if (savedMangaUrl != null) {
                 startLoading(mineWebView, savedMangaUrl!!)
                 savedMangaUrl = null
                 needFallbackToHome = true
             } else {
-                // 如果不是从漫画返回的，回到首页
                 startLoading(mineWebView, mineUrl)
             }
         } else {
+            isLoading = false
             val list = mineWebView.copyBackForwardList()
             if (baseIndex != -1 && list.currentIndex < baseIndex) {
                 baseIndex = list.currentIndex
@@ -831,7 +831,6 @@ fun MinePage(
                         }
                     }
 
-                    // NativeMangaApi
                     if (window.NativeMangaApi) {
                         var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
                         if (allImgs.length > 0) {
@@ -849,15 +848,14 @@ fun MinePage(
                         }
                     }
 
-                    // PhotoSwipe
                     var clickTimer = null;
                     var timeoutTimer = null;
                     
                     var observer = new MutationObserver(function(mutations, obs) {
                         if (document.querySelector('.pswp')) {
-                            obs.disconnect(); // 立即停止监听
-                            clearTimeout(timeoutTimer); // 取消 5 秒兜底
-                            if (clickTimer) clearInterval(clickTimer); // 成功后立刻停止点击重试
+                            obs.disconnect();
+                            clearTimeout(timeoutTimer); 
+                            if (clickTimer) clearInterval(clickTimer);
                             
                             if (window.AndroidFullscreen) {
                                 window.AndroidFullscreen.notify(true);
@@ -970,6 +968,7 @@ fun MinePage(
                 )
         ) {
             AndroidView(
+                modifier = Modifier.alpha(if (isLoading) 0.01f else 1f),
                 factory = { _ ->
                     (mineWebView.parent as? ViewGroup)?.removeView(mineWebView)
                     mineWebView.layoutParams = ViewGroup.LayoutParams(
@@ -1003,7 +1002,6 @@ fun MinePage(
                     currentUrl?.let { url ->
                         val cleanUrl = url.substringBefore("#")
 
-                        // 模仿漫画模式，保存当前路径以便从阅读器返回时能够恢复
                         savedMangaUrl = cleanUrl
 
                         ReaderModeDetector.extractThreadPath(cleanUrl)?.let { threadPath ->
@@ -1021,7 +1019,7 @@ fun MinePage(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background) // 不透明底色，遮住可能残留的内容
+                        .background(MaterialTheme.colorScheme.background)
                         .padding(horizontal = 32.dp),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -1047,12 +1045,9 @@ fun MinePage(
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(onClick = {
-                        isLoading = true
-                        showLoadError = false
                         val currentWebViewUrl = mineWebView.url
-                        // 优先尝试原地刷新，失败则回退初始页
                         if (!currentWebViewUrl.isNullOrEmpty() && currentWebViewUrl != "about:blank") {
-                            mineWebView.loadUrl(currentWebViewUrl)
+                            startLoading(mineWebView, currentWebViewUrl)
                         } else {
                             startLoading(mineWebView, mineUrl)
                         }
@@ -1068,7 +1063,6 @@ fun MinePage(
                 }
             }
 
-            // 局部加载指示器
             if (isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
