@@ -176,7 +176,6 @@ fun ReaderPage(
     val cachedPages by readerVM.cachedPages.collectAsState()
     val cacheProgress by readerVM.cacheProgress.collectAsState()
     val isDiskCaching by readerVM.isDiskCaching.collectAsState()
-    var showCacheDialog by remember { mutableStateOf(false) }
 
     // 全屏与状态栏高度处理
     val context = LocalContext.current
@@ -206,12 +205,66 @@ fun ReaderPage(
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
     var isExiting by remember { mutableStateOf(false) }
     var isFirstEnter by remember { mutableStateOf(true) }
-    val favorites by FavoriteUtil.getFavoriteFlow().collectAsState(initial = emptyList())
-    val bookTitle = remember(favorites, url) {
-        val rawTitle = favorites.find { it.url == url }?.title ?: ""
-        rawTitle.replace(Regex("(\\[.*?]|【.*?】|\\(.*?\\)|（.*?）)"), "").replace(Regex("\\s+"), " ")
-            .trim()
+
+    val favoritesState = FavoriteUtil.getFavoriteFlow().collectAsState(initial = emptyList())
+    val bookTitle by remember(url) {
+        derivedStateOf {
+            val rawTitle = favoritesState.value.find { it.url == url }?.title ?: ""
+            rawTitle.replace(Regex("(\\[.*?]|【.*?】|\\(.*?\\)|（.*?）)"), "").replace(Regex("\\s+"), " ").trim()
+        }
     }
+
+    val onRefreshAction = remember(readerVM) { { readerVM.forceRefreshCurrentPage() } }
+    val onWebViewFinished = remember(readerVM) {
+        { success: Boolean, html: String, loadedUrl: String?, maxPage: Int, title: String? ->
+            readerVM.loadFinished(success, html, loadedUrl, maxPage, title)
+        }
+    }
+    val onSetViewAction = remember(readerVM) { { viewIndex: Int -> readerVM.onSetView(viewIndex) } }
+    val onSetFontSizeAction = remember(readerVM) { { fontSize: TextUnit -> readerVM.onSetFontSize(fontSize) } }
+    val onSetLineHeightAction = remember(readerVM) { { lineHeight: TextUnit -> readerVM.onSetLineHeight(lineHeight) } }
+    val onSetPaddingAction = remember(readerVM) { { padding: Dp -> readerVM.onSetPadding(padding) } }
+    val onShowChaptersAction = remember(readerVM) { { readerVM.toggleChapterDrawer(true) } }
+    val onSetBackgroundColorAction = remember(readerVM) { { color: Color? -> readerVM.onSetBackgroundColor(color) } }
+
+    val pagerState = rememberPagerState(pageCount = { uiState.htmlList.size })
+    val lazyListState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    val currentPageIndex by remember(uiState.isVerticalMode, uiState.htmlList.size) {
+        derivedStateOf {
+            val maxIndex = (uiState.htmlList.size - 1).coerceAtLeast(0)
+            if (uiState.isVerticalMode) {
+                lazyListState.firstVisibleItemIndex.coerceIn(0, maxIndex)
+            } else {
+                pagerState.currentPage.coerceIn(0, maxIndex)
+            }
+        }
+    }
+
+    val onSetPageAction = remember(lazyListState, pagerState, scope, readerVM) {
+        { pageIndex: Int ->
+            scope.launch {
+                if (readerVM.uiState.value.isVerticalMode) lazyListState.scrollToItem(pageIndex)
+                else pagerState.scrollToPage(pageIndex)
+            }
+            Unit
+        }
+    }
+
+    val onSetReadingModeAction = remember(readerVM) {
+        { isVertical: Boolean ->
+            readerVM.setReadingMode(isVertical, currentPageIndex)
+        }
+    }
+
+    var showCacheDialog by remember { mutableStateOf(false) }
+    val onShowCacheDialogAction = remember(readerVM) {
+        {
+            if (isDiskCaching) readerVM.showCacheProgress() else showCacheDialog = true
+        }
+    }
+    // =======================================================
 
     DisposableEffect(window, view) {
         if (window == null || view == null) {
@@ -256,15 +309,13 @@ fun ReaderPage(
                 animationSpec = tween(durationMillis = 500, easing = LinearOutSlowInEasing)
             )
         }
-        val pagerState = rememberPagerState(pageCount = { uiState.htmlList.size })
-        val lazyListState = rememberLazyListState()
         var showSettings by remember { mutableStateOf(false) }
-        val scope = rememberCoroutineScope()
         val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
         val smoothScrollAnimation =
             remember { tween<Float>(durationMillis = 432, easing = EaseOut) }
         val focusRequester = remember { FocusRequester() }
         val screenCorner = rememberScreenCorner()
+
         LaunchedEffect(uiState.showChapterDrawer) {
             if (uiState.showChapterDrawer) drawerState.open() else drawerState.close()
         }
@@ -308,17 +359,6 @@ fun ReaderPage(
             }
         }
 
-        val currentPageIndex by remember(uiState.isVerticalMode, uiState.htmlList.size) {
-            derivedStateOf {
-                val maxIndex = (uiState.htmlList.size - 1).coerceAtLeast(0)
-                if (uiState.isVerticalMode) {
-                    lazyListState.firstVisibleItemIndex.coerceIn(0, maxIndex)
-                } else {
-                    pagerState.currentPage.coerceIn(0, maxIndex)
-                }
-            }
-        }
-
         val currentChapterTitle =
             if (uiState.htmlList.isNotEmpty() && currentPageIndex < uiState.htmlList.size) {
                 uiState.htmlList[currentPageIndex].chapterTitle
@@ -345,9 +385,9 @@ fun ReaderPage(
                 }
             }
         }
-        // 去往原贴
+
         val returnToOriginalPost: () -> Unit =
-            remember(window, view, navController, uiState.currentView, url) {
+            remember(window, view, navController, favoriteVM, readerVM) {
                 {
                     if (window != null && view != null) {
                         isExiting = true
@@ -363,20 +403,22 @@ fun ReaderPage(
                         ) {
                             navController.navigateUp()
                         } else {
+                            val currentUrl = readerVM.url
+                            val currentState = readerVM.uiState.value
                             val baseUrl =
-                                if (url.startsWith("http")) url else "https://bbs.yamibo.com/$url"
+                                if (currentUrl.startsWith("http")) currentUrl else "https://bbs.yamibo.com/$currentUrl"
 
                             var targetUrl = baseUrl.replace(Regex("(?<=[?&])page=\\d+&?"), "")
 
                             targetUrl = targetUrl.removeSuffix("&").removeSuffix("?")
 
-                            if (uiState.authorId != null && !targetUrl.contains("authorid=")) {
+                            if (currentState.authorId != null && !targetUrl.contains("authorid=")) {
                                 val sep = if (targetUrl.contains("?")) "&" else "?"
-                                targetUrl = "$targetUrl${sep}authorid=${uiState.authorId}"
+                                targetUrl = "$targetUrl${sep}authorid=${currentState.authorId}"
                             }
 
                             val separator = if (targetUrl.contains("?")) "&" else "?"
-                            targetUrl = "$targetUrl${separator}page=${uiState.currentView}"
+                            targetUrl = "$targetUrl${separator}page=${currentState.currentView}"
 
                             val encodedTargetUrl = java.net.URLEncoder.encode(targetUrl, "utf-8")
 
@@ -395,6 +437,7 @@ fun ReaderPage(
                     }
                 }
             }
+
         BackHandler(enabled = drawerState.isOpen || showSettings) {
             if (drawerState.isOpen) {
                 scope.launch {
@@ -405,6 +448,7 @@ fun ReaderPage(
                 showSettings = false
             }
         }
+
         if (showImageWarning) {
             AlertDialog(
                 onDismissRequest = { showImageWarning = false },
@@ -454,6 +498,26 @@ fun ReaderPage(
                             readerVM.onVerticalPageSettled(visibleIndex)
                         }
                     }
+            }
+        }
+
+        val onSettingsMaskClick = remember(readerVM) {
+            {
+                val currentState = readerVM.uiState.value
+                val settingsNow = Pair(
+                    Triple(currentState.fontSize, currentState.lineHeight, currentState.padding),
+                    currentState.backgroundColor
+                )
+                if (settingsOnOpen != settingsNow) readerVM.saveSettings(currentPageIndex)
+                showSettings = false
+            }
+        }
+
+        val onVerticalBackgroundClick = remember {
+            {
+                if (!isExiting) {
+                    showSettings = true
+                }
             }
         }
 
@@ -571,10 +635,9 @@ fun ReaderPage(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .offset(x = (-10000).dp)
-                                    .graphicsLayer { alpha = 0.01f }
-                            ) { success, html, loadedUrl, maxPage, title ->
-                                readerVM.loadFinished(success, html, loadedUrl, maxPage, title)
-                            }
+                                    .graphicsLayer { alpha = 0.01f },
+                                onFinished = onWebViewFinished
+                            )
                         }
                     }
 
@@ -662,12 +725,7 @@ fun ReaderPage(
                                                 .clickable(
                                                     indication = null,
                                                     interactionSource = remember { MutableInteractionSource() },
-                                                    onClick = {
-                                                        if (isExiting) {
-                                                            return@clickable
-                                                        }
-                                                        showSettings = true
-                                                    }
+                                                    onClick = onVerticalBackgroundClick
                                                 )
                                                 .padding(horizontal = uiState.padding),
                                             state = lazyListState
@@ -687,7 +745,7 @@ fun ReaderPage(
                                                     nightMode = uiState.nightMode,
                                                     backgroundColor = finalBackground,
                                                     isVerticalMode = true,
-                                                    onRefresh = { readerVM.forceRefreshCurrentPage() },
+                                                    onRefresh = onRefreshAction,
                                                     bookTitle = bookTitle
                                                 )
                                             }
@@ -751,12 +809,12 @@ fun ReaderPage(
                                                 lineHeight = uiState.lineHeight,
                                                 letterSpacing = uiState.letterSpacing,
                                                 fontSize = uiState.fontSize,
-                                                currentPage = pagerState.currentPage + 1,
-                                                pageCount = pagerState.pageCount,
+                                                currentPage = page + 1,
+                                                pageCount = uiState.htmlList.size,
                                                 nightMode = uiState.nightMode,
                                                 backgroundColor = finalBackground,
                                                 isVerticalMode = false,
-                                                onRefresh = { readerVM.forceRefreshCurrentPage() },
+                                                onRefresh = onRefreshAction,
                                                 bookTitle = bookTitle
                                             )
                                             SideEffect {
@@ -806,19 +864,7 @@ fun ReaderPage(
                             .clickable(
                                 indication = null,
                                 interactionSource = remember { MutableInteractionSource() },
-                                onClick = {
-                                    val settingsNow = Pair(
-                                        Triple(
-                                            uiState.fontSize,
-                                            uiState.lineHeight,
-                                            uiState.padding
-                                        ), uiState.backgroundColor
-                                    )
-                                    if (settingsOnOpen != settingsNow) readerVM.saveSettings(
-                                        currentPageIndex
-                                    )
-                                    showSettings = false
-                                }
+                                onClick = onSettingsMaskClick
                             )
                     )
                     Surface(
@@ -1093,28 +1139,15 @@ fun ReaderPage(
                         uiState = uiState,
                         pageCount = uiState.htmlList.size,
                         currentPage = currentPageIndex,
-                        onSetView = { readerVM.onSetView(it) },
-                        onSetPage = { pageIndex ->
-                            scope.launch {
-                                if (uiState.isVerticalMode) lazyListState.scrollToItem(pageIndex)
-                                else pagerState.scrollToPage(pageIndex)
-                            }
-                        },
-                        onSetFontSize = { readerVM.onSetFontSize(it) },
-                        onSetLineHeight = { readerVM.onSetLineHeight(it) },
-                        onSetPadding = { readerVM.onSetPadding(it) },
-                        onShowChapters = { readerVM.toggleChapterDrawer(true) },
-                        onSetBackgroundColor = { readerVM.onSetBackgroundColor(it) },
-                        onSetReadingMode = { isVertical ->
-                            readerVM.setReadingMode(
-                                isVertical,
-                                currentPageIndex
-                            )
-                        },
-                        onShowCacheDialog = {
-                            if (isDiskCaching) readerVM.showCacheProgress() else showCacheDialog =
-                                true
-                        }
+                        onSetView = onSetViewAction,
+                        onSetPage = onSetPageAction,
+                        onSetFontSize = onSetFontSizeAction,
+                        onSetLineHeight = onSetLineHeightAction,
+                        onSetPadding = onSetPaddingAction,
+                        onShowChapters = onShowChaptersAction,
+                        onSetBackgroundColor = onSetBackgroundColorAction,
+                        onSetReadingMode = onSetReadingModeAction,
+                        onShowCacheDialog = onShowCacheDialogAction
                     )
                 }
             }
