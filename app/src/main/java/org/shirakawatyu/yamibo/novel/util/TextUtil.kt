@@ -91,7 +91,9 @@ class TextUtil {
             val resultLines = ArrayList<String>(estimatedTotalLines)
             var isStartOfParagraph = true
 
-            text.lineSequence().forEach { line ->
+            text.lineSequence().forEach { rawLine ->
+                val line = rawLine.trimEnd(' ', '　', '\t', '\u00A0')
+
                 if (line.isBlank()) {
                     if (resultLines.isNotEmpty() && resultLines.last().isNotEmpty()) {
                         resultLines.add("")
@@ -228,7 +230,9 @@ class TextUtil {
                     val text = content.data
                     val chapterTitle = content.chapterTitle
 
-                    text.lineSequence().forEach { line ->
+                    text.lineSequence().forEach { rawLine ->
+                        val line = rawLine.trimEnd(' ', '　', '\t', '\u00A0')
+
                         if (line.isBlank()) {
                             if (resultLines.isNotEmpty()) {
                                 val lastContent = resultLines.last()
