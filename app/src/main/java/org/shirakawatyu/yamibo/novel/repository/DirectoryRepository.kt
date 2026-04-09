@@ -107,6 +107,7 @@ class DirectoryRepository private constructor(private val context: Context) {
 
         return smoothChapterDisplayNumbers(extractedChapters)
     }
+
     /**
      * 话数纠错
      */
@@ -197,9 +198,14 @@ class DirectoryRepository private constructor(private val context: Context) {
                     if (prevValidNum > 0f && nextValidNum < 9999f) {
                         val expectedInt = kotlin.math.floor(prevValidNum.toDouble()).toFloat() + 1f
 
-                        if (expectedInt > prevValidNum && expectedInt < nextValidNum) {
+                        if (expectedInt > prevValidNum && expectedInt < nextValidNum && (nextValidNum - prevValidNum) <= 3.5f) {
                             val existsGlobally = processed.any { it.chapterNum == expectedInt }
-                            if (!existsGlobally) {
+                            val someoneElseClaimsIt = items.any {
+                                it.tid != currItem.tid &&
+                                        MangaTitleCleaner.extractAllPossibleNumbers(it.rawTitle).contains(expectedInt)
+                            }
+
+                            if (!existsGlobally && !someoneElseClaimsIt) {
                                 smartFill = expectedInt
                             }
                         }
@@ -218,7 +224,12 @@ class DirectoryRepository private constructor(private val context: Context) {
                     processed[i] = currItem.copy(chapterNum = formattedNum)
                     isBad[i] = false
                 } else {
-                    val fallbackNum = Math.round((prevValidNum + 0.1f) * 1000) / 1000f
+                    val safeBase = if (i > 0 && processed[i - 1].chapterNum > 0f && processed[i - 1].chapterNum < 999f) {
+                        processed[i - 1].chapterNum
+                    } else {
+                        prevValidNum
+                    }
+                    val fallbackNum = Math.round((safeBase + 0.001f) * 1000) / 1000f
                     processed[i] = currItem.copy(chapterNum = fallbackNum)
                     isBad[i] = false
                 }
@@ -227,6 +238,7 @@ class DirectoryRepository private constructor(private val context: Context) {
 
         return processed
     }
+
     suspend fun initDirectoryForThread(
         tid: String,
         currentUrl: String,

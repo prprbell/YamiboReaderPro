@@ -151,6 +151,7 @@ fun BBSPage(
     val scope = rememberCoroutineScope()
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
     var pageTitle by remember { mutableStateOf("") }
 
@@ -192,7 +193,7 @@ fun BBSPage(
         webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
             val cleanHtml = try {
                 com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
             }
 
@@ -430,6 +431,7 @@ fun BBSPage(
                 hasError = true
                 isLoading = false
                 showLoadError = true
+                isPullRefreshing = false
                 webView.stopLoading()
             }
             webView.reload()
@@ -473,7 +475,7 @@ fun BBSPage(
                     webView.evaluateJavascript(checkSectionJs) { result ->
                         val sectionName = try {
                             com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             result?.replace("\"", "") ?: ""
                         }
 
@@ -493,7 +495,7 @@ fun BBSPage(
                             webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
                                 val cleanHtml = try {
                                     com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
-                                } catch (e: Exception) {
+                                } catch (_: Exception) {
                                     htmlResult.trim('"').replace("\\u003C", "<")
                                         .replace("\\\"", "\"")
                                 }
@@ -511,6 +513,7 @@ fun BBSPage(
     }
     LaunchedEffect(Unit) {
         bottomNavBarVM.refreshEvent.collect { route ->
+            isPullRefreshing = true
             if (route == "BBSPage") {
                 val curl = webView.url
                 // 如果当前页面有效则原地刷新，否则重载初始页
@@ -524,6 +527,7 @@ fun BBSPage(
                         retryCount++
                         runTimeout {
                             isLoading = false
+                            isPullRefreshing = false
                             showLoadError = true
                             webView.stopLoading()
                         }
@@ -542,6 +546,7 @@ fun BBSPage(
             timeoutJob?.cancel()
             retryCount = 0
             isLoading = false
+            isPullRefreshing = false
             return@LaunchedEffect
         }
 
@@ -716,7 +721,7 @@ fun BBSPage(
                             if (delayMs > 0L) {
                                 try {
                                     Thread.sleep(delayMs)
-                                } catch (e: Exception) {
+                                } catch (_: Exception) {
                                 }
                             }
                         }
@@ -732,6 +737,7 @@ fun BBSPage(
                     timeoutJob?.cancel()
                     retryCount = 0
                     isLoading = false
+                    isPullRefreshing = false
                     showLoadError = false
                 }
                 view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
@@ -743,6 +749,7 @@ fun BBSPage(
                 timeoutJob?.cancel()
                 retryCount = 0
                 isLoading = false
+                isPullRefreshing = false
                 if (!hasError) {
                     showLoadError = false
                 }
@@ -769,6 +776,7 @@ fun BBSPage(
                 retryCount = 0
                 hasError = true
                 isLoading = false
+                isPullRefreshing = false
                 showLoadError = true
                 BBSPageState.hasSuccessfullyLoaded = false
                 return true
@@ -785,6 +793,7 @@ fun BBSPage(
                 super.onReceivedError(view, errorCode, description, failingUrl)
                 hasError = true
                 isLoading = false
+                isPullRefreshing = false
                 if (retryCount == 0) {
                     showLoadError = true
                     BBSPageState.hasSuccessfullyLoaded = false
@@ -802,6 +811,7 @@ fun BBSPage(
                 if (request?.isForMainFrame == true) {
                     hasError = true
                     isLoading = false
+                    isPullRefreshing = false
                     if (retryCount == 0) {
                         showLoadError = true
                         BBSPageState.hasSuccessfullyLoaded = false
@@ -814,7 +824,7 @@ fun BBSPage(
         webView.onResume()
 
         while (true) {
-            val cookieManager = android.webkit.CookieManager.getInstance()
+            val cookieManager = CookieManager.getInstance()
             val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
             val currentLoginState = isLoggedIn(currentCookie)
 
@@ -913,7 +923,7 @@ fun BBSPage(
                 )
         ) {
             AndroidView(
-                modifier = Modifier.alpha(if (isLoading) 0.01f else 1f),
+                modifier = Modifier.alpha(if (isLoading && !isPullRefreshing) 0.01f else 1f),
                 factory = { context ->
                     FrameLayout(context).apply {
                         layoutParams = ViewGroup.LayoutParams(
@@ -998,7 +1008,7 @@ fun BBSPage(
                 }
             }
 
-            if (isLoading) {
+            if (isLoading&& !isPullRefreshing) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
                     color = YamiboColors.secondary

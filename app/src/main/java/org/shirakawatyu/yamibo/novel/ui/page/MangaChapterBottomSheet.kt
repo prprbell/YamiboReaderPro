@@ -140,82 +140,36 @@ fun MangaChapterPanel(
         }
     }
     if (showEditDialog) {
-        if (showEditDialog) {
-            AlertDialog(
-                onDismissRequest = { showEditDialog = false },
-                containerColor = BgItem,
-                titleContentColor = TextPri,
-                textContentColor = TextPri,
-                title = {
-                    Column {
-                        Text("校正漫画信息", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "确保书名无任何单章信息",
-                            fontSize = 12.sp,
-                            color = TextSec,
-                            fontWeight = FontWeight.Normal
-                        )
-                    }
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = editKeyword1,
-                                onValueChange = { editKeyword1 = it },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f),
-                                label = { Text("关键词 1", color = TextSec) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = Accent,
-                                    unfocusedTextColor = Accent,
-                                    cursorColor = Accent,
-                                    focusedBorderColor = Accent,
-                                    unfocusedBorderColor = TextSec
-                                )
-                            )
-
-                            if (showSecondKeyword) {
-                                OutlinedTextField(
-                                    value = editKeyword2,
-                                    onValueChange = { editKeyword2 = it },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f),
-                                    label = { Text("关键词 2", color = TextSec) },
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedTextColor = Accent,
-                                        unfocusedTextColor = Accent,
-                                        cursorColor = Accent,
-                                        focusedBorderColor = Accent,
-                                        unfocusedBorderColor = TextSec
-                                    )
-                                )
-                            } else {
-                                // 加号按钮：点击后显示第二个输入框
-                                Box(
-                                    modifier = Modifier
-                                        .padding(top = 8.dp) // 稍微下移以对齐输入框主体
-                                        .size(48.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF1C2028))
-                                        .clickable { showSecondKeyword = true },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("+", color = Accent, fontSize = 24.sp, fontWeight = FontWeight.Light)
-                                }
-                            }
-                        }
+        AlertDialog(
+            onDismissRequest = { showEditDialog = false },
+            containerColor = BgItem,
+            titleContentColor = TextPri,
+            textContentColor = TextPri,
+            title = {
+                Column {
+                    Text("校正漫画信息", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "确保书名无任何单章信息",
+                        fontSize = 12.sp,
+                        color = TextSec,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         OutlinedTextField(
-                            value = editTitleText,
-                            onValueChange = { editTitleText = it },
-                            singleLine = false, minLines = 1, maxLines = 2,
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("漫画名称", color = TextSec) },
+                            value = editKeyword1,
+                            onValueChange = { editKeyword1 = it },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            label = { Text("关键词 1", color = TextSec) },
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Accent,
                                 unfocusedTextColor = Accent,
@@ -224,31 +178,75 @@ fun MangaChapterPanel(
                                 unfocusedBorderColor = TextSec
                             )
                         )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        if (editTitleText.isNotBlank()) {
-                            val combinedKeywords = listOf(editKeyword1.trim(), editKeyword2.trim())
-                                .filter { it.isNotEmpty() }
-                                .joinToString(" ")
-                            onTitleEdit(editTitleText.trim(), combinedKeywords)
+
+                        if (showSecondKeyword) {
+                            OutlinedTextField(
+                                value = editKeyword2,
+                                onValueChange = { editKeyword2 = it },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                label = { Text("关键词 2", color = TextSec) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Accent,
+                                    unfocusedTextColor = Accent,
+                                    cursorColor = Accent,
+                                    focusedBorderColor = Accent,
+                                    unfocusedBorderColor = TextSec
+                                )
+                            )
+                        } else {
+                            // 加号按钮：点击后显示第二个输入框
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 8.dp) // 稍微下移以对齐输入框主体
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF1C2028))
+                                    .clickable { showSecondKeyword = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("+", color = Accent, fontSize = 24.sp, fontWeight = FontWeight.Light)
+                            }
                         }
-                        showEditDialog = false
-                    }) {
-                        Text("保存并应用", color = Accent, fontWeight = FontWeight.Bold)
                     }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showEditDialog = false }) {
-                        Text(
-                            "取消",
-                            color = TextSec
+                    OutlinedTextField(
+                        value = editTitleText,
+                        onValueChange = { editTitleText = it },
+                        singleLine = false, minLines = 1, maxLines = 2,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("漫画名称", color = TextSec) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Accent,
+                            unfocusedTextColor = Accent,
+                            cursorColor = Accent,
+                            focusedBorderColor = Accent,
+                            unfocusedBorderColor = TextSec
                         )
-                    }
+                    )
                 }
-            )
-        }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (editTitleText.isNotBlank()) {
+                        val combinedKeywords = listOf(editKeyword1.trim(), editKeyword2.trim())
+                            .filter { it.isNotEmpty() }
+                            .joinToString(" ")
+                        onTitleEdit(editTitleText.trim(), combinedKeywords)
+                    }
+                    showEditDialog = false
+                }) {
+                    Text("保存并应用", color = Accent, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditDialog = false }) {
+                    Text(
+                        "取消",
+                        color = TextSec
+                    )
+                }
+            }
+        )
     }
     LaunchedEffect(sorted) {
         val index = sorted.indexOfFirst { it.isCurrent }
@@ -430,7 +428,7 @@ fun MangaChapterPanel(
                                 when {
                                     chap.title.contains(Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)) -> "SP"
                                     chap.index == 999f -> "终"
-                                    chap.index < 1f && !chap.title.contains(Regex("0|零|〇")) -> "Ex"
+                                    chap.index < 1f && !chap.title.contains(Regex("[0零〇]")) -> "Ex"
                                     else -> {
                                         val safeStr = java.text.DecimalFormat("0.###").format(chap.index)
                                         if (safeStr.contains(".")) {
@@ -540,7 +538,7 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
     val displayIndex = when {
         chapter.title.contains(Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)) -> "SP"
         chapter.index == 999f -> "终"
-        chapter.index < 1f && !chapter.title.contains(Regex("0|零|〇")) -> "Ex"
+        chapter.index < 1f && !chapter.title.contains(Regex("[0零〇]")) -> "Ex"
         else -> {
             val safeStr = java.text.DecimalFormat("0.###").format(chapter.index)
 

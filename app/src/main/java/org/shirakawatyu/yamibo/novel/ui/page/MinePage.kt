@@ -3,8 +3,6 @@ package org.shirakawatyu.yamibo.novel.ui.page
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
-import android.os.Build
-import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -18,7 +16,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -128,10 +125,6 @@ fun MinePage(
     webChromeClient: WebChromeClient
 ) {
     val mineUrl = "https://bbs.yamibo.com/home.php?mod=space&do=profile&mycenter=1&mobile=2"
-    val bbsUrl = "https://bbs.yamibo.com/?mobile=2"
-    val baseBbsUrl = "https://bbs.yamibo.com/"
-    val indexUrl = "https://bbs.yamibo.com/forum.php"
-    var globalMineWebState: Bundle? = null
 
     var canGoBack by remember { mutableStateOf(false) }
     var baseIndex by remember { mutableIntStateOf(-1) }
@@ -143,6 +136,7 @@ fun MinePage(
     val scope = rememberCoroutineScope()
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
     var currentUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var pageTitle by remember { mutableStateOf("") }
     var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
@@ -185,6 +179,7 @@ fun MinePage(
                 Log.e("MinePage", "Retry timed out. Giving up.")
                 hasError = true
                 isLoading = false
+                isPullRefreshing = false
                 showLoadError = true
                 webView.stopLoading()
             }
@@ -238,6 +233,7 @@ fun MinePage(
     LaunchedEffect(Unit) {
         bottomNavBarVM.refreshEvent.collect { route ->
             if (route == "MinePage") {
+                isPullRefreshing = true
                 isLoading = true
                 showLoadError = false
                 val curl = mineWebView.url
@@ -268,7 +264,7 @@ fun MinePage(
         mineWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
             val cleanHtml = try {
                 com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
             }
 
@@ -346,7 +342,7 @@ fun MinePage(
                     mineWebView.evaluateJavascript(checkSectionJs) { result ->
                         val sectionName = try {
                             com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             result?.replace("\"", "") ?: ""
                         }
 
@@ -366,7 +362,7 @@ fun MinePage(
                             mineWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
                                 val cleanHtml = try {
                                     com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
-                                } catch (e: Exception) {
+                                } catch (_: Exception) {
                                     htmlResult.trim('"').replace("\\u003C", "<")
                                         .replace("\\\"", "\"")
                                 }
@@ -548,6 +544,7 @@ fun MinePage(
                         hasError = true
                         view?.stopLoading()
                         isLoading = false
+                        isPullRefreshing = false
                         showLoadError = true
                     }
                 }
@@ -600,7 +597,7 @@ fun MinePage(
                             if (delayMs > 0L) {
                                 try {
                                     Thread.sleep(delayMs)
-                                } catch (e: Exception) {
+                                } catch (_: Exception) {
                                 }
                             }
                         }
@@ -629,7 +626,6 @@ fun MinePage(
                 }
             }
 
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageCommitVisible(view: WebView?, url: String?) {
                 if (url == "about:blank" || url?.contains("warmup=true") == true || url?.contains("misc.php?mod=faq") == true) return
                 super.onPageCommitVisible(view, url)
@@ -639,6 +635,7 @@ fun MinePage(
                     timeoutJob?.cancel()
                     retryCount = 0
                     isLoading = false
+                    isPullRefreshing = false
                     showLoadError = false
                 }
                 view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
@@ -646,11 +643,11 @@ fun MinePage(
                 }
             }
 
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageFinished(view: WebView?, url: String?) {
                 timeoutJob?.cancel()
                 retryCount = 0
                 isLoading = false
+                isPullRefreshing = false
                 if (!hasError) {
                     showLoadError = false
                 }
@@ -677,7 +674,6 @@ fun MinePage(
                 }
             }
 
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onReceivedError(
                 view: WebView?,
                 request: WebResourceRequest?,
@@ -689,12 +685,14 @@ fun MinePage(
                 if (request?.isForMainFrame == true) {
                     hasError = true
                     isLoading = false
+                    isPullRefreshing = false
                     if (retryCount == 0) {
                         showLoadError = true
                     }
                 }
             }
 
+            @Deprecated("Deprecated in Java")
             override fun onReceivedError(
                 view: WebView?,
                 errorCode: Int,
@@ -706,6 +704,7 @@ fun MinePage(
                 super.onReceivedError(view, errorCode, description, failingUrl)
                 hasError = true
                 isLoading = false
+                isPullRefreshing = false
                 if (retryCount == 0) {
                     showLoadError = true
                 }
@@ -720,12 +719,12 @@ fun MinePage(
                 timeoutJob?.cancel()
                 hasError = true
                 isLoading = false
+                isPullRefreshing = false
                 showLoadError = true
 
                 return true
             }
 
-            @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
             override fun onReceivedHttpError(
                 view: WebView?,
                 request: WebResourceRequest?,
@@ -737,6 +736,7 @@ fun MinePage(
                 if (request?.isForMainFrame == true) {
                     hasError = true
                     isLoading = false
+                    isPullRefreshing = false
                     if (retryCount == 0) {
                         showLoadError = true
                     }
@@ -769,6 +769,7 @@ fun MinePage(
             timeoutJob?.cancel()
             retryCount = 0
             isLoading = false
+            isPullRefreshing = false
         }
     }
 
@@ -968,7 +969,7 @@ fun MinePage(
                 )
         ) {
             AndroidView(
-                modifier = Modifier.alpha(if (isLoading) 0.01f else 1f),
+                modifier = Modifier.alpha(if (isLoading && !isPullRefreshing) 0.01f else 1f),
                 factory = { _ ->
                     (mineWebView.parent as? ViewGroup)?.removeView(mineWebView)
                     mineWebView.layoutParams = ViewGroup.LayoutParams(
@@ -1063,7 +1064,7 @@ fun MinePage(
                 }
             }
 
-            if (isLoading) {
+            if (isLoading && !isPullRefreshing) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
                     color = YamiboColors.secondary

@@ -3,7 +3,6 @@ package org.shirakawatyu.yamibo.novel.ui.page
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -16,7 +15,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -183,7 +181,7 @@ fun MangaWebPage(
 
     // 标记是否正在退出
     val bottomNavBarVM: BottomNavBarVM =
-        viewModel(viewModelStoreOwner = context as ComponentActivity)
+        viewModel(viewModelStoreOwner = context)
 
     fun runTimeout(webView: WebView, onTimeout: () -> Unit) {
         timeoutJob?.cancel()
@@ -268,15 +266,14 @@ fun MangaWebPage(
         mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
             val cleanHtml = try {
                 com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
             }
 
             val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
             GlobalData.tempMangaUrls = urls
 
-            val initPage = initialPage
-            val targetIndex = if (initPage > 0 && clickedIndex == 0) initPage else clickedIndex
+            val targetIndex = if (initialPage > 0 && clickedIndex == 0) initialPage else clickedIndex
             GlobalData.tempMangaIndex =
                 targetIndex.coerceIn(0, maxOf(0, urls.size - 1))
 
@@ -359,7 +356,7 @@ fun MangaWebPage(
                     mangaWebView.evaluateJavascript(checkSectionJs) { result ->
                         val sectionName = try {
                             com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             result?.replace("\"", "") ?: ""
                         }
 
@@ -383,7 +380,7 @@ fun MangaWebPage(
                                     val cleanHtml = try {
                                         com.alibaba.fastjson2.JSON.parse(htmlResult) as? String
                                             ?: ""
-                                    } catch (e: Exception) {
+                                    } catch (_: Exception) {
                                         htmlResult
                                     }
                                     if (cleanHtml.isNotBlank()) {
@@ -408,7 +405,6 @@ fun MangaWebPage(
 
     LaunchedEffect(mangaWebView) {
         mangaWebView.webViewClient = object : YamiboWebViewClient() {
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, pageUrl, favicon)
 
@@ -445,7 +441,6 @@ fun MangaWebPage(
                 }
             }
 
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageCommitVisible(view: WebView?, commitUrl: String?) {
                 if (commitUrl == "about:blank" || commitUrl?.contains("warmup=true") == true) return
                 super.onPageCommitVisible(view, commitUrl)
@@ -457,7 +452,6 @@ fun MangaWebPage(
                 }
             }
 
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 super.onPageFinished(view, finishedUrl)
 
@@ -537,7 +531,6 @@ fun MangaWebPage(
                 }
             }
 
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onReceivedError(
                 view: WebView?,
                 request: WebResourceRequest?,
@@ -551,7 +544,6 @@ fun MangaWebPage(
                 super.onReceivedError(view, request, error)
             }
 
-            @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
             override fun onReceivedHttpError(
                 view: WebView?,
                 request: WebResourceRequest?,
@@ -701,7 +693,7 @@ fun MangaWebPage(
             mangaWebView.evaluateJavascript(checkSectionJs) { result ->
                 val sectionName = try {
                     com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     result?.replace("\"", "") ?: ""
                 }
 

@@ -3,7 +3,6 @@ package org.shirakawatyu.yamibo.novel.ui.page
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -16,7 +15,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -30,12 +28,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -295,7 +290,7 @@ fun OtherWebPage(
                     otherWebView.evaluateJavascript(checkSectionJs) { result ->
                         val sectionName = try {
                             com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             result?.replace("\"", "") ?: ""
                         }
 
@@ -315,7 +310,7 @@ fun OtherWebPage(
                             otherWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
                                 val cleanHtml = try {
                                     com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
-                                } catch (e: Exception) {
+                                } catch (_: Exception) {
                                     htmlResult
                                 }
                                 if (cleanHtml.isNotBlank()) {
@@ -336,7 +331,6 @@ fun OtherWebPage(
     var isHistoryCleared by remember { mutableStateOf(false) }
     LaunchedEffect(otherWebView) {
         otherWebView.webViewClient = object : YamiboWebViewClient() {
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, pageUrl, favicon)
                 if (url == "about:blank" || url.contains("warmup=true")) return
@@ -371,7 +365,6 @@ fun OtherWebPage(
                 }
             }
 
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageCommitVisible(view: WebView?, commitUrl: String?) {
                 if (commitUrl == "about:blank" || commitUrl?.contains("warmup=true") == true) return
                 super.onPageCommitVisible(view, commitUrl)
@@ -398,7 +391,6 @@ fun OtherWebPage(
                 }
             }
 
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 super.onPageFinished(view, finishedUrl)
                 view?.evaluateJavascript(
@@ -540,7 +532,6 @@ fun OtherWebPage(
                 }
             }
 
-            @RequiresApi(Build.VERSION_CODES.M)
             override fun onReceivedError(
                 view: WebView?,
                 request: WebResourceRequest?,
@@ -554,7 +545,6 @@ fun OtherWebPage(
                 super.onReceivedError(view, request, error)
             }
 
-            @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
             override fun onReceivedHttpError(
                 view: WebView?,
                 request: WebResourceRequest?,

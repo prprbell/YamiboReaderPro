@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.navigation.NavController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +22,6 @@ import org.shirakawatyu.yamibo.novel.util.LocalCacheUtil
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
-import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -51,7 +49,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private var pendingSyncJob: kotlinx.coroutines.Job? = null
 
     private var lastNavigateTime = 0L
-    private val SMART_SYNC_TIMEOUT = 60 * 1000L
+    private val SMART_SYNC_TIMEOUT = 10 * 60 * 1000L
 
     enum class RefreshStrategy {
         FULL,   // 全量刷新
@@ -62,7 +60,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     var nextResumeStrategy = RefreshStrategy.FULL
     var currentCategory: Int = -1
         private set
-
+    var lastPauseTime = 0L
     // 本地缓存工具
     private val localCache by lazy { LocalCacheUtil.getInstance(applicationContext) }
 
@@ -158,28 +156,19 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         while (true) {
             val currentState = currentFetchState.get()
 
-            // 1. 同级拦截：手动拦截手动，后台拦截后台
             if (currentState == requestedState) {
-                Log.d(logTag, "同类型任务正在运行，已拦截 ($requestedState)")
                 return
             }
 
-            // 2. 越级拦截：正在手动刷新时，拒绝后台刷新的介入
-            if (currentState == FetchState.MANUAL && requestedState == FetchState.BACKGROUND) {
-                Log.d(logTag, "手动刷新正在进行，已拦截后台请求")
+            if (currentState == FetchState.MANUAL) {
                 return
             }
 
-            // 3. 状态变更：如果是IDLE，或者BACKGROUND被MANUAL覆盖
             if (currentFetchState.compareAndSet(currentState, requestedState)) {
-                if (currentState == FetchState.BACKGROUND && requestedState == FetchState.MANUAL) {
-                    Log.d(logTag, "手动刷新触发，即将覆盖并打断后台任务")
-                }
                 break
             }
         }
 
-        // 每次放行新请求，生成一个新的“世代 ID”
         val currentGen = fetchGeneration.incrementAndGet()
 
         if (showLoading) {
@@ -296,14 +285,14 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                                     if (isBackground) {
                                         // 页数越多请求越快，页数越少请求越慢
                                         val dynamicDelay =
-                                            (1200L - ((currentTotalPages - 1) * 150L)).coerceIn(
+                                            (1200L - ((currentTotalPages - 1) * 300L)).coerceIn(
                                                 600L,
-                                                1050L
+                                                1000L
                                             )
                                         kotlinx.coroutines.delay(dynamicDelay)
                                     } else {
                                         // 手动刷新保持激进
-                                        kotlinx.coroutines.delay(100L)
+                                        kotlinx.coroutines.delay(300L)
                                     }
                                     fetchAllFavorites(
                                         page + 1,
@@ -399,37 +388,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         })
     }
 
-    fun clickHandler(favorite: Favorite, navController: NavController) {
-        val urlEncoded = URLEncoder.encode(favorite.url, "utf-8")
-        lastNavigateTime = System.currentTimeMillis()
-        nextResumeStrategy = RefreshStrategy.SMART
-
-        when (favorite.type) {
-            1 -> {
-                nextResumeStrategy = RefreshStrategy.SKIP // 看小说，默认不刷新
-                navController.navigate("ReaderPage/$urlEncoded")
-            }
-
-            2 -> {
-                nextResumeStrategy = RefreshStrategy.SKIP // 看漫画，默认不刷新
-                val targetUrl = favorite.lastMangaUrl ?: favorite.url
-                val encodedTarget = URLEncoder.encode(targetUrl, "utf-8")
-                val encodedOriginal = URLEncoder.encode(favorite.url, "utf-8")
-                navController.navigate("MangaWebPage/$encodedTarget/$encodedOriginal?fastForward=false&initialPage=${favorite.lastPage}")
-            }
-
-            3 -> {
-                nextResumeStrategy = RefreshStrategy.SMART // 直接去网页版，可能去其他页面点收藏，保持SMART
-                navController.navigate("OtherWebPage/$urlEncoded")
-            }
-
-            else -> {
-                nextResumeStrategy = RefreshStrategy.SMART
-                navController.navigate("ProbingPage/$urlEncoded")
-            }
-        }
-    }
-
     fun getEffectiveResumeStrategy(): RefreshStrategy {
         if (nextResumeStrategy == RefreshStrategy.SKIP) {
             val elapsed = System.currentTimeMillis() - lastNavigateTime
@@ -439,7 +397,15 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         }
         return nextResumeStrategy
     }
+    fun updateStrategyBeforeNavigation(type: Int) {
+        lastNavigateTime = System.currentTimeMillis()
 
+        nextResumeStrategy = when (type) {
+            1 -> RefreshStrategy.SKIP // 看小说，默认不刷新
+            2 -> RefreshStrategy.SKIP // 看漫画，默认不刷新
+            else -> RefreshStrategy.SMART // 去网页版或其他，保持 SMART
+        }
+    }
     fun updateMangaProgress(
         favoriteUrl: String,
         chapterUrl: String,

@@ -2,8 +2,10 @@ package org.shirakawatyu.yamibo.novel.util
 
 import android.app.Activity
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.MutableContextWrapper
+import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -30,10 +32,10 @@ object WebViewPool {
     private const val MAX_POOL_SIZE = 3
     private const val MAX_USES_PER_WEBVIEW = 8
 
-    // 用于记录是否已经有 WebView 执行过静态资源预下载
+    // 用于记录是否已经有WebView执行过静态资源预下载
     private var hasPreloadedResources = false
 
-    // 最轻量的空白页，用于普通的初始化和洗白
+    // 轻量空白页，用于普通的初始化和洗白
     private const val BLANK_HTML = "<html><body></body></html>"
 
     // 预热HTML
@@ -42,11 +44,9 @@ object WebViewPool {
         <html>
         <head>
             <meta charset="utf-8">
-            <!-- 预加载核心 CSS -->
             <link rel="preload" href="static/image/mobile/style.css?JXg" as="style">
             <link rel="preload" href="static/image/mobile/font/dzmicon.css?JXg" as="style">
             <link rel="preload" href="template/oyeeh_com_baihe_f_x35/touch/common/common.css?JXg" as="style">
-            <!-- 预加载核心 JS -->
             <link rel="preload" href="static/js/mobile/jquery.min.js?JXg" as="script">
             <link rel="preload" href="static/js/mobile/common.js?JXg" as="script">
             <link rel="preload" href="static/js/swiper/swiper-bundle.min.js?JXg" as="script">
@@ -69,7 +69,7 @@ object WebViewPool {
     }
     private val EMPTY_CHROME_CLIENT = WebChromeClient()
 
-    // 防止重复注册 IdleHandler
+    // 防止重复注册IdleHandler
     private var isReplenishing = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -93,12 +93,16 @@ object WebViewPool {
 
     fun init(context: Context) {
         checkMainThread("init")
+
+        // 静态资源预加载
+        preloadStaticResources(context.applicationContext)
+
         triggerAsyncReplenish(context.applicationContext)
 
         context.applicationContext.registerComponentCallbacks(object :
-            android.content.ComponentCallbacks2 {
+            ComponentCallbacks2 {
             override fun onTrimMemory(level: Int) {
-                if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+                if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
                     Handler(Looper.getMainLooper()).post {
                         clearIdlePool()
                     }
@@ -109,8 +113,47 @@ object WebViewPool {
                 Handler(Looper.getMainLooper()).post { clearIdlePool() }
             }
 
-            override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {}
+            override fun onConfigurationChanged(newConfig: Configuration) {}
         })
+    }
+
+    private fun preloadStaticResources(appContext: Context) {
+        if (hasPreloadedResources) return
+        hasPreloadedResources = true
+
+        Looper.myQueue().addIdleHandler {
+            try {
+                // 一次性的WebView负责预下载
+                val preloadWebView = WebView(appContext).apply {
+                    settings.apply {
+                        javaScriptEnabled = true
+                        loadsImagesAutomatically = false
+                        blockNetworkImage = true
+                    }
+                }
+
+                preloadWebView.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        // 给网络层5秒时间彻底写入缓存，然后安全销毁
+                        mainHandler.postDelayed({
+                            try {
+                                preloadWebView.destroy()
+                            } catch (_: Exception) {}
+                        }, 5000)
+                    }
+                }
+
+                preloadWebView.loadDataWithBaseURL(
+                    "https://bbs.yamibo.com/?warmup=true",
+                    WARMUP_HTML,
+                    "text/html",
+                    "utf-8",
+                    null
+                )
+            } catch (_: Exception) {}
+
+            false
+        }
     }
 
     private fun triggerAsyncReplenish(appContext: Context) {
@@ -183,7 +226,7 @@ object WebViewPool {
                 }
                 false
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             cleanupWarmUp(holder, decorView, appContext, lifecycleCallback)
         }
     }
@@ -196,7 +239,7 @@ object WebViewPool {
     ) {
         try {
             decorView.removeView(holder.webView)
-        } catch (ignored: Exception) {
+        } catch (_: Exception) {
         }
         (appContext as? Application)?.unregisterActivityLifecycleCallbacks(callback)
         rollbackWarmUp(holder, appContext)
@@ -289,7 +332,7 @@ object WebViewPool {
             webView.removeAllViews()
             (webView.parent as? ViewGroup)?.removeView(webView)
             webView.destroy()
-        } catch (ignored: Exception) {
+        } catch (_: Exception) {
         }
     }
 
@@ -330,21 +373,12 @@ object WebViewPool {
                 useWideViewPort = true
                 domStorageEnabled = true
                 loadsImagesAutomatically = false
-                blockNetworkImage = true // 不加载图片
+                blockNetworkImage = true
             }
 
-            // 整个生命周期内，只让第一个被创建的WebView承担预下载静态资源的任务
-            val htmlToLoad = if (!hasPreloadedResources) {
-                hasPreloadedResources = true
-                WARMUP_HTML
-            } else {
-                BLANK_HTML
-            }
-
-            // 初始化时装载HTML
             loadDataWithBaseURL(
                 "https://bbs.yamibo.com/?warmup=true",
-                htmlToLoad,
+                BLANK_HTML,
                 "text/html",
                 "utf-8",
                 null

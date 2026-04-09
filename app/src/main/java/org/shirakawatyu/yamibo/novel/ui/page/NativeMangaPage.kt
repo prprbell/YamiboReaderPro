@@ -90,7 +90,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -111,12 +110,9 @@ import coil.compose.SubcomposeAsyncImage
 import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
@@ -198,7 +194,7 @@ fun NativeMangaPage(
             when {
                 rawTitle.contains(Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)) -> "SP"
                 chapterNum == 999f -> "终"
-                chapterNum < 1f && !rawTitle.contains(Regex("0|零|〇")) -> "Ex"
+                chapterNum < 1f && !rawTitle.contains(Regex("[0零〇]")) -> "Ex"
                 else -> {
                     val safeStr = java.text.DecimalFormat("0.###").format(chapterNum)
                     if (safeStr.contains(".")) {
@@ -611,7 +607,7 @@ fun NativeMangaPage(
             LaunchedEffect(showUi) {
                 if (!showUi) {
                     view.isFocusableInTouchMode = true; view.requestFocus(); delay(50)
-                    try { focusRequester.requestFocus() } catch (e: Exception) {}
+                    try { focusRequester.requestFocus() } catch (_: Exception) {}
                 }
             }
 
@@ -936,7 +932,7 @@ fun NativeMangaPage(
             if (showChapterList) {
                 val currentTid = currentItem?.tid ?: ""
                 val displayChapters = mangaDirVM.currentDirectory?.chapters?.map {
-                    org.shirakawatyu.yamibo.novel.ui.page.MangaChapter(it.chapterNum, it.rawTitle, it.url, isCurrent = it.tid == currentTid, isRead = false)
+                    MangaChapter(it.chapterNum, it.rawTitle, it.url, isCurrent = it.tid == currentTid, isRead = false)
                 } ?: emptyList()
 
                 val initialAuthor = remember(mangaDirVM.currentDirectory, currentTid) {

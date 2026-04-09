@@ -148,26 +148,32 @@ fun FavoritePage(
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
+
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                favoriteVM.lastPauseTime = System.currentTimeMillis()
+            } else if (event == Lifecycle.Event.ON_RESUME) {
+
+                val isQuickReturn = favoriteVM.lastPauseTime != 0L &&
+                        (System.currentTimeMillis() - favoriteVM.lastPauseTime < 2000L)
 
                 coroutineScope.launch {
                     kotlinx.coroutines.delay(350)
 
-                    when (favoriteVM.getEffectiveResumeStrategy()) {
-                        FavoriteVM.RefreshStrategy.SKIP -> {
-                            // 不到10分钟且没去网页，直接跳过！
-                        }
-
-                        FavoriteVM.RefreshStrategy.SMART -> {
-                            favoriteVM.refreshList(showLoading = false, isSmartSync = true)
-                        }
-
-                        FavoriteVM.RefreshStrategy.FULL -> {
-                            favoriteVM.refreshList(showLoading = false, isSmartSync = false)
+                    if (isQuickReturn) {
+                    } else {
+                        when (favoriteVM.getEffectiveResumeStrategy()) {
+                            FavoriteVM.RefreshStrategy.SKIP -> {
+                            }
+                            FavoriteVM.RefreshStrategy.SMART -> {
+                                favoriteVM.refreshList(showLoading = false, isSmartSync = true)
+                            }
+                            FavoriteVM.RefreshStrategy.FULL -> {
+                                favoriteVM.refreshList(showLoading = false, isSmartSync = false)
+                            }
                         }
                     }
-                    // 重置回FULL防御后续异常跳转
+
                     favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.FULL
                     favoriteVM.getCacheInfo { info -> cacheInfoMap = info }
                 }
@@ -530,7 +536,7 @@ fun FavoritePage(
                 itemsIndexed(
                     items = favoriteList,
                     key = { _, item -> item.url }
-                ) { index, item ->
+                ) { _, item ->
                     ReorderableItem(
                         state = reorderableState,
                         key = item.url,
@@ -545,28 +551,26 @@ fun FavoritePage(
                                 if (isInManageMode) {
                                     favoriteVM.toggleItemSelection(item.url)
                                 } else {
+                                    favoriteVM.updateStrategyBeforeNavigation(item.type)
+
                                     val encodedUrl = java.net.URLEncoder.encode(item.url, "utf-8")
 
                                     when (item.type) {
                                         0 -> {
                                             navController.navigate("ProbingPage/$encodedUrl")
                                         }
-
                                         1 -> {
                                             navController.navigate("ReaderPage/$encodedUrl")
                                         }
-
                                         3 -> {
                                             navController.navigate("OtherWebPage/$encodedUrl")
                                         }
-
                                         else -> {
                                             val targetUrl = item.lastMangaUrl ?: item.url
-
                                             val encodedTarget = java.net.URLEncoder.encode(targetUrl, "utf-8")
                                             val encodedOriginal = java.net.URLEncoder.encode(item.url, "utf-8")
 
-                                            probingUrl = targetUrl // UI 遮罩层状态更新
+                                            probingUrl = targetUrl
 
                                             probingJob = coroutineScope.launch {
                                                 MangaProber().probeUrl(
@@ -582,7 +586,6 @@ fun FavoritePage(
                                                                 maxOf(0, urls.size - 1)
                                                             )
 
-                                                        // 【核心修复4】：导航时使用 encodedTarget
                                                         navController.navigate("NativeMangaPage?url=$encodedTarget&originalUrl=$encodedOriginal")
 
                                                         coroutineScope.launch {

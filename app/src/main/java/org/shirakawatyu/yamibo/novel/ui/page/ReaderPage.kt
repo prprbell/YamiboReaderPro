@@ -82,6 +82,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -200,7 +201,7 @@ fun ReaderPage(
     var isFullScreen by remember { mutableStateOf(true) }
 
     // 记录进入阅读器前的系统栏状态，退出时恢复，避免上一页上下栏抖动
-    val originalBehavior = remember { mutableStateOf(0) }
+    val originalBehavior = remember { mutableIntStateOf(0) }
     var hasCapturedOriginal by remember { mutableStateOf(false) }
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
     var isExiting by remember { mutableStateOf(false) }
@@ -434,7 +435,7 @@ fun ReaderPage(
                 awaitFrame()
                 try {
                     focusRequester.requestFocus()
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                 }
             }
         }

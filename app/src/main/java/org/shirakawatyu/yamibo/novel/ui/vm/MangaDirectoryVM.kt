@@ -15,7 +15,6 @@ import org.shirakawatyu.yamibo.novel.repository.DirectoryRepository
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 
 class MangaDirectoryVM(application: Application) : AndroidViewModel(application) {
-    private val logTag = "MangaDirectoryVM"
     private val repo = DirectoryRepository.getInstance(application)
 
     // 当前正在浏览的漫画目录数据
