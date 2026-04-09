@@ -442,9 +442,9 @@ fun MangaChapterPanel(
                             Text(
                                 text = if (latestChapter != null) "最新: 第${latestText}话" else "",
                                 color = TextSec,
-                                fontSize = 12.sp
+                                fontSize = 11.sp
                             )
-                            Spacer(Modifier.width(10.dp))
+                            Spacer(Modifier.width(5.dp))
 
                             val canUpdate = !isUpdating && cooldownSeconds <= 0
                             Box(
@@ -480,7 +480,7 @@ fun MangaChapterPanel(
                                             isSearchMode -> Color.White
                                             else -> Color(0xFF111318)
                                         },
-                                        fontSize = 12.sp,
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
