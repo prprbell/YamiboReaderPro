@@ -103,6 +103,7 @@ class FullscreenApiMine {
 
 class NativeMangaMineJSInterface {
     var onTriggerManga: ((String, Int, String) -> Unit)? = null
+    var onGoBack: (() -> Unit)? = null
     private var lastNavTime = 0L
 
     @JavascriptInterface
@@ -113,6 +114,12 @@ class NativeMangaMineJSInterface {
 
         Handler(Looper.getMainLooper()).post {
             onTriggerManga?.invoke(urlsJoined, clickedIndex, title)
+        }
+    }
+    @JavascriptInterface
+    fun goBack() {
+        Handler(Looper.getMainLooper()).post {
+            onGoBack?.invoke()
         }
     }
 }
@@ -189,7 +196,7 @@ fun MinePage(
         webView.loadUrl(url)
     }
     val context = LocalContext.current
-    val activity = context as? Activity
+    val activity = context as? ComponentActivity
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
     val bottomNavBarVM: BottomNavBarVM =
@@ -211,7 +218,9 @@ fun MinePage(
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
 
     val nativeMangaApi = remember { NativeMangaMineJSInterface() }
-
+    nativeMangaApi.onGoBack = {
+        activity?.onBackPressedDispatcher?.onBackPressed()
+    }
     val mineWebView = remember {
         WebViewPool.acquire(context).apply {
             settings.apply {
@@ -426,6 +435,22 @@ fun MinePage(
                     };
                     window.__pswpInit();
                     
+                    if (!window._backBtnFixed) {
+                        window._backBtnFixed = true;
+                        document.addEventListener('click', function(e) {
+                            var target = e.target.closest ? e.target.closest('a[href*="history.back"]') : null;
+                            if (target) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (window.NativeMangaApi && window.NativeMangaApi.goBack) {
+                                    window.NativeMangaApi.goBack();
+                                } else {
+                                    window.history.back();
+                                }
+                            }
+                        }, true);
+                    }
+                    
                     var a = document.querySelector('.header h2 a');
                     var isManga = false;
                     if (a) {
@@ -533,20 +558,6 @@ fun MinePage(
                         baseIndex = list.currentIndex
                     }
                     canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
-                }
-
-                isLoading = true
-
-                timeoutJob?.cancel()
-                timeoutJob = scope.launch {
-                    delay(8000)
-                    if (isLoading) {
-                        hasError = true
-                        view?.stopLoading()
-                        isLoading = false
-                        isPullRefreshing = false
-                        showLoadError = true
-                    }
                 }
             }
 

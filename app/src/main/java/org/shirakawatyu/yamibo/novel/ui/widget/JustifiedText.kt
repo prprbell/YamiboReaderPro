@@ -137,7 +137,6 @@ fun JustifiedText(
                         }
                     }
 
-                    // 实际在 Draw 阶段被高频调用的轻量级绘制闭包
                     onDrawBehind {
                         val nativeCanvas = drawContext.canvas.nativeCanvas
                         textPaint.color = color.toArgb()

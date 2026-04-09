@@ -111,7 +111,7 @@ class FullscreenApi {
 
 class NativeMangaJSInterface {
     var onTriggerManga: ((String, Int, String) -> Unit)? = null
-
+    var onGoBack: (() -> Unit)? = null
     private var lastNavTime = 0L
 
     @JavascriptInterface
@@ -122,6 +122,12 @@ class NativeMangaJSInterface {
 
         Handler(Looper.getMainLooper()).post {
             onTriggerManga?.invoke(urlsJoined, clickedIndex, title)
+        }
+    }
+    @JavascriptInterface
+    fun goBack() {
+        Handler(Looper.getMainLooper()).post {
+            onGoBack?.invoke()
         }
     }
 }
@@ -139,7 +145,7 @@ fun BBSPage(
     val bbsUrl = "https://bbs.yamibo.com/index.php?mobile=2"
     val baseBbsUrl = "https://bbs.yamibo.com/"
 
-    val activity = LocalContext.current as? Activity
+    val activity = LocalContext.current as? ComponentActivity
 
     var canGoBack by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
@@ -188,6 +194,9 @@ fun BBSPage(
             BBSPageState.nativeMangaApi = NativeMangaJSInterface()
         }
         BBSPageState.nativeMangaApi!!
+    }
+    nativeMangaApi.onGoBack = {
+        activity?.onBackPressedDispatcher?.onBackPressed()
     }
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
@@ -585,6 +594,21 @@ fun BBSPage(
                         checkState();
                     };
                     window.__pswpInit();
+                    if (!window._backBtnFixed) {
+                        window._backBtnFixed = true;
+                        document.addEventListener('click', function(e) {
+                            var target = e.target.closest ? e.target.closest('a[href*="history.back"]') : null;
+                            if (target) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (window.NativeMangaApi && window.NativeMangaApi.goBack) {
+                                    window.NativeMangaApi.goBack();
+                                } else {
+                                    window.history.back();
+                                }
+                            }
+                        }, true);
+                    }
                     var a = document.querySelector('.header h2 a');
                     var isManga = false;
                     if (a) {
