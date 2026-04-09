@@ -134,7 +134,6 @@ fun MinePage(
     val mineUrl = "https://bbs.yamibo.com/home.php?mod=space&do=profile&mycenter=1&mobile=2"
 
     var canGoBack by remember { mutableStateOf(false) }
-    var baseIndex by remember { mutableIntStateOf(-1) }
 
     var isLoading by remember { mutableStateOf(true) }
 
@@ -159,6 +158,26 @@ fun MinePage(
         factory = ViewModelFactory(LocalContext.current.applicationContext)
     )
     lateinit var startLoading: (webView: WebView, url: String) -> Unit
+
+    // 核心优化：废弃 baseIndex，改用基于当前和上一条 URL 的精确检测，解决异步导致的混乱
+    fun evaluateCanGoBack(view: WebView?): Boolean {
+        if (view == null || !view.canGoBack()) return false
+        val currUrl = view.url ?: ""
+        // 如果当前处在根页面，不准 WebView 返回
+        if (currUrl.contains("mod=space") && currUrl.contains("do=profile")) return false
+
+        val list = view.copyBackForwardList()
+        if (list.currentIndex <= 0) return false
+
+        val backItem = list.getItemAtIndex(list.currentIndex - 1)
+        val backUrl = backItem?.url ?: return false
+
+        // 过滤掉池子预热页面、空白页和基础数据流
+        return backUrl.isNotBlank() &&
+                backUrl != "about:blank" &&
+                !backUrl.contains("warmup=true") &&
+                !backUrl.startsWith("data:")
+    }
 
     fun runTimeout(webView: WebView, onTimeout: () -> Unit) {
         timeoutJob?.cancel()
@@ -218,9 +237,7 @@ fun MinePage(
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
 
     val nativeMangaApi = remember { NativeMangaMineJSInterface() }
-    nativeMangaApi.onGoBack = {
-        activity?.onBackPressedDispatcher?.onBackPressed()
-    }
+
     val mineWebView = remember {
         WebViewPool.acquire(context).apply {
             settings.apply {
@@ -239,6 +256,16 @@ fun MinePage(
             this.webChromeClient = webChromeClient
         }
     }
+
+    // 核心优化：接管 JS 的 goBack 调用，优先在 WebView 内部消化，避免 Compose 状态滞后引起串台
+    nativeMangaApi.onGoBack = {
+        if (evaluateCanGoBack(mineWebView)) {
+            mineWebView.goBack()
+        } else {
+            activity?.onBackPressedDispatcher?.onBackPressed()
+        }
+    }
+
     LaunchedEffect(Unit) {
         bottomNavBarVM.refreshEvent.collect { route ->
             if (route == "MinePage") {
@@ -438,7 +465,7 @@ fun MinePage(
                     if (!window._backBtnFixed) {
                         window._backBtnFixed = true;
                         document.addEventListener('click', function(e) {
-                            var target = e.target.closest ? e.target.closest('a[href*="history.back"]') : null;
+                            var target = e.target.closest ? e.target.closest('a[href*="history.back"], #hui-back') : null;
                             if (target) {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -552,13 +579,7 @@ fun MinePage(
                 super.onPageStarted(view, url, favicon)
                 currentUrl = url
 
-                if (view != null) {
-                    val list = view.copyBackForwardList()
-                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
-                        baseIndex = list.currentIndex
-                    }
-                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
-                }
+                canGoBack = evaluateCanGoBack(view)
             }
 
             override fun shouldInterceptRequest(
@@ -621,20 +642,8 @@ fun MinePage(
                 super.doUpdateVisitedHistory(view, url, isReload)
                 if (url != null && url.startsWith("https://bbs.yamibo.com/home.php?mod=space&do=profile")) {
                     view?.clearHistory()
-                    if (view != null) {
-                        val list = view.copyBackForwardList()
-                        baseIndex = list.currentIndex
-                        canGoBack = false
-                    }
-                } else if (view != null) {
-                    val list = view.copyBackForwardList()
-                    if (baseIndex == -1) {
-                        baseIndex = list.currentIndex
-                    } else if (list.currentIndex < baseIndex) {
-                        baseIndex = list.currentIndex
-                    }
-                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
                 }
+                canGoBack = evaluateCanGoBack(view)
             }
 
             override fun onPageCommitVisible(view: WebView?, url: String?) {
@@ -666,19 +675,9 @@ fun MinePage(
                 currentUrl = url
                 if (url != null && url.startsWith("https://bbs.yamibo.com/home.php?mod=space&do=profile")) {
                     view?.clearHistory()
-                    if (view != null) {
-                        val list = view.copyBackForwardList()
-                        baseIndex = list.currentIndex
-                    }
                 }
 
-                canGoBack = view?.let {
-                    val list = it.copyBackForwardList()
-                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
-                        baseIndex = list.currentIndex
-                    }
-                    baseIndex != -1 && list.currentIndex > baseIndex
-                } ?: false
+                canGoBack = evaluateCanGoBack(view)
 
                 view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
                     isMangaSection = result == "true" || result == "\"true\""
@@ -768,11 +767,7 @@ fun MinePage(
             }
         } else {
             isLoading = false
-            val list = mineWebView.copyBackForwardList()
-            if (baseIndex != -1 && list.currentIndex < baseIndex) {
-                baseIndex = list.currentIndex
-            }
-            canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
+            canGoBack = evaluateCanGoBack(mineWebView)
         }
     }
     LaunchedEffect(isSelected) {
@@ -991,11 +986,7 @@ fun MinePage(
                     mineWebView
                 },
                 update = { webView ->
-                    val list = webView.copyBackForwardList()
-                    if (baseIndex != -1 && list.currentIndex < baseIndex) {
-                        baseIndex = list.currentIndex
-                    }
-                    canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
+                    canGoBack = evaluateCanGoBack(webView)
                     currentUrl = webView.url
                     pageTitle = webView.title ?: ""
 
