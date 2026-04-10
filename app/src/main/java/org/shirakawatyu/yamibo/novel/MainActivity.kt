@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.ValueCallback
@@ -84,6 +85,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
+import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import java.net.URLDecoder
@@ -132,7 +134,7 @@ class MainActivity : ComponentActivity() {
                         uploadMessage = null
                         return false
                     }
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     uploadMessage = null
                     return false
                 }
@@ -238,7 +240,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
         if (!GlobalData.isAppInitialized) {
             try {
                 GlobalData.currentCookie = GlobalData.cookieFlow.first()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 GlobalData.currentCookie = ""
             } finally {
                 SettingsUtil.getDataSaverMode { isDataSaver ->
@@ -248,6 +250,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     GlobalData.isFavoriteCollapsed.value = isCollapsed
                 }
                 GlobalData.isAppInitialized = true
+                launch(Dispatchers.IO) {
+                    AutoSignManager.checkAndSignIfNeeded()
+                }
             }
         }
     }

@@ -32,11 +32,11 @@ open class YamiboWebViewClient : WebViewClient() {
     protected fun applyHideCss(view: WebView?, currentUrl: String?) {
         val url = currentUrl ?: view?.url ?: ""
 
-        // 1. 隐藏底部栏
+        // 隐藏底部栏
         var css =
             ".foot.flex-box:not(.foot_reply) { display: none !important; } .foot_height { display: none !important; }"
 
-        // 2. 隐藏顶部栏
+        // 隐藏顶部栏
         if (url.contains("home.php") || url.contains("mod=space")) {
             if (!url.contains("do=pm") && !url.contains("do=blog")) {
                 if (url.contains("do=thread") || url.contains("do=favorite") || url.contains("do=friend")) {
@@ -148,28 +148,6 @@ open class YamiboWebViewClient : WebViewClient() {
             })();
             """.trimIndent(), null
         )
-    }
-
-    @RequiresApi(Build.VERSION_CODES.M)
-    override fun onReceivedError(
-        view: WebView?,
-        request: WebResourceRequest?,
-        error: WebResourceError?
-    ) {
-        if (request?.isForMainFrame == true) {
-        }
-        super.onReceivedError(view, request, error)
-    }
-
-    @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    override fun onReceivedHttpError(
-        view: WebView?,
-        request: WebResourceRequest?,
-        errorResponse: WebResourceResponse?
-    ) {
-        if (request?.isForMainFrame == true) {
-        }
-        super.onReceivedHttpError(view, request, errorResponse)
     }
 
     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
