@@ -1038,7 +1038,7 @@ fun MinePage(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "网络连接中断或页面加载失败，请检查网络后刷新",
+                        "页面加载失败，请检查网络后刷新",
                         fontSize = 14.sp,
                         color = Color.Gray,
                         textAlign = TextAlign.Center

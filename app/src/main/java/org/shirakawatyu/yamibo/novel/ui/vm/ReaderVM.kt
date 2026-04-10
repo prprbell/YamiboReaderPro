@@ -769,7 +769,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         viewModelScope.launch {
             if (!initialized) {
                 val elapsed = System.currentTimeMillis() - pageEnterTime
-                val remainTime = 380L - elapsed
+                val remainTime = 350L - elapsed
                 if (remainTime > 0) {
                     delay(remainTime)
                 }

@@ -21,18 +21,16 @@ private interface SignApi {
 }
 
 /**
- * 后台自动签到
+ * 后台自动签到-自用
  */
 object AutoSignManager {
     private const val TAG = "AutoSignManager"
     private const val BASE_URL = "https://bbs.yamibo.com/"
     private const val SIGN_PAGE_URL = "https://bbs.yamibo.com/plugin.php?id=zqlj_sign&mobile=2"
 
-    // 定义 DataStore 存储的 Key
     private val LAST_SIGN_DATE_KEY = stringPreferencesKey("last_sign_date")
 
     suspend fun checkAndSignIfNeeded() = withContext(Dispatchers.IO) {
-        // 获取今天的日期，例如 "2026-04-10"
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
 
         val prefs = GlobalData.dataStore?.data?.first()
@@ -85,10 +83,10 @@ object AutoSignManager {
                 val finalSignUrl = BASE_URL + path
                 val resultHtml = api.fetchHtml(finalSignUrl).string()
 
-                if (resultHtml.contains("成功") || resultHtml.contains("今日已打卡")) {
-                    return Pair(true, "打卡成功")
+                return if (resultHtml.contains("成功") || resultHtml.contains("今日已打卡")) {
+                    Pair(true, "打卡成功")
                 } else {
-                    return Pair(true, "打卡请求已发送")
+                    Pair(true, "打卡请求已发送")
                 }
             } else {
                 return Pair(false, "解析打卡链接失败")

@@ -220,9 +220,10 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     GlobalData.isFavoriteCollapsed.value = isCollapsed
                 }
                 GlobalData.isAppInitialized = true
-                launch(Dispatchers.IO) {
-                    AutoSignManager.checkAndSignIfNeeded()
-                }
+//                自动签到
+//                launch(Dispatchers.IO) {
+//                    AutoSignManager.checkAndSignIfNeeded()
+//                }
             }
         }
     }
