@@ -28,8 +28,6 @@ data class ChapterInfo(
  * @property padding 内边距，默认为16.dp
  * @property fontSize 字体大小，默认为24.sp
  * @property letterSpacing 字符间距，默认为2.sp
- * @property scale 缩放比例，可变，默认为1f
- * @property offset 偏移量，可变，默认为Offset(0f, 0f)
  * @property isLoading 是否正在加载，默认为false
  * @property chapterList 章节信息列表，默认为空列表
  * @property showChapterDrawer 是否显示章节抽屉，默认为false
@@ -40,7 +38,6 @@ data class ChapterInfo(
  * @property isError 是否发生错误，默认为false
  * @property backgroundColor 自定义背景颜色，null表示使用主题默认
  * @property isVerticalMode 是否为竖屏滚动模式，默认为false
- * @property currentPercentage 当前阅读百分比（竖直模式），默认为0f
  * @property isFavorited 是否已收藏，默认为false
  */
 data class ReaderState(
@@ -51,8 +48,6 @@ data class ReaderState(
     val padding: Dp = 16.dp,
     val fontSize: TextUnit = 24.sp,
     val letterSpacing: TextUnit = 2.sp,
-    var scale: Float = 1f,
-    var offset: Offset = Offset(0f, 0f),
     val isLoading: Boolean = false,
     val chapterList: List<ChapterInfo> = listOf(),
     val showChapterDrawer: Boolean = false,
@@ -63,7 +58,6 @@ data class ReaderState(
     val isError: Boolean = false,
     val backgroundColor: Color? = null,
     val isVerticalMode: Boolean = false,
-    val currentPercentage: Float = 0f,
     val isFavorited: Boolean = false,
     val authorId: String? = null,
     val translationMode: Int = 0

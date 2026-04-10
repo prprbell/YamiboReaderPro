@@ -1,44 +1,42 @@
 package org.shirakawatyu.yamibo.novel.util
 
-import android.app.Activity
-import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.MutableContextWrapper
 import android.content.res.Configuration
 import android.graphics.Color
-import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.FrameLayout
+import androidx.annotation.RequiresApi
+import java.util.ArrayDeque
 import java.util.IdentityHashMap
 
 object WebViewPool {
+    private const val TAG = "WebViewPool"
+
     private class WebViewHolder(
         val webView: WebView,
         val contextWrapper: MutableContextWrapper
     ) {
         var useCount = 0
+        var isDirty = false
     }
 
     private val pool = ArrayDeque<WebViewHolder>()
     private val activeHolders = IdentityHashMap<WebView, WebViewHolder>()
-    private val warmingUpSet = IdentityHashMap<WebView, WebViewHolder>()
 
     private const val MAX_POOL_SIZE = 3
     private const val MAX_USES_PER_WEBVIEW = 8
+    private const val CLEANUP_DELAY_MS = 10 * 60 * 1000L
 
-    // 用于记录是否已经有WebView执行过静态资源预下载
     private var hasPreloadedResources = false
-
-    // 轻量空白页，用于普通的初始化和洗白
     private const val BLANK_HTML = "<html><body></body></html>"
-
-    // 预热HTML
     private val WARMUP_HTML = """
         <!DOCTYPE html>
         <html>
@@ -57,23 +55,49 @@ object WebViewPool {
     """.trimIndent()
 
     private val EMPTY_WEB_CLIENT = object : WebViewClient() {
+        @RequiresApi(Build.VERSION_CODES.O)
         override fun onRenderProcessGone(
             view: WebView?,
             detail: android.webkit.RenderProcessGoneDetail?
         ): Boolean {
-            Handler(Looper.getMainLooper()).post {
-                view?.let { discard(it) }
-            }
-            return true // 拦截崩溃
+            Log.e(TAG, "Fatal: Render process gone. Crash: ${detail?.didCrash()}")
+            mainHandler.post { view?.let { discard(it) } }
+            return true
         }
     }
     private val EMPTY_CHROME_CLIENT = WebChromeClient()
 
-    // 防止重复注册IdleHandler
-    private var isReplenishing = false
+    // 状态机锁
+    @Volatile private var isReplenishing = false
+    @Volatile private var isCleaningDirty = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val cleanupRunnable = Runnable { clearIdlePool() }
+
+    fun init(context: Context) {
+        checkMainThread("init")
+        val appContext = context.applicationContext
+
+        preloadStaticResources(appContext)
+        triggerAsyncReplenish(appContext)
+
+        appContext.registerComponentCallbacks(object : ComponentCallbacks2 {
+            override fun onTrimMemory(level: Int) {
+                if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+                    mainHandler.post { clearIdlePool() }
+                }
+            }
+            override fun onLowMemory() {
+                mainHandler.post { clearIdlePool() }
+            }
+            override fun onConfigurationChanged(newConfig: Configuration) {}
+        })
+    }
+
+    private fun scheduleCleanup() {
+        mainHandler.removeCallbacks(cleanupRunnable)
+        mainHandler.postDelayed(cleanupRunnable, CLEANUP_DELAY_MS)
+    }
 
     private fun clearIdlePool() {
         checkMainThread("clearIdlePool")
@@ -82,48 +106,12 @@ object WebViewPool {
         }
     }
 
-    fun scheduleCleanup() {
-        mainHandler.removeCallbacks(cleanupRunnable)
-        mainHandler.postDelayed(cleanupRunnable, 10 * 60 * 1000L)
-    }
-
-    fun cancelCleanup() {
-        mainHandler.removeCallbacks(cleanupRunnable)
-    }
-
-    fun init(context: Context) {
-        checkMainThread("init")
-
-        // 静态资源预加载
-        preloadStaticResources(context.applicationContext)
-
-        triggerAsyncReplenish(context.applicationContext)
-
-        context.applicationContext.registerComponentCallbacks(object :
-            ComponentCallbacks2 {
-            override fun onTrimMemory(level: Int) {
-                if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
-                    Handler(Looper.getMainLooper()).post {
-                        clearIdlePool()
-                    }
-                }
-            }
-
-            override fun onLowMemory() {
-                Handler(Looper.getMainLooper()).post { clearIdlePool() }
-            }
-
-            override fun onConfigurationChanged(newConfig: Configuration) {}
-        })
-    }
-
     private fun preloadStaticResources(appContext: Context) {
         if (hasPreloadedResources) return
         hasPreloadedResources = true
 
         Looper.myQueue().addIdleHandler {
             try {
-                // 一次性的WebView负责预下载
                 val preloadWebView = WebView(appContext).apply {
                     settings.apply {
                         javaScriptEnabled = true
@@ -132,16 +120,22 @@ object WebViewPool {
                     }
                 }
 
-                preloadWebView.webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        // 给网络层5秒时间彻底写入缓存，然后安全销毁
-                        mainHandler.postDelayed({
-                            try {
-                                preloadWebView.destroy()
-                            } catch (_: Exception) {}
-                        }, 5000)
+                var isDestroyed = false
+                val destroyTask = Runnable {
+                    if (!isDestroyed) {
+                        isDestroyed = true
+                        try { preloadWebView.destroy() } catch (_: Exception) {}
                     }
                 }
+
+                preloadWebView.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        mainHandler.removeCallbacks(destroyTask)
+                        mainHandler.postDelayed(destroyTask, 1000)
+                    }
+                }
+
+                mainHandler.postDelayed(destroyTask, 10000)
 
                 preloadWebView.loadDataWithBaseURL(
                     "https://bbs.yamibo.com/?warmup=true",
@@ -150,8 +144,9 @@ object WebViewPool {
                     "utf-8",
                     null
                 )
-            } catch (_: Exception) {}
-
+            } catch (e: Exception) {
+                Log.e(TAG, "Preload failed", e)
+            }
             false
         }
     }
@@ -161,109 +156,79 @@ object WebViewPool {
         isReplenishing = true
 
         Looper.myQueue().addIdleHandler {
-            if (pool.size + warmingUpSet.size + activeHolders.size < MAX_POOL_SIZE) {
-                val holder = createWebViewHolder(appContext)
-                holder.webView.tag = "recycled_standby"
-                pool.addLast(holder)
-
-                return@addIdleHandler true
+            try {
+                if (pool.size + activeHolders.size < MAX_POOL_SIZE) {
+                    val holder = createWebViewHolder(appContext)
+                    holder.webView.tag = "recycled_standby"
+                    pool.addLast(holder)
+                    return@addIdleHandler true
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Async replenish failed", e)
             }
             isReplenishing = false
             false
         }
     }
 
-    fun deepWarmUp(activity: Activity) {
-        checkMainThread("deepWarmUp")
-        val holder = pool.removeFirstOrNull() ?: return
-        val webView = holder.webView
-        warmingUpSet[webView] = holder
+    private fun triggerAsyncWash() {
+        if (isCleaningDirty) return
+        isCleaningDirty = true
 
-        val decorView = activity.window.decorView as? ViewGroup
-        val appContext = activity.applicationContext
-
-        if (decorView == null) {
-            rollbackWarmUp(holder, appContext)
-            return
-        }
-
-        val lifecycleCallback = object : Application.ActivityLifecycleCallbacks {
-            override fun onActivityDestroyed(act: Activity) {
-                if (act === activity && warmingUpSet.containsKey(webView)) {
-                    cleanupWarmUp(holder, decorView, appContext, this)
+        Looper.myQueue().addIdleHandler {
+            try {
+                val iterator = pool.iterator()
+                while (iterator.hasNext()) {
+                    val holder = iterator.next()
+                    if (holder.isDirty) {
+                        washWebView(holder.webView)
+                        holder.isDirty = false
+                        return@addIdleHandler true
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Async wash failed", e)
             }
-
-            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
-            override fun onActivityStarted(activity: Activity) {}
-            override fun onActivityResumed(activity: Activity) {}
-            override fun onActivityPaused(activity: Activity) {}
-            override fun onActivityStopped(activity: Activity) {}
-            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            isCleaningDirty = false
+            false
         }
-        activity.application.registerActivityLifecycleCallbacks(lifecycleCallback)
+    }
 
-        val layoutParams = FrameLayout.LayoutParams(1, 1).apply {
-            leftMargin = -10000
-            topMargin = -10000
-        }
-
-        try {
-            holder.contextWrapper.baseContext = activity
-            decorView.addView(webView, layoutParams)
-
-            webView.loadDataWithBaseURL(
+    private fun washWebView(webView: WebView) {
+        webView.apply {
+            clearFormData()
+            clearHistory()
+            loadDataWithBaseURL(
                 "https://bbs.yamibo.com/?warmup=true",
                 BLANK_HTML,
                 "text/html",
                 "utf-8",
                 null
             )
-
-            Looper.myQueue().addIdleHandler {
-                if (warmingUpSet.containsKey(webView) && !activity.isDestroyed) {
-                    cleanupWarmUp(holder, decorView, appContext, lifecycleCallback)
-                }
-                false
-            }
-        } catch (_: Exception) {
-            cleanupWarmUp(holder, decorView, appContext, lifecycleCallback)
         }
     }
 
-    private fun cleanupWarmUp(
-        holder: WebViewHolder,
-        decorView: ViewGroup,
-        appContext: Context,
-        callback: Application.ActivityLifecycleCallbacks
-    ) {
-        try {
-            decorView.removeView(holder.webView)
-        } catch (_: Exception) {
-        }
-        (appContext as? Application)?.unregisterActivityLifecycleCallbacks(callback)
-        rollbackWarmUp(holder, appContext)
-    }
-
-    private fun rollbackWarmUp(holder: WebViewHolder, appContext: Context) {
-        holder.contextWrapper.baseContext = appContext
-        warmingUpSet.remove(holder.webView)
-        if (pool.size + activeHolders.size < MAX_POOL_SIZE) {
-            pool.addLast(holder)
-        } else {
-            discardHolder(holder)
-        }
+    fun deepWarmUp(context: Context) {
+        checkMainThread("deepWarmUp")
+        val appContext = context.applicationContext
+        preloadStaticResources(appContext)
         triggerAsyncReplenish(appContext)
     }
 
     fun acquire(context: Context): WebView {
         checkMainThread("acquire")
-        val holder = pool.removeFirstOrNull() ?: createWebViewHolder(context).also {
+        scheduleCleanup()
+
+        val holder = pool.pollFirst() ?: createWebViewHolder(context).also {
             triggerAsyncReplenish(context.applicationContext)
         }
 
-        holder.webView.stopLoading()
+        if (holder.isDirty) {
+            washWebView(holder.webView)
+            holder.isDirty = false
+        }
 
+        holder.webView.stopLoading()
         holder.contextWrapper.baseContext = context
         holder.useCount++
 
@@ -280,7 +245,7 @@ object WebViewPool {
 
     fun release(webView: WebView) {
         checkMainThread("release")
-        if (warmingUpSet.containsKey(webView)) return
+        scheduleCleanup()
 
         val holder = activeHolders.remove(webView) ?: return
         val appContext = webView.context.applicationContext
@@ -296,19 +261,8 @@ object WebViewPool {
                 loadsImagesAutomatically = false
                 blockNetworkImage = true
             }
-            clearFormData()
-            clearHistory()
             removeAllViews()
             (parent as? ViewGroup)?.removeView(this)
-
-            // 回收时，底层缓存已就绪，只需要最轻量的BLANK_HTML来清空DOM树即可
-            loadDataWithBaseURL(
-                "https://bbs.yamibo.com/?warmup=true",
-                BLANK_HTML,
-                "text/html",
-                "utf-8",
-                null
-            )
             onPause()
         }
 
@@ -317,9 +271,11 @@ object WebViewPool {
         if (holder.useCount >= MAX_USES_PER_WEBVIEW) {
             discardHolder(holder)
             triggerAsyncReplenish(appContext)
-        } else if (pool.size + activeHolders.size + warmingUpSet.size < MAX_POOL_SIZE) {
+        } else if (pool.size + activeHolders.size < MAX_POOL_SIZE) {
             webView.tag = "recycled_standby"
+            holder.isDirty = true
             pool.addLast(holder)
+            triggerAsyncWash()
         } else {
             discardHolder(holder)
         }
@@ -332,14 +288,14 @@ object WebViewPool {
             webView.removeAllViews()
             (webView.parent as? ViewGroup)?.removeView(webView)
             webView.destroy()
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
     }
 
     fun discard(webView: WebView) {
         checkMainThread("discard")
+        scheduleCleanup()
+
         activeHolders.remove(webView)?.let { discardHolder(it) }
-        warmingUpSet.remove(webView)?.let { discardHolder(it) }
 
         val iterator = pool.iterator()
         while (iterator.hasNext()) {
@@ -375,7 +331,6 @@ object WebViewPool {
                 loadsImagesAutomatically = false
                 blockNetworkImage = true
             }
-
             loadDataWithBaseURL(
                 "https://bbs.yamibo.com/?warmup=true",
                 BLANK_HTML,

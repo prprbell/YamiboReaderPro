@@ -21,6 +21,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +52,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private val _uiState = MutableStateFlow(ReaderState())
     val uiState = _uiState.asStateFlow()
 
+    private val _currentPercentage = MutableStateFlow(0f)
+    val currentPercentage = _currentPercentage.asStateFlow()
+
     private var pagerState: PagerState? = null
     private var maxHeight = 0.dp
     private var maxWidth = 0.dp
@@ -58,6 +62,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private val logTag = "ReaderVM"
     private var compositionScope: CoroutineScope? = null
     private var pageEnterTime = 0L
+    private var setViewJob: Job? = null
 
     var url by mutableStateOf("")
         private set
@@ -168,7 +173,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             return
         }
         if (pagesToCache.isEmpty()) return
-
 
         _isDiskCaching.value = true
         diskCacheQueue = pagesToCache.toMutableSet()
@@ -601,7 +605,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         if (view == _uiState.value.currentView && !isTransitioning && !forceReload) {
             return
         }
-
+        setViewJob?.cancel()
         if (view == _uiState.value.currentView + 1 && nextHtmlList != null && !forceReload) {
             isTransitioning = true
 
@@ -609,9 +613,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 htmlList = nextHtmlList!!,
                 chapterList = nextChapterList ?: listOf(),
                 initPage = 0,
-                currentPercentage = 0f,
                 currentView = view
             )
+            _currentPercentage.value = 0f // 单独赋值
 
             nextHtmlList = null
             nextChapterList = null
@@ -626,9 +630,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 CacheUtil.clearCacheEntry(url, view)
             }
 
-            viewModelScope.launch {
+            setViewJob = viewModelScope.launch {
                 if (!forceReload) {
-                    // 先检查本地缓存
+                    // 检查本地缓存
                     val localCacheData = localCache.loadPage(url, view)
 
                     if (localCacheData != null && localCacheData.authorId == currentAuthorId) {
@@ -638,9 +642,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                         _uiState.value = _uiState.value.copy(
                             currentView = view,
                             initPage = 0,
-                            currentPercentage = 0f,
                             maxWebView = localCacheData.maxPageNum
                         )
+                        _currentPercentage.value = 0f
 
                         loadFinished(
                             success = true,
@@ -663,9 +667,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                                 _uiState.value = _uiState.value.copy(
                                     currentView = view,
                                     initPage = 0,
-                                    currentPercentage = 0f,
                                     maxWebView = cacheData.maxPageNum
                                 )
+                                _currentPercentage.value = 0f
 
                                 loadFinished(
                                     success = true,
@@ -884,10 +888,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     htmlList = passages,
                     chapterList = chapters,
                     initPage = safeInitPage,
-                    currentPercentage = newPercent,
                     maxWebView = maxPage,
                     isError = false
                 )
+                _currentPercentage.value = newPercent
 
                 if (!initialized) {
                     initialized = true
@@ -900,7 +904,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     }
 
     fun retryLoad() {
-        viewModelScope.launch {
+        setViewJob?.cancel()
+        setViewJob = viewModelScope.launch {
             showLoadingScrim = true
             _uiState.value = _uiState.value.copy(
                 isError = false,
@@ -1101,9 +1106,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 htmlList = nextHtmlList!!,
                 chapterList = nextChapterList ?: listOf(),
                 initPage = 0,
-                currentPercentage = 0f,
                 currentView = newCurrentView
             )
+            _currentPercentage.value = 0f
 
             nextHtmlList = null
             nextChapterList = null
@@ -1166,10 +1171,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 isTransitioning = false
                 latestPage = newPage
             } else {
-                // 转场仍在进行中
-                if (curPagerState.settledPage != curPagerState.targetPage && _uiState.value.scale != 1f) {
-                    _uiState.value = _uiState.value.copy(scale = 1f, offset = Offset(0f, 0f))
-                }
                 return
             }
         }
@@ -1178,29 +1179,19 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         val list = _uiState.value.htmlList
 
         if (list.isEmpty() || newPage >= list.size) {
-            if (curPagerState.settledPage != curPagerState.targetPage && _uiState.value.scale != 1f) {
-                _uiState.value = _uiState.value.copy(scale = 1f, offset = Offset(0f, 0f))
-            }
             return
         }
 
         // 仅在页面真正改变时才处理
         if (newPage == latestPage) {
-            if (curPagerState.settledPage != curPagerState.targetPage && _uiState.value.scale != 1f) {
-                _uiState.value = _uiState.value.copy(scale = 1f, offset = Offset(0f, 0f))
-            }
             return
         }
 
         val totalPages = curPagerState.pageCount.coerceAtLeast(1)
         val percent = (newPage.toFloat() / totalPages) * 100f
-        _uiState.value = _uiState.value.copy(currentPercentage = percent)
+        _currentPercentage.value = percent
 
         processPageChange(newPage)
-
-        if (curPagerState.settledPage != curPagerState.targetPage && _uiState.value.scale != 1f) {
-            _uiState.value = _uiState.value.copy(scale = 1f, offset = Offset(0f, 0f))
-        }
     }
 
     fun onVerticalPageSettled(newPage: Int) {
@@ -1218,7 +1209,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
         val totalRows = _uiState.value.htmlList.size.coerceAtLeast(1)
         val percent = (newPage.toFloat() / totalRows) * 100f
-        _uiState.value = _uiState.value.copy(currentPercentage = percent)
+        _currentPercentage.value = percent
 
         processPageChange(newPage)
     }
@@ -1251,8 +1242,11 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 isError = false,
                 urlToLoad = "about:blank"
             )
-            delay(10)
-            loadFromNetwork(pageToRefresh)
+            setViewJob?.cancel()
+            setViewJob = viewModelScope.launch {
+                delay(10)
+                loadFromNetwork(pageToRefresh)
+            }
         }
     }
 
@@ -1349,17 +1343,13 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
             val newPercent = (pageToScrollTo.toFloat() / newPageCount) * 100f
 
-            if (pageToScrollTo == 0) {
-                _uiState.value = _uiState.value.copy(scale = 1f, offset = Offset(0f, 0f))
-            }
-
             _uiState.value = _uiState.value.copy(
                 htmlList = newPages,
                 chapterList = newChapters,
                 initPage = pageToScrollTo,
-                currentPercentage = newPercent,
                 isError = false
             )
+            _currentPercentage.value = newPercent
             showLoadingScrim = false
             isTransitioning = false
         }
@@ -1372,12 +1362,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             initPage = currentPage
         )
         saveSettings(currentPage)
-    }
-
-    fun onTransform(pan: Offset, zoom: Float) {
-        val scale = (_uiState.value.scale * zoom).coerceIn(0.5f, 3f)
-        val offset = if (scale == 1f) Offset(0f, 0f) else _uiState.value.offset + pan
-        _uiState.value = _uiState.value.copy(scale = scale, offset = offset)
     }
 
     fun toggleChapterDrawer(show: Boolean) {
@@ -1471,9 +1455,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     htmlList = newPages,
                     chapterList = newChapters,
                     initPage = pageToScrollTo,
-                    currentPercentage = newPercent,
                     isError = false
                 )
+                _currentPercentage.value = newPercent
 
                 showLoadingScrim = false
                 isTransitioning = false
@@ -1565,9 +1549,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     htmlList = newPages,
                     chapterList = newChapters,
                     initPage = pageToScrollTo,
-                    currentPercentage = newPercent,
                     isError = false
                 )
+                _currentPercentage.value = newPercent
+
                 showLoadingScrim = false
                 isTransitioning = false
             }

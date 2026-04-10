@@ -169,6 +169,7 @@ fun ReaderPage(
     navController: NavController
 ) {
     val uiState by readerVM.uiState.collectAsState()
+    val currentPercentage by readerVM.currentPercentage.collectAsState()
     val favoriteVM: FavoriteVM = viewModel(
         viewModelStoreOwner = LocalContext.current as ComponentActivity,
         factory = ViewModelFactory(LocalContext.current.applicationContext)
@@ -758,7 +759,6 @@ fun ReaderPage(
                                             }
                                         }
                                     } else {
-                                        val currentScale by rememberUpdatedState(uiState.scale)
                                         HorizontalPager(
                                             modifier = Modifier
                                                 .fillMaxSize()
@@ -793,21 +793,7 @@ fun ReaderPage(
                                                             }
                                                         }
                                                     )
-                                                }
-                                                .pointerInput(Unit) {
-                                                    detectReaderTransformGestures(
-                                                        scaleProvider = { currentScale },
-                                                        onGesture = { pan, zoom ->
-                                                            readerVM.onTransform(pan, zoom)
-                                                        }
-                                                    )
-                                                }
-                                                .graphicsLayer(
-                                                    scaleX = uiState.scale,
-                                                    scaleY = uiState.scale,
-                                                    translationX = uiState.offset.x,
-                                                    translationY = uiState.offset.y
-                                                ),
+                                                },
                                             state = pagerState,
                                         ) { page ->
                                             ContentViewer(
@@ -1144,6 +1130,7 @@ fun ReaderPage(
                             .fillMaxWidth()
                             .align(Alignment.BottomCenter),
                         uiState = uiState,
+                        currentPercentage = currentPercentage,
                         pageCount = uiState.htmlList.size,
                         currentPage = currentPageIndex,
                         onSetView = onSetViewAction,
@@ -1212,6 +1199,7 @@ fun ReaderPage(
 fun ReaderSettingsBar(
     modifier: Modifier = Modifier,
     uiState: ReaderState,
+    currentPercentage: Float,
     pageCount: Int,
     currentPage: Int,
     onSetView: (view: Int) -> Unit,
@@ -1284,6 +1272,7 @@ fun ReaderSettingsBar(
                 } else {
                     MainSettingsMenu(
                         uiState = uiState,
+                        currentPercentage = currentPercentage,
                         pageCount = pageCount,
                         currentPage = currentPage,
                         onSetView = onSetView,
@@ -1385,6 +1374,7 @@ fun ChapterDrawerContent(
 private fun MainSettingsMenu(
     uiState: ReaderState,
     pageCount: Int,
+    currentPercentage: Float,
     currentPage: Int,
     onSetView: (view: Int) -> Unit,
     onSetPage: (page: Int) -> Unit,
@@ -1398,7 +1388,7 @@ private fun MainSettingsMenu(
     val isVerticalMode = uiState.isVerticalMode
 
     // 滑块逻辑
-    val sliderValue = if (isVerticalMode) uiState.currentPercentage else currentPage.toFloat()
+    val sliderValue = if (isVerticalMode) currentPercentage else currentPage.toFloat()
     val sliderRange =
         if (isVerticalMode) 0f..100f else 0f..(pageCount - 1).toFloat().coerceAtLeast(0f)
     val sliderSteps =
@@ -1408,6 +1398,17 @@ private fun MainSettingsMenu(
         mutableFloatStateOf(sliderValue)
     }
     var pillLastActiveTime by remember { mutableLongStateOf(0L) }
+
+    var lastClickTime by remember { mutableLongStateOf(0L) }
+    val debounceInterval = 600L
+
+    val debouncedSetView: (Int) -> Unit = { targetView ->
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastClickTime > debounceInterval) {
+            lastClickTime = currentTime
+            onSetView(targetView)
+        }
+    }
 
     // 动态计算目标页码
     val targetPageIndex = remember(sliderPos, isVerticalMode, pageCount) {
@@ -1473,7 +1474,7 @@ private fun MainSettingsMenu(
                     )
             ) {
                 IconButton(
-                    onClick = { onSetView(uiState.currentView - 1) },
+                    onClick = { debouncedSetView(uiState.currentView - 1) },
                     enabled = uiState.currentView > 1
                 ) {
                     Icon(
@@ -1509,7 +1510,7 @@ private fun MainSettingsMenu(
                 )
 
                 IconButton(
-                    onClick = { onSetView(uiState.currentView + 1) },
+                    onClick = { debouncedSetView(uiState.currentView + 1) },
                     enabled = uiState.currentView < uiState.maxWebView
                 ) {
                     Icon(

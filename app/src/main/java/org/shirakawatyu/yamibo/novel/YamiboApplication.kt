@@ -25,7 +25,7 @@ class YamiboApplication : Application(), ImageLoaderFactory {
         Looper.myQueue().addIdleHandler {
             try {
                 systemUserAgent = WebSettings.getDefaultUserAgent(this@YamiboApplication)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 systemUserAgent = System.getProperty("http.agent") ?: ""
             }
             false
@@ -33,13 +33,12 @@ class YamiboApplication : Application(), ImageLoaderFactory {
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             private var hasWarmedUp = false
-            private var startedActivityCount = 0
 
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
                 if (!hasWarmedUp) {
                     Looper.myQueue().addIdleHandler {
                         if (!activity.isFinishing && !activity.isDestroyed) {
-                            WebViewPool.deepWarmUp(activity)
+                            WebViewPool.deepWarmUp(this@YamiboApplication)
                             hasWarmedUp = true
                         }
                         false
@@ -47,22 +46,10 @@ class YamiboApplication : Application(), ImageLoaderFactory {
                 }
             }
 
-            override fun onActivityStarted(activity: Activity) {
-                startedActivityCount++
-                if (startedActivityCount == 1) {
-                    WebViewPool.cancelCleanup()
-                }
-            }
-
-            override fun onActivityStopped(activity: Activity) {
-                startedActivityCount--
-                if (startedActivityCount == 0) {
-                    WebViewPool.scheduleCleanup()
-                }
-            }
-
+            override fun onActivityStarted(activity: Activity) {}
             override fun onActivityResumed(activity: Activity) {}
             override fun onActivityPaused(activity: Activity) {}
+            override fun onActivityStopped(activity: Activity) {}
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: Activity) {}
         })

@@ -989,9 +989,6 @@ fun MinePage(
                     canGoBack = evaluateCanGoBack(webView)
                     currentUrl = webView.url
                     pageTitle = webView.title ?: ""
-
-                    webView.requestLayout()
-                    webView.invalidate()
                 },
                 onRelease = { webView ->
                     timeoutJob?.cancel()

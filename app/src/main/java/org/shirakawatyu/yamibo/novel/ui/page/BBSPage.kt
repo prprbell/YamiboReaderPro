@@ -73,6 +73,7 @@ import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
@@ -842,8 +843,10 @@ fun BBSPage(
 
         canGoBack = webView.canGoBack()
         webView.onResume()
-
-        while (true) {
+    }
+    LaunchedEffect(webView, isSelected) {
+        if (!isSelected) return@LaunchedEffect
+        while (isActive) {
             val cookieManager = CookieManager.getInstance()
             val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
             val currentLoginState = isLoggedIn(currentCookie)
@@ -854,21 +857,18 @@ fun BBSPage(
                 BBSPageState.lastLoginState = currentLoginState
             } else if (showLoadError) {
                 BBSPageState.lastLoginState = currentLoginState
-            }else if (isWebViewBlank) {
+            } else if (isWebViewBlank) {
                 BBSPageState.lastLoginState = currentLoginState
                 startLoading(mobileIndexUrl)
             } else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
-                Log.i(
-                    "BBSPage",
-                    "状态变更: ${BBSPageState.lastLoginState} -> $currentLoginState, 准备刷新"
-                )
+                Log.i("BBSPage", "状态变更: ${BBSPageState.lastLoginState} -> $currentLoginState, 准备刷新")
                 BBSPageState.lastLoginState = currentLoginState
                 startLoading(mobileIndexUrl)
             } else if (BBSPageState.lastLoginState == null) {
                 BBSPageState.lastLoginState = currentLoginState
             }
 
-            delay(500)
+            delay(1000)
         }
     }
     // 监听页面离开，保存当前URL
@@ -980,11 +980,6 @@ fun BBSPage(
                     canGoBack = webView.canGoBack()
                     currentUrl = webView.url
                     pageTitle = webView.title ?: ""
-
-                    webView.post {
-                        webView.requestLayout()
-                        webView.invalidate()
-                    }
                 },
                 onRelease = {
                     webView.onPause()
