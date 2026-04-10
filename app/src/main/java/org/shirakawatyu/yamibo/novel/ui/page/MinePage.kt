@@ -159,11 +159,9 @@ fun MinePage(
     )
     lateinit var startLoading: (webView: WebView, url: String) -> Unit
 
-    // 核心优化：废弃 baseIndex，改用基于当前和上一条 URL 的精确检测，解决异步导致的混乱
     fun evaluateCanGoBack(view: WebView?): Boolean {
         if (view == null || !view.canGoBack()) return false
         val currUrl = view.url ?: ""
-        // 如果当前处在根页面，不准 WebView 返回
         if (currUrl.contains("mod=space") && currUrl.contains("do=profile")) return false
 
         val list = view.copyBackForwardList()
@@ -172,7 +170,6 @@ fun MinePage(
         val backItem = list.getItemAtIndex(list.currentIndex - 1)
         val backUrl = backItem?.url ?: return false
 
-        // 过滤掉池子预热页面、空白页和基础数据流
         return backUrl.isNotBlank() &&
                 backUrl != "about:blank" &&
                 !backUrl.contains("warmup=true") &&
@@ -257,7 +254,6 @@ fun MinePage(
         }
     }
 
-    // 核心优化：接管 JS 的 goBack 调用，优先在 WebView 内部消化，避免 Compose 状态滞后引起串台
     nativeMangaApi.onGoBack = {
         if (evaluateCanGoBack(mineWebView)) {
             mineWebView.goBack()
