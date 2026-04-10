@@ -82,15 +82,21 @@ open class YamiboWebViewClient : WebViewClient() {
     }
 
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-        CookieManager.getInstance().setCookie(url, currentCookie)
-        CookieManager.getInstance().flush()
+        val targetCookie = currentCookie.ifBlank {
+            GlobalData.currentCookie
+        }
+        if (url != null && targetCookie.isNotBlank()) {
+            CookieManager.getInstance().setCookie(url, targetCookie)
+            CookieManager.getInstance().flush()
+        }
 
-        applyHideCss(view, url)
+        if (url?.startsWith(RequestConfig.BASE_URL) == true) {
+            applyHideCss(view, url)
+        }
 
         super.onPageStarted(view, url, favicon)
     }
 
-    @RequiresApi(Build.VERSION_CODES.M)
     override fun onPageCommitVisible(view: WebView?, url: String?) {
         applyHideCss(view, url)
         super.onPageCommitVisible(view, url)

@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -68,6 +69,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -82,6 +84,7 @@ import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
+import java.util.concurrent.atomic.AtomicInteger
 
 // 用于在WebView外部保存登录状态的单例对象
 object BBSPageState {
@@ -200,26 +203,32 @@ fun BBSPage(
     }
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
-            val cleanHtml = try {
-                com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
-            } catch (_: Exception) {
-                htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
+            scope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                val cleanHtml = try {
+                    JSON.parse(htmlResult) as? String ?: ""
+                } catch (_: Exception) {
+                    htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
+                }
+
+                val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    GlobalData.tempMangaUrls = urls
+                    GlobalData.tempMangaIndex = clickedIndex
+                    GlobalData.tempHtml = cleanHtml
+                    GlobalData.tempTitle = title
+
+                    webView.evaluateJavascript("window.stop();", null)
+                    webView.stopLoading()
+                    webView.onPause()
+
+                    autoOpenMangaMode = false
+                    val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
+
+                    val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
+                    navController.navigate("NativeMangaPage?url=$encodedUrl")
+                }
             }
-
-            val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
-            GlobalData.tempMangaUrls = urls
-            GlobalData.tempMangaIndex = clickedIndex
-            GlobalData.tempHtml = cleanHtml
-            GlobalData.tempTitle = title
-
-            webView.evaluateJavascript("window.stop();", null)
-            webView.stopLoading()
-            webView.onPause()
-
-            autoOpenMangaMode = false
-            val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
-            val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
-            navController.navigate("NativeMangaPage?url=$encodedUrl")
         }
     }
     val bottomNavBarVM: BottomNavBarVM =
@@ -560,7 +569,7 @@ fun BBSPage(
         }
 
         webView.webViewClient = object : YamiboWebViewClient() {
-            var contentImageCount = 0
+            val contentImageCount = AtomicInteger(0)
             val checkSectionAndInjectJs = """
                 (function(){
                 window.__pswpInit = function() {
@@ -681,7 +690,7 @@ fun BBSPage(
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 GlobalData.webProgress.value = 0
-                contentImageCount = 0
+                contentImageCount.set(0)
                 if (!showLoadError) {
                     hasError = false
                 }
@@ -718,7 +727,7 @@ fun BBSPage(
                     if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
                         !urlStr.contains("common") && !urlStr.contains("static/image")
                     ) {
-                        val count = synchronized(this) { contentImageCount++ }
+                        val count = contentImageCount.getAndIncrement()
                         val isHomePage = currentUrl == indexUrl ||
                                 currentUrl == mobileIndexUrl ||
                                 currentUrl == bbsUrl ||
@@ -734,19 +743,6 @@ fun BBSPage(
                                     "UTF-8",
                                     ByteArrayInputStream(ByteArray(0))
                                 )
-                            }
-                        } else {
-                            val delayMs = when {
-                                count < 2 -> 0L
-                                count < 7 -> (count - 1) * 200L
-                                else -> 1000L
-                            }
-
-                            if (delayMs > 0L) {
-                                try {
-                                    Thread.sleep(delayMs)
-                                } catch (_: Exception) {
-                                }
                             }
                         }
                     }
@@ -912,13 +908,24 @@ fun BBSPage(
     }
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
-    if (navBarsPadding.value > lockedNavHeightValue) lockedNavHeightValue = navBarsPadding.value
+
+    SideEffect {
+        if (navBarsPadding.value > lockedNavHeightValue) {
+            lockedNavHeightValue = navBarsPadding.value
+        }
+    }
     val lockedNavHeight = lockedNavHeightValue.dp
+
 
     val statusBarsPaddingVal = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     var lockedStatusHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
-    if (statusBarsPaddingVal.value > lockedStatusHeightValue) lockedStatusHeightValue =
-        statusBarsPaddingVal.value
+
+    SideEffect {
+        if (statusBarsPaddingVal.value > lockedStatusHeightValue) {
+            lockedStatusHeightValue = statusBarsPaddingVal.value
+        }
+    }
+
     val lockedStatusHeight = lockedStatusHeightValue.dp
 
     val isFullscreen = isFullscreenState.value || autoOpenMangaMode

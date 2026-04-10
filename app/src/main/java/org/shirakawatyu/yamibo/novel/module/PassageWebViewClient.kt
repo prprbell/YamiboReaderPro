@@ -47,7 +47,15 @@ class PassageWebViewClient(
             fullUrl.contains("hm.js")
         ) {
             val mimeType = if (baseUrl.endsWith(".css")) "text/css" else "text/plain"
-            return WebResourceResponse(mimeType, "utf-8", ByteArrayInputStream(ByteArray(0)))
+            val response = WebResourceResponse(mimeType, "utf-8", ByteArrayInputStream(ByteArray(0)))
+
+            response.responseHeaders = mapOf(
+                "Cache-Control" to "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma" to "no-cache",
+                "Expires" to "0"
+            )
+
+            return response
         }
         return super.shouldInterceptRequest(view, request)
     }
@@ -73,13 +81,13 @@ class PassageWebViewClient(
 
         return try {
             JSON.parse(jsString) as? String ?: ""
-        } catch (e: JSONException) {
+        } catch (_: JSONException) {
             if (jsString.length >= 2 && jsString.startsWith("\"") && jsString.endsWith("\"")) {
                 jsString.substring(1, jsString.length - 1)
             } else {
                 jsString
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             jsString
         }
     }

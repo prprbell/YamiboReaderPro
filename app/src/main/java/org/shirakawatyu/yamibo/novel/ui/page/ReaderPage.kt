@@ -88,6 +88,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -185,16 +186,22 @@ fun ReaderPage(
     val statusBarsPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    val rememberedStatusBarHeight = remember { mutableStateOf(0.dp) }
-    if (statusBarsPadding > rememberedStatusBarHeight.value) {
-        rememberedStatusBarHeight.value = statusBarsPadding
-    }
-    val statusBarHeight =
-        if (rememberedStatusBarHeight.value > 0.dp) rememberedStatusBarHeight.value else 28.dp
+    var rememberedStatusBarHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
 
-    val rememberedNavBarHeight = remember { mutableStateOf(0.dp) }
-    if (navBarsPadding > rememberedNavBarHeight.value) {
-        rememberedNavBarHeight.value = navBarsPadding
+    SideEffect {
+        if (statusBarsPadding.value > rememberedStatusBarHeightValue) {
+            rememberedStatusBarHeightValue = statusBarsPadding.value
+        }
+    }
+    val statusBarHeight = if (rememberedStatusBarHeightValue > 0f) rememberedStatusBarHeightValue.dp else 28.dp
+
+
+    var rememberedNavBarHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
+
+    SideEffect {
+        if (navBarsPadding.value > rememberedNavBarHeightValue) {
+            rememberedNavBarHeightValue = navBarsPadding.value
+        }
     }
 
     var isFullScreen by remember { mutableStateOf(true) }
@@ -732,7 +739,7 @@ fun ReaderPage(
                                         ) {
                                             itemsIndexed(
                                                 items = uiState.htmlList,
-                                                key = { index, item -> "${item.type}_${item.chapterTitle}_${item.data.hashCode()}_${index}" }
+                                                key = { index, item -> "${uiState.currentView}_${item.chapterTitle}_$index" }
                                             ) { index, content ->
                                                 ContentViewer(
                                                     data = content,
