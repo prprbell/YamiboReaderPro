@@ -963,18 +963,24 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
         val convertedTexts = convertedCombinedText.split(delimiter)
 
+        val replyRegex = Regex("发表于\\s*\\d{4}-\\d{1,2}-\\d{1,2}")
+
+        var currentValidTitle: String? = null
+
         for (i in messageNodes.indices) {
             val node = messageNodes[i]
-
             val rawText = convertedTexts.getOrElse(i) { rawTexts[i] }
 
-            val chapterTitle: String? = rawText.lines()
-                .firstOrNull { it.isNotBlank() }
-                ?.trim()
-                ?.take(30)
+            val firstLine = rawText.lines().firstOrNull { it.isNotBlank() }?.trim() ?: ""
+
+            if (firstLine.contains(replyRegex)) {
+                continue
+            }
+
+            currentValidTitle = firstLine.take(30)
 
             if (rawText.isNotBlank()) {
-                rawContentList.add(Content(rawText, ContentType.TEXT, chapterTitle))
+                rawContentList.add(Content(rawText, ContentType.TEXT, currentValidTitle))
             }
 
             // 处理图片
@@ -991,11 +997,11 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                             Content(
                                 "${RequestConfig.BASE_URL}/${src}",
                                 ContentType.IMG,
-                                chapterTitle
+                                currentValidTitle
                             )
                         )
                     } else {
-                        rawContentList.add(Content(src, ContentType.IMG, chapterTitle))
+                        rawContentList.add(Content(src, ContentType.IMG, currentValidTitle))
                     }
                 }
             }
