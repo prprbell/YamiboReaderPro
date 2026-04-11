@@ -205,7 +205,7 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
 @Composable
 fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
     val isAppInitialized = GlobalData.isAppInitialized
-
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
         if (!GlobalData.isAppInitialized) {
             try {
@@ -220,9 +220,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     GlobalData.isFavoriteCollapsed.value = isCollapsed
                 }
                 GlobalData.isAppInitialized = true
-//                自动签到
+//                自动签到（自用）
 //                launch(Dispatchers.IO) {
-//                    AutoSignManager.checkAndSignIfNeeded()
+//                    AutoSignManager.checkAndSignIfNeeded(context)
 //                }
             }
         }

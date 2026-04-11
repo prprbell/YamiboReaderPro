@@ -96,8 +96,6 @@ object BBSPageState {
     var isErrorState: Boolean = false
 }
 
-// 用于接收大图打开/关闭的通知
-
 class FullscreenApi {
     var onStateChange: ((Boolean) -> Unit)? = null
     var onMangaActionDone: (() -> Unit)? = null
@@ -165,9 +163,7 @@ fun BBSPage(
     var currentUrl by remember { mutableStateOf<String?>(null) }
     var pageTitle by remember { mutableStateOf("") }
 
-    var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
-    var isMangaSection by remember { mutableStateOf(false) }
 
     val canConvertToReader = remember(currentUrl, pageTitle) {
         ReaderModeDetector.canConvertToReaderMode(currentUrl, pageTitle)
@@ -255,8 +251,6 @@ fun BBSPage(
         }
     }
 
-
-
     LaunchedEffect(isLoading) {
         if (!isLoading && autoOpenMangaMode) {
             val clickJs = """
@@ -306,9 +300,6 @@ fun BBSPage(
                         }
                     }
 
-                    // ==========================================
-                    // NativeMangaApi
-                    // ==========================================
                     if (window.NativeMangaApi) {
                         var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
                         if (allImgs.length > 0) {
@@ -321,22 +312,19 @@ fun BBSPage(
                             }
                             if (urls.length > 0) {
                                 window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.title);
-                                return; // 提取成功，彻底终止后续逻辑
+                                return;
                             }
                         }
                     }
 
-                    // ==========================================
-                    // PhotoSwipe
-                    // ==========================================
                     var clickTimer = null;
                     var timeoutTimer = null;
                     
                     var observer = new MutationObserver(function(mutations, obs) {
                         if (document.querySelector('.pswp')) {
-                            obs.disconnect(); // 立即停止监听
-                            clearTimeout(timeoutTimer); // 取消 5 秒兜底
-                            if (clickTimer) clearInterval(clickTimer); // 成功后立刻停止点击重试
+                            obs.disconnect();
+                            clearTimeout(timeoutTimer);
+                            if (clickTimer) clearInterval(clickTimer);
                             
                             if (window.AndroidFullscreen) {
                                 window.AndroidFullscreen.notify(true);
@@ -346,7 +334,6 @@ fun BBSPage(
                         }
                     });
 
-                    // 开始监听 body 的子节点变化
                     observer.observe(document.body, { childList: true, subtree: true });
 
                     var clickAttempts = 0;
@@ -357,7 +344,6 @@ fun BBSPage(
                             if (clickTimer) clearInterval(clickTimer);
                             return;
                         }
-                        // 双重保险：如果在定时器触发瞬间 .pswp 已经存在，放弃本次点击防止动画错乱
                         if (document.querySelector('.pswp')) return; 
                         
                         clickAttempts++;
@@ -470,11 +456,6 @@ fun BBSPage(
                 """.trimIndent(),
                 null
             )
-
-            pendingNavigateUrl?.let { url ->
-                startLoading(url)
-                pendingNavigateUrl = null
-            }
         } else {
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
@@ -535,7 +516,6 @@ fun BBSPage(
             isPullRefreshing = true
             if (route == "BBSPage") {
                 val curl = webView.url
-                // 如果当前页面有效则原地刷新，否则重载初始页
                 if (!curl.isNullOrEmpty() && curl != "about:blank") {
                     isLoading = true
                     showLoadError = false
@@ -632,7 +612,6 @@ fun BBSPage(
                         if (window._mangaClickInjected) return 'true';
                         window._mangaClickInjected = true;
                         
-                        // 破坏可能触发原生PhotoSwipe的属性
                         var disablePhotoSwipe = function() {
                             var links = document.querySelectorAll('a[data-pswp-width], .img_one a, .message a');
                             for (var i = 0; i < links.length; i++) {
@@ -647,7 +626,6 @@ fun BBSPage(
                             }
                         };
                         disablePhotoSwipe();
-                        // 监听动态加载的图片
                         var observer = new MutationObserver(disablePhotoSwipe);
                         observer.observe(document.body, { childList: true, subtree: true });
                         
@@ -761,9 +739,7 @@ fun BBSPage(
                     isPullRefreshing = false
                     showLoadError = false
                 }
-                view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
-                    isMangaSection = result == "true" || result == "\"true\""
-                }
+                view?.evaluateJavascript(checkSectionAndInjectJs, null)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -788,9 +764,7 @@ fun BBSPage(
                 if (url != null && !url.contains("about:blank")) {
                     BBSPageState.hasSuccessfullyLoaded = true
                 }
-                view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
-                    isMangaSection = result == "true" || result == "\"true\""
-                }
+                view?.evaluateJavascript(checkSectionAndInjectJs, null)
             }
             override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
                 timeoutJob?.cancel()
@@ -871,7 +845,6 @@ fun BBSPage(
             delay(1000)
         }
     }
-    // 监听页面离开，保存当前URL
     DisposableEffect(isSelected) {
         onDispose {
             if (!isSelected) {
@@ -881,7 +854,6 @@ fun BBSPage(
     }
 
     BackHandler(enabled = true) {
-        // 判断当前是否已经在各类首页变体上
         val isHomepage = currentUrl == indexUrl || currentUrl == mobileIndexUrl ||
                 currentUrl == bbsUrl || currentUrl == baseBbsUrl ||
                 (currentUrl?.startsWith("https://bbs.yamibo.com/forum.php") == true && currentUrl?.contains(
@@ -892,15 +864,12 @@ fun BBSPage(
             canGoBack -> {
                 webView.goBack()
             }
-
             !isHomepage -> {
                 startLoading(mobileIndexUrl)
             }
-
             navController.currentBackStack.value.size > 1 -> {
                 navController.popBackStack()
             }
-
             else -> {
                 activity?.finish()
             }
@@ -1057,7 +1026,6 @@ fun BBSPage(
                     .align(Alignment.BottomEnd)
                     .padding(bottom = 150.dp)
             )
-            // 切换漫画章节的黑屏遮罩层
             if (autoOpenMangaMode) {
                 Box(
                     modifier = Modifier

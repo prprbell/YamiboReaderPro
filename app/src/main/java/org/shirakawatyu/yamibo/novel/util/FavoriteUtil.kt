@@ -3,79 +3,79 @@ package org.shirakawatyu.yamibo.novel.util
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.alibaba.fastjson2.JSON
 import com.alibaba.fastjson2.JSONObject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 /**
  * 收藏管理工具
- * 负责收藏数据的存储、合并、排序、更新等操作
+ * 采用内存防抖(Debounce)策略，化解高频 JSON 序列化带来的 I/O 抖动
  */
 class FavoriteUtil {
     companion object {
         private val key = stringPreferencesKey("yamibo_favorite")
 
-        /**
-         * 提供一个Flow，用于实时监听收藏列表的变化。
-         */
+        private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private var saveJob: Job? = null
+        private val writeMutex = Mutex()
+
         fun getFavoriteFlow(): Flow<List<Favorite>> {
-            val dataStore =
-                GlobalData.dataStore ?: throw IllegalStateException("DataStore not initialized")
-            return dataStore.data
-                .map { preferences ->
-                    val jsonString = preferences[key]
-                    if (jsonString != null) {
-                        try {
-                            jsonToHashMap(jsonString).values.toList()
-                        } catch (e: Exception) {
-                            emptyList()
-                        }
-                    } else {
+            val dataStore = GlobalData.dataStore ?: throw IllegalStateException("DataStore not initialized")
+            return dataStore.data.map { preferences ->
+                val jsonString = preferences[key]
+                if (jsonString != null) {
+                    try {
+                        jsonToHashMap(jsonString).values.toList()
+                    } catch (e: Exception) {
                         emptyList()
                     }
-                }
-        }
-
-        fun checkAndUpdateTitle(url: String, rawTitle: String?) {
-            if (rawTitle.isNullOrBlank()) return
-            val cleanTitle = rawTitle.replace(Regex(" - .*"), "")
-
-            getFavoriteMap { map ->
-                map[url]?.let { fav ->
-                    if (fav.title != cleanTitle) {
-                        updateFavorite(fav.copy(title = cleanTitle))
-                    }
+                } else {
+                    emptyList()
                 }
             }
         }
 
-        /**
-         * 保存用户手动排序后的列表。
-         */
         fun saveFavoriteOrder(orderedList: List<Favorite>) {
             val favMap = LinkedHashMap<String, Favorite>()
-            orderedList.forEach { fav ->
-                favMap[fav.url] = fav
+            orderedList.forEach { favMap[it.url] = it }
+
+            saveJob?.cancel()
+            saveJob = ioScope.launch {
+                delay(1500L)
+                writeMutex.withLock {
+                    DataStoreUtil.addData(JSON.toJSONString(favMap), key)
+                }
             }
-            DataStoreUtil.addData(JSON.toJSONString(favMap), key)
         }
 
-
-        fun updateFavorite(favorite: Favorite) {
+        // 提供给悬挂函数的同步获取 Map 方法
+        suspend fun getFavoriteMapSuspend(): LinkedHashMap<String, Favorite> = suspendCoroutine { cont ->
             DataStoreUtil.getData(key, callback = {
                 val favMap = jsonToHashMap(it)
-                favMap[favorite.url] = favorite
-                DataStoreUtil.addData(JSON.toJSONString(favMap), key)
+                cont.resume(favMap)
+            }, onNull = {
+                cont.resume(LinkedHashMap())
             })
         }
 
-        fun updateHiddenStatus(urls: Set<String>, isHidden: Boolean, onComplete: () -> Unit) {
-            DataStoreUtil.getData(key, callback = { data ->
-                val favMap = jsonToHashMap(data)
+        suspend fun updateHiddenStatus(urls: Set<String>, isHidden: Boolean) {
+            writeMutex.withLock {
+                val oldMap = getFavoriteMapSuspend()
                 var changed = false
                 urls.forEach { url ->
-                    favMap[url]?.let { fav ->
+                    oldMap[url]?.let { fav ->
                         if (fav.isHidden != isHidden) {
                             fav.isHidden = isHidden
                             changed = true
@@ -83,22 +83,82 @@ class FavoriteUtil {
                     }
                 }
                 if (changed) {
-                    DataStoreUtil.addData(JSON.toJSONString(favMap), key, onComplete)
-                } else {
-                    onComplete()
+                    suspendCancellableCoroutine { cont ->
+                        DataStoreUtil.addData(JSON.toJSONString(oldMap), key) { cont.resume(Unit) }
+                    }
                 }
-            }, onNull = onComplete)
+            }
         }
 
-        fun getFavoriteMap(callback: (map: Map<String, Favorite>) -> Unit) {
-            DataStoreUtil.getData(key, callback = {
-                val favMap = jsonToHashMap(it)
-                callback(favMap)
-            }, onNull = {
-                callback(LinkedHashMap())
-            })
+        suspend fun mergeFavoritesProgressiveSuspend(pageList: List<Favorite>): Boolean {
+            return writeMutex.withLock {
+                val oldMap = getFavoriteMapSuspend()
+                var hasNewItems = false
+                val newMap = LinkedHashMap<String, Favorite>()
+
+                for (netFav in pageList) {
+                    if (!oldMap.containsKey(netFav.url)) {
+                        newMap[netFav.url] = netFav
+                        hasNewItems = true
+                    }
+                }
+
+                for ((url, oldFav) in oldMap) {
+                    newMap[url] = oldFav
+                }
+
+                if (hasNewItems) {
+                    suspendCoroutine<Unit> { cont ->
+                        DataStoreUtil.addData(JSON.toJSONString(newMap), key) { cont.resume(Unit) }
+                    }
+                }
+                hasNewItems
+            }
         }
 
+        suspend fun cleanupDeletedFavoritesSuspend(fullNetworkList: List<Favorite>) {
+            writeMutex.withLock {
+                val oldMap = getFavoriteMapSuspend()
+                val networkUrls = fullNetworkList.map { it.url }.toSet()
+                val cleanedMap = LinkedHashMap<String, Favorite>()
+
+                oldMap.forEach { (url, fav) ->
+                    if (networkUrls.contains(url)) {
+                        cleanedMap[url] = fav
+                    }
+                }
+
+                if (cleanedMap.size != oldMap.size) {
+                    DataStoreUtil.addData(JSON.toJSONString(cleanedMap), key)
+                }
+            }
+        }
+        suspend fun updateFavoriteSuspend(favorite: Favorite) {
+            writeMutex.withLock {
+                val map = getFavoriteMapSuspend()
+                if (map.containsKey(favorite.url)) {
+                    map[favorite.url] = favorite
+                    suspendCancellableCoroutine<Unit> { cont ->
+                        DataStoreUtil.addData(JSON.toJSONString(map), key) { cont.resume(Unit) }
+                    }
+                }
+            }
+        }
+
+        suspend fun checkAndUpdateTitleSuspend(url: String, title: String?) {
+            if (title.isNullOrBlank()) return
+            writeMutex.withLock {
+                val map = getFavoriteMapSuspend()
+                map[url]?.let { fav ->
+                    if (fav.title != title) {
+                        map[url] = fav.copy(title = title)
+                        suspendCancellableCoroutine<Unit> { cont ->
+                            DataStoreUtil.addData(JSON.toJSONString(map), key) { cont.resume(Unit) }
+                        }
+                    }
+                }
+            }
+        }
         private fun jsonToHashMap(text: String): LinkedHashMap<String, Favorite> {
             val jsonObject: JSONObject = JSON.parseObject(text)
             val map = LinkedHashMap<String, Favorite>()
@@ -118,51 +178,6 @@ class FavoriteUtil {
                 map[fav.url] = fav
             }
             return map
-        }
-
-        // 渐进式合并：新数据追加到头部，有新内容返回true
-        fun mergeFavoritesProgressive(
-            pageList: List<Favorite>,
-            callback: (hasNewItems: Boolean) -> Unit
-        ) {
-            getFavoriteMap { oldMap ->
-                var hasNewItems = false
-                val newMap = LinkedHashMap<String, Favorite>()
-
-                for (netFav in pageList) {
-                    if (!oldMap.containsKey(netFav.url)) {
-                        newMap[netFav.url] = netFav
-                        hasNewItems = true
-                    }
-                }
-
-                for ((url, oldFav) in oldMap) {
-                    newMap[url] = oldFav
-                }
-
-                if (hasNewItems) {
-                    DataStoreUtil.addData(JSON.toJSONString(newMap), key)
-                }
-                callback(hasNewItems)
-            }
-        }
-
-        // 垃圾回收：删除本地有但网络上已被移除的收藏
-        fun cleanupDeletedFavorites(fullNetworkList: List<Favorite>) {
-            getFavoriteMap { oldMap ->
-                val networkUrls = fullNetworkList.map { it.url }.toSet()
-                val cleanedMap = LinkedHashMap<String, Favorite>()
-
-                oldMap.forEach { (url, fav) ->
-                    if (networkUrls.contains(url)) {
-                        cleanedMap[url] = fav
-                    }
-                }
-
-                if (cleanedMap.size != oldMap.size) {
-                    DataStoreUtil.addData(JSON.toJSONString(cleanedMap), key)
-                }
-            }
         }
     }
 }

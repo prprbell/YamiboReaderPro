@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -125,13 +126,6 @@ class MangaWebNativeJSInterface {
     }
 }
 
-/**
- * 漫画阅读页面，进入时自动开启大图模式，支持目录展示和图片进度滑动。
- *
- * @param url 帖子的初始 URL
- * @param navController 导航控制器
- * @param webChromeClient 共享的 WebChromeClient
- */
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun MangaWebPage(
@@ -154,18 +148,12 @@ fun MangaWebPage(
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
-    var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
 
-    // 1. 负责控制是否执行自动探测 JS
     var autoOpenMangaMode by rememberSaveable { mutableStateOf(!isFastForward) }
-    // 2. 负责在原生阅读器跳回时，暂时维持黑屏掩护（避免闪现网页）
     var isWaitingForNativeReturn by rememberSaveable { mutableStateOf(isFastForward) }
 
-    // 3. 最终决定是否显示黑屏的聚合状态
     val showBlackScreen = autoOpenMangaMode || isWaitingForNativeReturn
-
     val currentAutoOpenMode by rememberUpdatedState(autoOpenMangaMode)
-
 
     val mangaDirVM: MangaDirectoryVM = viewModel(
         factory = ViewModelFactory(LocalContext.current.applicationContext)
@@ -178,10 +166,7 @@ fun MangaWebPage(
         factory = ViewModelFactory(LocalContext.current.applicationContext)
     )
     val view = LocalView.current
-
-    // 标记是否正在退出
-    val bottomNavBarVM: BottomNavBarVM =
-        viewModel(viewModelStoreOwner = context)
+    val bottomNavBarVM: BottomNavBarVM = viewModel(viewModelStoreOwner = context)
 
     fun runTimeout(webView: WebView, onTimeout: () -> Unit) {
         timeoutJob?.cancel()
@@ -198,6 +183,9 @@ fun MangaWebPage(
         showLoadError = false
         retryCount = 0
 
+        CookieManager.getInstance().setCookie(loadUrl, GlobalData.currentCookie)
+        CookieManager.getInstance().flush()
+
         runTimeout(webView) {
             Log.w("MangaWebPage", "WebView loading timed out. Retrying...")
             webView.stopLoading()
@@ -213,7 +201,7 @@ fun MangaWebPage(
         }
         webView.loadUrl(loadUrl)
     }
-    // ----- 全屏状态控制 -----
+
     val isFullscreenState = remember { mutableStateOf(false) }
 
     val fullscreenApi = remember { FullscreenApiManga() }
@@ -236,11 +224,10 @@ fun MangaWebPage(
             this.webChromeClient = webChromeClient
         }
     }
-    // 生命周期监听。当从原生阅读器返回此页面时，撤销黑屏掩护
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            // 只有当页面完全结束动画、重新处于前台时，才撤销黑屏状态
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 if (isWaitingForNativeReturn) {
                     isWaitingForNativeReturn = false
@@ -332,17 +319,10 @@ fun MangaWebPage(
                 """.trimIndent(),
                 null
             )
-            pendingNavigateUrl?.let { navigateUrl ->
-                isLoading = true
-                mangaWebView.loadUrl(navigateUrl)
-                pendingNavigateUrl = null
-            }
         } else {
             if (autoOpenMangaMode) autoOpenMangaMode = false
-            // 解析目录
             currentUrl?.let { threadUrl ->
                 if (MangaTitleCleaner.extractTidFromUrl(threadUrl) != null) {
-                    // 注入 JS 探测当前页面的版块名称
                     val checkSectionJs = """
                         (function() {
                             var sectionHeader = document.querySelector('.header h2 a');
@@ -360,7 +340,6 @@ fun MangaWebPage(
                             result?.replace("\"", "") ?: ""
                         }
 
-                        // 允许的白名单
                         val allowedSections = listOf(
                             "中文百合漫画区",
                             "貼圖區",
@@ -405,11 +384,31 @@ fun MangaWebPage(
 
     LaunchedEffect(mangaWebView) {
         mangaWebView.webViewClient = object : YamiboWebViewClient() {
+            override fun onFormResubmission(
+                view: WebView?,
+                dontResend: android.os.Message?,
+                resend: android.os.Message?
+            ) {
+                resend?.sendToTarget()
+            }
+
+            override fun onRenderProcessGone(
+                view: WebView?,
+                detail: android.webkit.RenderProcessGoneDetail?
+            ): Boolean {
+                view?.let { WebViewPool.discard(it) }
+                timeoutJob?.cancel()
+                retryCount = 0
+                isLoading = false
+                showLoadError = true
+                return true
+            }
+
             override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, pageUrl, favicon)
 
                 if (url == "about:blank" || url.contains("warmup=true")) return
-
+                GlobalData.webProgress.value = 0
                 isLoading = true
                 currentUrl = pageUrl
 
@@ -479,7 +478,6 @@ fun MangaWebPage(
                     mangaWebView.loadUrl(finalUrl)
                 }
 
-                // 探测漫画版块，并注入拦截器
                 view?.evaluateJavascript(
                     """
                     (function(){
@@ -561,18 +559,6 @@ fun MangaWebPage(
         if (!initialLoadTriggered) {
             initialLoadTriggered = true
             startLoading(mangaWebView, finalUrl)
-        }
-    }
-
-    LaunchedEffect(isFullscreenState.value) {
-        if (!isFullscreenState.value) {
-            pendingNavigateUrl?.let { navigateUrl ->
-                isLoading = true
-                mangaWebView.loadUrl(navigateUrl)
-                pendingNavigateUrl = null
-            }
-        } else if (isFullscreenState.value && autoOpenMangaMode) {
-            autoOpenMangaMode = false
         }
     }
 
@@ -658,7 +644,7 @@ fun MangaWebPage(
             }
         }
     }
-    // 3. 完善快速退出逻辑
+
     val performExit = {
         bottomNavBarVM.setBottomNavBarVisibility(true)
         view.post { navController.navigateUp() }
@@ -677,7 +663,6 @@ fun MangaWebPage(
         val url = currentUrl ?: return@LaunchedEffect
         val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: return@LaunchedEffect
 
-        // 在目录中查找当前页面TID对应的章节
         val currentChapter = dir.chapters.find { it.tid == tid }
         if (currentChapter != null) {
             val checkSectionJs = """
@@ -722,7 +707,6 @@ fun MangaWebPage(
         }
     }
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. 手动画出状态栏
         Spacer(
             modifier = Modifier
                 .fillMaxWidth()
@@ -756,6 +740,7 @@ fun MangaWebPage(
                 },
                 onRelease = { webView ->
                     timeoutJob?.cancel()
+                    (webView.parent as? ViewGroup)?.removeView(webView)
                     webView.apply {
                         removeJavascriptInterface("AndroidFullscreen")
                         removeJavascriptInterface("NativeMangaApi")

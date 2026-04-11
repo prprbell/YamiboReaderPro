@@ -76,6 +76,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
@@ -131,7 +132,12 @@ fun FavoritePage(
     var showDataSaverDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { favoriteVM.refreshCacheInfo() }
-
+    DisposableEffect(Unit) {
+        favoriteVM.isFavoritePageVisible = true
+        onDispose {
+            favoriteVM.isFavoritePageVisible = false
+        }
+    }
     var showBookmarkManagement by remember { mutableStateOf(false) }
     var showDirectoryManagement by remember { mutableStateOf(false) }
     var directoryList by remember { mutableStateOf<List<MangaDirectory>>(emptyList()) }
@@ -198,9 +204,18 @@ fun FavoritePage(
         }
     }
 
-    LaunchedEffect(favoriteList) {
+    var previousCategory by remember { mutableIntStateOf(favoriteVM.currentCategory) }
+    var previousManageMode by remember { mutableStateOf(uiState.isInManageMode) }
+
+
+    LaunchedEffect(favoriteList, favoriteVM.currentCategory, uiState.isInManageMode) {
         val addedCount = favoriteList.size - previousListSize
-        if (addedCount > 0) {
+
+        val isSameCategory = favoriteVM.currentCategory == previousCategory
+        val isSameManageMode = uiState.isInManageMode == previousManageMode
+        val isNotInitialLoad = previousListSize > 0
+
+        if (isSameCategory && isSameManageMode && isNotInitialLoad && addedCount > 0) {
             if (wasAtTop) {
                 lazyListState.animateScrollToItem(0)
             } else {
@@ -209,6 +224,8 @@ fun FavoritePage(
             }
         }
         previousListSize = favoriteList.size
+        previousCategory = favoriteVM.currentCategory
+        previousManageMode = uiState.isInManageMode
     }
     LaunchedEffect(showTopToast) {
         if (showTopToast) {
@@ -525,7 +542,7 @@ fun FavoritePage(
 
         Box(modifier = Modifier.weight(1f)) {
 
-            // 1. 收藏列表
+            // 收藏列表
             LazyColumn(
                 state = lazyListState,
                 contentPadding = PaddingValues(bottom = 40.dp),
@@ -634,7 +651,7 @@ fun FavoritePage(
                 }
             }
 
-            // 2. 悬浮气泡
+            // 悬浮气泡
             androidx.compose.animation.AnimatedVisibility(
                 visible = showTopToast,
                 enter = androidx.compose.animation.slideInVertically(initialOffsetY = { -it }) +
@@ -663,7 +680,7 @@ fun FavoritePage(
                         text = "发现了 $newItemsCount 条新收藏 (点击查看)",
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                         fontSize = 14.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }

@@ -272,7 +272,6 @@ fun ReaderPage(
             if (isDiskCaching) readerVM.showCacheProgress() else showCacheDialog = true
         }
     }
-    // =======================================================
 
     DisposableEffect(window, view) {
         if (window == null || view == null) {

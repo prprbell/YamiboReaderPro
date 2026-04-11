@@ -65,7 +65,8 @@ private val TextPri = Color(0xFFE0DCD6)
 private val TextSec = Color(0xFF6B7280)
 private val TextRead = Color(0xFF3D4454)
 private val Divider = Color(0xFF222630)
-
+private val SpecialChapterRegex = Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)
+private val ChapterIndexFormat = java.text.DecimalFormat("0.###")
 data class MangaChapter(
     val index: Float,
     val title: String,
@@ -536,11 +537,11 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
     }
     // 格式化左侧的序号展示
     val displayIndex = when {
-        chapter.title.contains(Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)) -> "SP"
+        chapter.title.contains(SpecialChapterRegex) -> "SP"
         chapter.index == 999f -> "终"
         chapter.index < 1f && !chapter.title.contains(Regex("[0零〇]")) -> "Ex"
         else -> {
-            val safeStr = java.text.DecimalFormat("0.###").format(chapter.index)
+            val safeStr = ChapterIndexFormat.format(chapter.index)
 
             if (safeStr.contains(".")) {
                 val parts = safeStr.split(".")

@@ -198,7 +198,7 @@ fun FavoriteItem(
                             if (isGlobalCollapsed) {
                                 6
                             } else {
-                                3
+                                4
                             }
                         },
                         text = displayTitle,

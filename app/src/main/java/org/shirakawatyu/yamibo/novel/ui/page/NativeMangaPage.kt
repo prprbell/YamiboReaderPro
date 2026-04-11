@@ -136,6 +136,8 @@ import org.shirakawatyu.yamibo.novel.util.ZoomPanGestureHandler
 import org.shirakawatyu.yamibo.novel.util.verticalMangaZoomGesture
 import java.net.URLEncoder
 
+private val SpecialChapterRegex = Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)
+private val ChapterIndexFormat = java.text.DecimalFormat("0.###")
 @OptIn(ExperimentalFoundationApi::class, FlowPreview::class)
 @Composable
 fun NativeMangaPage(
@@ -192,11 +194,11 @@ fun NativeMangaPage(
     val getDisplayChapterNum = remember {
         { rawTitle: String, chapterNum: Float ->
             when {
-                rawTitle.contains(Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)) -> "SP"
+                rawTitle.contains(SpecialChapterRegex) -> "SP"
                 chapterNum == 999f -> "终"
                 chapterNum < 1f && !rawTitle.contains(Regex("[0零〇]")) -> "Ex"
                 else -> {
-                    val safeStr = java.text.DecimalFormat("0.###").format(chapterNum)
+                    val safeStr = ChapterIndexFormat.format(chapterNum)
                     if (safeStr.contains(".")) {
                         val parts = safeStr.split(".")
                         if (parts[1].length >= 3) "Ex" else "${parts[0]}-${parts[1].trimStart('0')}"
@@ -344,7 +346,7 @@ fun NativeMangaPage(
 
     DisposableEffect(lifecycleOwner) {
         val window = activity?.window
-        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+        window?.let { WindowCompat.getInsetsController(it, view) }
         if (window != null) {
             WindowCompat.setDecorFitsSystemWindows(window, false)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -474,7 +476,7 @@ fun NativeMangaPage(
                 object : NestedScrollConnection {
 
                     override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                        if (source == NestedScrollSource.Drag || source.toString() == "UserInput") {
+                        if (source == NestedScrollSource.UserInput) {
                             if (isVerticalMode) {
                                 val isAtTop = lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
 

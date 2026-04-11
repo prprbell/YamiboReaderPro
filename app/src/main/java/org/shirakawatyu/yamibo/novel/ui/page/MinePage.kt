@@ -1,7 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
@@ -137,9 +136,7 @@ fun MinePage(
     val mineUrl = "https://bbs.yamibo.com/home.php?mod=space&do=profile&mycenter=1&mobile=2"
 
     var canGoBack by remember { mutableStateOf(false) }
-
     var isLoading by remember { mutableStateOf(true) }
-
     var showLoadError by remember { mutableStateOf(false) }
     var hasError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -148,9 +145,7 @@ fun MinePage(
     var isPullRefreshing by remember { mutableStateOf(false) }
     var currentUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var pageTitle by remember { mutableStateOf("") }
-    var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
-    var isMangaSection by remember { mutableStateOf(false) }
     var savedMangaUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var needFallbackToHome by rememberSaveable { mutableStateOf(false) }
 
@@ -211,15 +206,15 @@ fun MinePage(
             }
             webView.loadUrl(url)
         }
-
         webView.loadUrl(url)
     }
+
     val context = LocalContext.current
     val activity = context as? ComponentActivity
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
-    val bottomNavBarVM: BottomNavBarVM =
-        viewModel(viewModelStoreOwner = context as ComponentActivity)
+    val bottomNavBarVM: BottomNavBarVM = viewModel(viewModelStoreOwner = context as ComponentActivity)
+
     DisposableEffect(Unit) {
         onDispose {
             val currentRoute = navController.currentDestination?.route ?: ""
@@ -232,6 +227,7 @@ fun MinePage(
             }
         }
     }
+
     val fullscreenApi = remember { FullscreenApiMine() }
     fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
@@ -280,6 +276,7 @@ fun MinePage(
             }
         }
     }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -295,6 +292,7 @@ fun MinePage(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
+
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         mineWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
             scope.launch(kotlinx.coroutines.Dispatchers.Default) {
@@ -327,7 +325,9 @@ fun MinePage(
             }
         }
     }
+
     ActivityWebViewLifecycleObserver(mineWebView)
+
     LaunchedEffect(isFullscreenState.value, autoOpenMangaMode) {
         val window = activity?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, view)
@@ -357,11 +357,6 @@ fun MinePage(
                 """.trimIndent(),
                 null
             )
-            pendingNavigateUrl?.let { url ->
-                isLoading = true
-                mineWebView.loadUrl(url)
-                pendingNavigateUrl = null
-            }
         } else {
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
@@ -494,7 +489,6 @@ fun MinePage(
                         if (window._mangaClickInjected) return 'true';
                         window._mangaClickInjected = true;
                         
-                        // 破坏可能触发原生PhotoSwipe的属性
                         var disablePhotoSwipe = function() {
                             var links = document.querySelectorAll('a[data-pswp-width], .img_one a, .message a');
                             for (var i = 0; i < links.length; i++) {
@@ -509,7 +503,6 @@ fun MinePage(
                             }
                         };
                         disablePhotoSwipe();
-                        // 监听动态加载的图片
                         var observer = new MutationObserver(disablePhotoSwipe);
                         observer.observe(document.body, { childList: true, subtree: true });
                         
@@ -648,9 +641,7 @@ fun MinePage(
                     isPullRefreshing = false
                     showLoadError = false
                 }
-                view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
-                    isMangaSection = result == "true" || result == "\"true\""
-                }
+                view?.evaluateJavascript(checkSectionAndInjectJs, null)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -668,10 +659,7 @@ fun MinePage(
                 }
 
                 canGoBack = evaluateCanGoBack(view)
-
-                view?.evaluateJavascript(checkSectionAndInjectJs) { result ->
-                    isMangaSection = result == "true" || result == "\"true\""
-                }
+                view?.evaluateJavascript(checkSectionAndInjectJs, null)
             }
 
             override fun onReceivedError(
@@ -760,25 +748,13 @@ fun MinePage(
             canGoBack = evaluateCanGoBack(mineWebView)
         }
     }
+
     LaunchedEffect(isSelected) {
         if (!isSelected) {
             timeoutJob?.cancel()
             retryCount = 0
             isLoading = false
             isPullRefreshing = false
-        }
-    }
-
-    LaunchedEffect(isFullscreenState.value) {
-        if (!isFullscreenState.value) {
-            pendingNavigateUrl?.let { url ->
-                isLoading = true
-
-                mineWebView.loadUrl(url)
-                pendingNavigateUrl = null
-            }
-        } else if (isFullscreenState.value && autoOpenMangaMode) {
-            autoOpenMangaMode = false
         }
     }
 
@@ -921,6 +897,7 @@ fun MinePage(
             }
         }
     }
+
     BackHandler(enabled = canGoBack || needFallbackToHome) {
         if (canGoBack) {
             mineWebView.goBack()
@@ -929,6 +906,7 @@ fun MinePage(
             startLoading(mineWebView, mineUrl)
         }
     }
+
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
 
@@ -938,7 +916,6 @@ fun MinePage(
         }
     }
     val lockedNavHeight = lockedNavHeightValue.dp
-
 
     val statusBarsPaddingVal = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     var lockedStatusHeightValue by rememberSaveable { mutableFloatStateOf(0f) }

@@ -1,10 +1,14 @@
 package org.shirakawatyu.yamibo.novel.util
 
+import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.ResponseBody
 import org.shirakawatyu.yamibo.novel.global.GlobalData
@@ -30,14 +34,15 @@ object AutoSignManager {
 
     private val LAST_SIGN_DATE_KEY = stringPreferencesKey("last_sign_date")
 
-    suspend fun checkAndSignIfNeeded() = withContext(Dispatchers.IO) {
+    @OptIn(DelicateCoroutinesApi::class)
+    suspend fun checkAndSignIfNeeded(context: Context) = withContext(Dispatchers.IO) {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
 
         val prefs = GlobalData.dataStore?.data?.first()
         val lastSignDate = prefs?.get(LAST_SIGN_DATE_KEY) ?: ""
 
         if (lastSignDate == today) {
-            Log.i(TAG, "今天 ($today) 已完成打卡，跳过执行")
+            Log.i(TAG, "今天 ($today) 已打卡")
             return@withContext
         }
 
@@ -47,7 +52,15 @@ object AutoSignManager {
             GlobalData.dataStore?.edit { preferences ->
                 preferences[LAST_SIGN_DATE_KEY] = today
             }
-            Log.i(TAG, "签到状态已确认 ($msg)")
+            withContext(Dispatchers.Main) {
+                val toast = Toast.makeText(context, "签到成功", Toast.LENGTH_SHORT)
+                toast.show()
+
+                kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) {
+                    kotlinx.coroutines.delay(1200L)
+                    toast.cancel()
+                }
+            }
         } else {
             Log.w(TAG, "签到未成功 ($msg)")
         }
@@ -66,19 +79,12 @@ object AutoSignManager {
 
             val api = YamiboRetrofit.getInstance().create(SignApi::class.java)
 
-            // 请求签到主页获取HTML
             val pageHtml = api.fetchHtml(SIGN_PAGE_URL).string()
 
-            // 提前拦截已打卡状态
-            if (pageHtml.contains(">今日已打卡</a>") || pageHtml.contains("今日已打卡")) {
-                return Pair(true, "今日已打卡")
-            }
-
-            // 正则匹配签到按钮的href链接
             val regex = """href="(plugin\.php\?id=zqlj_sign(?:&amp;|&)sign=[a-zA-Z0-9]+)"""".toRegex()
             val matchResult = regex.find(pageHtml)
 
-            if (matchResult != null) {
+            if (matchResult != null && pageHtml.contains("""class="btna">点击打卡</a>""")) {
                 val path = matchResult.groupValues[1].replace("&amp;", "&")
                 val finalSignUrl = BASE_URL + path
                 val resultHtml = api.fetchHtml(finalSignUrl).string()
@@ -89,7 +95,7 @@ object AutoSignManager {
                     Pair(true, "打卡请求已发送")
                 }
             } else {
-                return Pair(false, "解析打卡链接失败")
+                return Pair(true, "确认已完成打卡 (未检测到打卡按钮)")
             }
         } catch (_: Exception) {
             return Pair(false, "网络或解析异常")

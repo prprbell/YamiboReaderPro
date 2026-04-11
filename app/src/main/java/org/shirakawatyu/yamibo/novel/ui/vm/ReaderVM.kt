@@ -524,76 +524,74 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             if (!initialized) {
                 showLoadingScrim = true
             }
-            FavoriteUtil.getFavoriteMap { favMap ->
-                val favorite = favMap[url]
-                val targetView = favorite?.lastView ?: 1
-                val targetPageNum = favorite?.lastPage ?: 0
-                currentAuthorId = favorite?.authorId
+            val favMap = FavoriteUtil.getFavoriteMapSuspend()
 
-                val targetIndex: Int
-                if (_uiState.value.isVerticalMode) {
-                    val avgItemsPerPage = getAvgItemsPerHorizontalPage()
-                    targetIndex = (targetPageNum * avgItemsPerPage)
-                } else {
-                    targetIndex = targetPageNum
-                }
+            val favorite = favMap[url]
+            val targetView = favorite?.lastView ?: 1
+            val targetPageNum = favorite?.lastPage ?: 0
+            currentAuthorId = favorite?.authorId
 
-                // 优先检查本地缓存
-                viewModelScope.launch {
-                    val localCacheData = localCache.loadPage(url, targetView)
+            val targetIndex: Int
+            if (_uiState.value.isVerticalMode) {
+                val avgItemsPerPage = getAvgItemsPerHorizontalPage()
+                targetIndex = (targetPageNum * avgItemsPerPage)
+            } else {
+                targetIndex = targetPageNum
+            }
+            viewModelScope.launch {
+                val localCacheData = localCache.loadPage(url, targetView)
 
-                    if (localCacheData != null) {
-                        // 本地缓存命中
-                        if (currentAuthorId == null && localCacheData.authorId != null) {
-                            currentAuthorId = localCacheData.authorId
-                        }
-
-                        _uiState.value = _uiState.value.copy(
-                            currentView = targetView,
-                            maxWebView = localCacheData.maxPageNum
-                        )
-
-                        loadFinished(
-                            success = true,
-                            localCacheData.htmlContent,
-                            null,
-                            localCacheData.maxPageNum,
-                            isFromCache = true,
-                            cacheTargetIndex = targetIndex
-                        )
-                        return@launch
+                if (localCacheData != null) {
+                    // 本地缓存命中
+                    if (currentAuthorId == null && localCacheData.authorId != null) {
+                        currentAuthorId = localCacheData.authorId
                     }
 
-                    // 本地缓存未命中，检查内存缓存
-                    CacheUtil.getCache(url, targetView) { cacheData ->
-                        viewModelScope.launch {
-                            if (cacheData != null) {
+                    _uiState.value = _uiState.value.copy(
+                        currentView = targetView,
+                        maxWebView = localCacheData.maxPageNum
+                    )
 
-                                if (currentAuthorId == null && cacheData.authorId != null) {
-                                    currentAuthorId = cacheData.authorId
-                                }
+                    loadFinished(
+                        success = true,
+                        localCacheData.htmlContent,
+                        null,
+                        localCacheData.maxPageNum,
+                        isFromCache = true,
+                        cacheTargetIndex = targetIndex
+                    )
+                    return@launch
+                }
 
-                                _uiState.value = _uiState.value.copy(
-                                    currentView = targetView,
-                                    maxWebView = cacheData.maxPageNum
-                                )
+                // 本地缓存未命中，检查内存缓存
+                CacheUtil.getCache(url, targetView) { cacheData ->
+                    viewModelScope.launch {
+                        if (cacheData != null) {
 
-                                loadFinished(
-                                    success = true,
-                                    cacheData.htmlContent,
-                                    null,
-                                    cacheData.maxPageNum,
-                                    isFromCache = true,
-                                    cacheTargetIndex = targetIndex
-                                )
-                            } else {
-                                _uiState.value = _uiState.value.copy(
-                                    currentView = targetView,
-                                    initPage = targetIndex
-                                )
-
-                                loadFromNetwork(targetView)
+                            if (currentAuthorId == null && cacheData.authorId != null) {
+                                currentAuthorId = cacheData.authorId
                             }
+
+                            _uiState.value = _uiState.value.copy(
+                                currentView = targetView,
+                                maxWebView = cacheData.maxPageNum
+                            )
+
+                            loadFinished(
+                                success = true,
+                                cacheData.htmlContent,
+                                null,
+                                cacheData.maxPageNum,
+                                isFromCache = true,
+                                cacheTargetIndex = targetIndex
+                            )
+                        } else {
+                            _uiState.value = _uiState.value.copy(
+                                currentView = targetView,
+                                initPage = targetIndex
+                            )
+
+                            loadFromNetwork(targetView)
                         }
                     }
                 }
@@ -798,7 +796,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             }
 
             if (!isFromCache && !isPreloading) {
-                FavoriteUtil.checkAndUpdateTitle(url, title)
+                FavoriteUtil.checkAndUpdateTitleSuspend(url, title)
             }
 
             val (passages, chapters) = withContext(Dispatchers.Default) {
@@ -927,11 +925,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             val baseUrl = this.url
 
             viewModelScope.launch {
-                FavoriteUtil.getFavoriteMap { map ->
-                    map[baseUrl]?.let { favorite ->
-                        if (favorite.authorId == null) {
-                            FavoriteUtil.updateFavorite(favorite.copy(authorId = extractedAuthorId))
-                        }
+                val map = FavoriteUtil.getFavoriteMapSuspend()
+                map[baseUrl]?.let { favorite ->
+                    if (favorite.authorId == null) {
+                        FavoriteUtil.updateFavoriteSuspend(favorite.copy(authorId = extractedAuthorId))
                     }
                 }
             }
@@ -1274,14 +1271,15 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             valueToSave = pageToSave
         }
 
-        FavoriteUtil.getFavoriteMap {
-            it[url]?.let { it1 ->
-                FavoriteUtil.updateFavorite(
-                    it1.copy(
+        viewModelScope.launch(Dispatchers.IO) {
+            val map = FavoriteUtil.getFavoriteMapSuspend()
+            map[url]?.let { fav ->
+                FavoriteUtil.updateFavoriteSuspend(
+                    fav.copy(
                         lastPage = valueToSave,
                         lastView = uiState.value.currentView,
                         lastChapter = currentChapter,
-                        authorId = this.currentAuthorId
+                        authorId = this@ReaderVM.currentAuthorId
                     )
                 )
             }

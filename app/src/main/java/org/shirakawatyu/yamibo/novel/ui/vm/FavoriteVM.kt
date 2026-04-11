@@ -2,13 +2,22 @@ package org.shirakawatyu.yamibo.novel.ui.vm
 
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.isActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.launch
-import okhttp3.ResponseBody
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.global.GlobalData
@@ -19,9 +28,6 @@ import org.shirakawatyu.yamibo.novel.ui.state.FavoriteState
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.LocalCacheUtil
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -30,7 +36,7 @@ enum class FetchState { IDLE, BACKGROUND, MANUAL }
 class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private val _uiState = MutableStateFlow(FavoriteState())
     val uiState = _uiState.asStateFlow()
-
+    private val stateMutex = Mutex()
     // 记录当前的刷新状态，默认为空闲
     private val currentFetchState = AtomicReference(FetchState.IDLE)
 
@@ -46,8 +52,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private val SMART_SYNC_COOLDOWN = 5_000L
 
     // 等待队列：保存正在倒计时的那个任务
-    private var pendingSyncJob: kotlinx.coroutines.Job? = null
-
+    private var pendingSyncJob: Job? = null
+    private var fetchJob: Job? = null
     private var lastNavigateTime = 0L
     private val SMART_SYNC_TIMEOUT = 10 * 60 * 1000L
 
@@ -61,22 +67,26 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     var currentCategory: Int = -1
         private set
     var lastPauseTime = 0L
+    var isFavoritePageVisible = false
     // 本地缓存工具
     private val localCache by lazy { LocalCacheUtil.getInstance(applicationContext) }
 
     init {
         viewModelScope.launch {
-            FavoriteUtil.getFavoriteFlow().collect { fullList ->
-                allFavorites = fullList
-                updateUiList()
-                refreshCacheInfo(localCache.index.value)
-                val titleMap = fullList.associate {
-                    val cleanTitle = it.title.replace(Regex("^(?:【.*?】|\\[.*?\\]|\\s)+"), "")
-                        .ifBlank { it.title }
-                    it.url to cleanTitle
+            FavoriteUtil.getFavoriteFlow()
+                .flowOn(Dispatchers.IO)
+                .collect { fullList ->
+                    stateMutex.withLock {
+                        allFavorites = fullList
+                        updateUiList()
+                    }
+                    refreshCacheInfo(localCache.index.value)
+                    val titleMap = fullList.associate {
+                        val cleanTitle = it.title.replace(Regex("^(?:【.*?】|\\[.*?\\]|\\s)+"), "").ifBlank { it.title }
+                        it.url to cleanTitle
+                    }
+                    localCache.updateCacheTitles(titleMap)
                 }
-                localCache.updateCacheTitles(titleMap)
-            }
         }
 
         viewModelScope.launch {
@@ -114,59 +124,32 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             val timeSinceLast = currentTime - lastSmartSyncTime
 
             if (timeSinceLast < SMART_SYNC_COOLDOWN) {
-                // 尝试进入等待队列
-
-                // 队列里已经有排队任务了 (容量为1)，直接丢弃本次请求
-                if (pendingSyncJob?.isActive == true) {
-                    Log.d(logTag, "后台同步冷却中，且已有排队任务，丢弃本次请求")
-                    return
-                }
-
-                // 计算还需要等待多久
+                if (pendingSyncJob?.isActive == true) return
                 val waitTime = SMART_SYNC_COOLDOWN - timeSinceLast
-                Log.d(logTag, "后台同步进入等待队列，将于 ${waitTime}ms 后执行")
-
-                // 占用队列，开始倒计时
                 pendingSyncJob = viewModelScope.launch {
-                    kotlinx.coroutines.delay(waitTime)
-                    // 睡醒后，更新时间戳并真正执行请求
+                    delay(waitTime)
                     lastSmartSyncTime = System.currentTimeMillis()
                     executeActualRefresh(showLoading, isSmartSync = true)
                 }
-                return // 排队完毕，直接返回
-
+                return
             } else {
-                // 更新时间，立刻放行
                 lastSmartSyncTime = currentTime
             }
         } else {
-            // 手动刷新
             pendingSyncJob?.cancel()
             lastSmartSyncTime = System.currentTimeMillis()
         }
 
-        // 立即执行真正的刷新逻辑
         executeActualRefresh(showLoading, isSmartSync)
     }
 
     private fun executeActualRefresh(showLoading: Boolean, isSmartSync: Boolean) {
         val requestedState = if (isSmartSync) FetchState.BACKGROUND else FetchState.MANUAL
 
-        // 状态判定与拦截逻辑
         while (true) {
             val currentState = currentFetchState.get()
-
-            if (currentState == requestedState) {
-                return
-            }
-
-            if (currentState == FetchState.MANUAL) {
-                return
-            }
-
-            if (currentFetchState.compareAndSet(currentState, requestedState)) {
-                break
-            }
+            if (currentState == requestedState || currentState == FetchState.MANUAL) return
+            if (currentFetchState.compareAndSet(currentState, requestedState)) break
         }
 
         val currentGen = fetchGeneration.incrementAndGet()
@@ -176,216 +159,169 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         }
 
         CookieUtil.getCookie {
-            fetchAllFavorites(
-                page = 1,
-                accumulatedList = ArrayList(),
-                isSmartSync = isSmartSync,
-                isBackground = isSmartSync,
-                totalPages = 1,
-                generation = currentGen
-            )
+            // 取消之前的网络请求任务（防止僵尸请求）
+            fetchJob?.cancel()
+            // 启动结构化的并发网络请求
+            fetchJob = viewModelScope.launch(Dispatchers.IO) {
+                fetchAllFavoritesSuspend(
+                    isSmartSync = isSmartSync,
+                    isBackground = isSmartSync,
+                    generation = currentGen
+                )
+            }
         }
     }
 
     private fun releaseStateIfCurrent(generation: Long) {
         if (fetchGeneration.get() == generation) {
             currentFetchState.set(FetchState.IDLE)
+            viewModelScope.launch(Dispatchers.Main) {
+                _uiState.value = _uiState.value.copy(isRefreshing = false)
+            }
         }
     }
 
-    private fun fetchAllFavorites(
-        page: Int,
-        accumulatedList: ArrayList<Favorite>,
+    private suspend fun fetchAllFavoritesSuspend(
         isSmartSync: Boolean,
         isBackground: Boolean,
-        totalPages: Int,
-        generation: Long,
-        isRetry: Boolean = false
+        generation: Long
     ) {
-        // 进入递归前，检查是不是已经被覆盖的旧任务
-        if (generation != fetchGeneration.get()) return
-
         val favoriteApi = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
+        var currentPage = 1
+        var currentTotalPages = 1
+        var currentIsSmartSync = isSmartSync
+        val accumulatedList = ArrayList<Favorite>()
+        var isRetry = false
 
-        favoriteApi.getFavoritePage(page).enqueue(object : Callback<ResponseBody> {
-            override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
-                // 网络请求回来后，检查
-                if (generation != fetchGeneration.get()) return
-                viewModelScope.launch(Dispatchers.IO) {
-                    // 切入协程后，检查
-                    if (generation != fetchGeneration.get()) return@launch
+        while (currentCoroutineContext().isActive && generation == fetchGeneration.get()) {
+            try {
+                val response = favoriteApi.getFavoritePage(currentPage).execute()
 
-                    val respHTML = response.body()?.string()
-                    val pageList = mutableListOf<Favorite>()
+                if (generation != fetchGeneration.get()) break
 
-                    if (respHTML != null) {
-                        val parse = Jsoup.parse(respHTML)
-                        val favList = parse.getElementsByClass("sclist")
+                if (!response.isSuccessful) {
+                    throw Exception("Network Failed")
+                }
 
-                        favList.forEach { li ->
-                            val aTag = li.select("a").last()
-                            if (aTag != null) {
-                                pageList.add(Favorite(aTag.text(), aTag.attr("href")))
+                val respHTML = response.body()?.string()
+                val pageList = mutableListOf<Favorite>()
+
+                if (respHTML != null) {
+                    val parse = Jsoup.parse(respHTML)
+                    val favList = parse.getElementsByClass("sclist")
+
+                    favList.forEach { li ->
+                        val aTag = li.select("a").last()
+                        if (aTag != null) {
+                            pageList.add(Favorite(aTag.text(), aTag.attr("href")))
+                        }
+                    }
+                }
+
+                if (pageList.isNotEmpty()) {
+                    accumulatedList.addAll(pageList)
+
+                    // 数据库合并交由 IO 线程挂起执行
+                    val hasNewItems = FavoriteUtil.mergeFavoritesProgressiveSuspend(pageList)
+                    if (generation != fetchGeneration.get()) break
+
+                    if (currentPage == 1) {
+                        withContext(Dispatchers.Main) {
+                            _uiState.value = _uiState.value.copy(isRefreshing = false)
+                        }
+
+                        val parse = Jsoup.parse(respHTML!!)
+                        val nextPageLink = parse.select(".page a, .pg a").find {
+                            it.text().contains("下一页") || it.hasClass("nxt")
+                        }
+                        val hasNextPage = nextPageLink != null && nextPageLink.attr("href").isNotBlank()
+
+                        currentTotalPages = MangaHtmlParser.extractTotalPages(respHTML)
+                        val maxPossibleRemoteItems = currentTotalPages * 20
+
+                        stateMutex.withLock {
+                            if (allFavorites.size > maxPossibleRemoteItems) {
+                                currentIsSmartSync = false
+                            } else if (!hasNextPage) {
+                                currentIsSmartSync = false
                             }
                         }
                     }
 
-                    if (pageList.isNotEmpty()) {
-                        accumulatedList.addAll(pageList)
+                    val parse = Jsoup.parse(respHTML!!)
+                    val nextPageLink = parse.select(".page a, .pg a").find {
+                        it.text().contains("下一页") || it.hasClass("nxt")
+                    }
+                    val hasNextPage = nextPageLink != null && nextPageLink.attr("href").isNotBlank()
 
-                        FavoriteUtil.mergeFavoritesProgressive(pageList) { hasNewItems ->
-                            // 数据库合并回调回来后检查
-                            if (generation != fetchGeneration.get()) return@mergeFavoritesProgressive
+                    val shouldContinue = if (currentIsSmartSync) {
+                        hasNewItems && hasNextPage
+                    } else {
+                        hasNextPage
+                    }
 
-                            // 第一页出结果，解除UI锁定
-                            if (page == 1) {
-                                viewModelScope.launch(Dispatchers.Main) {
-                                    _uiState.value = _uiState.value.copy(isRefreshing = false)
-                                }
-                            }
+                    if (shouldContinue) {
+                        val dynamicDelay = if (isBackground) {
+                            (1200L - ((currentTotalPages - 1) * 300L)).coerceIn(600L, 1000L)
+                        } else 300L
+                        delay(dynamicDelay)
+                        currentPage++
+                        isRetry = false
+                    } else {
+                        if (!currentIsSmartSync) {
+                            FavoriteUtil.cleanupDeletedFavoritesSuspend(accumulatedList)
+                        }
+                        break
+                    }
 
-                            val parse = Jsoup.parse(respHTML!!)
-                            val nextPageLink = parse.select(".page a, .pg a").find {
-                                it.text().contains("下一页") || it.hasClass("nxt")
-                            }
-                            val hasNextPage =
-                                nextPageLink != null && nextPageLink.attr("href").isNotBlank()
+                } else {
+                    if (currentPage == 1) {
+                        val htmlStr = respHTML ?: ""
+                        val isRealEmptyPage = htmlStr.contains("您还没有添加任何收藏")
 
-                            var currentTotalPages = totalPages
-                            var currentIsSmartSync = isSmartSync
+                        if (isRealEmptyPage) {
+                            FavoriteUtil.cleanupDeletedFavoritesSuspend(emptyList())
+                            break
+                        } else {
+                            val isLoggedIn = GlobalData.currentCookie.contains("EeqY_2132_auth=")
 
-                            // 在第1页进行智能研判
-                            if (page == 1) {
-                                // 提取真实的线上总页数
-                                currentTotalPages = MangaHtmlParser.extractTotalPages(respHTML)
-                                val maxPossibleRemoteItems = currentTotalPages * 20
-
-                                // 容量检测：如果本地列表数量大于线上最大容量，说明网页端发生了大量删除
-                                if (allFavorites.size > maxPossibleRemoteItems) {
-                                    currentIsSmartSync = false
-                                }
-                                // 单页检测：如果总共只有一页，干脆转全量以便结束时顺手执行GC
-                                else if (!hasNextPage) {
-                                    currentIsSmartSync = false
-                                }
-                            }
-
-                            // 决定是否继续拉取
-                            val shouldContinue = if (currentIsSmartSync) {
-                                // 有新内容且有下一页
-                                hasNewItems && hasNextPage
-                            } else {
-                                hasNextPage
-                            }
-
-                            if (shouldContinue) {
-                                viewModelScope.launch(Dispatchers.IO) {
-                                    if (generation != fetchGeneration.get()) return@launch
-
-                                    if (isBackground) {
-                                        // 页数越多请求越快，页数越少请求越慢
-                                        val dynamicDelay =
-                                            (1200L - ((currentTotalPages - 1) * 300L)).coerceIn(
-                                                600L,
-                                                1000L
-                                            )
-                                        kotlinx.coroutines.delay(dynamicDelay)
-                                    } else {
-                                        // 手动刷新保持激进
-                                        kotlinx.coroutines.delay(300L)
+                            if (!isLoggedIn) {
+                                if (isFavoritePageVisible) {
+                                    withContext(Dispatchers.Main) {
+                                        val toast = Toast.makeText(applicationContext, "登录状态异常", Toast.LENGTH_SHORT)
+                                        toast.show()
+                                        launch { delay(1500L); toast.cancel() }
                                     }
-                                    fetchAllFavorites(
-                                        page + 1,
-                                        accumulatedList,
-                                        currentIsSmartSync,
-                                        isBackground,
-                                        currentTotalPages,
-                                        generation
-                                    )
                                 }
+                                break
+                            }
+
+                            if (!isRetry) {
+                                delay(500L)
+                                isRetry = true
+                                continue // 重新尝试第一页
                             } else {
-                                // 仅在全量模式结束时，执行本地垃圾清理
-                                if (!currentIsSmartSync) {
-                                    FavoriteUtil.cleanupDeletedFavorites(accumulatedList)
+                                if (isFavoritePageVisible) {
+                                    withContext(Dispatchers.Main) {
+                                        val toast = Toast.makeText(applicationContext, "网络状态异常", Toast.LENGTH_SHORT)
+                                        toast.show()
+                                        launch { delay(1500L); toast.cancel() }
+                                    }
                                 }
-                                // 正常结束，释放锁
-                                releaseStateIfCurrent(generation)
+                                break
                             }
                         }
                     } else {
-                        if (page == 1) {
-                            viewModelScope.launch(Dispatchers.Main) {
-                                _uiState.value = _uiState.value.copy(isRefreshing = false)
-                            }
-
-                            val htmlStr = respHTML ?: ""
-                            val isRealEmptyPage = htmlStr.contains("您还没有添加任何收藏")
-
-                            if (isRealEmptyPage) {
-                                viewModelScope.launch(Dispatchers.Main) {
-                                    _uiState.value = _uiState.value.copy(isRefreshing = false)
-                                }
-                                FavoriteUtil.cleanupDeletedFavorites(emptyList())
-                                releaseStateIfCurrent(generation)
-
-                            } else if (!isRetry) {
-
-                                viewModelScope.launch(Dispatchers.IO) {
-                                    kotlinx.coroutines.delay(1500L)
-                                    if (generation != fetchGeneration.get()) return@launch
-
-                                    fetchAllFavorites(
-                                        page = 1,
-                                        accumulatedList = accumulatedList,
-                                        isSmartSync = isSmartSync,
-                                        isBackground = isBackground,
-                                        totalPages = totalPages,
-                                        generation = generation,
-                                        isRetry = true
-                                    )
-                                }
-                                return@launch
-
-                            } else {
-                                val isLoggedIn =
-                                    GlobalData.currentCookie.contains("EeqY_2132_auth=")
-                                viewModelScope.launch(Dispatchers.Main) {
-                                    _uiState.value = _uiState.value.copy(isRefreshing = false)
-                                    if (!isLoggedIn) {
-                                        android.widget.Toast.makeText(
-                                            applicationContext,
-                                            "登录状态异常",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else {
-                                        android.widget.Toast.makeText(
-                                            applicationContext,
-                                            "网络状态异常",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                }
-                                releaseStateIfCurrent(generation)
-                            }
-                        } else {
-                            releaseStateIfCurrent(generation)
-                        }
+                        break
                     }
                 }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                e.printStackTrace()
+                break
             }
-
-            override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
-                // 已经是旧任务
-                if (generation != fetchGeneration.get()) return
-
-                t.printStackTrace()
-                viewModelScope.launch(Dispatchers.Main) {
-                    _uiState.value = _uiState.value.copy(isRefreshing = false)
-                }
-                // 网络失败，释放锁
-                releaseStateIfCurrent(generation)
-            }
-        })
+        }
+        releaseStateIfCurrent(generation)
     }
 
     fun getEffectiveResumeStrategy(): RefreshStrategy {
@@ -406,29 +342,18 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             else -> RefreshStrategy.SMART // 去网页版或其他，保持 SMART
         }
     }
-    fun updateMangaProgress(
-        favoriteUrl: String,
-        chapterUrl: String,
-        chapterTitle: String,
-        pageIndex: Int = 0
-    ) {
+    fun updateMangaProgress(favoriteUrl: String, chapterUrl: String, chapterTitle: String, pageIndex: Int = 0) {
         viewModelScope.launch(Dispatchers.IO) {
-            val updated = allFavorites.map { fav ->
-                if (fav.url == favoriteUrl) {
-                    fav.copy(
-                        lastMangaUrl = chapterUrl,
-                        lastChapter = chapterTitle,
-                        lastPage = pageIndex
-                    )
-                } else {
-                    fav
+            stateMutex.withLock {
+                val updated = allFavorites.map { fav ->
+                    if (fav.url == favoriteUrl) {
+                        fav.copy(lastMangaUrl = chapterUrl, lastChapter = chapterTitle, lastPage = pageIndex)
+                    } else fav
                 }
+                allFavorites = updated
+                FavoriteUtil.saveFavoriteOrder(updated)
             }
-            allFavorites = updated
-            FavoriteUtil.saveFavoriteOrder(updated)
-            viewModelScope.launch(Dispatchers.Main) {
-                updateUiList()
-            }
+            withContext(Dispatchers.Main) { updateUiList() }
         }
     }
 
@@ -445,19 +370,16 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         _uiState.value = _uiState.value.copy(favoriteList = currentUiList.toList())
 
         viewModelScope.launch(Dispatchers.IO) {
-            val categoryUrls = currentUiList.map { it.url }.toSet()
-            val newQueue = java.util.LinkedList(currentUiList)
+            stateMutex.withLock {
+                val categoryUrls = currentUiList.map { it.url }.toSet()
+                val newQueue = java.util.LinkedList(currentUiList)
 
-            val newListToSave = allFavorites.map { fav ->
-                if (categoryUrls.contains(fav.url)) {
-                    newQueue.poll() ?: fav
-                } else {
-                    fav
+                val newListToSave = allFavorites.map { fav ->
+                    if (categoryUrls.contains(fav.url)) newQueue.poll() ?: fav else fav
                 }
+                allFavorites = newListToSave
+                FavoriteUtil.saveFavoriteOrder(newListToSave)
             }
-
-            allFavorites = newListToSave
-            FavoriteUtil.saveFavoriteOrder(newListToSave)
         }
     }
 
@@ -482,11 +404,10 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     fun hideSelectedItems() {
         val itemsToHide = _uiState.value.selectedItems
         if (itemsToHide.isEmpty()) return
-        viewModelScope.launch {
-            FavoriteUtil.updateHiddenStatus(itemsToHide, true) {
-                viewModelScope.launch(Dispatchers.Main) {
-                    _uiState.value = _uiState.value.copy(selectedItems = emptySet())
-                }
+        viewModelScope.launch(Dispatchers.IO) {
+            FavoriteUtil.updateHiddenStatus(itemsToHide, true)
+            withContext(Dispatchers.Main) {
+                _uiState.value = _uiState.value.copy(selectedItems = emptySet())
             }
         }
     }
@@ -494,11 +415,11 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     fun unhideSelectedItems() {
         val itemsToUnhide = _uiState.value.selectedItems
         if (itemsToUnhide.isEmpty()) return
-        viewModelScope.launch {
-            FavoriteUtil.updateHiddenStatus(itemsToUnhide, false) {
-                viewModelScope.launch(Dispatchers.Main) {
-                    _uiState.value = _uiState.value.copy(selectedItems = emptySet())
-                }
+        viewModelScope.launch(Dispatchers.IO) {
+            FavoriteUtil.updateHiddenStatus(itemsToUnhide, false)
+
+            withContext(Dispatchers.Main) {
+                _uiState.value = _uiState.value.copy(selectedItems = emptySet())
             }
         }
     }
@@ -559,28 +480,32 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
     fun clearBookmark(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val updated = allFavorites.map { fav ->
-                if (fav.url == url) fav.copy(
-                    lastPage = 0,
-                    lastView = 1,
-                    lastChapter = null,
-                    lastMangaUrl = null
-                ) else fav
+            stateMutex.withLock {
+                val updated = allFavorites.map { fav ->
+                    if (fav.url == url) fav.copy(
+                        lastPage = 0,
+                        lastView = 1,
+                        lastChapter = null,
+                        lastMangaUrl = null
+                    ) else fav
+                }
+                allFavorites = updated
+                FavoriteUtil.saveFavoriteOrder(updated)
             }
-            allFavorites = updated
-            FavoriteUtil.saveFavoriteOrder(updated)
-            viewModelScope.launch(Dispatchers.Main) { updateUiList() }
+            withContext(Dispatchers.Main) { updateUiList() }
         }
     }
 
     fun clearAllBookmarks() {
         viewModelScope.launch(Dispatchers.IO) {
-            val updated = allFavorites.map { fav ->
-                fav.copy(lastPage = 0, lastView = 1, lastChapter = null, lastMangaUrl = null)
+            stateMutex.withLock {
+                val updated = allFavorites.map { fav ->
+                    fav.copy(lastPage = 0, lastView = 1, lastChapter = null, lastMangaUrl = null)
+                }
+                allFavorites = updated
+                FavoriteUtil.saveFavoriteOrder(updated)
             }
-            allFavorites = updated
-            FavoriteUtil.saveFavoriteOrder(updated)
-            viewModelScope.launch(Dispatchers.Main) { updateUiList() }
+            withContext(Dispatchers.Main) { updateUiList() }
         }
     }
 

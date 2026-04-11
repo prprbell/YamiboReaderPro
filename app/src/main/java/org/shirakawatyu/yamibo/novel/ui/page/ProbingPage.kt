@@ -52,10 +52,8 @@ fun ProbingPage(url: String, navController: NavController) {
             var currentUrl = window.location.href;
             if (!currentUrl || currentUrl === 'about:blank') return 'WAIT';
             
-            // 如果 body 不存在，或者 body 里根本没有子节点（<html><body></body></html>），说明还没开始加载真实网页
             if (!document.body || document.body.children.length === 0) return 'WAIT';
             
-            // Yamibo 论坛一般带有 .header, #wp, .message 这些标志性 DOM
             var hasForumStructure = document.querySelector('.header, #wp, .view_tit, .message');
             if (!hasForumStructure) return 'WAIT';
             
@@ -68,22 +66,23 @@ fun ProbingPage(url: String, navController: NavController) {
             var novelSections = ['文學區', '文学区', '轻小说/译文区', 'TXT小说区'];
             var isNovel = novelSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=55') !== -1;
             
-            // 1. 如果明确是【小说区】
+            // 如果明确是【小说区】
             if (isNovel) {
                 var onlyOpBtn = document.querySelector('.nav-more-item');
                 var authorId = "";
+                var encodedTitle = encodeURIComponent(document.title || '');
                 if (onlyOpBtn && onlyOpBtn.href) {
                     var match = onlyOpBtn.href.match(/authorid=(\d+)/);
                     if (match) authorId = match[1];
-                    return "1:::" + authorId;
+                    return "1:::" + authorId + ":::" + encodedTitle;
                 }
                 if (document.querySelector('.message') || document.readyState === 'complete') {
-                    return "1:::"; 
+                    return "1::::::" + encodedTitle; 
                 }
                 return 'WAIT';
             }
 
-            // 2. 如果明确是【漫画区】
+            // 如果明确是【漫画区】
             if (isManga) {
                 var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
                 if (allImgs.length > 0) {
@@ -92,7 +91,7 @@ fun ProbingPage(url: String, navController: NavController) {
                         var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
                         if (rawSrc) urls.push(new URL(rawSrc, document.baseURI).href);
                     }
-                    var encodedTitle = encodeURIComponent(document.title);
+                    var encodedTitle = encodeURIComponent(document.title || '');
                     var encodedHtml = encodeURIComponent(document.documentElement.outerHTML);
                     return "2:::" + encodedTitle + ":::" + urls.join('|||') + ":::" + encodedHtml;
                 }
@@ -100,8 +99,7 @@ fun ProbingPage(url: String, navController: NavController) {
                 return 'WAIT';
             }
 
-            // 3. 既不是小说也不是漫画
-            // 如果已经抓到了板块名称，确认是其他区，直接去原贴
+            // 既不是小说也不是漫画
             if (sectionName !== "") {
                 return "3";
             }
@@ -110,7 +108,6 @@ fun ProbingPage(url: String, navController: NavController) {
                 return 'WAIT';
             }
 
-            // 兜底
             return "3";
         })();
         """.trimIndent()
@@ -143,19 +140,34 @@ fun ProbingPage(url: String, navController: NavController) {
                     val type = parts[0].toIntOrNull() ?: 3
 
                     scope.launch(Dispatchers.IO) {
-                        FavoriteUtil.getFavoriteMap { map ->
-                            map[url]?.let { fav ->
-                                if (type == 1) {
-                                    val authorId = parts.getOrNull(1)
-                                    FavoriteUtil.updateFavorite(
-                                        fav.copy(
-                                            type = 1,
-                                            authorId = authorId
-                                        )
-                                    )
-                                } else {
-                                    FavoriteUtil.updateFavorite(fav.copy(type = type))
+                        val map = FavoriteUtil.getFavoriteMapSuspend()
+                        map[url]?.let { fav ->
+                            var changed = false
+                            var newFav = fav
+
+                            if (type == 1) {
+                                val authorId = parts.getOrNull(1)?.takeIf { it.isNotBlank() }
+                                if (fav.type != 1 || fav.authorId != authorId) {
+                                    newFav = newFav.copy(type = 1, authorId = authorId)
+                                    changed = true
                                 }
+
+                                val encodedTitle = parts.getOrNull(2) ?: ""
+                                val rawTitle = if (encodedTitle.isNotBlank()) URLDecoder.decode(encodedTitle, "UTF-8") else ""
+
+                                if (rawTitle.isNotBlank() && newFav.title != rawTitle) {
+                                    newFav = newFav.copy(title = rawTitle)
+                                    changed = true
+                                }
+                            } else {
+                                if (fav.type != type) {
+                                    newFav = newFav.copy(type = type)
+                                    changed = true
+                                }
+                            }
+
+                            if (changed) {
+                                FavoriteUtil.updateFavoriteSuspend(newFav)
                             }
                         }
 
@@ -164,8 +176,7 @@ fun ProbingPage(url: String, navController: NavController) {
                             if (type == 2) {
                                 val title = URLDecoder.decode(parts.getOrNull(1) ?: "", "UTF-8")
                                 val urlsJoined = parts.getOrNull(2) ?: ""
-                                val htmlContent =
-                                    URLDecoder.decode(parts.getOrNull(3) ?: "", "UTF-8")
+                                val htmlContent = URLDecoder.decode(parts.getOrNull(3) ?: "", "UTF-8")
                                 val urlsList = urlsJoined.split("|||").filter { it.isNotBlank() }
 
                                 GlobalData.tempMangaUrls = urlsList

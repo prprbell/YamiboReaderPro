@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -68,7 +69,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -78,8 +81,9 @@ import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
-import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
+import java.io.ByteArrayInputStream
+import java.util.concurrent.atomic.AtomicInteger
 
 private val hideCommand = """
     (function() {
@@ -104,10 +108,6 @@ class FullscreenApiOther(
     }
 }
 
-/**
- * 通用网页展示页面，用于展示未识别或“其他”类型的帖子。
- * 功能与 MinePage 完全相同，增加了页面加载后的版块自动探测逻辑。
- */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun OtherWebPage(
@@ -127,13 +127,8 @@ fun OtherWebPage(
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
-    var pendingNavigateUrl by remember { mutableStateOf<String?>(null) }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
-    var isMangaSection by remember { mutableStateOf(false) }
 
-    val canConvertToReader = remember(currentUrl) {
-        ReaderModeDetector.canConvertToReaderMode(currentUrl)
-    }
     val mangaDirVM: MangaDirectoryVM = viewModel(
         factory = ViewModelFactory(LocalContext.current.applicationContext)
     )
@@ -183,6 +178,9 @@ fun OtherWebPage(
         showLoadError = false
         retryCount = 0
 
+        CookieManager.getInstance().setCookie(loadUrl, GlobalData.currentCookie)
+        CookieManager.getInstance().flush()
+
         runTimeout(webView) {
             Log.w("OtherWebPage", "WebView loading timed out. Retrying...")
             webView.stopLoading()
@@ -199,7 +197,6 @@ fun OtherWebPage(
         webView.loadUrl(loadUrl)
     }
 
-    // ----- 全屏状态控制 -----
     val isFullscreenState = remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
@@ -237,7 +234,7 @@ fun OtherWebPage(
         }
     }
     ActivityWebViewLifecycleObserver(otherWebView)
-    // 1. 系统 UI 显隐控制
+
     LaunchedEffect(isFullscreenState.value, autoOpenMangaMode) {
         val window = activity?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, view)
@@ -254,7 +251,6 @@ fun OtherWebPage(
         }
     }
 
-    // 2. 处理大图模式逻辑与版块探测
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             otherWebView.evaluateJavascript(
@@ -262,16 +258,11 @@ fun OtherWebPage(
                 (function() {
                     var style = document.getElementById('manga-transition-style');
                     if (style) style.remove();
-                    window.pswpObserverAttached = false; // 重置标记，确保下次进入能重新绑定
+                    window.pswpObserverAttached = false;
                 })();
                 """.trimIndent(),
                 null
             )
-            pendingNavigateUrl?.let { navigateUrl ->
-                isLoading = true
-                otherWebView.loadUrl(navigateUrl)
-                pendingNavigateUrl = null
-            }
         } else {
             if (autoOpenMangaMode) autoOpenMangaMode = false
 
@@ -328,12 +319,69 @@ fun OtherWebPage(
             }
         }
     }
+
     var isHistoryCleared by remember { mutableStateOf(false) }
+
     LaunchedEffect(otherWebView) {
         otherWebView.webViewClient = object : YamiboWebViewClient() {
+            val contentImageCount = AtomicInteger(0)
+
+            override fun onFormResubmission(
+                view: WebView?,
+                dontResend: android.os.Message?,
+                resend: android.os.Message?
+            ) {
+                resend?.sendToTarget()
+            }
+
+            override fun onRenderProcessGone(
+                view: WebView?,
+                detail: android.webkit.RenderProcessGoneDetail?
+            ): Boolean {
+                view?.let { WebViewPool.discard(it) }
+                timeoutJob?.cancel()
+                retryCount = 0
+                isLoading = false
+                showLoadError = true
+                return true
+            }
+
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val urlStr = request?.url?.toString() ?: ""
+                val accept = request?.requestHeaders?.get("Accept") ?: ""
+
+                val isImage = accept.contains("image/", ignoreCase = true) ||
+                        urlStr.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)) ||
+                        urlStr.contains("attachment")
+
+                if (request?.isForMainFrame == false && isImage) {
+                    if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
+                        !urlStr.contains("common") && !urlStr.contains("static/image")
+                    ) {
+                        val count = contentImageCount.getAndIncrement()
+
+                        if (GlobalData.isDataSaverMode.value) {
+                            if (count >= 3) {
+                                return WebResourceResponse(
+                                    "image/png",
+                                    "UTF-8",
+                                    ByteArrayInputStream(ByteArray(0))
+                                )
+                            }
+                        }
+                    }
+                }
+                return super.shouldInterceptRequest(view, request)
+            }
+
             override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, pageUrl, favicon)
                 if (url == "about:blank" || url.contains("warmup=true")) return
+                GlobalData.webProgress.value = 0
+                contentImageCount.set(0)
                 isLoading = true
                 currentUrl = pageUrl
 
@@ -373,21 +421,6 @@ fun OtherWebPage(
                     retryCount = 0
                     isLoading = false
                     showLoadError = false
-                }
-                view?.evaluateJavascript(
-                    """
-                    (function(){
-                        var a = document.querySelector('.header h2 a');
-                        if (!a) return false;
-                        var t = a.innerText;
-                        return t.indexOf('中文百合漫画区') !== -1 || 
-                               t.indexOf('貼圖區') !== -1 || 
-                               t.indexOf('原创图作区') !== -1 || 
-                               t.indexOf('百合漫画图源区') !== -1;
-                    })()
-                    """.trimIndent()
-                ) { result ->
-                    isMangaSection = result == "true"
                 }
             }
 
@@ -459,7 +492,6 @@ fun OtherWebPage(
                         if (pageMatch != null) {
                             page = pageMatch.groupValues[1].toIntOrNull() ?: 1
                         } else {
-                            // 兼容静态化 URL，如 thread-12345-2-1.html
                             val threadMatch = Regex("thread-\\d+-(\\d+)").find(urlStr)
                             if (threadMatch != null) {
                                 page = threadMatch.groupValues[1].toIntOrNull() ?: 1
@@ -468,10 +500,8 @@ fun OtherWebPage(
                     }
                     page
                 }
-                // 3. 只有TID一致（或者是同一个帖子），才执行后续的页码提取和保存逻辑
                 val currentPageNum = extractPage(finishedUrl)
 
-                // 即使是“其他”页面，加载完也做一次解析
                 val checkTypeJs = """
                     (function() {
                         var sectionHeader = document.querySelector('.header h2 a');
@@ -489,46 +519,29 @@ fun OtherWebPage(
 
                 view?.evaluateJavascript(checkTypeJs) { result ->
                     val typeCode = result?.toIntOrNull() ?: 3
+
                     scope.launch(Dispatchers.IO) {
-                        FavoriteUtil.getFavoriteMap { map ->
-                            map[url]?.let { fav ->
-                                var changed = false
-                                var newFav = fav
+                        val map = FavoriteUtil.getFavoriteMapSuspend()
+                        map[url]?.let { fav ->
+                            var changed = false
+                            var newFav = fav
 
-                                // 更新类型
-                                if (fav.type != typeCode) {
-                                    newFav = newFav.copy(type = typeCode)
-                                    changed = true
-                                }
+                            if (fav.type != typeCode) {
+                                newFav = newFav.copy(type = typeCode)
+                                changed = true
+                            }
 
-                                // 更新阅读进度
-                                if (fav.lastView != currentPageNum) {
-                                    newFav = newFav.copy(lastView = currentPageNum)
-                                    changed = true
-                                }
+                            if (fav.lastView != currentPageNum) {
+                                newFav = newFav.copy(lastView = currentPageNum)
+                                changed = true
+                            }
 
-                                // 只有发生改变时才写入DataStore
-                                if (changed) {
-                                    FavoriteUtil.updateFavorite(newFav)
-                                }
+                            if (changed) {
+                                map[url] = newFav
+                                FavoriteUtil.saveFavoriteOrder(map.values.toList())
                             }
                         }
                     }
-                }
-                view?.evaluateJavascript(
-                    """
-                    (function(){
-                        var a = document.querySelector('.header h2 a');
-                        if (!a) return false;
-                        var t = a.innerText;
-                        return t.indexOf('中文百合漫画区') !== -1 || 
-                               t.indexOf('貼圖區') !== -1 || 
-                               t.indexOf('原创图作区') !== -1 || 
-                               t.indexOf('百合漫画图源区') !== -1;
-                    })()
-                    """.trimIndent()
-                ) { result ->
-                    isMangaSection = result == "true"
                 }
             }
 
@@ -563,26 +576,16 @@ fun OtherWebPage(
                 ?.startsWith("recycled") == true || otherWebView.url == "about:blank"
         ) {
             otherWebView.tag = null
-            FavoriteUtil.getFavoriteMap { map ->
+
+            scope.launch(Dispatchers.IO) {
+                val map = FavoriteUtil.getFavoriteMapSuspend()
                 val lastSavedPage = map[url]?.lastView ?: 1
                 val startUrl = getPagedUrl(finalUrl, lastSavedPage)
 
-                scope.launch(Dispatchers.Main) {
-                    otherWebView.loadUrl(startUrl)
+                withContext(Dispatchers.Main) {
+                    startLoading(otherWebView, startUrl)
                 }
             }
-        }
-    }
-
-    LaunchedEffect(isFullscreenState.value) {
-        if (!isFullscreenState.value) {
-            pendingNavigateUrl?.let { navigateUrl ->
-                isLoading = true
-                otherWebView.loadUrl(navigateUrl)
-                pendingNavigateUrl = null
-            }
-        } else if (isFullscreenState.value && autoOpenMangaMode) {
-            autoOpenMangaMode = false
         }
     }
 
@@ -725,6 +728,7 @@ fun OtherWebPage(
                 },
                 onRelease = {
                     timeoutJob?.cancel()
+                    (it.parent as? ViewGroup)?.removeView(it)
                     it.apply {
                         removeJavascriptInterface("AndroidFullscreen")
                     }
