@@ -852,7 +852,6 @@ fun BBSPage(
             }
         }
     }
-
     BackHandler(enabled = true) {
         val isHomepage = currentUrl == indexUrl || currentUrl == mobileIndexUrl ||
                 currentUrl == bbsUrl || currentUrl == baseBbsUrl ||
@@ -861,17 +860,18 @@ fun BBSPage(
                 ) == false)
 
         when {
+            isHomepage -> {
+                if (navController.currentBackStack.value.size > 1) {
+                    navController.popBackStack()
+                } else {
+                    activity?.finish()
+                }
+            }
             canGoBack -> {
                 webView.goBack()
             }
-            !isHomepage -> {
-                startLoading(mobileIndexUrl)
-            }
-            navController.currentBackStack.value.size > 1 -> {
-                navController.popBackStack()
-            }
             else -> {
-                activity?.finish()
+                startLoading(mobileIndexUrl)
             }
         }
     }
