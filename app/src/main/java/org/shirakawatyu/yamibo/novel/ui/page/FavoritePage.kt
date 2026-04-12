@@ -35,8 +35,11 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -262,10 +265,16 @@ fun FavoritePage(
     if (statusBarsPadding.value > lockedStatusHeightValue) lockedStatusHeightValue =
         statusBarsPadding.value
     val lockedStatusHeight = lockedStatusHeightValue.dp
+    var showHomePageDialog by remember { mutableStateOf(false) }
+    var currentHomePage by remember { mutableStateOf("BBSPage") }
 
+    LaunchedEffect(Unit) {
+        favoriteVM.refreshCacheInfo()
+        SettingsUtil.getHomePage { currentHomePage = it }
+    }
     Column(
         modifier = Modifier
-            .padding(bottom = lockedNavHeight + 50.dp) // 使用锁死的底部高度
+            .padding(bottom = lockedNavHeight + 50.dp)
     ) {
         Spacer(
             modifier = Modifier
@@ -445,6 +454,17 @@ fun FavoritePage(
                                 leadingIcon = {
                                     Icon(
                                         painter = painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("设置首页") },
+                                onClick = { showHomePageDialog = true; menuExpanded = false },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Home,
                                         contentDescription = null,
                                         modifier = Modifier.size(24.dp)
                                     )
@@ -684,6 +704,93 @@ fun FavoritePage(
                     )
                 }
             }
+        }
+        // 首页设置对话框
+        if (showHomePageDialog) {
+            AlertDialog(
+                onDismissRequest = { showHomePageDialog = false },
+                title = {
+                    Text("设置首页", color = MaterialTheme.colorScheme.primary)
+                },
+                text = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 收藏页选项
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { currentHomePage = "FavoritePage" }
+                                .padding(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Favorite,
+                                contentDescription = "收藏页图标",
+                                modifier = Modifier.size(30.dp),
+                                tint = if (currentHomePage == "FavoritePage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(
+                                    selected = currentHomePage == "FavoritePage",
+                                    onClick = { currentHomePage = "FavoritePage" },
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "收藏页",
+                                    color = if (currentHomePage == "FavoritePage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        // 论坛页选项
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { currentHomePage = "BBSPage" }
+                                .padding(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Home,
+                                contentDescription = "论坛页图标",
+                                modifier = Modifier.size(30.dp),
+                                tint = if (currentHomePage == "BBSPage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(
+                                    selected = currentHomePage == "BBSPage",
+                                    onClick = { currentHomePage = "BBSPage" },
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "论坛页",
+                                    color = if (currentHomePage == "BBSPage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        SettingsUtil.saveHomePage(currentHomePage)
+                        showHomePageDialog = false
+                    }) {
+                        Text("确定")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showHomePageDialog = false }) {
+                        Text("取消")
+                    }
+                }
+            )
         }
         // 缓存管理对话框
         if (showCacheManagement) {

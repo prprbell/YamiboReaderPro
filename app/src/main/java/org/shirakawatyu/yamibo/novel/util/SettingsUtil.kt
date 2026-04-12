@@ -14,7 +14,7 @@ class SettingsUtil {
         private val key = stringPreferencesKey("settings")
         private val dataSaverKey = stringPreferencesKey("data_saver_mode")
         private val collapseModeKey = stringPreferencesKey("favorite_collapse_mode")
-
+        private val homePageKey = stringPreferencesKey("home_page")
         fun saveSettings(settings: ReaderSettings) {
             DataStoreUtil.addData(JSON.toJSONString(settings), key)
         }
@@ -51,6 +51,17 @@ class SettingsUtil {
                 callback(it.toBooleanStrictOrNull() ?: false)
             }, onNull = {
                 callback(false)
+            })
+        }
+        fun saveHomePage(route: String) {
+            DataStoreUtil.addData(route, homePageKey)
+        }
+
+        fun getHomePage(callback: (route: String) -> Unit) {
+            DataStoreUtil.getData(homePageKey, callback = {
+                callback(it.ifBlank { "BBSPage" })
+            }, onNull = {
+                callback("BBSPage")
             })
         }
     }
