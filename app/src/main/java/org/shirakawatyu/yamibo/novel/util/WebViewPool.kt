@@ -35,24 +35,7 @@ object WebViewPool {
     private const val MAX_USES_PER_WEBVIEW = 8
     private const val CLEANUP_DELAY_MS = 10 * 60 * 1000L
 
-    private var hasPreloadedResources = false
     private const val BLANK_HTML = "<html><body></body></html>"
-    private val WARMUP_HTML = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <link rel="preload" href="static/image/mobile/style.css?JXg" as="style">
-            <link rel="preload" href="static/image/mobile/font/dzmicon.css?JXg" as="style">
-            <link rel="preload" href="template/oyeeh_com_baihe_f_x35/touch/common/common.css?JXg" as="style">
-            <link rel="preload" href="static/js/mobile/jquery.min.js?JXg" as="script">
-            <link rel="preload" href="static/js/mobile/common.js?JXg" as="script">
-            <link rel="preload" href="static/js/swiper/swiper-bundle.min.js?JXg" as="script">
-            <link rel="preload" href="template/oyeeh_com_baihe_f_x35/touch/common/common-footer.js?JXg" as="script">
-        </head>
-        <body></body>
-        </html>
-    """.trimIndent()
 
     private val EMPTY_WEB_CLIENT = object : WebViewClient() {
         @RequiresApi(Build.VERSION_CODES.O)
@@ -67,7 +50,6 @@ object WebViewPool {
     }
     private val EMPTY_CHROME_CLIENT = WebChromeClient()
 
-    // 状态机锁
     @Volatile private var isReplenishing = false
     @Volatile private var isCleaningDirty = false
 
@@ -78,7 +60,6 @@ object WebViewPool {
         checkMainThread("init")
         val appContext = context.applicationContext
 
-        preloadStaticResources(appContext)
         triggerAsyncReplenish(appContext)
 
         appContext.registerComponentCallbacks(object : ComponentCallbacks2 {
@@ -103,51 +84,6 @@ object WebViewPool {
         checkMainThread("clearIdlePool")
         while (pool.isNotEmpty()) {
             discardHolder(pool.removeFirst())
-        }
-    }
-
-    private fun preloadStaticResources(appContext: Context) {
-        if (hasPreloadedResources) return
-        hasPreloadedResources = true
-
-        Looper.myQueue().addIdleHandler {
-            try {
-                val preloadWebView = WebView(appContext).apply {
-                    settings.apply {
-                        javaScriptEnabled = true
-                        loadsImagesAutomatically = false
-                        blockNetworkImage = true
-                    }
-                }
-
-                var isDestroyed = false
-                val destroyTask = Runnable {
-                    if (!isDestroyed) {
-                        isDestroyed = true
-                        try { preloadWebView.destroy() } catch (_: Exception) {}
-                    }
-                }
-
-                preloadWebView.webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        mainHandler.removeCallbacks(destroyTask)
-                        mainHandler.postDelayed(destroyTask, 1000)
-                    }
-                }
-
-                mainHandler.postDelayed(destroyTask, 10000)
-
-                preloadWebView.loadDataWithBaseURL(
-                    "https://bbs.yamibo.com/?warmup=true",
-                    WARMUP_HTML,
-                    "text/html",
-                    "utf-8",
-                    null
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Preload failed", e)
-            }
-            false
         }
     }
 
@@ -210,9 +146,7 @@ object WebViewPool {
 
     fun deepWarmUp(context: Context) {
         checkMainThread("deepWarmUp")
-        val appContext = context.applicationContext
-        preloadStaticResources(appContext)
-        triggerAsyncReplenish(appContext)
+        triggerAsyncReplenish(context.applicationContext)
     }
 
     fun acquire(context: Context): WebView {

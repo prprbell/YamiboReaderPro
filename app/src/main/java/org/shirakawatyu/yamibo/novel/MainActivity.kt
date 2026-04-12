@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -195,7 +196,7 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
             textZoom = 100
             domStorageEnabled = true
         }
-        webViewClient = GlobalData.webViewClient
+        webViewClient = BBSGlobalWebViewClient()
         webChromeClient = chromeClient ?: GlobalData.webChromeClient
     }
 }
@@ -224,6 +225,17 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
 //                launch(Dispatchers.IO) {
 //                    AutoSignManager.checkAndSignIfNeeded(context)
 //                }
+            }
+        }
+    }
+    LaunchedEffect(bbsWebView, isAppInitialized) {
+        if (bbsWebView != null && isAppInitialized && !BBSPageState.hasSuccessfullyLoaded) {
+            try {
+                CookieManager.getInstance().setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
+                CookieManager.getInstance().flush()
+                bbsWebView.loadUrl("https://bbs.yamibo.com/forum.php?mobile=2")
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }

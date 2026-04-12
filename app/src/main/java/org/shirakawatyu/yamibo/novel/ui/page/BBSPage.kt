@@ -1,8 +1,8 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -15,6 +15,7 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -54,7 +55,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -67,6 +67,8 @@ import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.alibaba.fastjson2.JSON
@@ -134,6 +136,225 @@ class NativeMangaJSInterface {
     }
 }
 
+class BBSGlobalWebViewClient : YamiboWebViewClient() {
+    private val contentImageCount = AtomicInteger(0)
+
+    var onPageStartedCb: ((String?) -> Unit)? = null
+    var onPageCommitVisibleCb: ((String?) -> Unit)? = null
+    var onPageFinishedCb: ((String?) -> Unit)? = null
+    var onReceivedErrorCb: (() -> Unit)? = null
+
+    companion object {
+        const val INDEX_URL = "https://bbs.yamibo.com/forum.php"
+        const val MOBILE_INDEX_URL = "https://bbs.yamibo.com/forum.php?mobile=2"
+        const val BBS_URL = "https://bbs.yamibo.com/index.php?mobile=2"
+        const val BASE_BBS_URL = "https://bbs.yamibo.com/"
+        private val IMAGE_EXT_REGEX = Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)
+
+    }
+
+    private val checkSectionAndInjectJs = """
+        (function(){
+            window.__pswpInit = function() {
+                if (window.__globalPswpAttached) return;
+                var pswp = document.querySelector('.pswp');
+                if (!pswp) {
+                    var bodyObserver = new MutationObserver(function(mutations, obs) {
+                        if (document.querySelector('.pswp')) {
+                            obs.disconnect();
+                            window.__pswpInit();
+                        }
+                    });
+                    bodyObserver.observe(document.body, { childList: true, subtree: true });
+                    return;
+                }
+                window.__globalPswpAttached = true;
+                var checkState = function() {
+                    var isOpen = pswp.classList.contains('pswp--open') ||
+                                 pswp.classList.contains('pswp--visible') || 
+                                 (getComputedStyle(pswp).display !== 'none' && getComputedStyle(pswp).opacity > 0);
+                    if (window.__pswpLastState !== isOpen) {
+                        window.__pswpLastState = isOpen;
+                        if (window.AndroidFullscreen) window.AndroidFullscreen.notify(isOpen);
+                        if (isOpen) {
+                            setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 100);
+                        }
+                    }
+                };
+                var pswpObserver = new MutationObserver(checkState);
+                pswpObserver.observe(pswp, { attributes: true, attributeFilter: ['class', 'style'] });
+                checkState();
+            };
+            window.__pswpInit();
+            if (!window._backBtnFixed) {
+                window._backBtnFixed = true;
+                document.addEventListener('click', function(e) {
+                    var target = e.target.closest ? e.target.closest('a[href*="history.back"]') : null;
+                    if (target) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (window.NativeMangaApi && window.NativeMangaApi.goBack) {
+                            window.NativeMangaApi.goBack();
+                        } else {
+                            window.history.back();
+                        }
+                    }
+                }, true);
+            }
+            var a = document.querySelector('.header h2 a');
+            var isManga = false;
+            if (a) {
+                var t = a.innerText;
+                isManga = t.indexOf('中文百合漫画区') !== -1 || 
+                          t.indexOf('貼圖區') !== -1 || 
+                          t.indexOf('原创图作区') !== -1 || 
+                          t.indexOf('百合漫画图源区') !== -1;
+            }
+            if (isManga) {
+                if (window._mangaClickInjected) return 'true';
+                window._mangaClickInjected = true;
+                
+                var disablePhotoSwipe = function() {
+                    var links = document.querySelectorAll('a[data-pswp-width], .img_one a, .message a');
+                    for (var i = 0; i < links.length; i++) {
+                        var aNode = links[i];
+                        if (aNode.querySelector('img')) {
+                            aNode.removeAttribute('data-pswp-width');
+                            if (aNode.href && aNode.href.indexOf('javascript') === -1) {
+                                aNode.setAttribute('data-disabled-href', aNode.href);
+                                aNode.removeAttribute('href');
+                            }
+                        }
+                    }
+                };
+                disablePhotoSwipe();
+                var observer = new MutationObserver(disablePhotoSwipe);
+                observer.observe(document.body, { childList: true, subtree: true });
+                
+                document.addEventListener('click', function(e) {
+                    var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
+                    if (!targetContainer) return;
+                    
+                    var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
+                    
+                    if (targetImg) {
+                        var imgSrc = targetImg.getAttribute('src') || '';
+                        var imgZsrc = targetImg.getAttribute('zsrc') || '';
+                        
+                        if (imgSrc.indexOf('smiley') === -1 && imgZsrc.indexOf('smiley') === -1) { 
+                            e.preventDefault(); 
+                            e.stopPropagation();
+                            e.stopImmediatePropagation();
+                            
+                            var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
+                            var urls = [];
+                            var clickedIndex = 0;
+                            for (var i = 0; i < allImgs.length; i++) {
+                                var rawSrc = allImgs[i].getAttribute('zsrc') ||
+                                allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
+                                if (rawSrc) {
+                                    var absoluteUrl = new URL(rawSrc, document.baseURI).href;
+                                    urls.push(absoluteUrl);
+                                    if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
+                                }
+                            }
+                            if (window.NativeMangaApi) {
+                                window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
+                            }
+                        }
+                    }
+                }, true);
+            }
+            return isManga ? 'true' : 'false';
+        })()
+    """.trimIndent()
+
+    fun forceInjectMangaJs(webView: WebView) {
+        webView.evaluateJavascript(checkSectionAndInjectJs, null)
+    }
+
+    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+        GlobalData.webProgress.value = 0
+        contentImageCount.set(0)
+        super.onPageStarted(view, url, favicon)
+        onPageStartedCb?.invoke(url)
+    }
+
+    override fun onFormResubmission(view: WebView?, dontResend: android.os.Message?, resend: android.os.Message?) {
+        resend?.sendToTarget()
+    }
+
+    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+        val urlStr = request?.url?.toString() ?: ""
+        val accept = request?.requestHeaders?.get("Accept") ?: ""
+
+        val isImage = accept.contains("image/", ignoreCase = true) ||
+                urlStr.contains(IMAGE_EXT_REGEX) ||
+                urlStr.contains("attachment")
+
+        if (request?.isForMainFrame == false && isImage) {
+            if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
+                !urlStr.contains("common") && !urlStr.contains("static/image")
+            ) {
+                val count = contentImageCount.getAndIncrement()
+
+                val referer = request.requestHeaders?.get("Referer") ?: request.requestHeaders?.get("referer") ?: ""
+                val isHomePage = referer.endsWith("forum.php") ||
+                        referer.endsWith("forum.php?mobile=2") ||
+                        referer.endsWith("index.php?mobile=2") ||
+                        referer == "https://bbs.yamibo.com/" ||
+                        (referer.contains("forum.php") && !referer.contains("mod="))
+
+                if (GlobalData.isDataSaverMode.value && !isHomePage) {
+                    if (count >= 3) {
+                        return WebResourceResponse(
+                            "image/png",
+                            "UTF-8",
+                            ByteArrayInputStream(ByteArray(0))
+                        )
+                    }
+                }
+            }
+        }
+        return super.shouldInterceptRequest(view, request)
+    }
+
+    override fun onPageCommitVisible(view: WebView?, url: String?) {
+        super.onPageCommitVisible(view, url)
+        view?.evaluateJavascript(checkSectionAndInjectJs, null)
+        onPageCommitVisibleCb?.invoke(url)
+    }
+
+    override fun onPageFinished(view: WebView?, url: String?) {
+        super.onPageFinished(view, url)
+        val isHomepage = url == INDEX_URL || url == BBS_URL || url == BASE_BBS_URL || url == MOBILE_INDEX_URL
+        if (isHomepage) {
+            view?.clearHistory()
+        }
+        view?.evaluateJavascript(checkSectionAndInjectJs, null)
+        onPageFinishedCb?.invoke(url)
+    }
+
+    override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+        onReceivedErrorCb?.invoke()
+        return true
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+        super.onReceivedError(view, errorCode, description, failingUrl)
+        onReceivedErrorCb?.invoke()
+    }
+
+    override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
+        super.onReceivedHttpError(view, request, errorResponse)
+        if (request?.isForMainFrame == true) {
+            onReceivedErrorCb?.invoke()
+        }
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.O)
 @SuppressLint("RestrictedApi", "JavascriptInterface")
 @Composable
 fun BBSPage(
@@ -142,10 +363,10 @@ fun BBSPage(
     cookieFlow: Flow<String>,
     navController: NavController
 ) {
-    val indexUrl = "https://bbs.yamibo.com/forum.php"
-    val mobileIndexUrl = "https://bbs.yamibo.com/forum.php?mobile=2"
-    val bbsUrl = "https://bbs.yamibo.com/index.php?mobile=2"
-    val baseBbsUrl = "https://bbs.yamibo.com/"
+    val indexUrl = BBSGlobalWebViewClient.INDEX_URL
+    val mobileIndexUrl = BBSGlobalWebViewClient.MOBILE_INDEX_URL
+    val bbsUrl = BBSGlobalWebViewClient.BBS_URL
+    val baseBbsUrl = BBSGlobalWebViewClient.BASE_BBS_URL
 
     val activity = LocalContext.current as? ComponentActivity
 
@@ -220,7 +441,7 @@ fun BBSPage(
                     webView.onPause()
 
                     autoOpenMangaMode = false
-                    val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
+                    val passUrl = currentUrl ?: indexUrl
 
                     val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
                     navController.navigate("NativeMangaPage?url=$encodedUrl")
@@ -444,6 +665,7 @@ fun BBSPage(
 
         webView.loadUrl(url)
     }
+
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             webView.evaluateJavascript(
@@ -511,6 +733,7 @@ fun BBSPage(
             }
         }
     }
+
     LaunchedEffect(Unit) {
         bottomNavBarVM.refreshEvent.collect { route ->
             isPullRefreshing = true
@@ -540,318 +763,97 @@ fun BBSPage(
         }
     }
 
-    LaunchedEffect(webView, isSelected) {
-        if (!isSelected) {
-            timeoutJob?.cancel()
-            retryCount = 0
-            isLoading = false
-            isPullRefreshing = false
-            return@LaunchedEffect
-        }
+    DisposableEffect(webView, isSelected) {
+        val client = webView.webViewClient as? BBSGlobalWebViewClient
 
-        webView.webViewClient = object : YamiboWebViewClient() {
-            val contentImageCount = AtomicInteger(0)
-            val checkSectionAndInjectJs = """
-                (function(){
-                window.__pswpInit = function() {
-                        if (window.__globalPswpAttached) return;
-                        var pswp = document.querySelector('.pswp');
-                        if (!pswp) {
-                            var bodyObserver = new MutationObserver(function(mutations, obs) {
-                                if (document.querySelector('.pswp')) {
-                                    obs.disconnect();
-                                    window.__pswpInit();
-                                }
-                            });
-                            bodyObserver.observe(document.body, { childList: true, subtree: true });
-                            return;
-                        }
-                        window.__globalPswpAttached = true;
-                        var checkState = function() {
-                            var isOpen = pswp.classList.contains('pswp--open') ||
-                                         pswp.classList.contains('pswp--visible') || 
-                                         (getComputedStyle(pswp).display !== 'none' && getComputedStyle(pswp).opacity > 0);
-                            if (window.__pswpLastState !== isOpen) {
-                                window.__pswpLastState = isOpen;
-                                if (window.AndroidFullscreen) window.AndroidFullscreen.notify(isOpen);
-                                if (isOpen) {
-                                    setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 100);
-                                }
-                            }
-                        };
-                        var pswpObserver = new MutationObserver(checkState);
-                        pswpObserver.observe(pswp, { attributes: true, attributeFilter: ['class', 'style'] });
-                        checkState();
-                    };
-                    window.__pswpInit();
-                    if (!window._backBtnFixed) {
-                        window._backBtnFixed = true;
-                        document.addEventListener('click', function(e) {
-                            var target = e.target.closest ? e.target.closest('a[href*="history.back"]') : null;
-                            if (target) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (window.NativeMangaApi && window.NativeMangaApi.goBack) {
-                                    window.NativeMangaApi.goBack();
-                                } else {
-                                    window.history.back();
-                                }
-                            }
-                        }, true);
-                    }
-                    var a = document.querySelector('.header h2 a');
-                    var isManga = false;
-                    if (a) {
-                        var t = a.innerText;
-                        isManga = t.indexOf('中文百合漫画区') !== -1 || 
-                                  t.indexOf('貼圖區') !== -1 || 
-                                  t.indexOf('原创图作区') !== -1 || 
-                                  t.indexOf('百合漫画图源区') !== -1;
-                    }
-                    if (isManga) {
-                        if (window._mangaClickInjected) return 'true';
-                        window._mangaClickInjected = true;
-                        
-                        var disablePhotoSwipe = function() {
-                            var links = document.querySelectorAll('a[data-pswp-width], .img_one a, .message a');
-                            for (var i = 0; i < links.length; i++) {
-                                var aNode = links[i];
-                                if (aNode.querySelector('img')) {
-                                    aNode.removeAttribute('data-pswp-width');
-                                    if (aNode.href && aNode.href.indexOf('javascript') === -1) {
-                                        aNode.setAttribute('data-disabled-href', aNode.href);
-                                        aNode.removeAttribute('href');
-                                    }
-                                }
-                            }
-                        };
-                        disablePhotoSwipe();
-                        var observer = new MutationObserver(disablePhotoSwipe);
-                        observer.observe(document.body, { childList: true, subtree: true });
-                        
-                        document.addEventListener('click', function(e) {
-                            var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
-                            if (!targetContainer) return;
-                            
-                            var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
-                            
-                            if (targetImg) {
-                                var imgSrc = targetImg.getAttribute('src') || '';
-                                var imgZsrc = targetImg.getAttribute('zsrc') || '';
-                                
-                                if (imgSrc.indexOf('smiley') === -1 && imgZsrc.indexOf('smiley') === -1) { 
-                                    e.preventDefault(); 
-                                    e.stopPropagation();
-                                    e.stopImmediatePropagation();
-                                    
-                                    var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                                    var urls = [];
-                                    var clickedIndex = 0;
-                                    for (var i = 0; i < allImgs.length; i++) {
-                                        var rawSrc = allImgs[i].getAttribute('zsrc') ||
-                                        allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
-                                        if (rawSrc) {
-                                            var absoluteUrl = new URL(rawSrc, document.baseURI).href;
-                                            urls.push(absoluteUrl);
-                                            if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
-                                        }
-                                    }
-                                    if (window.NativeMangaApi) {
-                                        window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
-                                    }
-                                }
-                            }
-                        }, true);
-                    }
-                    return isManga ? 'true' : 'false';
-                })()
-            """.trimIndent()
-
-            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                GlobalData.webProgress.value = 0
-                contentImageCount.set(0)
-                if (!showLoadError) {
-                    hasError = false
+        if (isSelected) {
+            client?.apply {
+                onPageStartedCb = { url ->
+                    if (!showLoadError) hasError = false
+                    currentUrl = url
+                    canGoBack = webView.canGoBack()
                 }
-                super.onPageStarted(view, url, favicon)
-                currentUrl = url
-                canGoBack = view?.canGoBack() ?: false
-            }
-
-            override fun onFormResubmission(
-                view: WebView?,
-                dontResend: android.os.Message?,
-                resend: android.os.Message?
-            ) {
-                resend?.sendToTarget()
-            }
-
-            override fun shouldInterceptRequest(
-                view: WebView?,
-                request: WebResourceRequest?
-            ): WebResourceResponse? {
-                val urlStr = request?.url?.toString() ?: ""
-                val accept = request?.requestHeaders?.get("Accept") ?: ""
-
-                val isImage = accept.contains("image/", ignoreCase = true) ||
-                        urlStr.contains(
-                            Regex(
-                                "\\.(jpg|jpeg|png|webp|gif)",
-                                RegexOption.IGNORE_CASE
-                            )
-                        ) ||
-                        urlStr.contains("attachment")
-
-                if (request?.isForMainFrame == false && isImage) {
-                    if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
-                        !urlStr.contains("common") && !urlStr.contains("static/image")
-                    ) {
-                        val count = contentImageCount.getAndIncrement()
-                        val isHomePage = currentUrl == indexUrl ||
-                                currentUrl == mobileIndexUrl ||
-                                currentUrl == bbsUrl ||
-                                currentUrl == baseBbsUrl ||
-                                (currentUrl?.startsWith("https://bbs.yamibo.com/forum.php") == true && currentUrl?.contains(
-                                    "mod="
-                                ) == false)
-
-                        if (GlobalData.isDataSaverMode.value && !isHomePage) {
-                            if (count >= 3) {
-                                return WebResourceResponse(
-                                    "image/png",
-                                    "UTF-8",
-                                    ByteArrayInputStream(ByteArray(0))
-                                )
-                            }
-                        }
+                onPageCommitVisibleCb = { url ->
+                    pageTitle = webView.title ?: ""
+                    if (!hasError && isLoading) {
+                        timeoutJob?.cancel()
+                        retryCount = 0
+                        isLoading = false
+                        isPullRefreshing = false
+                        showLoadError = false
                     }
                 }
-                return super.shouldInterceptRequest(view, request)
-            }
-
-            override fun onPageCommitVisible(view: WebView?, url: String?) {
-                super.onPageCommitVisible(view, url)
-                pageTitle = view?.title ?: ""
-                if (!hasError && isLoading) {
+                onPageFinishedCb = { url ->
                     timeoutJob?.cancel()
                     retryCount = 0
                     isLoading = false
                     isPullRefreshing = false
-                    showLoadError = false
-                }
-                view?.evaluateJavascript(checkSectionAndInjectJs, null)
-            }
-
-            override fun onPageFinished(view: WebView?, url: String?) {
-                timeoutJob?.cancel()
-                retryCount = 0
-                isLoading = false
-                isPullRefreshing = false
-                if (!hasError) {
-                    showLoadError = false
-                }
-                super.onPageFinished(view, url)
-                canGoBack = view?.canGoBack() ?: false
-                if (view != null && url != null) {
-                    val isHomepage =
-                        url == indexUrl || url == bbsUrl || url == baseBbsUrl || url == mobileIndexUrl
-                    if (isHomepage) {
-                        view.clearHistory()
+                    if (!hasError) showLoadError = false
+                    canGoBack = webView.canGoBack()
+                    if (url != null && !url.contains("about:blank")) {
+                        BBSPageState.hasSuccessfullyLoaded = true
                     }
                 }
-                canGoBack = view?.canGoBack() ?: false
-
-                if (url != null && !url.contains("about:blank")) {
-                    BBSPageState.hasSuccessfullyLoaded = true
-                }
-                view?.evaluateJavascript(checkSectionAndInjectJs, null)
-            }
-            override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
-                timeoutJob?.cancel()
-                retryCount = 0
-                hasError = true
-                isLoading = false
-                isPullRefreshing = false
-                showLoadError = true
-                BBSPageState.hasSuccessfullyLoaded = false
-                return true
-            }
-            @Deprecated("Deprecated in Java")
-            override fun onReceivedError(
-                view: WebView?,
-                errorCode: Int,
-                description: String?,
-                failingUrl: String?
-            ) {
-                timeoutJob?.cancel()
-                retryCount = 0
-                super.onReceivedError(view, errorCode, description, failingUrl)
-                hasError = true
-                isLoading = false
-                isPullRefreshing = false
-                if (retryCount == 0) {
+                onReceivedErrorCb = {
+                    timeoutJob?.cancel()
+                    retryCount = 0
+                    hasError = true
+                    isLoading = false
+                    isPullRefreshing = false
                     showLoadError = true
                     BBSPageState.hasSuccessfullyLoaded = false
                 }
             }
+            canGoBack = webView.canGoBack()
+            webView.onResume()
 
-            override fun onReceivedHttpError(
-                view: WebView?,
-                request: WebResourceRequest?,
-                errorResponse: WebResourceResponse?
-            ) {
-                timeoutJob?.cancel()
-                retryCount = 0
-                super.onReceivedHttpError(view, request, errorResponse)
-                if (request?.isForMainFrame == true) {
-                    hasError = true
-                    isLoading = false
-                    isPullRefreshing = false
-                    if (retryCount == 0) {
-                        showLoadError = true
-                        BBSPageState.hasSuccessfullyLoaded = false
-                    }
+            client?.forceInjectMangaJs(webView)
+
+        } else {
+            timeoutJob?.cancel()
+            retryCount = 0
+            isLoading = false
+            isPullRefreshing = false
+        }
+
+        onDispose {
+            if (isSelected) {
+                client?.apply {
+                    onPageStartedCb = null
+                    onPageCommitVisibleCb = null
+                    onPageFinishedCb = null
+                    onReceivedErrorCb = null
                 }
             }
+            Log.d("BBSPage", "Page deselected, callbacks unbound. URL: ${webView.url}")
         }
-
-        canGoBack = webView.canGoBack()
-        webView.onResume()
     }
+
     LaunchedEffect(webView, isSelected) {
         if (!isSelected) return@LaunchedEffect
-        while (isActive) {
-            val cookieManager = CookieManager.getInstance()
-            val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
-            val currentLoginState = isLoggedIn(currentCookie)
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (isActive) {
+                val cookieManager = CookieManager.getInstance()
+                val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
+                val currentLoginState = isLoggedIn(currentCookie)
 
-            val isWebViewBlank = webView.url.isNullOrEmpty() || webView.url == "about:blank"
+                if (isLoading) {
+                    BBSPageState.lastLoginState = currentLoginState
+                } else if (showLoadError) {
+                    BBSPageState.lastLoginState = currentLoginState
+                } else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
+                    Log.i("BBSPage", "状态变更: ${BBSPageState.lastLoginState} -> $currentLoginState, 准备刷新")
+                    BBSPageState.lastLoginState = currentLoginState
+                    startLoading(mobileIndexUrl)
+                } else if (BBSPageState.lastLoginState == null) {
+                    BBSPageState.lastLoginState = currentLoginState
+                }
 
-            if (isLoading) {
-                BBSPageState.lastLoginState = currentLoginState
-            } else if (showLoadError) {
-                BBSPageState.lastLoginState = currentLoginState
-            } else if (isWebViewBlank) {
-                BBSPageState.lastLoginState = currentLoginState
-                startLoading(mobileIndexUrl)
-            } else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
-                Log.i("BBSPage", "状态变更: ${BBSPageState.lastLoginState} -> $currentLoginState, 准备刷新")
-                BBSPageState.lastLoginState = currentLoginState
-                startLoading(mobileIndexUrl)
-            } else if (BBSPageState.lastLoginState == null) {
-                BBSPageState.lastLoginState = currentLoginState
-            }
-
-            delay(1000)
-        }
-    }
-    DisposableEffect(isSelected) {
-        onDispose {
-            if (!isSelected) {
-                Log.d("BBSPage", "Page deselected, current URL: ${webView.url}")
+                delay(1000)
             }
         }
     }
+
     BackHandler(enabled = true) {
         val isHomepage = currentUrl == indexUrl || currentUrl == mobileIndexUrl ||
                 currentUrl == bbsUrl || currentUrl == baseBbsUrl ||
@@ -875,6 +877,7 @@ fun BBSPage(
             }
         }
     }
+
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
 
@@ -884,7 +887,6 @@ fun BBSPage(
         }
     }
     val lockedNavHeight = lockedNavHeightValue.dp
-
 
     val statusBarsPaddingVal = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     var lockedStatusHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
@@ -923,7 +925,7 @@ fun BBSPage(
                 )
         ) {
             AndroidView(
-                modifier = Modifier.alpha(if (isLoading && !isPullRefreshing) 0.01f else 1f),
+                modifier = Modifier,
                 factory = { context ->
                     FrameLayout(context).apply {
                         layoutParams = ViewGroup.LayoutParams(
@@ -985,9 +987,9 @@ fun BBSPage(
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(onClick = {
-                        val currentUrl = webView.url
-                        if (!currentUrl.isNullOrEmpty() && currentUrl != "about:blank") {
-                            startLoading(currentUrl)
+                        val curl = webView.url
+                        if (!curl.isNullOrEmpty() && curl != "about:blank") {
+                            startLoading(curl)
                         } else {
                             startLoading(mobileIndexUrl)
                         }
@@ -1003,7 +1005,7 @@ fun BBSPage(
                 }
             }
 
-            if (isLoading&& !isPullRefreshing) {
+            if (isLoading && !isPullRefreshing) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
                     color = YamiboColors.secondary
