@@ -35,12 +35,14 @@ import org.shirakawatyu.yamibo.novel.bean.ReaderSettings
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.PassageWebViewClient
+import org.shirakawatyu.yamibo.novel.ui.page.typefaceFromMode
 import org.shirakawatyu.yamibo.novel.ui.state.ChapterInfo
 import org.shirakawatyu.yamibo.novel.ui.state.ReaderState
 import org.shirakawatyu.yamibo.novel.util.CacheData
 import org.shirakawatyu.yamibo.novel.util.CacheUtil
 import org.shirakawatyu.yamibo.novel.util.ChineseConvertUtil
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
+import org.shirakawatyu.yamibo.novel.util.FontMetricsUtil
 import org.shirakawatyu.yamibo.novel.util.HTMLUtil
 import org.shirakawatyu.yamibo.novel.util.LocalCacheUtil
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
@@ -124,6 +126,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     // 跟踪当前缓存会话是否应显示进度对话框
     private var currentCacheSessionShowsProgress: Boolean = true
+    private var currentAsciiRatios: FloatArray = FloatArray(128) { 0.5f }
 
     data class CacheProgress(
         val totalPages: Int,
@@ -249,7 +252,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 "DiskCache: WebView loaded $loadedUrl (page $pageNum), which is not the expected page in queue. Ignoring."
             )
 
-            // 检查这是否是一个正在等待的重试页面的（可能已超时的）失败回调
+            // 检查这是否是一个正在等待的重试页面的失败回调
             if (diskCacheQueue.isNotEmpty() && pageNum == diskCacheQueue.first()) {
                 Log.w(
                     logTag,
@@ -257,7 +260,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 )
                 // 允许失败逻辑继续
             } else {
-                return // 否则，安全地忽略
+                return // 否则，忽略
             }
         }
 
@@ -496,8 +499,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     backgroundColor = bgColor,
                     loadImages = settings?.loadImages ?: false,
                     isVerticalMode = settings?.isVerticalMode ?: false,
-                    translationMode = settings?.translationMode ?: 0
+                    translationMode = settings?.translationMode ?: 0,
+                    fontFamily = settings?.getFontFamily() ?: 0
                 )
+                updateFontRatios()
                 loadWithSettings()
             }
 
@@ -1006,6 +1011,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     }
 
     private fun paginateContent(isFromCache: Boolean = false, targetWebPage: Int? = null): Pair<List<Content>, List<ChapterInfo>> {
+        updateFontRatios()
         val contentSnapshot = rawContentList.toList()
         val state = _uiState.value
 
@@ -1018,7 +1024,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 rawContentList = contentSnapshot,
                 width = pageContentWidth,
                 fontSize = state.fontSize,
-                letterSpacing = state.letterSpacing
+                letterSpacing = state.letterSpacing,
+                charRatios = currentAsciiRatios,
+                typeface = typefaceFromMode(state.fontFamily)
             ).toMutableList()
 
             if (nextHtmlList != null && nextHtmlList!!.isNotEmpty()) {
@@ -1046,6 +1054,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                         state.fontSize,
                         state.letterSpacing,
                         state.lineHeight,
+                        currentAsciiRatios,
+                        typefaceFromMode(state.fontFamily)
                     )
                     for (t in pagedText) {
                         passagesList.add(Content(t, ContentType.TEXT, content.chapterTitle))
@@ -1299,7 +1309,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             backgroundColorString,
             state.loadImages,
             state.isVerticalMode,
-            state.translationMode
+            state.translationMode,
+            state.fontFamily
         )
         SettingsUtil.saveSettings(settings)
     }
@@ -1561,5 +1572,17 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 isTransitioning = false
             }
         }
+    }
+    fun setFontFamily(fontFamily: Int) {
+        if (_uiState.value.fontFamily == fontFamily) return
+        _uiState.value = _uiState.value.copy(fontFamily = fontFamily)
+        saveCurrentSettings()
+    }
+
+    fun updateFontRatios() {
+        val state = _uiState.value
+        val typeface = typefaceFromMode(state.fontFamily)
+        val fontSizePx = ValueUtil.spToPx(state.fontSize)
+        currentAsciiRatios = FontMetricsUtil.getAsciiWidthRatios(typeface, fontSizePx)
     }
 }

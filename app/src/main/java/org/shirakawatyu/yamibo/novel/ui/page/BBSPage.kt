@@ -74,7 +74,6 @@ import androidx.navigation.NavController
 import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
@@ -360,7 +359,6 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
 fun BBSPage(
     webView: WebView,
     isSelected: Boolean,
-    cookieFlow: Flow<String>,
     navController: NavController
 ) {
     val indexUrl = BBSGlobalWebViewClient.INDEX_URL
@@ -392,7 +390,7 @@ fun BBSPage(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+            if (event == Lifecycle.Event.ON_RESUME) {
                 webView.onResume()
             }
         }
@@ -696,7 +694,7 @@ fun BBSPage(
 
                     webView.evaluateJavascript(checkSectionJs) { result ->
                         val sectionName = try {
-                            com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
+                            JSON.parse(result) as? String ?: ""
                         } catch (_: Exception) {
                             result?.replace("\"", "") ?: ""
                         }
@@ -716,7 +714,7 @@ fun BBSPage(
                             val pageTitle = webView.title ?: ""
                             webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
                                 val cleanHtml = try {
-                                    com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+                                    JSON.parse(htmlResult) as? String ?: ""
                                 } catch (_: Exception) {
                                     htmlResult.trim('"').replace("\\u003C", "<")
                                         .replace("\\\"", "\"")
@@ -773,7 +771,7 @@ fun BBSPage(
                     currentUrl = url
                     canGoBack = webView.canGoBack()
                 }
-                onPageCommitVisibleCb = { url ->
+                onPageCommitVisibleCb = { _ ->
                     pageTitle = webView.title ?: ""
                     if (!hasError && isLoading) {
                         timeoutJob?.cancel()

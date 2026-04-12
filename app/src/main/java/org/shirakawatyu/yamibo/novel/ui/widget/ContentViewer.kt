@@ -1,6 +1,7 @@
 package org.shirakawatyu.yamibo.novel.ui.widget
 
 import android.graphics.Bitmap
+import android.graphics.Typeface
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -55,7 +57,8 @@ fun ContentViewer(
     backgroundColor: Color,
     isVerticalMode: Boolean = false,
     onRefresh: () -> Unit = {},
-    bookTitle: String = ""
+    bookTitle: String = "",
+    typeface: Typeface = Typeface.DEFAULT
 ) {
     // 顶部章节标题的固定高度
     val chapterTitleHeight = 24.dp
@@ -135,7 +138,8 @@ fun ContentViewer(
                     fontSize = fontSize,
                     letterSpacing = letterSpacing,
                     color = MaterialTheme.colorScheme.onBackground,
-                    isVerticalMode = true
+                    isVerticalMode = true,
+                    typeface = typeface
                 )
             }
         }
@@ -243,7 +247,8 @@ fun ContentViewer(
                         fontSize = fontSize,
                         letterSpacing = letterSpacing,
                         color = MaterialTheme.colorScheme.onBackground,
-                        isVerticalMode = false
+                        isVerticalMode = false,
+                        typeface = typeface
                     )
                 }
             }

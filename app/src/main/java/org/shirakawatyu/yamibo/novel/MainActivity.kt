@@ -51,7 +51,6 @@ import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
-import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import java.net.URLDecoder
@@ -355,7 +354,6 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                         BBSPage(
                                             webView = bbsWebView,
                                             isSelected = selectedItemIndex == 1,
-                                            cookieFlow = GlobalData.cookieFlow,
                                             navController = navController
                                         )
                                         Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = lockedNavHeight)) {

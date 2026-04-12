@@ -285,7 +285,7 @@ fun FavoritePage(
                     Text(
                         text = "管理收藏 (${selectedItems.size})",
                         fontSize = 18.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(start = 12.dp)
                     )
@@ -311,7 +311,7 @@ fun FavoritePage(
                             Text(
                                 text = "收藏栏/${currentCat.second}",
                                 fontSize = 20.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Icon(
@@ -856,7 +856,7 @@ fun CacheManagementDialog(
                             Text(
                                 "图片缓存 (漫画)",
                                 fontSize = 14.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                             Spacer(Modifier.height(4.dp))

@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.widget
 
+import android.graphics.Typeface
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,6 +11,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import org.shirakawatyu.yamibo.novel.util.ValueUtil
@@ -30,11 +32,13 @@ fun JustifiedText(
     lineHeight: TextUnit = 24.sp,
     letterSpacing: TextUnit = 0.sp,
     color: Color = Color.Black,
-    isVerticalMode: Boolean = false
+    isVerticalMode: Boolean = false,
+    typeface: Typeface = Typeface.DEFAULT
 ) {
     val textPaint = remember {
         android.graphics.Paint().apply {
             this.isAntiAlias = true
+            this.fontFeatureSettings = "\"palt\""
         }
     }
 
@@ -58,6 +62,8 @@ fun JustifiedText(
                         this.isAntiAlias = true
                         this.textSize = fontSizePx
                         this.letterSpacing = baseLetterSpacingMultiplier
+                        this.typeface = typeface
+                        this.fontFeatureSettings = "\"palt\""
                     }
 
                     if (isVerticalMode) {
@@ -141,6 +147,7 @@ fun JustifiedText(
                         val nativeCanvas = drawContext.canvas.nativeCanvas
                         textPaint.color = color.toArgb()
                         textPaint.textSize = fontSizePx
+                        textPaint.typeface = typeface
 
                         for (i in linesToDraw.indices) {
                             val info = linesToDraw[i]

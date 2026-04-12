@@ -1,54 +1,40 @@
 package org.shirakawatyu.yamibo.novel.util
 
+import android.graphics.Paint
+import android.graphics.Typeface
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import org.shirakawatyu.yamibo.novel.bean.Content
 import org.shirakawatyu.yamibo.novel.bean.ContentType
 
-/**
- * 文本分页工具
- */
 class TextUtil {
     companion object {
+        // 避头标点集合
         private val PUNCTUATION_LINE_START_DENY_SET = BooleanArray(0x10000).apply {
             "，。,、.!？?）」)]}”\"'".forEach { char ->
                 if (char.code < size) this[char.code] = true
             }
         }
 
+        // 避尾标点集合
         private val PUNCTUATION_LINE_END_DENY_SET = BooleanArray(0x10000).apply {
             "（(「[{“\"'".forEach { char ->
                 if (char.code < size) this[char.code] = true
             }
         }
 
-        private val ASCII_CHAR_WIDTH_RATIOS = FloatArray(128).apply {
-            for (i in 0..127) {
-                val c = i.toChar()
-                this[i] = when (c) {
-                    'M', 'W', 'm', '@', '%' -> 0.85f
-                    'O', 'Q', 'G', 'C', 'D', 'w', '&', '~' -> 0.75f
-                    in 'A'..'Z', '+', '=', '<', '>' -> 0.65f
-                    'i', 'j', 'l', 'f', 't', 'r', 'I' -> 0.35f
-                    'c', 'k', 's', 'z' -> 0.5f
-                    in 'a'..'z', in '2'..'9', '0' -> 0.6f
-                    '1' -> 0.45f
-                    '.', ',', ':', ';', '\'', '"', '!', '|', '`', '-',
-                    '(', ')', '[', ']', '{', '}' -> 0.3f
-
-                    ' ' -> 0.25f
-                    else -> 0.55f
-                }
-            }
-        }
-
+        /**
+         * 横屏文本分页
+         */
         fun pagingText(
             text: String,
             height: Dp,
             width: Dp,
             fontSize: TextUnit,
             letterSpacing: TextUnit,
-            lineHeight: TextUnit
+            lineHeight: TextUnit,
+            charRatios: FloatArray,
+            typeface: Typeface // 新增：传入字体用于兜底测量
         ): List<String> {
             val targetPixelWidth = ValueUtil.dpToPx(width)
             val pageContentHeight = ValueUtil.dpToPx(height)
@@ -61,32 +47,40 @@ class TextUtil {
 
             val fontSizePx = ValueUtil.spToPx(fontSize)
             val letterSpacingPx = ValueUtil.spToPx(letterSpacing)
-            val fullWidthPx = fontSizePx + letterSpacingPx
+
+            // 初始化一把专属测量的尺子，性能开销极低
+            val measurePaint = Paint().apply {
+                this.isAntiAlias = true
+                this.textSize = fontSizePx
+                this.typeface = typeface
+                this.fontFeatureSettings = "\"palt\""
+            }
 
             return performPaging(
                 text = text,
                 targetPixelWidth = targetPixelWidth,
                 maxLine = maxLine,
-                fullWidthPx = fullWidthPx
+                fontSizePx = fontSizePx,
+                letterSpacingPx = letterSpacingPx,
+                charRatios = charRatios,
+                measurePaint = measurePaint
             )
         }
 
-        private fun calculateMaxLines(
-            totalHeightPx: Float,
-            lineHeightPx: Float,
-            safeAreaRatio: Float = 1.0f
-        ): Int {
-            val calculatedLines = ((totalHeightPx * safeAreaRatio) / lineHeightPx).toInt()
-            return calculatedLines.coerceAtLeast(1)
+        private fun calculateMaxLines(totalHeightPx: Float, lineHeightPx: Float, safeAreaRatio: Float = 1.0f): Int {
+            return ((totalHeightPx * safeAreaRatio) / lineHeightPx).toInt().coerceAtLeast(1)
         }
 
         private fun performPaging(
             text: String,
             targetPixelWidth: Float,
             maxLine: Int,
-            fullWidthPx: Float
+            fontSizePx: Float,
+            letterSpacingPx: Float,
+            charRatios: FloatArray,
+            measurePaint: Paint
         ): List<String> {
-            val avgCharsPerLine = (targetPixelWidth / fullWidthPx).toInt().coerceAtLeast(1)
+            val avgCharsPerLine = (targetPixelWidth / (fontSizePx + letterSpacingPx)).toInt().coerceAtLeast(1)
             val estimatedTotalLines = (text.length / avgCharsPerLine).coerceAtLeast(1)
             val resultLines = ArrayList<String>(estimatedTotalLines)
             var isStartOfParagraph = true
@@ -111,7 +105,10 @@ class TextUtil {
                     chunkLineOptimized(
                         line = lineToChunk,
                         targetPixelWidth = targetPixelWidth,
-                        fullWidthPx = fullWidthPx,
+                        fontSizePx = fontSizePx,
+                        letterSpacingPx = letterSpacingPx,
+                        charRatios = charRatios,
+                        measurePaint = measurePaint,
                         output = resultLines
                     )
                 }
@@ -154,7 +151,10 @@ class TextUtil {
         private fun chunkLineOptimized(
             line: String,
             targetPixelWidth: Float,
-            fullWidthPx: Float,
+            fontSizePx: Float,
+            letterSpacingPx: Float,
+            charRatios: FloatArray,
+            measurePaint: Paint,
             output: MutableList<String>
         ) {
             val lineLength = line.length
@@ -164,14 +164,23 @@ class TextUtil {
 
             while (i < lineLength) {
                 val c = line[i]
-                val charWidth =
-                    if (c.code > 127) fullWidthPx else ASCII_CHAR_WIDTH_RATIOS[c.code] * fullWidthPx
+                val code = c.code
+
+                // O(1) 懒加载测量机制
+                var ratio = if (code < 65536) charRatios[code] else 1.0f
+                if (ratio < 0f) {
+                    // 只有未测量的字符才会走进这里，测量并永久缓存
+                    ratio = measurePaint.measureText(c.toString()) / fontSizePx
+                    if (code < 65536) charRatios[code] = ratio
+                }
+
+                // 修正：正确的字宽计算公式 -> (比例 * 字号) + 字间距
+                val charWidth = (ratio * fontSizePx) + letterSpacingPx
 
                 if (currentWidth + charWidth > targetPixelWidth && i > startIndex) {
                     val lastChar = line[i - 1]
 
-                    // 避头
-                    if (c.code < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[c.code]) {
+                    if (code < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[code]) {
                         output.add(line.substring(startIndex, i + 1))
                         startIndex = i + 1
                         i = startIndex
@@ -179,7 +188,6 @@ class TextUtil {
                         continue
                     }
 
-                    // 避尾
                     if (lastChar.code < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[lastChar.code]) {
                         if (i - 1 > startIndex) {
                             output.add(line.substring(startIndex, i - 1))
@@ -204,17 +212,26 @@ class TextUtil {
             }
         }
 
+        /**
+         * 竖屏文本分页
+         */
         fun pagingTextVertical(
             rawContentList: List<Content>,
             width: Dp,
             fontSize: TextUnit,
-            letterSpacing: TextUnit
+            letterSpacing: TextUnit,
+            charRatios: FloatArray,
+            typeface: Typeface // 新增：传入字体用于兜底测量
         ): List<Content> {
-
             val targetPixelWidth = ValueUtil.dpToPx(width)
             val fontSizePx = ValueUtil.spToPx(fontSize)
             val letterSpacingPx = ValueUtil.spToPx(letterSpacing)
-            val fullWidthPx = fontSizePx + letterSpacingPx
+
+            val measurePaint = Paint().apply {
+                this.isAntiAlias = true
+                this.textSize = fontSizePx
+                this.typeface = typeface
+            }
 
             val resultLines = ArrayList<Content>()
             var isStartOfParagraph = true
@@ -254,7 +271,10 @@ class TextUtil {
                             chunkLineOptimizedVertical(
                                 line = lineToChunk,
                                 targetPixelWidth = targetPixelWidth,
-                                fullWidthPx = fullWidthPx,
+                                fontSizePx = fontSizePx,
+                                letterSpacingPx = letterSpacingPx,
+                                charRatios = charRatios,
+                                measurePaint = measurePaint,
                                 chapterTitle = chapterTitle,
                                 output = resultLines
                             )
@@ -268,7 +288,10 @@ class TextUtil {
         private fun chunkLineOptimizedVertical(
             line: String,
             targetPixelWidth: Float,
-            fullWidthPx: Float,
+            fontSizePx: Float,
+            letterSpacingPx: Float,
+            charRatios: FloatArray,
+            measurePaint: Paint,
             chapterTitle: String?,
             output: MutableList<Content>
         ) {
@@ -279,20 +302,23 @@ class TextUtil {
 
             while (i < lineLength) {
                 val c = line[i]
-                val charWidth =
-                    if (c.code > 127) fullWidthPx else ASCII_CHAR_WIDTH_RATIOS[c.code] * fullWidthPx
+                val code = c.code
+
+                // O(1) 懒加载测量机制
+                var ratio = if (code < 65536) charRatios[code] else 1.0f
+                if (ratio < 0f) {
+                    ratio = measurePaint.measureText(c.toString()) / fontSizePx
+                    if (code < 65536) charRatios[code] = ratio
+                }
+
+                // 修正：正确的字宽计算公式
+                val charWidth = (ratio * fontSizePx) + letterSpacingPx
 
                 if (currentWidth + charWidth > targetPixelWidth && i > startIndex) {
                     val lastChar = line[i - 1]
 
-                    if (c.code < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[c.code]) {
-                        output.add(
-                            Content(
-                                line.substring(startIndex, i + 1),
-                                ContentType.TEXT,
-                                chapterTitle
-                            )
-                        )
+                    if (code < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[code]) {
+                        output.add(Content(line.substring(startIndex, i + 1), ContentType.TEXT, chapterTitle))
                         startIndex = i + 1
                         i = startIndex
                         currentWidth = 0.0f
@@ -301,13 +327,7 @@ class TextUtil {
 
                     if (lastChar.code < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[lastChar.code]) {
                         if (i - 1 > startIndex) {
-                            output.add(
-                                Content(
-                                    line.substring(startIndex, i - 1),
-                                    ContentType.TEXT,
-                                    chapterTitle
-                                )
-                            )
+                            output.add(Content(line.substring(startIndex, i - 1), ContentType.TEXT, chapterTitle))
                             startIndex = i - 1
                             i = startIndex
                             currentWidth = 0.0f
@@ -315,13 +335,7 @@ class TextUtil {
                         }
                     }
 
-                    output.add(
-                        Content(
-                            line.substring(startIndex, i),
-                            ContentType.TEXT,
-                            chapterTitle
-                        )
-                    )
+                    output.add(Content(line.substring(startIndex, i), ContentType.TEXT, chapterTitle))
                     startIndex = i
                     currentWidth = 0.0f
                 } else {
@@ -331,13 +345,7 @@ class TextUtil {
             }
 
             if (startIndex < lineLength) {
-                output.add(
-                    Content(
-                        line.substring(startIndex, lineLength),
-                        ContentType.TEXT,
-                        chapterTitle
-                    )
-                )
+                output.add(Content(line.substring(startIndex, lineLength), ContentType.TEXT, chapterTitle))
             }
         }
     }

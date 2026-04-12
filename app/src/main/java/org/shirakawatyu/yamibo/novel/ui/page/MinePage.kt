@@ -318,8 +318,8 @@ fun MinePage(
                     val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
 
                     savedMangaUrl = passUrl
-                    val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
-                    val encodedOriginal = java.net.URLEncoder.encode(passUrl, "utf-8")
+                    val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
+                    val encodedOriginal = URLEncoder.encode(passUrl, "utf-8")
                     navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedOriginal")
                 }
             }
@@ -375,7 +375,7 @@ fun MinePage(
 
                     mineWebView.evaluateJavascript(checkSectionJs) { result ->
                         val sectionName = try {
-                            com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
+                            JSON.parse(result) as? String ?: ""
                         } catch (_: Exception) {
                             result?.replace("\"", "") ?: ""
                         }
@@ -395,7 +395,7 @@ fun MinePage(
                             val pageTitle = mineWebView.title ?: ""
                             mineWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
                                 val cleanHtml = try {
-                                    com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+                                    JSON.parse(htmlResult) as? String ?: ""
                                 } catch (_: Exception) {
                                     htmlResult.trim('"').replace("\\u003C", "<")
                                         .replace("\\\"", "\"")

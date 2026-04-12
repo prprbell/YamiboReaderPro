@@ -82,6 +82,7 @@ dependencies {
     implementation("sh.calvin.reorderable:reorderable:3.0.0")
     implementation("me.saket.telephoto:zoomable-image-coil:0.6.2")
     implementation("com.github.qichuan:android-opencc:1.2.0")
+    implementation("com.airbnb.android:lottie-compose:6.7.1")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

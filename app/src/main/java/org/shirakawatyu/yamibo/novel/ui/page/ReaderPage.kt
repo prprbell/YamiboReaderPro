@@ -4,10 +4,12 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.graphics.Typeface
 import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -70,7 +72,6 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
@@ -87,7 +88,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -107,6 +107,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -137,9 +138,9 @@ import org.shirakawatyu.yamibo.novel.ui.widget.CacheDialog
 import org.shirakawatyu.yamibo.novel.ui.widget.CacheProgressDialog
 import org.shirakawatyu.yamibo.novel.ui.widget.ContentViewer
 import org.shirakawatyu.yamibo.novel.ui.widget.CustomStatusBar
+import org.shirakawatyu.yamibo.novel.ui.widget.DayNightLottieSwitch
 import org.shirakawatyu.yamibo.novel.ui.widget.PassageWebView
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
-import org.shirakawatyu.yamibo.novel.util.detectReaderTransformGestures
 import org.shirakawatyu.yamibo.novel.util.rememberScreenCorner
 import kotlin.math.roundToInt
 
@@ -150,6 +151,11 @@ private val backgroundColors = listOf(
     Color(0xFFd9e0e8),
     Color(0xFFdddddd)
 )
+fun typefaceFromMode(mode: Int): Typeface = when (mode) {
+    1 -> Typeface.create("sans-serif-medium", Typeface.NORMAL) // 黑体
+    2 -> Typeface.create("serif", Typeface.NORMAL)             // 宋体
+    else -> Typeface.DEFAULT                                    // 系统
+}
 
 /**
  * 阅读器页面，用于格式化显示原论坛内容
@@ -174,6 +180,9 @@ fun ReaderPage(
         viewModelStoreOwner = LocalContext.current as ComponentActivity,
         factory = ViewModelFactory(LocalContext.current.applicationContext)
     )
+    val currentTypeface = remember(uiState.fontFamily) {
+        typefaceFromMode(uiState.fontFamily)
+    }
     // 缓存相关状态
     val cachedPages by readerVM.cachedPages.collectAsState()
     val cacheProgress by readerVM.cacheProgress.collectAsState()
@@ -289,7 +298,7 @@ fun ReaderPage(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
             onDispose {
-                windowController.systemBarsBehavior = originalBehavior.value
+                windowController.systemBarsBehavior = originalBehavior.intValue
                 windowController.show(WindowInsetsCompat.Type.systemBars())
 
             }
@@ -753,7 +762,8 @@ fun ReaderPage(
                                                     backgroundColor = finalBackground,
                                                     isVerticalMode = true,
                                                     onRefresh = onRefreshAction,
-                                                    bookTitle = bookTitle
+                                                    bookTitle = bookTitle,
+                                                    typeface = currentTypeface
                                                 )
                                             }
                                         }
@@ -807,7 +817,8 @@ fun ReaderPage(
                                                 backgroundColor = finalBackground,
                                                 isVerticalMode = false,
                                                 onRefresh = onRefreshAction,
-                                                bookTitle = bookTitle
+                                                bookTitle = bookTitle,
+                                                typeface = currentTypeface
                                             )
                                             SideEffect {
                                                 readerVM.onPageChange(
@@ -879,11 +890,27 @@ fun ReaderPage(
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("夜间模式", style = MaterialTheme.typography.bodyLarge)
+                                    Crossfade(
+                                        targetState = if (uiState.nightMode) "日间" else "夜间",
+                                        animationSpec = tween(durationMillis = 200),
+                                        label = "TextFade"
+                                    ) { text ->
+                                        Text(
+                                            text = text,
+                                            style = MaterialTheme.typography.bodyLarge.copy(
+                                                fontWeight = FontWeight.Medium,
+                                                letterSpacing = 2.sp
+                                            ),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                     Spacer(Modifier.width(12.dp))
-                                    Switch(
-                                        checked = uiState.nightMode,
-                                        onCheckedChange = { readerVM.toggleNightMode(it) })
+                                    // 右侧 Lottie 按钮
+                                    DayNightLottieSwitch(
+                                        isNightMode = uiState.nightMode,
+                                        onToggle = { readerVM.toggleNightMode(it) },
+                                        modifier = Modifier.width(64.dp).height(32.dp)
+                                    )
                                 }
                                 Spacer(Modifier.width(16.dp))
                                 var moreMenuExpanded by remember { mutableStateOf(false) }
@@ -958,13 +985,55 @@ fun ReaderPage(
                                                             text = text,
                                                             fontSize = 14.sp,
                                                             color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                                            fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                                         )
                                                     }
                                                 }
                                             }
                                         }
-
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(vertical = 4.dp),
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+                                        )
+                                        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .width(180.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                                                    .padding(4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                val fontOptions = listOf("系统", "黑体", "宋体")
+                                                fontOptions.forEachIndexed { index, text ->
+                                                    val isSelected = uiState.fontFamily == index
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(
+                                                                if (isSelected) MaterialTheme.colorScheme.primary
+                                                                else Color.Transparent
+                                                            )
+                                                            .clickable {
+                                                                readerVM.setFontFamily(index)
+                                                                moreMenuExpanded = false
+                                                                showSettings = false
+                                                            }
+                                                            .padding(vertical = 8.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(
+                                                            text = text,
+                                                            fontSize = 14.sp,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                                            else MaterialTheme.colorScheme.onSurface,
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
                                         HorizontalDivider(
                                             modifier = Modifier.padding(vertical = 4.dp),
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
@@ -1020,7 +1089,7 @@ fun ReaderPage(
                                                             text = text,
                                                             fontSize = 14.sp,
                                                             color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                                            fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                                         )
                                                     }
                                                 }
@@ -1075,7 +1144,7 @@ fun ReaderPage(
                                                         text = "原贴",
                                                         fontSize = 14.sp,
                                                         color = MaterialTheme.colorScheme.onSurface,
-                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                                        fontWeight = FontWeight.Medium
                                                     )
                                                 }
 
@@ -1113,7 +1182,7 @@ fun ReaderPage(
                                                         text = "刷新",
                                                         fontSize = 14.sp,
                                                         color = MaterialTheme.colorScheme.onSurface,
-                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                                        fontWeight = FontWeight.Medium
                                                     )
                                                 }
                                             }

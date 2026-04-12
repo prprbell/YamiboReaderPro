@@ -10,8 +10,11 @@ public class ReaderSettings {
     private String backgroundColor;
     private Boolean isVerticalMode;
     private Integer translationMode;
-
-    public ReaderSettings(Float fontSizePx, Float lineHeightPx, Float padding, Boolean nightMode, String backgroundColor, Boolean loadImages, Boolean isVerticalMode, Integer translationMode) {
+    private Integer fontFamily;
+    public ReaderSettings(Float fontSizePx, Float lineHeightPx, Float padding,
+                          Boolean nightMode, String backgroundColor,
+                          Boolean loadImages, Boolean isVerticalMode,
+                          Integer translationMode, Integer fontFamily) {
         this.fontSizePx = fontSizePx;
         this.lineHeightPx = lineHeightPx;
         this.paddingDp = padding;
@@ -20,6 +23,7 @@ public class ReaderSettings {
         this.loadImages = loadImages;
         this.isVerticalMode = isVerticalMode;
         this.translationMode = translationMode;
+        this.fontFamily = fontFamily;
     }
 
     public ReaderSettings() {
@@ -87,5 +91,12 @@ public class ReaderSettings {
 
     public void setTranslationMode(Integer translationMode) {
         this.translationMode = translationMode;
+    }
+    public Integer getFontFamily() {
+        return fontFamily == null ? 0 : fontFamily;
+    }
+
+    public void setFontFamily(Integer fontFamily) {
+        this.fontFamily = fontFamily;
     }
 }
