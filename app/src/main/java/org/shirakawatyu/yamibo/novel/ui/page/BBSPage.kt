@@ -95,6 +95,7 @@ object BBSPageState {
     var fullscreenApi: FullscreenApi? = null
     var nativeMangaApi: NativeMangaJSInterface? = null
     var isErrorState: Boolean = false
+    var hasExecutedInitialDelay: Boolean = false
     private val handler = Handler(Looper.getMainLooper())
     private var pauseRunnable: Runnable? = null
 
@@ -971,7 +972,12 @@ fun BBSPage(
                     pageTitle = webView.title ?: ""
                 },
                 onRelease = {
-                    BBSPageState.schedulePause(webView, 8000L)
+                    if (!BBSPageState.hasExecutedInitialDelay) {
+                        BBSPageState.schedulePause(webView)
+                        BBSPageState.hasExecutedInitialDelay = true
+                    } else {
+                        webView.onPause()
+                    }
                 }
             )
 
