@@ -51,6 +51,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
+import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import java.net.URLDecoder
@@ -171,13 +172,22 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         mainScope.cancel()
-        bbsWebViewState?.destroy()
+        bbsWebViewState?.apply {
+            (parent as? ViewGroup)?.removeView(this)
+            removeAllViews()
+            destroy()
+        }
         bbsWebViewState = null
+
+        BBSPageState.hasSuccessfullyLoaded = false
+        GlobalData.isAppInitialized = false
     }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): WebView {
+    BBSPageState.hasSuccessfullyLoaded = false
+
     return WebView(context).apply {
         layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -197,6 +207,9 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
         }
         webViewClient = BBSGlobalWebViewClient()
         webChromeClient = chromeClient ?: GlobalData.webChromeClient
+
+        resumeTimers()
+        onResume()
     }
 }
 
@@ -206,7 +219,15 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
 fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
     val isAppInitialized = GlobalData.isAppInitialized
     val context = LocalContext.current
+    var isRouteLoaded by remember { mutableStateOf(false) }
+    var startPage by remember { mutableStateOf("BBSPage") }
+
     LaunchedEffect(Unit) {
+        SettingsUtil.getHomePage {
+            startPage = it
+            isRouteLoaded = true
+        }
+
         if (!GlobalData.isAppInitialized) {
             try {
                 GlobalData.currentCookie = GlobalData.cookieFlow.first()
@@ -227,8 +248,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
             }
         }
     }
-    LaunchedEffect(bbsWebView, isAppInitialized) {
-        if (bbsWebView != null && isAppInitialized && !BBSPageState.hasSuccessfullyLoaded) {
+
+    LaunchedEffect(bbsWebView, isAppInitialized, isRouteLoaded) {
+        if (bbsWebView != null && isAppInitialized && isRouteLoaded && !BBSPageState.hasSuccessfullyLoaded) {
             try {
                 CookieManager.getInstance().setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
                 CookieManager.getInstance().flush()
@@ -244,7 +266,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            if (isAppInitialized) {
+            if (isAppInitialized && isRouteLoaded) {
                 Box(contentAlignment = Alignment.TopCenter) {
                     val navController = rememberNavController()
                     val enterEasing = FastOutSlowInEasing
@@ -285,7 +307,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                         NavHost(
                             modifier = Modifier.fillMaxSize(),
                             navController = navController,
-                            startDestination = "FavoritePage"
+                            startDestination = startPage
                         ) {
                             composable(
                                 "FavoritePage",
