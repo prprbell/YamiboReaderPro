@@ -975,8 +975,6 @@ fun ReaderPage(
                                                                     index,
                                                                     currentPageIndex
                                                                 )
-                                                                moreMenuExpanded = false
-                                                                showSettings = false
                                                             }
                                                             .padding(vertical = 8.dp),
                                                         contentAlignment = Alignment.Center
@@ -1017,8 +1015,6 @@ fun ReaderPage(
                                                             )
                                                             .clickable {
                                                                 readerVM.setFontFamily(index)
-                                                                moreMenuExpanded = false
-                                                                showSettings = false
                                                             }
                                                             .padding(vertical = 8.dp),
                                                         contentAlignment = Alignment.Center
