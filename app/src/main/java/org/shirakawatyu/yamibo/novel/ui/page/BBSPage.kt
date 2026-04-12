@@ -95,6 +95,25 @@ object BBSPageState {
     var fullscreenApi: FullscreenApi? = null
     var nativeMangaApi: NativeMangaJSInterface? = null
     var isErrorState: Boolean = false
+    private val handler = Handler(Looper.getMainLooper())
+    private var pauseRunnable: Runnable? = null
+
+    fun schedulePause(webView: WebView, delayMs: Long = 8000L) {
+        cancelPause()
+        pauseRunnable = Runnable {
+            try {
+                webView.onPause()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        handler.postDelayed(pauseRunnable!!, delayMs)
+    }
+
+    fun cancelPause() {
+        pauseRunnable?.let { handler.removeCallbacks(it) }
+        pauseRunnable = null
+    }
 }
 
 class FullscreenApi {
@@ -765,6 +784,7 @@ fun BBSPage(
         val client = webView.webViewClient as? BBSGlobalWebViewClient
 
         if (isSelected) {
+            BBSPageState.cancelPause()
             client?.apply {
                 onPageStartedCb = { url ->
                     if (!showLoadError) hasError = false
@@ -951,7 +971,7 @@ fun BBSPage(
                     pageTitle = webView.title ?: ""
                 },
                 onRelease = {
-                    webView.onPause()
+                    BBSPageState.schedulePause(webView, 8000L)
                 }
             )
 
