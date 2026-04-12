@@ -551,8 +551,11 @@ fun ReaderPage(
                     isVerticalMode = uiState.isVerticalMode,
                     onChapterClick = { index ->
                         scope.launch {
-                            if (uiState.isVerticalMode) lazyListState.scrollToItem(index)
-                            else pagerState.animateScrollToPage(index)
+                            if (uiState.isVerticalMode) {
+                                lazyListState.scrollToItem(index)
+                            } else {
+                                pagerState.scrollToPage(index)
+                            }
                         }
                         readerVM.toggleChapterDrawer(false)
                     }
