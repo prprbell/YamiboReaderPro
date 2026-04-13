@@ -9,6 +9,7 @@ import android.util.Log
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -89,8 +90,6 @@ import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 
-
-
 class FullscreenApi {
     var onStateChange: ((Boolean) -> Unit)? = null
     var onMangaActionDone: (() -> Unit)? = null
@@ -131,11 +130,6 @@ class NativeMangaJSInterface {
 
 class BBSGlobalWebViewClient : YamiboWebViewClient() {
     private val contentImageCount = AtomicInteger(0)
-
-    var onPageStartedCb: ((String?) -> Unit)? = null
-    var onPageCommitVisibleCb: ((String?) -> Unit)? = null
-    var onPageFinishedCb: ((String?) -> Unit)? = null
-    var onReceivedErrorCb: (() -> Unit)? = null
 
     companion object {
         const val INDEX_URL = "https://bbs.yamibo.com/forum.php"
@@ -270,7 +264,11 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
         GlobalData.webProgress.value = 0
         contentImageCount.set(0)
         super.onPageStarted(view, url, favicon)
-        onPageStartedCb?.invoke(url)
+
+        BBSPageState.currentUrl = url
+        BBSPageState.isLoading = true
+        BBSPageState.showLoadError = false
+        BBSPageState.isErrorState = false
     }
 
     override fun onFormResubmission(view: WebView?, dontResend: android.os.Message?, resend: android.os.Message?) {
@@ -315,7 +313,12 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
     override fun onPageCommitVisible(view: WebView?, url: String?) {
         super.onPageCommitVisible(view, url)
         view?.evaluateJavascript(checkSectionAndInjectJs, null)
-        onPageCommitVisibleCb?.invoke(url)
+
+        BBSPageState.pageTitle = view?.title ?: ""
+        if (!BBSPageState.isErrorState) {
+            BBSPageState.isLoading = false
+            BBSPageState.showLoadError = false
+        }
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {
@@ -326,36 +329,47 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
         }
         view?.evaluateJavascript(checkSectionAndInjectJs, null)
 
+        BBSPageState.isLoading = false
+        if (!BBSPageState.isErrorState) {
+            BBSPageState.showLoadError = false
+        }
+
         if (url != null && !url.contains("about:blank")) {
             BBSPageState.hasSuccessfullyLoaded = true
             BBSPageState.isErrorState = false
         }
-
-        onPageFinishedCb?.invoke(url)
     }
 
     override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
-        BBSPageState.hasSuccessfullyLoaded = false
-        BBSPageState.isErrorState = true
-        onReceivedErrorCb?.invoke()
+        handleErrorState()
         return true
+    }
+
+    override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+        super.onReceivedError(view, request, error)
+        if (request?.isForMainFrame == true) {
+            handleErrorState()
+        }
     }
 
     @Deprecated("Deprecated in Java")
     override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
         super.onReceivedError(view, errorCode, description, failingUrl)
-        BBSPageState.hasSuccessfullyLoaded = false
-        BBSPageState.isErrorState = true
-        onReceivedErrorCb?.invoke()
+        handleErrorState()
     }
 
     override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
         super.onReceivedHttpError(view, request, errorResponse)
         if (request?.isForMainFrame == true) {
-            BBSPageState.hasSuccessfullyLoaded = false
-            BBSPageState.isErrorState = true
-            onReceivedErrorCb?.invoke()
+            handleErrorState()
         }
+    }
+
+    private fun handleErrorState() {
+        BBSPageState.hasSuccessfullyLoaded = false
+        BBSPageState.isErrorState = true
+        BBSPageState.isLoading = false
+        BBSPageState.showLoadError = true
     }
 }
 
@@ -375,23 +389,15 @@ fun BBSPage(
     val activity = LocalContext.current as? ComponentActivity
 
     var canGoBack by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(false) }
-    var showLoadError by remember { mutableStateOf(BBSPageState.isErrorState) }
-    LaunchedEffect(showLoadError) {
-        BBSPageState.isErrorState = showLoadError
-    }
-    var hasError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
     var isPullRefreshing by remember { mutableStateOf(false) }
-    var currentUrl by remember { mutableStateOf<String?>(null) }
-    var pageTitle by remember { mutableStateOf("") }
 
     var autoOpenMangaMode by remember { mutableStateOf(false) }
 
-    val canConvertToReader = remember(currentUrl, pageTitle) {
-        ReaderModeDetector.canConvertToReaderMode(currentUrl, pageTitle)
+    val canConvertToReader = remember(BBSPageState.currentUrl, BBSPageState.pageTitle) {
+        ReaderModeDetector.canConvertToReaderMode(BBSPageState.currentUrl, BBSPageState.pageTitle)
     }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -445,7 +451,7 @@ fun BBSPage(
                     webView.onPause()
 
                     autoOpenMangaMode = false
-                    val passUrl = currentUrl ?: indexUrl
+                    val passUrl = BBSPageState.currentUrl ?: indexUrl
 
                     val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
                     navController.navigate("NativeMangaPage?url=$encodedUrl")
@@ -476,8 +482,8 @@ fun BBSPage(
         }
     }
 
-    LaunchedEffect(isLoading) {
-        if (!isLoading && autoOpenMangaMode) {
+    LaunchedEffect(BBSPageState.isLoading) {
+        if (!BBSPageState.isLoading && autoOpenMangaMode) {
             val clickJs = """
                 (function() {
                     // 1. 检查版块白名单
@@ -636,37 +642,25 @@ fun BBSPage(
 
     lateinit var startLoading: (url: String) -> Unit
 
-    fun runTimeout(onTimeout: () -> Unit) {
-        timeoutJob?.cancel()
-        timeoutJob = scope.launch {
-            delay(15000)
-            if (isLoading) {
-                onTimeout()
-            }
-        }
-    }
-
     startLoading = { url: String ->
-        isLoading = true
-        hasError = false
-        showLoadError = false
+        BBSPageState.isLoading = true
+        BBSPageState.isErrorState = false
+        BBSPageState.showLoadError = false
         retryCount = 0
         CookieManager.getInstance().setCookie(url, GlobalData.currentCookie)
         CookieManager.getInstance().flush()
-        runTimeout {
-            webView.stopLoading()
-            retryCount++
 
-            runTimeout {
-                hasError = true
-                isLoading = false
-                showLoadError = true
-                isPullRefreshing = false
+        timeoutJob?.cancel()
+        timeoutJob = scope.launch {
+            delay(10000)
+            if (BBSPageState.isLoading) {
                 webView.stopLoading()
+                BBSPageState.isErrorState = true
+                BBSPageState.isLoading = false
+                BBSPageState.showLoadError = true
+                isPullRefreshing = false
             }
-            webView.reload()
         }
-
         webView.loadUrl(url)
     }
 
@@ -686,7 +680,7 @@ fun BBSPage(
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
             }
-            currentUrl?.let { url ->
+            BBSPageState.currentUrl?.let { url ->
                 if (url.contains("mod=viewthread") && url.contains("tid=")) {
                     val checkSectionJs = """
                         (function() {
@@ -748,20 +742,20 @@ fun BBSPage(
             if (route == "BBSPage") {
                 val curl = webView.url
                 if (!curl.isNullOrEmpty() && curl != "about:blank") {
-                    isLoading = true
-                    showLoadError = false
+                    BBSPageState.isLoading = true
+                    BBSPageState.showLoadError = false
                     retryCount = 0
 
-                    runTimeout {
-                        webView.stopLoading()
-                        retryCount++
-                        runTimeout {
-                            isLoading = false
-                            isPullRefreshing = false
-                            showLoadError = true
+                    timeoutJob?.cancel()
+                    timeoutJob = scope.launch {
+                        delay(10000)
+                        if (BBSPageState.isLoading) {
                             webView.stopLoading()
+                            BBSPageState.isErrorState = true
+                            BBSPageState.isLoading = false
+                            BBSPageState.showLoadError = true
+                            isPullRefreshing = false
                         }
-                        webView.reload()
                     }
                     webView.reload()
                 } else {
@@ -776,63 +770,16 @@ fun BBSPage(
 
         if (isSelected) {
             BBSPageState.cancelPause()
-            client?.apply {
-                onPageStartedCb = { url ->
-                    if (!showLoadError) hasError = false
-                    currentUrl = url
-                    canGoBack = webView.canGoBack()
-                    isLoading = true
-                }
-                onPageCommitVisibleCb = { _ ->
-                    pageTitle = webView.title ?: ""
-                    if (!hasError && isLoading) {
-                        timeoutJob?.cancel()
-                        retryCount = 0
-                        isLoading = false
-                        isPullRefreshing = false
-                        showLoadError = false
-                    }
-                }
-                onPageFinishedCb = { url ->
-                    timeoutJob?.cancel()
-                    retryCount = 0
-                    isLoading = false
-                    isPullRefreshing = false
-                    if (!hasError) showLoadError = false
-                    canGoBack = webView.canGoBack()
-                }
-                onReceivedErrorCb = {
-                    timeoutJob?.cancel()
-                    retryCount = 0
-                    hasError = true
-                    isLoading = false
-                    isPullRefreshing = false
-                    showLoadError = true
-                }
-            }
             canGoBack = webView.canGoBack()
             webView.onResume()
-
             client?.forceInjectMangaJs(webView)
-
         } else {
             timeoutJob?.cancel()
             retryCount = 0
-            isLoading = false
             isPullRefreshing = false
         }
 
-        onDispose {
-            if (isSelected) {
-                client?.apply {
-                    onPageStartedCb = null
-                    onPageCommitVisibleCb = null
-                    onPageFinishedCb = null
-                    onReceivedErrorCb = null
-                }
-            }
-            Log.d("BBSPage", "Page deselected, callbacks unbound. URL: ${webView.url}")
-        }
+        onDispose { }
     }
 
     LaunchedEffect(webView, isSelected) {
@@ -843,9 +790,9 @@ fun BBSPage(
                 val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
                 val currentLoginState = isLoggedIn(currentCookie)
 
-                if (isLoading) {
+                if (BBSPageState.isLoading) {
                     BBSPageState.lastLoginState = currentLoginState
-                } else if (showLoadError) {
+                } else if (BBSPageState.showLoadError) {
                     BBSPageState.lastLoginState = currentLoginState
                 } else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
                     Log.i("BBSPage", "状态变更: ${BBSPageState.lastLoginState} -> $currentLoginState, 准备刷新")
@@ -861,9 +808,9 @@ fun BBSPage(
     }
 
     BackHandler(enabled = true) {
-        val isHomepage = currentUrl == indexUrl || currentUrl == mobileIndexUrl ||
-                currentUrl == bbsUrl || currentUrl == baseBbsUrl ||
-                (currentUrl?.startsWith("https://bbs.yamibo.com/forum.php") == true && currentUrl?.contains(
+        val isHomepage = BBSPageState.currentUrl == indexUrl || BBSPageState.currentUrl == mobileIndexUrl ||
+                BBSPageState.currentUrl == bbsUrl || BBSPageState.currentUrl == baseBbsUrl ||
+                (BBSPageState.currentUrl?.startsWith("https://bbs.yamibo.com/forum.php") == true && BBSPageState.currentUrl?.contains(
                     "mod="
                 ) == false)
 
@@ -955,8 +902,8 @@ fun BBSPage(
                 },
                 update = { _ ->
                     canGoBack = webView.canGoBack()
-                    currentUrl = webView.url
-                    pageTitle = webView.title ?: ""
+                    BBSPageState.currentUrl = webView.url
+                    BBSPageState.pageTitle = webView.title ?: ""
                 },
                 onRelease = {
                     if (!BBSPageState.hasExecutedInitialDelay) {
@@ -968,7 +915,7 @@ fun BBSPage(
                 }
             )
 
-            if (showLoadError) {
+            if (BBSPageState.showLoadError) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1016,7 +963,7 @@ fun BBSPage(
                 }
             }
 
-            if (isLoading && !isPullRefreshing) {
+            if (BBSPageState.isLoading && !isPullRefreshing) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
                     color = YamiboColors.secondary
@@ -1024,9 +971,9 @@ fun BBSPage(
             }
 
             ReaderModeFAB(
-                visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value,
+                visible = canConvertToReader && !BBSPageState.isLoading && !BBSPageState.showLoadError && !isFullscreenState.value,
                 onClick = {
-                    currentUrl?.let { url ->
+                    BBSPageState.currentUrl?.let { url ->
                         val cleanUrl = url.substringBefore("#")
 
                         ReaderModeDetector.extractThreadPath(cleanUrl)?.let { threadPath ->

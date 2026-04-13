@@ -206,6 +206,7 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
             textZoom = 100
             domStorageEnabled = true
         }
+        // 注意：这里的 WebViewClient 会在后面的改动中被设置并写入全局状态
         webViewClient = BBSGlobalWebViewClient()
         webChromeClient = chromeClient ?: GlobalData.webChromeClient
 
@@ -242,14 +243,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     GlobalData.isFavoriteCollapsed.value = isCollapsed
                 }
                 GlobalData.isAppInitialized = true
-//                自动签到（自用）
+                // 自动签到（自用）
 //                launch(Dispatchers.IO) {
 //                    AutoSignManager.checkAndSignIfNeeded(context)
 //                }
             }
         }
     }
-
 
     _300文学Theme {
         Surface(
@@ -270,20 +270,21 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     val context = LocalContext.current
                     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
                     val selectedItemIndex = pageList.indexOf(currentRoute).coerceAtLeast(0)
-                    LaunchedEffect(bbsWebView, currentRoute) {
+
+                    LaunchedEffect(bbsWebView) {
                         if (bbsWebView != null && !BBSPageState.hasSuccessfullyLoaded) {
                             try {
                                 CookieManager.getInstance().setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
                                 CookieManager.getInstance().flush()
 
-                                if (currentRoute != null && currentRoute != "BBSPage") {
-                                    bbsWebView.loadUrl("https://bbs.yamibo.com/forum.php?mobile=2")
-                                }
+                                bbsWebView.loadUrl("https://bbs.yamibo.com/forum.php?mobile=2")
+                                BBSPageState.isLoading = true // 同步状态
                             } catch (e: Exception) {
                                 e.printStackTrace()
                             }
                         }
                     }
+
                     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
                     val currentPaddingValue = navBarsPadding.value
