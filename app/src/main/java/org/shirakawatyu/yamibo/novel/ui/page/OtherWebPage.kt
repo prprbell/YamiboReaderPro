@@ -72,6 +72,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -371,6 +372,10 @@ fun OtherWebPage(
                                     ByteArrayInputStream(ByteArray(0))
                                 )
                             }
+                        }
+                        if (request.method == "GET") {
+                            val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+                            if (proxyResponse != null) return proxyResponse
                         }
                     }
                 }

@@ -78,6 +78,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.state.BBSPageState
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
@@ -303,6 +304,12 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
                             "UTF-8",
                             ByteArrayInputStream(ByteArray(0))
                         )
+                    }
+                }
+                if (request.method == "GET") {
+                    val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+                    if (proxyResponse != null) {
+                        return proxyResponse
                     }
                 }
             }

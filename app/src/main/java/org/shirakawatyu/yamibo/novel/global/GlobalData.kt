@@ -34,5 +34,7 @@ class GlobalData {
         val isDataSaverMode = MutableStateFlow(false)
         val isFavoriteCollapsed = MutableStateFlow(false)
         val webProgress = MutableStateFlow(0)
+        val homePageRoute = MutableStateFlow("BBSPage")
+        val isCustomDnsEnabled = MutableStateFlow(false)
     }
 }

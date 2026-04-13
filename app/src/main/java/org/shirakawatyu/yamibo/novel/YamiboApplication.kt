@@ -11,6 +11,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import okhttp3.ConnectionPool
 import okhttp3.brotli.BrotliInterceptor
+import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.util.concurrent.TimeUnit
 
@@ -72,8 +73,8 @@ class YamiboApplication : Application(), ImageLoaderFactory {
                     .build()
             }
             .okHttpClient {
-                okhttp3.OkHttpClient.Builder()
-                    .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
+                YamiboRetrofit.okHttpClient.newBuilder()
+                    .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
                     .addInterceptor(BrotliInterceptor)
                     .build()
             }

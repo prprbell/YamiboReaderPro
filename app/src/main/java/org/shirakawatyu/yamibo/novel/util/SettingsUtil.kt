@@ -15,6 +15,7 @@ class SettingsUtil {
         private val dataSaverKey = stringPreferencesKey("data_saver_mode")
         private val collapseModeKey = stringPreferencesKey("favorite_collapse_mode")
         private val homePageKey = stringPreferencesKey("home_page")
+        private val customDnsKey = stringPreferencesKey("custom_dns_mode")
         fun saveSettings(settings: ReaderSettings) {
             DataStoreUtil.addData(JSON.toJSONString(settings), key)
         }
@@ -62,6 +63,17 @@ class SettingsUtil {
                 callback(it.ifBlank { "BBSPage" })
             }, onNull = {
                 callback("BBSPage")
+            })
+        }
+        fun saveCustomDnsMode(isEnabled: Boolean) {
+            DataStoreUtil.addData(isEnabled.toString(), customDnsKey)
+        }
+
+        fun getCustomDnsMode(callback: (isEnabled: Boolean) -> Unit) {
+            DataStoreUtil.getData(customDnsKey, callback = {
+                callback(it.toBooleanStrictOrNull() ?: false)
+            }, onNull = {
+                callback(false)
             })
         }
     }

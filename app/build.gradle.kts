@@ -11,8 +11,8 @@ android {
         applicationId = "org.shirakawatyu.yamibo.novel"
         minSdk = 24
         targetSdk = 34
-        versionCode = 70
-        versionName = "1.8.8"
+        versionCode = 71
+        versionName = "1.8.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -84,6 +84,7 @@ dependencies {
     implementation("me.saket.telephoto:zoomable-image-coil:0.6.2")
     implementation("com.github.qichuan:android-opencc:1.2.0")
     implementation("com.airbnb.android:lottie-compose:6.7.1")
+    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

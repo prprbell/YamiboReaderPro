@@ -221,29 +221,24 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
 fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
     val isAppInitialized = GlobalData.isAppInitialized
     val context = LocalContext.current
-    var isRouteLoaded by remember { mutableStateOf(false) }
-    var startPage by remember { mutableStateOf("BBSPage") }
-
+    val homeRoute by GlobalData.homePageRoute.collectAsState()
     LaunchedEffect(Unit) {
-        SettingsUtil.getHomePage {
-            startPage = it
-            isRouteLoaded = true
-        }
-
         if (!GlobalData.isAppInitialized) {
             try {
                 GlobalData.currentCookie = GlobalData.cookieFlow.first()
             } catch (_: Exception) {
                 GlobalData.currentCookie = ""
             } finally {
-                SettingsUtil.getDataSaverMode { isDataSaver ->
-                    GlobalData.isDataSaverMode.value = isDataSaver
+                SettingsUtil.getDataSaverMode { GlobalData.isDataSaverMode.value = it }
+                SettingsUtil.getFavoriteCollapseMode { GlobalData.isFavoriteCollapsed.value = it }
+                SettingsUtil.getCustomDnsMode { GlobalData.isCustomDnsEnabled.value = it }
+
+                SettingsUtil.getHomePage { route ->
+                    GlobalData.homePageRoute.value = route
                 }
-                SettingsUtil.getFavoriteCollapseMode { isCollapsed ->
-                    GlobalData.isFavoriteCollapsed.value = isCollapsed
-                }
+
                 GlobalData.isAppInitialized = true
-                // 自动签到（自用）
+//                自动签到（自用）
 //                launch(Dispatchers.IO) {
 //                    AutoSignManager.checkAndSignIfNeeded(context)
 //                }
@@ -256,7 +251,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            if (isAppInitialized && isRouteLoaded) {
+            if (isAppInitialized) {
                 Box(contentAlignment = Alignment.TopCenter) {
                     val navController = rememberNavController()
                     val enterEasing = FastOutSlowInEasing
@@ -311,7 +306,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                         NavHost(
                             modifier = Modifier.fillMaxSize(),
                             navController = navController,
-                            startDestination = startPage
+                            startDestination = homeRoute
                         ) {
                             composable(
                                 "FavoritePage",
@@ -374,13 +369,16 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 popEnterTransition = {
                                     if (initialState.destination.route?.startsWith("ReaderPage") == true) {
                                         slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(exitDuration, easing = exitEasing))
-                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
+                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                        EnterTransition.None
+                                    } else if (initialState.destination.route in topLevelRoutes) {
                                         EnterTransition.None
                                     } else fadeIn(tween(150))
                                 },
                                 popExitTransition = {
-                                    if (targetState.destination.route in topLevelRoutes) ExitTransition.None
-                                    else fadeOut(tween(150))
+                                    if (targetState.destination.route in topLevelRoutes) {
+                                        ExitTransition.None
+                                    } else fadeOut(tween(150))
                                 }
                             ) {
                                 if (bbsWebView != null) {

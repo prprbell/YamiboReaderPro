@@ -9,6 +9,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import com.alibaba.fastjson2.JSON
 import com.alibaba.fastjson2.JSONException
+import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.ByteArrayInputStream
 
@@ -56,6 +57,10 @@ class PassageWebViewClient(
             )
 
             return response
+        }
+        if (request?.method == "GET") {
+            val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+            if (proxyResponse != null) return proxyResponse
         }
         return super.shouldInterceptRequest(view, request)
     }

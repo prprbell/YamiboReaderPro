@@ -75,6 +75,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -631,6 +632,10 @@ fun MinePage(
                                     ByteArrayInputStream(ByteArray(0))
                                 )
                             }
+                        }
+                        if (request.method == "GET") {
+                            val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+                            if (proxyResponse != null) return proxyResponse
                         }
                     }
                 }

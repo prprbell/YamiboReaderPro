@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
@@ -132,7 +133,10 @@ fun FavoritePage(
     var showCacheManagement by remember { mutableStateOf(false) }
     val isDataSaverMode by GlobalData.isDataSaverMode.collectAsState()
     val isFavoriteCollapsed by GlobalData.isFavoriteCollapsed.collectAsState()
+    val currentHomePage by GlobalData.homePageRoute.collectAsState()
+    val isCustomDnsEnabled by GlobalData.isCustomDnsEnabled.collectAsState()
     var showDataSaverDialog by remember { mutableStateOf(false) }
+    var showCustomDnsDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { favoriteVM.refreshCacheInfo() }
     DisposableEffect(Unit) {
@@ -266,11 +270,10 @@ fun FavoritePage(
         statusBarsPadding.value
     val lockedStatusHeight = lockedStatusHeightValue.dp
     var showHomePageDialog by remember { mutableStateOf(false) }
-    var currentHomePage by remember { mutableStateOf("BBSPage") }
 
     LaunchedEffect(Unit) {
         favoriteVM.refreshCacheInfo()
-        SettingsUtil.getHomePage { currentHomePage = it }
+        SettingsUtil.getHomePage { GlobalData.homePageRoute.value = it }
     }
     Column(
         modifier = Modifier
@@ -540,6 +543,28 @@ fun FavoritePage(
                                 }
                             )
                             DropdownMenuItem(
+                                text = {
+                                    Text(if (isCustomDnsEnabled) "关闭优化" else "网络优化")
+                                },
+                                onClick = {
+                                    if (isCustomDnsEnabled) {
+                                        GlobalData.isCustomDnsEnabled.value = false
+                                        SettingsUtil.saveCustomDnsMode(false)
+                                    } else {
+                                        showCustomDnsDialog = true
+                                    }
+                                    menuExpanded = false
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Build,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                        tint = if (isCustomDnsEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("刷新列表") },
                                 onClick = {
                                     favoriteVM.refreshList(showLoading = true, isSmartSync = false)
@@ -707,6 +732,8 @@ fun FavoritePage(
         }
         // 首页设置对话框
         if (showHomePageDialog) {
+            var tempHomePage by remember { mutableStateOf(currentHomePage) }
+
             AlertDialog(
                 onDismissRequest = { showHomePageDialog = false },
                 title = {
@@ -723,26 +750,26 @@ fun FavoritePage(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
-                                .clickable { currentHomePage = "FavoritePage" }
+                                .clickable { tempHomePage = "FavoritePage" }
                                 .padding(12.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Favorite,
                                 contentDescription = "收藏页图标",
                                 modifier = Modifier.size(29.dp),
-                                tint = if (currentHomePage == "FavoritePage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (tempHomePage == "FavoritePage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant // 使用 tempHomePage
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 RadioButton(
-                                    selected = currentHomePage == "FavoritePage",
-                                    onClick = { currentHomePage = "FavoritePage" },
+                                    selected = tempHomePage == "FavoritePage",
+                                    onClick = { tempHomePage = "FavoritePage" },
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "收藏页",
-                                    color = if (currentHomePage == "FavoritePage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    color = if (tempHomePage == "FavoritePage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface // 使用 tempHomePage
                                 )
                             }
                         }
@@ -752,26 +779,26 @@ fun FavoritePage(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
-                                .clickable { currentHomePage = "BBSPage" }
+                                .clickable { tempHomePage = "BBSPage" }
                                 .padding(12.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Home,
                                 contentDescription = "论坛页图标",
                                 modifier = Modifier.size(29.dp),
-                                tint = if (currentHomePage == "BBSPage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (tempHomePage == "BBSPage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant // 使用 tempHomePage
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 RadioButton(
-                                    selected = currentHomePage == "BBSPage",
-                                    onClick = { currentHomePage = "BBSPage" },
+                                    selected = tempHomePage == "BBSPage",
+                                    onClick = { tempHomePage = "BBSPage" },
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "论坛页",
-                                    color = if (currentHomePage == "BBSPage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    color = if (tempHomePage == "BBSPage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface // 使用 tempHomePage
                                 )
                             }
                         }
@@ -779,11 +806,10 @@ fun FavoritePage(
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        SettingsUtil.saveHomePage(currentHomePage)
+                        GlobalData.homePageRoute.value = tempHomePage
+                        SettingsUtil.saveHomePage(tempHomePage)
                         showHomePageDialog = false
-                    }) {
-                        Text("确定")
-                    }
+                    }) { Text("确定") }
                 },
                 dismissButton = {
                     TextButton(onClick = { showHomePageDialog = false }) {
@@ -863,6 +889,32 @@ fun FavoritePage(
                 }
             )
         }
+    }
+    // DNS确认对话框
+    if (showCustomDnsDialog) {
+        AlertDialog(
+            onDismissRequest = { showCustomDnsDialog = false },
+            title = {
+                Text("开启网络优化", color = MaterialTheme.colorScheme.primary)
+            },
+            text = {
+                Text("开启后，应用将使用阿里云或腾讯云的公共DoH来获取服务器地址，以尝试绕过部分网络环境的干扰。\n\n此功能不一定有效，若开启后出现无法连接的情况，请关闭此选项。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    GlobalData.isCustomDnsEnabled.value = true
+                    SettingsUtil.saveCustomDnsMode(true)
+                    showCustomDnsDialog = false
+                }) {
+                    Text("确认开启")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomDnsDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
     // 监听探测状态，隐藏底部导航栏，让黑屏真正全屏
     LaunchedEffect(probingUrl) {
