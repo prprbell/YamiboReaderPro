@@ -337,13 +337,12 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
         view?.evaluateJavascript(checkSectionAndInjectJs, null)
 
         BBSPageState.isLoading = false
+
         if (!BBSPageState.isErrorState) {
             BBSPageState.showLoadError = false
-        }
-
-        if (url != null && !url.contains("about:blank")) {
-            BBSPageState.hasSuccessfullyLoaded = true
-            BBSPageState.isErrorState = false
+            if (url != null && !url.contains("about:blank")) {
+                BBSPageState.hasSuccessfullyLoaded = true
+            }
         }
     }
 
