@@ -729,7 +729,7 @@ fun FavoritePage(
                             Icon(
                                 imageVector = Icons.Default.Favorite,
                                 contentDescription = "收藏页图标",
-                                modifier = Modifier.size(30.dp),
+                                modifier = Modifier.size(29.dp),
                                 tint = if (currentHomePage == "FavoritePage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(8.dp))
@@ -758,7 +758,7 @@ fun FavoritePage(
                             Icon(
                                 imageVector = Icons.Default.Home,
                                 contentDescription = "论坛页图标",
-                                modifier = Modifier.size(30.dp),
+                                modifier = Modifier.size(29.dp),
                                 tint = if (currentHomePage == "BBSPage") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(8.dp))

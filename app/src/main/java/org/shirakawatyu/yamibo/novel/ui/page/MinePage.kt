@@ -79,6 +79,7 @@ import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
+import org.shirakawatyu.yamibo.novel.ui.vm.MinePageVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
@@ -214,7 +215,7 @@ fun MinePage(
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
     val bottomNavBarVM: BottomNavBarVM = viewModel(viewModelStoreOwner = context as ComponentActivity)
-
+    val minePageVM: MinePageVM = viewModel(viewModelStoreOwner = context as ComponentActivity)
     DisposableEffect(Unit) {
         onDispose {
             val currentRoute = navController.currentDestination?.route ?: ""
@@ -235,21 +236,36 @@ fun MinePage(
     val nativeMangaApi = remember { NativeMangaMineJSInterface() }
 
     val mineWebView = remember {
-        WebViewPool.acquire(context).apply {
-            settings.apply {
+        val isNew = minePageVM.cachedWebView == null
+        val webView = minePageVM.getOrAcquireWebView(context)
+
+        if (isNew) {
+            webView.settings.apply {
                 loadWithOverviewMode = true
                 setSupportZoom(false)
                 builtInZoomControls = false
                 displayZoomControls = false
                 textZoom = 100
                 domStorageEnabled = true
-
                 loadsImagesAutomatically = true
                 blockNetworkImage = false
             }
-            addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
-            addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
-            this.webChromeClient = webChromeClient
+            webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
+            webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
+            webView.webChromeClient = webChromeClient
+        } else {
+            webView.removeJavascriptInterface("AndroidFullscreen")
+            webView.removeJavascriptInterface("NativeMangaApi")
+            webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
+            webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
+            webView.webChromeClient = webChromeClient
+        }
+        webView
+    }
+
+    DisposableEffect(mineWebView) {
+        onDispose {
+            minePageVM.scheduleRelease(60000L)
         }
     }
 
@@ -967,10 +983,9 @@ fun MinePage(
                     currentUrl = webView.url
                     pageTitle = webView.title ?: ""
                 },
-                onRelease = { webView ->
+                onRelease = { _ ->
                     timeoutJob?.cancel()
-                    (webView.parent as? ViewGroup)?.removeView(webView)
-                    WebViewPool.release(webView)
+                    mineWebView.onPause()
                 }
             )
             ReaderModeFAB(

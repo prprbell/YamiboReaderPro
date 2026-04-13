@@ -78,6 +78,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
+import org.shirakawatyu.yamibo.novel.ui.state.BBSPageState
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
@@ -88,34 +89,7 @@ import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 
-// 用于在WebView外部保存登录状态的单例对象
-object BBSPageState {
-    var lastLoginState: Boolean? = null
-    var hasSuccessfullyLoaded: Boolean = false
-    var fullscreenApi: FullscreenApi? = null
-    var nativeMangaApi: NativeMangaJSInterface? = null
-    var isErrorState: Boolean = false
-    var hasExecutedInitialDelay: Boolean = false
-    private val handler = Handler(Looper.getMainLooper())
-    private var pauseRunnable: Runnable? = null
 
-    fun schedulePause(webView: WebView, delayMs: Long = 8000L) {
-        cancelPause()
-        pauseRunnable = Runnable {
-            try {
-                webView.onPause()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        handler.postDelayed(pauseRunnable!!, delayMs)
-    }
-
-    fun cancelPause() {
-        pauseRunnable?.let { handler.removeCallbacks(it) }
-        pauseRunnable = null
-    }
-}
 
 class FullscreenApi {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -351,10 +325,18 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
             view?.clearHistory()
         }
         view?.evaluateJavascript(checkSectionAndInjectJs, null)
+
+        if (url != null && !url.contains("about:blank")) {
+            BBSPageState.hasSuccessfullyLoaded = true
+            BBSPageState.isErrorState = false
+        }
+
         onPageFinishedCb?.invoke(url)
     }
 
     override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+        BBSPageState.hasSuccessfullyLoaded = false
+        BBSPageState.isErrorState = true
         onReceivedErrorCb?.invoke()
         return true
     }
@@ -362,12 +344,16 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
     @Deprecated("Deprecated in Java")
     override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
         super.onReceivedError(view, errorCode, description, failingUrl)
+        BBSPageState.hasSuccessfullyLoaded = false
+        BBSPageState.isErrorState = true
         onReceivedErrorCb?.invoke()
     }
 
     override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
         super.onReceivedHttpError(view, request, errorResponse)
         if (request?.isForMainFrame == true) {
+            BBSPageState.hasSuccessfullyLoaded = false
+            BBSPageState.isErrorState = true
             onReceivedErrorCb?.invoke()
         }
     }
@@ -751,7 +737,11 @@ fun BBSPage(
             }
         }
     }
-
+    LaunchedEffect(isSelected, webView) {
+        if (isSelected && !BBSPageState.hasSuccessfullyLoaded && webView.url.isNullOrEmpty()) {
+            startLoading(mobileIndexUrl)
+        }
+    }
     LaunchedEffect(Unit) {
         bottomNavBarVM.refreshEvent.collect { route ->
             isPullRefreshing = true
@@ -791,6 +781,7 @@ fun BBSPage(
                     if (!showLoadError) hasError = false
                     currentUrl = url
                     canGoBack = webView.canGoBack()
+                    isLoading = true
                 }
                 onPageCommitVisibleCb = { _ ->
                     pageTitle = webView.title ?: ""
@@ -809,9 +800,6 @@ fun BBSPage(
                     isPullRefreshing = false
                     if (!hasError) showLoadError = false
                     canGoBack = webView.canGoBack()
-                    if (url != null && !url.contains("about:blank")) {
-                        BBSPageState.hasSuccessfullyLoaded = true
-                    }
                 }
                 onReceivedErrorCb = {
                     timeoutJob?.cancel()
@@ -820,7 +808,6 @@ fun BBSPage(
                     isLoading = false
                     isPullRefreshing = false
                     showLoadError = true
-                    BBSPageState.hasSuccessfullyLoaded = false
                 }
             }
             canGoBack = webView.canGoBack()

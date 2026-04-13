@@ -40,7 +40,8 @@ class BottomNavBarVM : ViewModel() {
         }
         isNavigating = true
         navController.navigate(pageList[index]) {
-            popUpTo("FavoritePage") {
+            val startRoute = navController.graph.startDestinationRoute ?: "FavoritePage"
+            popUpTo(startRoute) {
                 saveState = true
             }
             launchSingleTop = true

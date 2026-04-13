@@ -46,6 +46,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.page.*
+import org.shirakawatyu.yamibo.novel.ui.state.BBSPageState
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -249,17 +250,6 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
         }
     }
 
-    LaunchedEffect(bbsWebView, isAppInitialized, isRouteLoaded) {
-        if (bbsWebView != null && isAppInitialized && isRouteLoaded && !BBSPageState.hasSuccessfullyLoaded) {
-            try {
-                CookieManager.getInstance().setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
-                CookieManager.getInstance().flush()
-                bbsWebView.loadUrl("https://bbs.yamibo.com/forum.php?mobile=2")
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
 
     _300文学Theme {
         Surface(
@@ -280,7 +270,20 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     val context = LocalContext.current
                     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
                     val selectedItemIndex = pageList.indexOf(currentRoute).coerceAtLeast(0)
+                    LaunchedEffect(bbsWebView, currentRoute) {
+                        if (bbsWebView != null && !BBSPageState.hasSuccessfullyLoaded) {
+                            try {
+                                CookieManager.getInstance().setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
+                                CookieManager.getInstance().flush()
 
+                                if (currentRoute != null && currentRoute != "BBSPage") {
+                                    bbsWebView.loadUrl("https://bbs.yamibo.com/forum.php?mobile=2")
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
                     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
                     val currentPaddingValue = navBarsPadding.value
@@ -325,9 +328,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 popEnterTransition = {
                                     if (initialState.destination.route?.startsWith("ReaderPage") == true) {
                                         slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(exitDuration, easing = exitEasing))
-                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
                                         EnterTransition.None
                                     } else fadeIn(tween(150))
+                                },
+                                popExitTransition = {
+                                    if (targetState.destination.route in topLevelRoutes) ExitTransition.None
+                                    else fadeOut(tween(150))
                                 }
                             ) {
                                 Box(modifier = Modifier.fillMaxSize()) {
@@ -366,9 +373,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 popEnterTransition = {
                                     if (initialState.destination.route?.startsWith("ReaderPage") == true) {
                                         slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(exitDuration, easing = exitEasing))
-                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
                                         EnterTransition.None
                                     } else fadeIn(tween(150))
+                                },
+                                popExitTransition = {
+                                    if (targetState.destination.route in topLevelRoutes) ExitTransition.None
+                                    else fadeOut(tween(150))
                                 }
                             ) {
                                 if (bbsWebView != null) {
@@ -414,9 +425,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 popEnterTransition = {
                                     if (initialState.destination.route?.startsWith("ReaderPage") == true) {
                                         slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(exitDuration, easing = exitEasing))
-                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
                                         EnterTransition.None
                                     } else fadeIn(tween(150))
+                                },
+                                popExitTransition = {
+                                    if (targetState.destination.route in topLevelRoutes) ExitTransition.None
+                                    else fadeOut(tween(150))
                                 }
                             ) {
                                 Box(modifier = Modifier.fillMaxSize()) {
