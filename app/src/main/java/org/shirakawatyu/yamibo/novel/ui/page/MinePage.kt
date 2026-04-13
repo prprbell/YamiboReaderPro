@@ -284,7 +284,7 @@ fun MinePage(
                 isLoading = true
                 showLoadError = false
                 val curl = mineWebView.url
-                if (!curl.isNullOrEmpty() && curl != "about:blank") {
+                if (!curl.isNullOrEmpty() && curl != "about:blank" && !curl.contains("warmup=true")) {
                     mineWebView.reload()
                 } else {
                     startLoading(mineWebView, mineUrl)
@@ -560,7 +560,7 @@ fun MinePage(
             """.trimIndent()
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                if (url == "about:blank" || url?.contains("warmup=true") == true || url?.contains("misc.php?mod=faq") == true || url?.startsWith("data:") == true) return
+                if (url == "about:blank" || url?.contains("warmup=true") == true || url?.startsWith("data:") == true) return
 
                 val checkUrl = url ?: ""
 
@@ -646,7 +646,7 @@ fun MinePage(
             }
 
             override fun onPageCommitVisible(view: WebView?, url: String?) {
-                if (url == "about:blank" || url?.contains("warmup=true") == true || url?.contains("misc.php?mod=faq") == true) return
+                if (url == "about:blank" || url?.contains("warmup=true") == true) return
                 super.onPageCommitVisible(view, url)
 
                 pageTitle = view?.title ?: ""
