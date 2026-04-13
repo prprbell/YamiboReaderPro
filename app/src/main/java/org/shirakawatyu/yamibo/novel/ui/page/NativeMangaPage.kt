@@ -861,7 +861,7 @@ fun NativeMangaPage(
             }
 
             if (imageBrightness < 1f) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 1f - imageBrightness)).pointerInput(Unit){})
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 1f - imageBrightness)))
             }
 
             AnimatedVisibility(
