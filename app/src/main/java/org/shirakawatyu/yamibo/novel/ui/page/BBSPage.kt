@@ -772,11 +772,13 @@ fun BBSPage(
             BBSPageState.cancelPause()
             canGoBack = webView.canGoBack()
             webView.onResume()
+            webView.resumeTimers()
             client?.forceInjectMangaJs(webView)
         } else {
             timeoutJob?.cancel()
             retryCount = 0
             isPullRefreshing = false
+            BBSPageState.isLoading = false
         }
 
         onDispose { }
