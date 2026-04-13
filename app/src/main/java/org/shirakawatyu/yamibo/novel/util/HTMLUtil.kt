@@ -8,7 +8,7 @@ class HTMLUtil {
         fun toText(html: String): String {
             val text = html
                 // 1. 将 <br> 标签替换为单个换行符
-                .replace(Regex("(?i)<br\\s*/?>"), "\n")
+                .replace(Regex("(?i)<br\\s*/?>"), "\n\n")
 
                 // 2. 将 </p> 和 </div> (块级元素结束标签) 替换为两个换行符
                 .replace(Regex("(?i)</(p|div)>"), "\n\n")

@@ -25,6 +25,8 @@ object FontMetricsUtil {
             this.typeface = typeface
             this.textSize = fontSizePx
             this.fontFeatureSettings = "\"palt\""
+            this.isSubpixelText = true
+            this.isLinearText = true
         }
 
         for (i in 0..127) {

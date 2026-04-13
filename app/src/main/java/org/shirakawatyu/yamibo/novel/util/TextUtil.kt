@@ -34,7 +34,7 @@ class TextUtil {
             letterSpacing: TextUnit,
             lineHeight: TextUnit,
             charRatios: FloatArray,
-            typeface: Typeface // 新增：传入字体用于兜底测量
+            typeface: Typeface
         ): List<String> {
             val targetPixelWidth = ValueUtil.dpToPx(width)
             val pageContentHeight = ValueUtil.dpToPx(height)
@@ -48,12 +48,13 @@ class TextUtil {
             val fontSizePx = ValueUtil.spToPx(fontSize)
             val letterSpacingPx = ValueUtil.spToPx(letterSpacing)
 
-            // 初始化一把专属测量的尺子，性能开销极低
             val measurePaint = Paint().apply {
                 this.isAntiAlias = true
                 this.textSize = fontSizePx
                 this.typeface = typeface
                 this.fontFeatureSettings = "\"palt\""
+                this.isSubpixelText = true
+                this.isLinearText = true
             }
 
             return performPaging(
@@ -159,56 +160,62 @@ class TextUtil {
         ) {
             val lineLength = line.length
             var startIndex = 0
-            var i = 0
-            var currentWidth = 0.0f
 
-            while (i < lineLength) {
-                val c = line[i]
-                val code = c.code
+            while (startIndex < lineLength) {
+                var endIndex = startIndex + 1
+                var totalWidth = 0f
 
-                // O(1) 懒加载测量机制
-                var ratio = if (code < 65536) charRatios[code] else 1.0f
-                if (ratio < 0f) {
-                    // 只有未测量的字符才会走进这里，测量并永久缓存
-                    ratio = measurePaint.measureText(c.toString()) / fontSizePx
-                    if (code < 65536) charRatios[code] = ratio
+                while (endIndex <= lineLength) {
+                    val textWidth = measurePaint.measureText(line, startIndex, endIndex)
+                    totalWidth = textWidth + (endIndex - startIndex) * letterSpacingPx
+
+                    if (totalWidth > targetPixelWidth) {
+                        endIndex--
+                        break
+                    }
+                    endIndex++
                 }
 
-                // 修正：正确的字宽计算公式 -> (比例 * 字号) + 字间距
-                val charWidth = (ratio * fontSizePx) + letterSpacingPx
+                if (endIndex <= startIndex) {
+                    endIndex = startIndex + 1
+                } else if (endIndex < lineLength) {
+                    var splitIndex = endIndex
 
-                if (currentWidth + charWidth > targetPixelWidth && i > startIndex) {
-                    val lastChar = line[i - 1]
+                    var currentNextChar = line[splitIndex].code
+                    var isNextStartDeny = currentNextChar < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[currentNextChar]
 
-                    if (code < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[code]) {
-                        output.add(line.substring(startIndex, i + 1))
-                        startIndex = i + 1
-                        i = startIndex
-                        currentWidth = 0.0f
-                        continue
-                    }
+                    if (isNextStartDeny) {
+                        while (isNextStartDeny) {
+                            splitIndex++
+                            if (splitIndex < lineLength) {
+                                currentNextChar = line[splitIndex].code
+                                isNextStartDeny = currentNextChar < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[currentNextChar]
+                            } else {
+                                break
+                            }
+                        }
+                    } else {
+                        while (splitIndex > startIndex + 1) {
+                            val lastChar = line[splitIndex - 1].code
+                            val isCurrentEndDeny = lastChar < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[lastChar]
 
-                    if (lastChar.code < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[lastChar.code]) {
-                        if (i - 1 > startIndex) {
-                            output.add(line.substring(startIndex, i - 1))
-                            startIndex = i - 1
-                            i = startIndex
-                            currentWidth = 0.0f
-                            continue
+                            if (isCurrentEndDeny) {
+                                splitIndex--
+                            } else {
+                                break
+                            }
                         }
                     }
-
-                    output.add(line.substring(startIndex, i))
-                    startIndex = i
-                    currentWidth = 0.0f
+                    endIndex = splitIndex
                 } else {
-                    currentWidth += charWidth
-                    i++
+                    endIndex = lineLength
                 }
-            }
 
-            if (startIndex < lineLength) {
-                output.add(line.substring(startIndex, lineLength))
+                output.add(line.substring(startIndex, endIndex))
+                startIndex = endIndex
+                while (startIndex < lineLength && line[startIndex] == ' ') {
+                    startIndex++
+                }
             }
         }
 
@@ -221,7 +228,7 @@ class TextUtil {
             fontSize: TextUnit,
             letterSpacing: TextUnit,
             charRatios: FloatArray,
-            typeface: Typeface // 新增：传入字体用于兜底测量
+            typeface: Typeface
         ): List<Content> {
             val targetPixelWidth = ValueUtil.dpToPx(width)
             val fontSizePx = ValueUtil.spToPx(fontSize)
@@ -231,6 +238,9 @@ class TextUtil {
                 this.isAntiAlias = true
                 this.textSize = fontSizePx
                 this.typeface = typeface
+                this.fontFeatureSettings = "\"palt\""
+                this.isSubpixelText = true
+                this.isLinearText = true
             }
 
             val resultLines = ArrayList<Content>()
@@ -297,55 +307,49 @@ class TextUtil {
         ) {
             val lineLength = line.length
             var startIndex = 0
-            var i = 0
-            var currentWidth = 0.0f
 
-            while (i < lineLength) {
-                val c = line[i]
-                val code = c.code
+            while (startIndex < lineLength) {
+                var endIndex = startIndex + 1
 
-                // O(1) 懒加载测量机制
-                var ratio = if (code < 65536) charRatios[code] else 1.0f
-                if (ratio < 0f) {
-                    ratio = measurePaint.measureText(c.toString()) / fontSizePx
-                    if (code < 65536) charRatios[code] = ratio
+                while (endIndex <= lineLength) {
+                    val textWidth = measurePaint.measureText(line, startIndex, endIndex)
+                    val totalWidth = textWidth + (endIndex - startIndex) * letterSpacingPx
+
+                    if (totalWidth > targetPixelWidth) {
+                        endIndex--
+                        break
+                    }
+                    endIndex++
                 }
 
-                // 修正：正确的字宽计算公式
-                val charWidth = (ratio * fontSizePx) + letterSpacingPx
+                if (endIndex <= startIndex) {
+                    endIndex = startIndex + 1
+                } else if (endIndex < lineLength) {
+                    var splitIndex = endIndex
 
-                if (currentWidth + charWidth > targetPixelWidth && i > startIndex) {
-                    val lastChar = line[i - 1]
+                    while (splitIndex > startIndex + 1) {
+                        val nextChar = line[splitIndex].code
+                        val lastChar = line[splitIndex - 1].code
 
-                    if (code < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[code]) {
-                        output.add(Content(line.substring(startIndex, i + 1), ContentType.TEXT, chapterTitle))
-                        startIndex = i + 1
-                        i = startIndex
-                        currentWidth = 0.0f
-                        continue
-                    }
+                        val isNextStartDeny = nextChar < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[nextChar]
+                        val isCurrentEndDeny = lastChar < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[lastChar]
 
-                    if (lastChar.code < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[lastChar.code]) {
-                        if (i - 1 > startIndex) {
-                            output.add(Content(line.substring(startIndex, i - 1), ContentType.TEXT, chapterTitle))
-                            startIndex = i - 1
-                            i = startIndex
-                            currentWidth = 0.0f
-                            continue
+                        if (isNextStartDeny || isCurrentEndDeny) {
+                            splitIndex--
+                        } else {
+                            break
                         }
                     }
-
-                    output.add(Content(line.substring(startIndex, i), ContentType.TEXT, chapterTitle))
-                    startIndex = i
-                    currentWidth = 0.0f
+                    endIndex = splitIndex
                 } else {
-                    currentWidth += charWidth
-                    i++
+                    endIndex = lineLength
                 }
-            }
 
-            if (startIndex < lineLength) {
-                output.add(Content(line.substring(startIndex, lineLength), ContentType.TEXT, chapterTitle))
+                output.add(Content(line.substring(startIndex, endIndex), ContentType.TEXT, chapterTitle))
+                startIndex = endIndex
+                while (startIndex < lineLength && line[startIndex] == ' ') {
+                    startIndex++
+                }
             }
         }
     }

@@ -39,6 +39,8 @@ fun JustifiedText(
         android.graphics.Paint().apply {
             this.isAntiAlias = true
             this.fontFeatureSettings = "\"palt\""
+            this.isSubpixelText = true
+            this.isLinearText = true
         }
     }
 
@@ -64,6 +66,8 @@ fun JustifiedText(
                         this.letterSpacing = baseLetterSpacingMultiplier
                         this.typeface = typeface
                         this.fontFeatureSettings = "\"palt\""
+                        this.isSubpixelText = true
+                        this.isLinearText = true
                     }
 
                     if (isVerticalMode) {
@@ -125,19 +129,16 @@ fun JustifiedText(
                             val remainingSpace = availableWidth - drawX - originalWidth
 
                             val isEndOfParagraph = index < lines.lastIndex && lines[index + 1].isEmpty()
-                            val isEndOfChapterShortLine =
-                                index == lines.lastIndex && remainingSpace > fontSizePx * 3f
-                            val skipJustification = isEndOfParagraph || isEndOfChapterShortLine
+                            val isShortLine = remainingSpace > fontSizePx * 3f
+                            val skipJustification = isEndOfParagraph || isShortLine
 
                             var finalMultiplier = baseLetterSpacingMultiplier
-                            if (!skipJustification && remainingSpace > 0 && textToDraw.length > 1) {
+                            if (!skipJustification && remainingSpace != 0f && textToDraw.length > 1) {
                                 val gaps = textToDraw.length - 1
                                 val justificationSpacingPx = remainingSpace / gaps
-                                val justificationMultiplier =
-                                    if (fontSizePx > 0) justificationSpacingPx / fontSizePx else 0f
+                                val justificationMultiplier = if (fontSizePx > 0) justificationSpacingPx / fontSizePx else 0f
                                 finalMultiplier = baseLetterSpacingMultiplier + justificationMultiplier
                             }
-
                             linesToDraw.add(LineRenderInfo(textToDraw, drawX, currentY, finalMultiplier))
                             currentY += (lineHeightPx + extraSpacingPerLine)
                         }
