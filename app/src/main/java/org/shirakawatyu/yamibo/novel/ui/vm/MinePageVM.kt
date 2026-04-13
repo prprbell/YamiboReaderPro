@@ -26,7 +26,7 @@ class MinePageVM : ViewModel() {
         return cachedWebView!!
     }
 
-    // 延迟60秒销毁
+    // 延迟5分钟销毁
     fun scheduleRelease(delayMs: Long = 300000L) {
         cancelRelease()
         releaseRunnable = Runnable {

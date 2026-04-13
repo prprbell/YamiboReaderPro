@@ -265,7 +265,7 @@ fun MinePage(
 
     DisposableEffect(mineWebView) {
         onDispose {
-            minePageVM.scheduleRelease(60000L)
+            minePageVM.scheduleRelease()
         }
     }
 
