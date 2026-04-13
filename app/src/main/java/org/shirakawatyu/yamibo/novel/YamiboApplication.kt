@@ -9,7 +9,10 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import okhttp3.ConnectionPool
+import okhttp3.brotli.BrotliInterceptor
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
+import java.util.concurrent.TimeUnit
 
 class YamiboApplication : Application(), ImageLoaderFactory {
 
@@ -66,6 +69,12 @@ class YamiboApplication : Application(), ImageLoaderFactory {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
                     .maxSizeBytes(300L * 1024 * 1024)
+                    .build()
+            }
+            .okHttpClient {
+                okhttp3.OkHttpClient.Builder()
+                    .connectionPool(ConnectionPool(15, 5, TimeUnit.MINUTES))
+                    .addInterceptor(BrotliInterceptor)
                     .build()
             }
             .crossfade(false)

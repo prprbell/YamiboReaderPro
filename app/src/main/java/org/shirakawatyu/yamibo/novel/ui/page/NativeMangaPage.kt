@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.app.Activity
 import android.content.ComponentCallbacks2
+import android.graphics.Bitmap
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.WindowManager
@@ -106,15 +107,18 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import coil.annotation.ExperimentalCoilApi
 import coil.compose.SubcomposeAsyncImage
 import coil.imageLoader
+import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -138,7 +142,7 @@ import java.net.URLEncoder
 
 private val SpecialChapterRegex = Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)
 private val ChapterIndexFormat = java.text.DecimalFormat("0.###")
-@OptIn(ExperimentalFoundationApi::class, FlowPreview::class)
+@OptIn(ExperimentalFoundationApi::class, FlowPreview::class, ExperimentalCoilApi::class)
 @Composable
 fun NativeMangaPage(
     url: String,
@@ -172,6 +176,8 @@ fun NativeMangaPage(
     var probingJob by remember { mutableStateOf<Job?>(null) }
 
     val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp.dp
+    val defaultMinHeight = screenWidthDp * 1.4f
     val screenWidthPx = with(LocalDensity.current) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(LocalDensity.current) { configuration.screenHeightDp.dp.toPx() }
     val isRtl = readMode == 2
@@ -400,15 +406,20 @@ fun NativeMangaPage(
                         } else if (!lazyListState.canScrollForward) {
                             visibleItems.last().index
                         } else {
-                            val readLine = layoutInfo.viewportStartOffset + (layoutInfo.viewportSize.height * 0.55f).toInt()
-                            var activeIndex = lazyListState.firstVisibleItemIndex
-                            for (itemInfo in visibleItems) {
-                                if (readLine >= itemInfo.offset && readLine <= (itemInfo.offset + itemInfo.size)) {
-                                    activeIndex = itemInfo.index
-                                    break
+                            val isAtAbsoluteTop = lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
+                            if (isAtAbsoluteTop) {
+                                0
+                            } else {
+                                val readLine = layoutInfo.viewportStartOffset + (layoutInfo.viewportSize.height * 0.4f).toInt()
+                                var activeIndex = lazyListState.firstVisibleItemIndex
+                                for (itemInfo in visibleItems) {
+                                    if (readLine >= itemInfo.offset && readLine <= (itemInfo.offset + itemInfo.size)) {
+                                        activeIndex = itemInfo.index
+                                        break
+                                    }
                                 }
+                                activeIndex
                             }
-                            activeIndex
                         }
                     } else {
                         pagerState.currentPage
@@ -557,18 +568,39 @@ fun NativeMangaPage(
                         if (pagesSnapshot.isEmpty() || index !in pagesSnapshot.indices) return@collectLatest
 
                         val totalSize = pagesSnapshot.size
-                        val windowStart = maxOf(0, index - 3)
-                        val windowEnd = minOf(totalSize - 1, index + 6)
-
-                        val urlsToLoad = pagesSnapshot.subList(windowStart, windowEnd + 1)
-                            .sortedBy { kotlin.math.abs(it.globalIndex - index) }
-                            .map { it.imageUrl }
-                            .distinct()
 
                         withContext(Dispatchers.IO) {
-                            urlsToLoad.forEach { url ->
-                                launch {
-                                    ensureActive()
+                            fun isCached(url: String): Boolean {
+                                val inMemory = imageLoader.memoryCache?.get(MemoryCache.Key(url)) != null
+                                if (inMemory) return true
+                                return imageLoader.diskCache?.openSnapshot(url)?.use { true } ?: false
+                            }
+
+                            var windowStart = maxOf(0, index - 3)
+                            var cachedBackwardCount = 0
+                            for (i in windowStart until index) {
+                                if (isCached(pagesSnapshot[i].imageUrl)) cachedBackwardCount++
+                            }
+
+                            val dynamicEndOffset = 6 + cachedBackwardCount
+                            val windowEnd = minOf(totalSize - 1, index + dynamicEndOffset)
+
+                            var cachedForwardCount = 0
+                            for (i in index + 1..windowEnd) {
+                                if (isCached(pagesSnapshot[i].imageUrl)) cachedForwardCount++
+                            }
+
+                            val expandBackward = minOf(cachedForwardCount, 2)
+                            windowStart = maxOf(0, windowStart - expandBackward)
+
+                            val urlsToLoad = pagesSnapshot.subList(windowStart, windowEnd + 1)
+                                .filter { it.globalIndex != index }
+                                .filter { !isCached(it.imageUrl) }
+                                .sortedBy { kotlin.math.abs(it.globalIndex - index) }
+                                .map { it.imageUrl }
+
+                            urlsToLoad.map { url ->
+                                async {
                                     val request = ImageRequest.Builder(context.applicationContext)
                                         .data(url)
                                         .addHeader("Cookie", cookie)
@@ -576,9 +608,10 @@ fun NativeMangaPage(
                                         .memoryCachePolicy(CachePolicy.ENABLED)
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .build()
+
                                     imageLoader.execute(request)
                                 }
-                            }
+                            }.awaitAll()
                         }
                     }
             }
@@ -666,6 +699,7 @@ fun NativeMangaPage(
                                     .addHeader("Cookie", cookie)
                                     .addHeader("Referer", "https://bbs.yamibo.com/")
                                     .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
                                     .crossfade(false)
                                     .build()
                             }
@@ -673,7 +707,7 @@ fun NativeMangaPage(
                                 model = request,
                                 contentDescription = null,
                                 contentScale = ContentScale.FillWidth,
-                                modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 400.dp),
+                                modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = defaultMinHeight),
                                 loading = {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         CircularProgressIndicator(color = YamiboColors.tertiary)
@@ -707,6 +741,7 @@ fun NativeMangaPage(
                                             .addHeader("Cookie", cookie)
                                             .addHeader("Referer", "https://bbs.yamibo.com/")
                                             .memoryCachePolicy(CachePolicy.ENABLED)
+                                            .diskCachePolicy(CachePolicy.ENABLED)
                                             .crossfade(false)
                                             .listener(
                                                 onStart = { isImageLoading = true },
