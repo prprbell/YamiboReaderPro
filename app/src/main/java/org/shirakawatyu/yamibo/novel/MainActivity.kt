@@ -56,6 +56,7 @@ import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import java.net.URLDecoder
+import kotlin.coroutines.resume
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cookies")
 
@@ -233,12 +234,16 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                 SettingsUtil.getFavoriteCollapseMode { GlobalData.isFavoriteCollapsed.value = it }
                 SettingsUtil.getCustomDnsMode { GlobalData.isCustomDnsEnabled.value = it }
 
-                SettingsUtil.getHomePage { route ->
-                    GlobalData.homePageRoute.value = route
+                val route = suspendCancellableCoroutine { continuation ->
+                    SettingsUtil.getHomePage {
+                        continuation.resume(it)
+                    }
                 }
+                GlobalData.homePageRoute.value = route
 
                 GlobalData.isAppInitialized = true
-//                自动签到（自用）
+
+//                 自动签到（自用）
 //                launch(Dispatchers.IO) {
 //                    AutoSignManager.checkAndSignIfNeeded(context)
 //                }

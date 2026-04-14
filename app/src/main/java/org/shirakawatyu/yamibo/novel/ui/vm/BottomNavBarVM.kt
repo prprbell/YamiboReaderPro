@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,15 +41,14 @@ class BottomNavBarVM : ViewModel() {
         }
         isNavigating = true
         navController.navigate(pageList[index]) {
-            val startRoute = navController.graph.startDestinationRoute ?: "FavoritePage"
-            popUpTo(startRoute) {
+            popUpTo(navController.graph.findStartDestination().id) {
                 saveState = true
             }
             launchSingleTop = true
             restoreState = true
         }
         viewModelScope.launch {
-            delay(300) // 防抖
+            delay(300)
             isNavigating = false
         }
     }

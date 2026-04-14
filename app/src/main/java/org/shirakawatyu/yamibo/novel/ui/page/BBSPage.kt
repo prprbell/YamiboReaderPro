@@ -824,7 +824,7 @@ fun BBSPage(
 
         when {
             isHomepage -> {
-                if (navController.currentBackStack.value.size > 1) {
+                if (navController.previousBackStackEntry != null) {
                     navController.popBackStack()
                 } else {
                     activity?.finish()
