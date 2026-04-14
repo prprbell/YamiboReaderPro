@@ -54,6 +54,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
+import org.shirakawatyu.yamibo.novel.util.NetworkMonitor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import java.net.URLDecoder
 import kotlin.coroutines.resume
@@ -222,6 +223,9 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
 fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
     val isAppInitialized = GlobalData.isAppInitialized
     val context = LocalContext.current
+    val isNetworkAvailable by remember {
+        NetworkMonitor.observeNetwork(context)
+    }.collectAsState(initial = false)
     val homeRoute by GlobalData.homePageRoute.collectAsState()
     LaunchedEffect(Unit) {
         if (!GlobalData.isAppInitialized) {
@@ -271,14 +275,14 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
                     val selectedItemIndex = pageList.indexOf(currentRoute).coerceAtLeast(0)
 
-                    LaunchedEffect(bbsWebView) {
-                        if (bbsWebView != null && !BBSPageState.hasSuccessfullyLoaded) {
+                    LaunchedEffect(bbsWebView, isNetworkAvailable) {
+                        if (bbsWebView != null && isNetworkAvailable && !BBSPageState.hasSuccessfullyLoaded) {
                             try {
                                 CookieManager.getInstance().setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
                                 CookieManager.getInstance().flush()
 
                                 bbsWebView.loadUrl("https://bbs.yamibo.com/forum.php?mobile=2")
-                                BBSPageState.isLoading = true // 同步状态
+                                BBSPageState.isLoading = true
                             } catch (e: Exception) {
                                 e.printStackTrace()
                             }

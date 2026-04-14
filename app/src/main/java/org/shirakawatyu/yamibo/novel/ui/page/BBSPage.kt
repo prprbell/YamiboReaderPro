@@ -46,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -401,6 +402,7 @@ fun BBSPage(
     var isPullRefreshing by remember { mutableStateOf(false) }
 
     var autoOpenMangaMode by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     val canConvertToReader = remember(BBSPageState.currentUrl, BBSPageState.pageTitle) {
         ReaderModeDetector.canConvertToReaderMode(BBSPageState.currentUrl, BBSPageState.pageTitle)
@@ -669,7 +671,19 @@ fun BBSPage(
         }
         webView.loadUrl(url)
     }
-
+    val isNetworkAvailable by remember {
+        org.shirakawatyu.yamibo.novel.util.NetworkMonitor.observeNetwork(context)
+    }.collectAsState(initial = false)
+    LaunchedEffect(isNetworkAvailable, BBSPageState.isErrorState) {
+        if (isNetworkAvailable && BBSPageState.isErrorState) {
+            val curl = webView.url
+            if (!curl.isNullOrEmpty() && curl != "about:blank") {
+                startLoading(curl)
+            } else {
+                startLoading(mobileIndexUrl)
+            }
+        }
+    }
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             webView.evaluateJavascript(
