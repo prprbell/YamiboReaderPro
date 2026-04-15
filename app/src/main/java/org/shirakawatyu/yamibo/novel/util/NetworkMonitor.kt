@@ -15,9 +15,6 @@ object NetworkMonitor {
             context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                super.onAvailable(network)
-            }
 
             override fun onCapabilitiesChanged(
                 network: Network,
