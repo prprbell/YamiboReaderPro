@@ -59,8 +59,10 @@ class PassageWebViewClient(
             return response
         }
         if (request?.method == "GET") {
-            val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
-            if (proxyResponse != null) return proxyResponse
+            if (fullUrl.contains("yamibo.com")) {
+                val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+                if (proxyResponse != null) return proxyResponse
+            }
         }
         return super.shouldInterceptRequest(view, request)
     }

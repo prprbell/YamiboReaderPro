@@ -120,9 +120,12 @@ class YamiboRetrofit {
             return OkHttpClient.Builder()
                 .dns(cachedDns)
                 .addInterceptor { chain ->
-                    val cookie = GlobalData.currentCookie
                     val original = chain.request()
+                    if (!original.url.host.contains("yamibo.com")) {
+                        return@addInterceptor chain.proceed(original)
+                    }
 
+                    val cookie = GlobalData.currentCookie
                     val existingUa = original.header("User-Agent")
                     val isPcPseudoRequest =
                         existingUa?.contains("Windows NT") == true || existingUa?.contains("Macintosh") == true
@@ -166,8 +169,11 @@ class YamiboRetrofit {
                 if (response.isSuccessful) {
                     val contentType = response.header("Content-Type", "") ?: ""
                     val mimeType = contentType.substringBefore(";").trim().takeIf { it.isNotEmpty() } ?: "application/octet-stream"
-                    val encoding = contentType.substringAfter("charset=", "utf-8").replace("\"", "").trim()
-
+                    val encoding = if (contentType.contains("charset=")) {
+                        contentType.substringAfter("charset=").replace("\"", "").trim()
+                    } else {
+                        null
+                    }
                     val inputStream = response.body?.byteStream()
                     if (inputStream != null) {
                         return android.webkit.WebResourceResponse(mimeType, encoding, inputStream)

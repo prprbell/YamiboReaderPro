@@ -165,9 +165,11 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
                     }
                 }
                 if (request.method == "GET") {
-                    val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
-                    if (proxyResponse != null) {
-                        return proxyResponse
+                    if (urlStr.contains("yamibo.com")) {
+                        val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+                        if (proxyResponse != null) {
+                            return proxyResponse
+                        }
                     }
                 }
             }

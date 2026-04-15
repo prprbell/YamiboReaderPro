@@ -498,8 +498,10 @@ fun MinePage(
                             }
                         }
                         if (request.method == "GET") {
-                            val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
-                            if (proxyResponse != null) return proxyResponse
+                            if (urlStr.contains("yamibo.com")) {
+                                val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+                                if (proxyResponse != null) return proxyResponse
+                            }
                         }
                     }
                 }
@@ -657,12 +659,28 @@ fun MinePage(
         }
     }
 
-    BackHandler(enabled = canGoBack || needFallbackToHome) {
-        if (canGoBack) {
-            mineWebView.goBack()
-        } else if (needFallbackToHome) {
-            needFallbackToHome = false
-            startLoading(mineWebView, mineUrl)
+    BackHandler(enabled = true) {
+        val currentWebViewUrl = mineWebView.url ?: ""
+        val isAtMineHome = currentWebViewUrl.contains("mod=space") && currentWebViewUrl.contains("do=profile")
+
+        when {
+            needFallbackToHome -> {
+                needFallbackToHome = false
+                startLoading(mineWebView, mineUrl)
+            }
+            evaluateCanGoBack(mineWebView) -> {
+                mineWebView.goBack()
+            }
+            !isAtMineHome && currentWebViewUrl != "about:blank" && currentWebViewUrl.isNotBlank() -> {
+                startLoading(mineWebView, mineUrl)
+            }
+            else -> {
+                if (navController.previousBackStackEntry != null) {
+                    navController.popBackStack()
+                } else {
+                    activity?.finish()
+                }
+            }
         }
     }
 
@@ -711,7 +729,7 @@ fun MinePage(
                 )
         ) {
             AndroidView(
-                modifier = Modifier.alpha(if (isLoading && !isPullRefreshing) 0.01f else 1f),
+                modifier = Modifier,
                 factory = { _ ->
                     (mineWebView.parent as? ViewGroup)?.removeView(mineWebView)
                     mineWebView.layoutParams = ViewGroup.LayoutParams(
