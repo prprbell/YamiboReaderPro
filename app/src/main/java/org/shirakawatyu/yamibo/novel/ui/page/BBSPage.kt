@@ -752,7 +752,7 @@ fun BBSPage(
         }
     }
     LaunchedEffect(isSelected, webView) {
-        if (isSelected && !BBSPageState.hasSuccessfullyLoaded && webView.url.isNullOrEmpty()) {
+        if (isSelected && !BBSPageState.hasSuccessfullyLoaded && !BBSPageState.isLoading && webView.url.isNullOrEmpty()) {
             startLoading(mobileIndexUrl)
         }
     }

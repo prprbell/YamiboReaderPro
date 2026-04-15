@@ -169,6 +169,9 @@ class MainActivity : ComponentActivity() {
             }
             bbsWebViewState = null
             BBSPageState.hasSuccessfullyLoaded = false
+            BBSPageState.isLoading = false
+            BBSPageState.isErrorState = false
+            BBSPageState.showLoadError = false
         }
     }
 
@@ -281,8 +284,21 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                 CookieManager.getInstance().setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
                                 CookieManager.getInstance().flush()
 
-                                bbsWebView.loadUrl("https://bbs.yamibo.com/forum.php?mobile=2")
+                                val targetUrl = BBSPageState.currentUrl?.takeIf { it.isNotBlank() && it != "about:blank" }
+                                    ?: "https://bbs.yamibo.com/forum.php?mobile=2"
+
+                                bbsWebView.loadUrl(targetUrl)
                                 BBSPageState.isLoading = true
+
+                                launch {
+                                    delay(18000)
+                                    if (BBSPageState.isLoading) {
+                                        bbsWebView.stopLoading()
+                                        BBSPageState.isErrorState = true
+                                        BBSPageState.isLoading = false
+                                        BBSPageState.showLoadError = true
+                                    }
+                                }
                             } catch (e: Exception) {
                                 e.printStackTrace()
                             }

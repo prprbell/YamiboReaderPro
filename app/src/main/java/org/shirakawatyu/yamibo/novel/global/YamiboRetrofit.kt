@@ -11,24 +11,42 @@ import java.net.InetAddress
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-class DynamicDns(private val customDns: okhttp3.Dns, private val systemDns: okhttp3.Dns = okhttp3.Dns.SYSTEM) : okhttp3.Dns {
+class DynamicDns(private val bootstrapClient: OkHttpClient) : okhttp3.Dns {
+
+    private val aliDns by lazy {
+        DnsOverHttps.Builder().client(bootstrapClient)
+            .url("https://dns.alidns.com/dns-query".toHttpUrl())
+            .bootstrapDnsHosts(listOf(InetAddress.getByName("223.5.5.5"), InetAddress.getByName("223.6.6.6")))
+            .includeIPv6(false).build()
+    }
+
+    private val tencentDns by lazy {
+        DnsOverHttps.Builder().client(bootstrapClient)
+            .url("https://doh.pub/dns-query".toHttpUrl())
+            .bootstrapDnsHosts(listOf(InetAddress.getByName("1.12.12.12"), InetAddress.getByName("120.53.53.53")))
+            .includeIPv6(false).build()
+    }
+
+    private val systemDns = okhttp3.Dns.SYSTEM
+
     override fun lookup(hostname: String): List<InetAddress> {
-        return if (GlobalData.isCustomDnsEnabled.value) {
+        if (!GlobalData.isCustomDnsEnabled.value) {
+            return systemDns.lookup(hostname)
+        }
+
+        return try {
+            aliDns.lookup(hostname)
+        } catch (_: Exception) {
             try {
-                customDns.lookup(hostname)
-            } catch (e: Exception) {
+                tencentDns.lookup(hostname)
+            } catch (_: Exception) {
                 systemDns.lookup(hostname)
             }
-        } else {
-            systemDns.lookup(hostname)
         }
     }
 }
 
 class YamiboRetrofit {
-
-    // 1. 定义 DoH 数据结构
-    private data class DohServer(val url: String, val ips: List<String>)
 
     companion object {
         private val pcUaList = listOf(
@@ -39,13 +57,6 @@ class YamiboRetrofit {
         )
 
         private val currentPcUa = pcUaList.random()
-
-        private val dohServerList = listOf(
-            // 阿里云公共 DNS
-            DohServer("https://dns.alidns.com/dns-query", listOf("223.5.5.5", "223.6.6.6")),
-            // 腾讯云 DNSPod
-            DohServer("https://doh.pub/dns-query", listOf("1.12.12.12", "120.53.53.53"))
-        )
 
         private val acceptLanguage by lazy {
             val locale = Locale.getDefault()
@@ -70,23 +81,12 @@ class YamiboRetrofit {
 
         private fun createOkHttpClient(): OkHttpClient {
             val bootstrapClient = OkHttpClient.Builder()
-                .connectTimeout(5, TimeUnit.SECONDS)
-                .readTimeout(5, TimeUnit.SECONDS)
-                .build()
-
-            val selectedDoh = dohServerList.random()
-
-            val dns = DnsOverHttps.Builder()
-                .client(bootstrapClient)
-                .url(selectedDoh.url.toHttpUrl())
-                .bootstrapDnsHosts(
-                    selectedDoh.ips.map { InetAddress.getByName(it) }
-                )
-                .includeIPv6(false)
+                .connectTimeout(9, TimeUnit.SECONDS)
+                .readTimeout(9, TimeUnit.SECONDS)
                 .build()
 
             return OkHttpClient.Builder()
-                .dns(DynamicDns(dns))
+                .dns(DynamicDns(bootstrapClient))
                 .addInterceptor { chain ->
                     val cookie = GlobalData.currentCookie
                     val original = chain.request()
