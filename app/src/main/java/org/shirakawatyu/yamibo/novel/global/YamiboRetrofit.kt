@@ -108,7 +108,7 @@ class YamiboRetrofit {
 
         private fun createOkHttpClient(): OkHttpClient {
             val bootstrapClient = OkHttpClient.Builder()
-                .connectTimeout(6, TimeUnit.SECONDS)
+                .connectTimeout(5, TimeUnit.SECONDS)
                 .build()
 
             // 基础解析层
