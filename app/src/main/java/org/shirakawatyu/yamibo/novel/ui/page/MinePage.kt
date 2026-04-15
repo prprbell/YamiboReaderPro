@@ -1,5 +1,7 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
+import org.shirakawatyu.yamibo.novel.util.PageJsScripts
+
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.os.Handler
@@ -364,33 +366,14 @@ fun MinePage(
 
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
-            mineWebView.evaluateJavascript(
-                """
-                (function() {
-                    var style = document.getElementById('manga-transition-style');
-                    if (style) style.remove();
-                    window.pswpObserverAttached = false;
-                })();
-                """.trimIndent(),
-                null
-            )
+            mineWebView.evaluateJavascript(PageJsScripts.CLEANUP_FULLSCREEN_JS, null)
         } else {
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
             }
             currentUrl?.let { url ->
                 if (url.contains("mod=viewthread") && url.contains("tid=")) {
-                    val checkSectionJs = """
-                        (function() {
-                            var sectionHeader = document.querySelector('.header h2 a');
-                            if (sectionHeader) return sectionHeader.innerText.trim();
-                            var nav = document.querySelector('.z, .nav, .mz, .thread_nav, .sq_nav');
-                            if (nav) return nav.innerText.trim();
-                            return '';
-                        })();
-                    """.trimIndent()
-
-                    mineWebView.evaluateJavascript(checkSectionJs) { result ->
+                    mineWebView.evaluateJavascript(PageJsScripts.CHECK_SECTION_JS) { result ->
                         val sectionName = try {
                             JSON.parse(result) as? String ?: ""
                         } catch (_: Exception) {
@@ -440,125 +423,6 @@ fun MinePage(
             ) {
                 resend?.sendToTarget()
             }
-
-            val checkSectionAndInjectJs = """
-                (function(){
-                window.__pswpInit = function() {
-                        if (window.__globalPswpAttached) return;
-                        var pswp = document.querySelector('.pswp');
-                        if (!pswp) {
-                            var bodyObserver = new MutationObserver(function(mutations, obs) {
-                                if (document.querySelector('.pswp')) {
-                                    obs.disconnect();
-                                    window.__pswpInit();
-                                }
-                            });
-                            bodyObserver.observe(document.body, { childList: true, subtree: true });
-                            return;
-                        }
-                        window.__globalPswpAttached = true;
-                        
-                        var checkState = function() {
-                            var isOpen = pswp.classList.contains('pswp--open') || 
-                                         pswp.classList.contains('pswp--visible') || 
-                                         (getComputedStyle(pswp).display !== 'none' && getComputedStyle(pswp).opacity > 0);
-                            if (window.__pswpLastState !== isOpen) {
-                                window.__pswpLastState = isOpen;
-                                if (window.AndroidFullscreen) window.AndroidFullscreen.notify(isOpen);
-                                if (isOpen) {
-                                    setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 100);
-                                }
-                            }
-                        };
-                        
-                        var pswpObserver = new MutationObserver(checkState);
-                        pswpObserver.observe(pswp, { attributes: true, attributeFilter: ['class', 'style'] });
-                        checkState();
-                    };
-                    window.__pswpInit();
-                    
-                    if (!window._backBtnFixed) {
-                        window._backBtnFixed = true;
-                        document.addEventListener('click', function(e) {
-                            var target = e.target.closest ? e.target.closest('a[href*="history.back"], #hui-back') : null;
-                            if (target) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (window.NativeMangaApi && window.NativeMangaApi.goBack) {
-                                    window.NativeMangaApi.goBack();
-                                } else {
-                                    window.history.back();
-                                }
-                            }
-                        }, true);
-                    }
-                    
-                    var a = document.querySelector('.header h2 a');
-                    var isManga = false;
-                    if (a) {
-                        var t = a.innerText;
-                        isManga = t.indexOf('中文百合漫画区') !== -1 || 
-                                  t.indexOf('貼圖區') !== -1 || 
-                                  t.indexOf('原创图作区') !== -1 || 
-                                  t.indexOf('百合漫画图源区') !== -1;
-                    }
-                    if (isManga) {
-                        if (window._mangaClickInjected) return 'true';
-                        window._mangaClickInjected = true;
-                        
-                        var disablePhotoSwipe = function() {
-                            var links = document.querySelectorAll('a[data-pswp-width], .img_one a, .message a');
-                            for (var i = 0; i < links.length; i++) {
-                                var aNode = links[i];
-                                if (aNode.querySelector('img')) {
-                                    aNode.removeAttribute('data-pswp-width');
-                                    if (aNode.href && aNode.href.indexOf('javascript') === -1) {
-                                        aNode.setAttribute('data-disabled-href', aNode.href);
-                                        aNode.removeAttribute('href');
-                                    }
-                                }
-                            }
-                        };
-                        disablePhotoSwipe();
-                        var observer = new MutationObserver(disablePhotoSwipe);
-                        observer.observe(document.body, { childList: true, subtree: true });
-                        
-                        document.addEventListener('click', function(e) {
-                            var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
-                            if (!targetContainer) return;
-                            
-                            var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
-                            
-                            if (targetImg) {
-                                var imgSrc = targetImg.getAttribute('src') || '';
-                                var imgZsrc = targetImg.getAttribute('zsrc') || '';
-                                
-                                if (imgSrc.indexOf('smiley') === -1 && imgZsrc.indexOf('smiley') === -1) { 
-                                    e.preventDefault(); 
-                                    e.stopPropagation();
-                                    e.stopImmediatePropagation();
-                                    
-                                    var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                                    var urls = [];
-                                    var clickedIndex = 0;
-                                    for (var i = 0; i < allImgs.length; i++) {
-                                        var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
-                                        if (rawSrc) {
-                                            var absoluteUrl = new URL(rawSrc, document.baseURI).href;
-                                            urls.push(absoluteUrl);
-                                            if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
-                                        }
-                                    }
-                                    if (window.NativeMangaApi) {
-                                        window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
-                                    }
-                                }
-                            }
-                        }, true); 
-                    }
-                    return isManga ? 'true' : 'false';
-                })()
-            """.trimIndent()
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 if (url == "about:blank" || url?.contains("warmup=true") == true || url?.startsWith("data:") == true) return
@@ -662,7 +526,8 @@ fun MinePage(
                     isPullRefreshing = false
                     showLoadError = false
                 }
-                view?.evaluateJavascript(checkSectionAndInjectJs, null)
+                // 使用外部提取的特定于 MinePage 的脚本常量
+                view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -680,7 +545,8 @@ fun MinePage(
                 }
 
                 canGoBack = evaluateCanGoBack(view)
-                view?.evaluateJavascript(checkSectionAndInjectJs, null)
+                // 使用外部提取的特定于 MinePage 的脚本常量
+                view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
             }
 
             override fun onReceivedError(
@@ -781,140 +647,12 @@ fun MinePage(
 
     LaunchedEffect(isLoading) {
         if (!isLoading && autoOpenMangaMode) {
-            val clickJs = """
-                (function() {
-                    var sectionHeader = document.querySelector('.header h2 a');
-                    var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
-                    if (sectionName !== '') {
-                        var allowedSections = ['中文百合漫画区', '貼圖區', '原创图作区', '百合漫画图源区'];
-                        var isAllowedSection = false;
-                        for (var k = 0; k < allowedSections.length; k++) {
-                            if (sectionName.indexOf(allowedSections[k]) !== -1) {
-                                isAllowedSection = true;
-                                break;
-                            }
-                        }
-                        if (!isAllowedSection) {
-                            if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
-                                window.AndroidFullscreen.notifyMangaActionDone();
-                            }
-                            return;
-                        }
-                    }
-                    
-                    var typeLabel = document.querySelector('.view_tit em');
-                    if (typeLabel && typeLabel.innerText.indexOf('公告') !== -1) {
-                        if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
-                            window.AndroidFullscreen.notifyMangaActionDone();
-                        }
-                        return; 
-                    }
-
-                    if (!document.getElementById('manga-transition-style')) {
-                        var style = document.createElement('style');
-                        style.id = 'manga-transition-style';
-                        style.innerHTML = 'body > *:not(.pswp) { opacity: 0 !important; pointer-events: none !important; } body { background: #000 !important; }';
-                        document.head.appendChild(style);
-                    }
-
-                    function abortAndNotify() {
-                        var style = document.getElementById('manga-transition-style');
-                        if (style) style.remove();
-                        if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
-                            window.AndroidFullscreen.notifyMangaActionDone();
-                        }
-                    }
-
-                    if (window.NativeMangaApi) {
-                        var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                        if (allImgs.length > 0) {
-                            var urls = [];
-                            for (var i = 0; i < allImgs.length; i++) {
-                                var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
-                                if (rawSrc) {
-                                    urls.push(new URL(rawSrc, document.baseURI).href);
-                                }
-                            }
-                            if (urls.length > 0) {
-                                window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.title);
-                                return;
-                            }
-                        }
-                    }
-
-                    var clickTimer = null;
-                    var timeoutTimer = null;
-                    
-                    var observer = new MutationObserver(function(mutations, obs) {
-                        if (document.querySelector('.pswp')) {
-                            obs.disconnect();
-                            clearTimeout(timeoutTimer); 
-                            if (clickTimer) clearInterval(clickTimer);
-                            
-                            if (window.AndroidFullscreen) {
-                                window.AndroidFullscreen.notify(true);
-                                window.AndroidFullscreen.notifyMangaActionDone();
-                            }
-                            return;
-                        }
-                    });
-
-                    observer.observe(document.body, { childList: true, subtree: true });
-
-                    var clickAttempts = 0;
-                    var maxClicks = 10;
-
-                    function tryClickTarget() {
-                        if (clickAttempts >= maxClicks) {
-                            if (clickTimer) clearInterval(clickTimer);
-                            return;
-                        }
-                        if (document.querySelector('.pswp')) return; 
-                        
-                        clickAttempts++;
-                        var links = document.querySelectorAll('a[data-pswp-width], .img_one a.orange, .message a.orange, .postmessage a.orange');
-                        var clicked = false;
-                        for (var i = 0; i < links.length; i++) {
-                            var href = links[i].getAttribute('href') || '';
-                            var innerHtml = links[i].innerHTML || '';
-                            if (href.toLowerCase().indexOf('.gif') === -1 && href.indexOf('static/image/') === -1 && innerHtml.indexOf('static/image/') === -1) {
-                                links[i].dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
-                                clicked = true;
-                                break; 
-                            }
-                        }
-
-                        if (!clicked) {
-                            var fallbackImgs = document.querySelectorAll('.img_one img');
-                            if(fallbackImgs.length > 0 && fallbackImgs[0].parentElement && fallbackImgs[0].parentElement.tagName === 'A'){
-                                fallbackImgs[0].parentElement.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
-                            }
-                        }
-                    }
-
-                    tryClickTarget();
-
-                    clickTimer = setInterval(tryClickTarget, 250);
-
-                    timeoutTimer = setTimeout(function() {
-                        observer.disconnect();
-                        if (clickTimer) clearInterval(clickTimer);
-                        abortAndNotify();
-                    }, 5000);
-                })();
-            """.trimIndent()
-
-            mineWebView.evaluateJavascript(clickJs, null)
+            mineWebView.evaluateJavascript(PageJsScripts.AUTO_OPEN_MANGA_JS, null)
 
             delay(6000)
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
-                mineWebView.evaluateJavascript(
-                    """
-                    var style = document.getElementById('manga-transition-style');
-                    if (style) style.remove();
-                """.trimIndent(), null
-                )
+                mineWebView.evaluateJavascript(PageJsScripts.REMOVE_TRANSITION_STYLE_JS, null)
             }
         }
     }

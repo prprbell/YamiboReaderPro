@@ -79,20 +79,13 @@ import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
+import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicInteger
-
-private val hideCommand = """
-    (function() {
-        var style = document.createElement('style');
-        style.innerHTML = '.nav-search, #nav-more-menu .btn-to-pc { display: none !important; }';
-        if (document.head) document.head.appendChild(style);
-    })()
-""".trimIndent()
 
 class FullscreenApiOther(
     private val onStateChange: ((Boolean) -> Unit)?,
@@ -254,32 +247,13 @@ fun OtherWebPage(
 
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
-            otherWebView.evaluateJavascript(
-                """
-                (function() {
-                    var style = document.getElementById('manga-transition-style');
-                    if (style) style.remove();
-                    window.pswpObserverAttached = false;
-                })();
-                """.trimIndent(),
-                null
-            )
+            otherWebView.evaluateJavascript(PageJsScripts.CLEANUP_FULLSCREEN_JS, null)
         } else {
             if (autoOpenMangaMode) autoOpenMangaMode = false
 
             currentUrl?.let { threadUrl ->
                 if (threadUrl.contains("mod=viewthread") && threadUrl.contains("tid=")) {
-                    val checkSectionJs = """
-                        (function() {
-                            var sectionHeader = document.querySelector('.header h2 a');
-                            if (sectionHeader) return sectionHeader.innerText.trim();
-                            var nav = document.querySelector('.z, .nav, .mz, .thread_nav, .sq_nav');
-                            if (nav) return nav.innerText.trim();
-                            return '';
-                        })();
-                    """.trimIndent()
-
-                    otherWebView.evaluateJavascript(checkSectionJs) { result ->
+                    otherWebView.evaluateJavascript(PageJsScripts.CHECK_SECTION_JS) { result ->
                         val sectionName = try {
                             com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
                         } catch (_: Exception) {
@@ -398,7 +372,7 @@ fun OtherWebPage(
                     canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
                 }
 
-                view?.evaluateJavascript(hideCommand, null)
+                view?.evaluateJavascript(PageJsScripts.OTHER_WEB_HIDE_COMMAND, null)
             }
 
             override fun doUpdateVisitedHistory(
@@ -431,45 +405,7 @@ fun OtherWebPage(
 
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 super.onPageFinished(view, finishedUrl)
-                view?.evaluateJavascript(
-                    """
-                    (function(){
-                        window.__pswpInit = function() {
-                            if (window.__globalPswpAttached) return;
-                            var pswp = document.querySelector('.pswp');
-                            if (!pswp) {
-                                var bodyObserver = new MutationObserver(function(mutations, obs) {
-                                    if (document.querySelector('.pswp')) {
-                                        obs.disconnect();
-                                        window.__pswpInit();
-                                    }
-                                });
-                                bodyObserver.observe(document.body, { childList: true, subtree: true });
-                                return;
-                            }
-                            window.__globalPswpAttached = true;
-                            
-                            var checkState = function() {
-                                var isOpen = pswp.classList.contains('pswp--open') || 
-                                             pswp.classList.contains('pswp--visible') || 
-                                             (getComputedStyle(pswp).display !== 'none' && getComputedStyle(pswp).opacity > 0);
-                                if (window.__pswpLastState !== isOpen) {
-                                    window.__pswpLastState = isOpen;
-                                    if (window.AndroidFullscreen) window.AndroidFullscreen.notify(isOpen);
-                                    if (isOpen) {
-                                        setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 100);
-                                    }
-                                }
-                            };
-                            
-                            var pswpObserver = new MutationObserver(checkState);
-                            pswpObserver.observe(pswp, { attributes: true, attributeFilter: ['class', 'style'] });
-                            checkState();
-                        };
-                        window.__pswpInit();
-                    })()
-                    """.trimIndent(), null
-                )
+                view?.evaluateJavascript(PageJsScripts.OTHER_WEB_INIT_PSWP_JS, null)
                 if (!isHistoryCleared) {
                     view?.clearHistory()
                     isHistoryCleared = true
@@ -507,22 +443,7 @@ fun OtherWebPage(
                 }
                 val currentPageNum = extractPage(finishedUrl)
 
-                val checkTypeJs = """
-                    (function() {
-                        var sectionHeader = document.querySelector('.header h2 a');
-                        var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
-                        var currentUrl = window.location.href;
-                        var mangaSections = ['中文百合漫画区', '貼圖區', '原创图作区', '百合漫画图源区'];
-                        var isManga = mangaSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=30') !== -1;
-                        var novelSections = ['文学区', 'TXT小说区', '轻小说/译文区'];
-                        var isNovel = novelSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=55') !== -1;
-                        if (isNovel) return 1;
-                        if (isManga) return 2;
-                        return 3;
-                    })();
-                """.trimIndent()
-
-                view?.evaluateJavascript(checkTypeJs) { result ->
+                view?.evaluateJavascript(PageJsScripts.OTHER_WEB_CHECK_TYPE_JS) { result ->
                     val typeCode = result?.toIntOrNull() ?: 3
 
                     scope.launch(Dispatchers.IO) {
@@ -596,82 +517,11 @@ fun OtherWebPage(
 
     LaunchedEffect(isLoading) {
         if (!isLoading && autoOpenMangaMode) {
-            val clickJs = """
-                (function() {
-                    var sectionHeader = document.querySelector('.header h2 a');
-                    var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
-                    if (sectionName !== '') {
-                        var allowedSections = ['中文百合漫画区', '貼圖區', '原创图作区', '百合漫画图源区'];
-                        var isAllowedSection = false;
-                        for (var k = 0; k < allowedSections.length; k++) {
-                            if (sectionName.indexOf(allowedSections[k]) !== -1) { isAllowedSection = true; break; }
-                        }
-                        if (!isAllowedSection) {
-                            if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) window.AndroidFullscreen.notifyMangaActionDone();
-                            return;
-                        }
-                    }
-                    
-                    var typeLabel = document.querySelector('.view_tit em');
-                    if (typeLabel && typeLabel.innerText.indexOf('公告') !== -1) {
-                        if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) window.AndroidFullscreen.notifyMangaActionDone();
-                        return; 
-                    }
-                    
-                    if (!document.getElementById('manga-transition-style')) {
-                        var style = document.createElement('style');
-                        style.id = 'manga-transition-style';
-                        style.innerHTML = 'body > *:not(.pswp) { opacity: 0 !important; pointer-events: none !important; } body { background: #000 !important; }';
-                        document.head.appendChild(style);
-                    }
-
-                    function abortAndNotify() {
-                        var style = document.getElementById('manga-transition-style');
-                        if (style) style.remove();
-                        if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) window.AndroidFullscreen.notifyMangaActionDone();
-                    }
-
-                    var isDone = false;
-                    var attempts = 0;
-                    var timer = setInterval(function() {
-                        if (isDone) { clearInterval(timer); return; }
-                        attempts++;
-
-                        var pswp = document.querySelector('.pswp');
-                        if (pswp) {
-                            isDone = true;
-                            clearInterval(timer);
-                            if (window.AndroidFullscreen) {
-                                window.AndroidFullscreen.notify(true);
-                                window.AndroidFullscreen.notifyMangaActionDone();
-                            }
-                            return;
-                        }
-
-                        var links = document.querySelectorAll('a[data-pswp-width], .img_one a.orange, .message a.orange, .postmessage a.orange');
-                        var targetEl = null;
-                        for (var i = 0; i < links.length; i++) {
-                            var href = links[i].getAttribute('href') || '';
-                            var innerHtml = links[i].innerHTML || '';
-                            if (href.toLowerCase().indexOf('.gif') === -1 && href.indexOf('static/image/') === -1 && innerHtml.indexOf('static/image/') === -1) {
-                                targetEl = links[i]; break;
-                            }
-                        }
-                        
-                        if (targetEl) targetEl.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
-                        if (attempts >= 25) { isDone = true; clearInterval(timer); abortAndNotify(); }
-                    }, 200);
-                })();
-            """.trimIndent()
-
-            otherWebView.evaluateJavascript(clickJs, null)
+            otherWebView.evaluateJavascript(PageJsScripts.OTHER_WEB_AUTO_OPEN_JS, null)
             delay(6000)
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
-                otherWebView.evaluateJavascript(
-                    "var style = document.getElementById('manga-transition-style'); if (style) style.remove();",
-                    null
-                )
+                otherWebView.evaluateJavascript(PageJsScripts.REMOVE_TRANSITION_STYLE_JS, null)
             }
         }
     }

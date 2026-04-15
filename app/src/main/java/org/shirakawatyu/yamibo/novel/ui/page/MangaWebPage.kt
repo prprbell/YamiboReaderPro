@@ -84,16 +84,9 @@ import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
+import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
-
-private val hideCommand = """
-    javascript:(function() {
-        var style = document.createElement('style');
-        style.innerHTML = '.my, .mz { visibility: hidden !important; pointer-events: none !important; }';
-        document.head.appendChild(style);
-    })()
-""".trimIndent()
 
 class FullscreenApiManga {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -309,31 +302,12 @@ fun MangaWebPage(
 
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
-            mangaWebView.evaluateJavascript(
-                """
-                (function() {
-                    var style = document.getElementById('manga-transition-style');
-                    if (style) style.remove();
-                    window.pswpObserverAttached = false;
-                })();
-                """.trimIndent(),
-                null
-            )
+            mangaWebView.evaluateJavascript(PageJsScripts.CLEANUP_FULLSCREEN_JS, null)
         } else {
             if (autoOpenMangaMode) autoOpenMangaMode = false
             currentUrl?.let { threadUrl ->
                 if (MangaTitleCleaner.extractTidFromUrl(threadUrl) != null) {
-                    val checkSectionJs = """
-                        (function() {
-                            var sectionHeader = document.querySelector('.header h2 a');
-                            if (sectionHeader) return sectionHeader.innerText.trim();
-                            var nav = document.querySelector('.z, .nav, .mz, .thread_nav, .sq_nav');
-                            if (nav) return nav.innerText.trim();
-                            return '';
-                        })();
-                    """.trimIndent()
-
-                    mangaWebView.evaluateJavascript(checkSectionJs) { result ->
+                    mangaWebView.evaluateJavascript(PageJsScripts.CHECK_SECTION_JS) { result ->
                         val sectionName = try {
                             com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
                         } catch (_: Exception) {
@@ -420,7 +394,7 @@ fun MangaWebPage(
                     canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
                 }
 
-                view?.loadUrl(hideCommand)
+                view?.loadUrl(PageJsScripts.MANGA_WEB_HIDE_COMMAND)
             }
 
             override fun doUpdateVisitedHistory(
@@ -478,53 +452,9 @@ fun MangaWebPage(
                     mangaWebView.loadUrl(finalUrl)
                 }
 
-                view?.evaluateJavascript(
-                    """
-                    (function(){
-                        var a = document.querySelector('.header h2 a');
-                        if (!a) return false;
-                        var t = a.innerText;
-                        return t.indexOf('中文百合漫画区') !== -1 || t.indexOf('貼圖區') !== -1 || t.indexOf('原创图作区') !== -1 || t.indexOf('百合漫画图源区') !== -1;
-                    })()
-                    """.trimIndent()
-                ) { result ->
+                view?.evaluateJavascript(PageJsScripts.MANGA_WEB_IS_MANGA_SECTION_JS) { result ->
                     if (result == "true" && !currentAutoOpenMode) {
-                        val injectJs = """
-                            javascript:(function() {
-                                document.addEventListener('click', function(e) {
-                                    var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
-                                    if (!targetContainer) return;
-                                    
-                                    var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
-                                    
-                                    if (targetImg) {
-                                        var imgSrc = targetImg.getAttribute('src') || '';
-                                        var imgZsrc = targetImg.getAttribute('zsrc') || '';
-                                        
-                                        if (imgSrc.indexOf('smiley') === -1 && imgZsrc.indexOf('smiley') === -1) { 
-                                            e.preventDefault(); 
-                                            e.stopPropagation();
-                                            
-                                            var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                                            var urls = [];
-                                            var clickedIndex = 0;
-                                            for (var i = 0; i < allImgs.length; i++) {
-                                                var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
-                                                if (rawSrc) {
-                                                    var absoluteUrl = new URL(rawSrc, document.baseURI).href;
-                                                    urls.push(absoluteUrl);
-                                                    if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
-                                                }
-                                            }
-                                            if (window.NativeMangaApi) {
-                                                window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
-                                            }
-                                        }
-                                    }
-                                }, true); 
-                            })();
-                        """.trimIndent()
-                        view.evaluateJavascript(injectJs, null)
+                        view.evaluateJavascript(PageJsScripts.MANGA_WEB_INJECT_CLICK_LISTENER_JS, null)
                     }
                 }
             }
@@ -564,83 +494,11 @@ fun MangaWebPage(
 
     LaunchedEffect(isLoading) {
         if (!isLoading && autoOpenMangaMode) {
-            val clickJs = """
-                (function() {
-                    // 版块与公告检查
-                    var sectionHeader = document.querySelector('.header h2 a');
-                    var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
-                    if (sectionName !== '') {
-                        var allowedSections = ['中文百合漫画区', '貼圖區', '贴图区', '原创图作区', '百合漫画图源区'];
-                        var isAllowedSection = false;
-                        for (var k = 0; k < allowedSections.length; k++) {
-                            if (sectionName.indexOf(allowedSections[k]) !== -1) { isAllowedSection = true; break; }
-                        }
-                        if (!isAllowedSection) {
-                            if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) window.AndroidFullscreen.notifyMangaActionDone();
-                            return;
-                        }
-                    }
-                    
-                    var typeLabel = document.querySelector('.view_tit em');
-                    if (typeLabel && typeLabel.innerText.indexOf('公告') !== -1) {
-                        if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) window.AndroidFullscreen.notifyMangaActionDone();
-                        return; 
-                    }
-
-                    // 提取图片
-                    function extractAndOpenNative() {
-                        if (!window.NativeMangaApi) return false;
-                        
-                        var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                        if (allImgs.length === 0) return false;
-                        
-                        var urls = [];
-                        for (var i = 0; i < allImgs.length; i++) {
-                            var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('src');
-                            if (rawSrc) urls.push(new URL(rawSrc, document.baseURI).href);
-                        }
-                        
-                        if (urls.length > 0) {
-                            window.NativeMangaApi.openNativeManga(urls.join('|||'), 0, document.title);
-                            return true;
-                        }
-                        return false;
-                    }
-
-                    if (extractAndOpenNative()) {
-                        return; // 如果第一次就成功了，直接结束
-                    }
-
-                    var extractAttempts = 0;
-                    var maxExtracts = 10;
-                    
-                    var extractTimer = setInterval(function() {
-                        extractAttempts++;
-                        
-                        if (extractAndOpenNative()) {
-                            clearInterval(extractTimer);
-                            return;
-                        }
-                        
-                        if (extractAttempts >= maxExtracts) {
-                            clearInterval(extractTimer);
-                            if (window.AndroidFullscreen && window.AndroidFullscreen.notifyMangaActionDone) {
-                                window.AndroidFullscreen.notifyMangaActionDone();
-                            }
-                        }
-                    }, 250);
-
-                })();
-            """.trimIndent()
-
-            mangaWebView.evaluateJavascript(clickJs, null)
+            mangaWebView.evaluateJavascript(PageJsScripts.MANGA_WEB_AUTO_OPEN_JS, null)
             delay(6000)
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
-                mangaWebView.evaluateJavascript(
-                    "var style = document.getElementById('manga-transition-style'); if (style) style.remove();",
-                    null
-                )
+                mangaWebView.evaluateJavascript(PageJsScripts.REMOVE_TRANSITION_STYLE_JS, null)
             }
         }
     }
@@ -665,17 +523,7 @@ fun MangaWebPage(
 
         val currentChapter = dir.chapters.find { it.tid == tid }
         if (currentChapter != null) {
-            val checkSectionJs = """
-                (function() {
-                    var sectionHeader = document.querySelector('.header h2 a');
-                    if (sectionHeader) return sectionHeader.innerText.trim();
-                    var nav = document.querySelector('.z, .nav, .mz, .thread_nav, .sq_nav');
-                    if (nav) return nav.innerText.trim();
-                    return '';
-                })();
-            """.trimIndent()
-
-            mangaWebView.evaluateJavascript(checkSectionJs) { result ->
+            mangaWebView.evaluateJavascript(PageJsScripts.CHECK_SECTION_JS) { result ->
                 val sectionName = try {
                     com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
                 } catch (_: Exception) {
@@ -700,8 +548,6 @@ fun MangaWebPage(
                         chapterUrl = url,
                         chapterTitle = shortTitle
                     )
-                } else {
-                    Log.w("MangaWebPage", "已拦截跨区漫画书签写入！当前版块：${sectionName}")
                 }
             }
         }

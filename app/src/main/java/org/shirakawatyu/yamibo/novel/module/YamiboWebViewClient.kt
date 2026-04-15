@@ -1,14 +1,9 @@
 package org.shirakawatyu.yamibo.novel.module
 
 import android.graphics.Bitmap
-import android.os.Build
 import android.webkit.CookieManager
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.annotation.RequiresApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,12 +33,10 @@ open class YamiboWebViewClient : WebViewClient() {
 
         // 隐藏顶部栏
         if (url.contains("home.php") || url.contains("mod=space")) {
-            if (!url.contains("do=pm") && !url.contains("do=blog")) {
-                if (url.contains("do=thread") || url.contains("do=favorite") || url.contains("do=friend")) {
-                    css += " .my { visibility: hidden !important; pointer-events: none !important; }"
-                } else {
-                    css += " .my, .mz { visibility: hidden !important; pointer-events: none !important; }"
-                }
+            val keepTopBarList = listOf("do=pm", "do=blog", "do=thread", "do=favorite", "do=friend")
+
+            if (keepTopBarList.none { url.contains(it) }) {
+                css += " .my, .mz { visibility: hidden !important; pointer-events: none !important; }"
             }
         }
 
