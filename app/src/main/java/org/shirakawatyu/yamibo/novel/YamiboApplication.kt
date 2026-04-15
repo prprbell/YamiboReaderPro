@@ -12,6 +12,7 @@ import coil.memory.MemoryCache
 import okhttp3.ConnectionPool
 import okhttp3.brotli.BrotliInterceptor
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import org.shirakawatyu.yamibo.novel.util.NetworkPreWarmer
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.util.concurrent.TimeUnit
 
@@ -32,6 +33,9 @@ class YamiboApplication : Application(), ImageLoaderFactory {
             } catch (_: Exception) {
                 systemUserAgent = System.getProperty("http.agent") ?: ""
             }
+
+            NetworkPreWarmer.warmUp()
+
             false
         }
 

@@ -5,6 +5,7 @@ import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
 import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
+import org.shirakawatyu.yamibo.novel.util.TtlDnsCache
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.net.InetAddress
@@ -81,12 +82,15 @@ class YamiboRetrofit {
 
         private fun createOkHttpClient(): OkHttpClient {
             val bootstrapClient = OkHttpClient.Builder()
-                .connectTimeout(9, TimeUnit.SECONDS)
-                .readTimeout(9, TimeUnit.SECONDS)
+                .connectTimeout(3, TimeUnit.SECONDS)
                 .build()
+            val baseDns = DynamicDns(bootstrapClient)
+
+            val cachedDns =
+                TtlDnsCache(delegate = baseDns, ttlMillis = TimeUnit.MINUTES.toMillis(5))
 
             return OkHttpClient.Builder()
-                .dns(DynamicDns(bootstrapClient))
+                .dns(cachedDns)
                 .addInterceptor { chain ->
                     val cookie = GlobalData.currentCookie
                     val original = chain.request()
