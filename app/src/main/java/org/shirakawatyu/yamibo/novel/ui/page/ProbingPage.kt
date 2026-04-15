@@ -90,8 +90,8 @@ fun ProbingPage(url: String, navController: NavController) {
                                 }
 
                                 val encodedTitle = parts.getOrNull(2) ?: ""
-                                val rawTitle = if (encodedTitle.isNotBlank()) URLDecoder.decode(encodedTitle, "UTF-8") else ""
-
+                                var rawTitle = if (encodedTitle.isNotBlank()) URLDecoder.decode(encodedTitle, "UTF-8") else ""
+                                rawTitle = rawTitle.replace(Regex("\\s+[-—–_]+\\s+.*?(文学区|小说区|译文区|百合会|论坛).*$"), "").trim()
                                 if (rawTitle.isNotBlank() && newFav.title != rawTitle) {
                                     newFav = newFav.copy(title = rawTitle)
                                     changed = true

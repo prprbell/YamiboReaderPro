@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
-import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -533,6 +532,21 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 applicationContext
             ).clearAllDirectories()
             viewModelScope.launch(Dispatchers.Main) { callback() }
+        }
+    }
+    fun moveToTop(url: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            stateMutex.withLock {
+                val index = allFavorites.indexOfFirst { it.url == url }
+                if (index > 0) {
+                    val mutableList = allFavorites.toMutableList()
+                    val item = mutableList.removeAt(index)
+                    mutableList.add(0, item)
+                    allFavorites = mutableList.toList()
+                    FavoriteUtil.saveFavoriteOrder(allFavorites)
+                }
+            }
+            withContext(Dispatchers.Main) { updateUiList() }
         }
     }
 }

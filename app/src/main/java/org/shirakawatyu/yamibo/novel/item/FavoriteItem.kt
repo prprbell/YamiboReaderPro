@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -58,6 +57,17 @@ import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 
+private val PREFIX_REGEX = Regex("^(?:[【\\[].*?[】\\]]|[\\s\\u00A0\\u3000])+")
+private val TAG_REGEX = Regex("[【\\[].*?[】\\]]")
+
+private fun formatFileSize(bytes: Long): String {
+    return when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+        else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
+    }
+}
+
 /**
  * 收藏项组件，用于展示收藏的小说条目信息。
  *
@@ -94,12 +104,10 @@ fun FavoriteItem(
     val displayTitle = remember(title) {
         buildAnnotatedString {
             append(title)
-            val prefixRegex = Regex("^(?:[【\\[].*?[】\\]]|[\\s\\u00A0\\u3000])+")
-            val prefixMatch = prefixRegex.find(title)
+            val prefixMatch = PREFIX_REGEX.find(title)
 
             if (prefixMatch != null) {
-                val tagRegex = Regex("[【\\[].*?[】\\]]")
-                val tags = tagRegex.findAll(prefixMatch.value)
+                val tags = TAG_REGEX.findAll(prefixMatch.value)
                 for (tag in tags) {
                     addStyle(
                         style = SpanStyle(
@@ -111,15 +119,6 @@ fun FavoriteItem(
                     )
                 }
             }
-        }
-    }
-
-    // 格式化文件大小的辅助函数
-    fun formatFileSize(bytes: Long): String {
-        return when {
-            bytes < 1024 -> "$bytes B"
-            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-            else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
         }
     }
 

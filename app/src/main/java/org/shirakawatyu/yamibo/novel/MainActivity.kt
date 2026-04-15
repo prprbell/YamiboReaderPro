@@ -240,6 +240,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                 SettingsUtil.getDataSaverMode { GlobalData.isDataSaverMode.value = it }
                 SettingsUtil.getFavoriteCollapseMode { GlobalData.isFavoriteCollapsed.value = it }
                 SettingsUtil.getCustomDnsMode { GlobalData.isCustomDnsEnabled.value = it }
+                SettingsUtil.getClickToTopMode { GlobalData.isClickToTopEnabled.value = it }
 
                 val route = suspendCancellableCoroutine { continuation ->
                     SettingsUtil.getHomePage {

@@ -16,6 +16,7 @@ class SettingsUtil {
         private val collapseModeKey = stringPreferencesKey("favorite_collapse_mode")
         private val homePageKey = stringPreferencesKey("home_page")
         private val customDnsKey = stringPreferencesKey("custom_dns_mode")
+        private val clickToTopKey = stringPreferencesKey("click_to_top_mode")
         fun saveSettings(settings: ReaderSettings) {
             DataStoreUtil.addData(JSON.toJSONString(settings), key)
         }
@@ -71,6 +72,17 @@ class SettingsUtil {
 
         fun getCustomDnsMode(callback: (isEnabled: Boolean) -> Unit) {
             DataStoreUtil.getData(customDnsKey, callback = {
+                callback(it.toBooleanStrictOrNull() ?: false)
+            }, onNull = {
+                callback(false)
+            })
+        }
+        fun saveClickToTopMode(isEnabled: Boolean) {
+            DataStoreUtil.addData(isEnabled.toString(), clickToTopKey)
+        }
+
+        fun getClickToTopMode(callback: (isEnabled: Boolean) -> Unit) {
+            DataStoreUtil.getData(clickToTopKey, callback = {
                 callback(it.toBooleanStrictOrNull() ?: false)
             }, onNull = {
                 callback(false)

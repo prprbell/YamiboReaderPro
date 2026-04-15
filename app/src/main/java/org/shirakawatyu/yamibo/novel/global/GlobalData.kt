@@ -36,5 +36,6 @@ class GlobalData {
         val webProgress = MutableStateFlow(0)
         val homePageRoute = MutableStateFlow("BBSPage")
         val isCustomDnsEnabled = MutableStateFlow(false)
+        val isClickToTopEnabled = MutableStateFlow(false)
     }
 }

@@ -128,16 +128,18 @@ fun FavoritePage(
     val favoriteList = uiState.favoriteList
     val isRefreshing = uiState.isRefreshing
     val isInManageMode = uiState.isInManageMode
-    val selectedItems = uiState.selectedItems
-    var cacheInfoMap = uiState.cacheInfoMap
-    var showCacheManagement by remember { mutableStateOf(false) }
     val isDataSaverMode by GlobalData.isDataSaverMode.collectAsState()
     val isFavoriteCollapsed by GlobalData.isFavoriteCollapsed.collectAsState()
-    val currentHomePage by GlobalData.homePageRoute.collectAsState()
     val isCustomDnsEnabled by GlobalData.isCustomDnsEnabled.collectAsState()
+    val isClickToTopEnabled by GlobalData.isClickToTopEnabled.collectAsState()
+    val selectedItems = uiState.selectedItems
+    var cacheInfoMap = uiState.cacheInfoMap
+    val currentHomePage by GlobalData.homePageRoute.collectAsState()
+    var showCacheManagement by remember { mutableStateOf(false) }
     var showDataSaverDialog by remember { mutableStateOf(false) }
     var showCustomDnsDialog by remember { mutableStateOf(false) }
-
+    var showClickToTopDialog by remember { mutableStateOf(false) }
+    var pendingScrollToTop by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { favoriteVM.refreshCacheInfo() }
     DisposableEffect(Unit) {
         favoriteVM.isFavoritePageVisible = true
@@ -158,10 +160,15 @@ fun FavoritePage(
         probingJob = null
         probingUrl = null
     }
+    val hapticFeedback = LocalHapticFeedback.current
+    val lazyListState = rememberLazyListState()
+    var previousListSize by remember { mutableIntStateOf(favoriteList.size) }
+    var wasAtTop by remember { mutableStateOf(true) }
+    var showTopToast by remember { mutableStateOf(false) }
+    var newItemsCount by remember { mutableIntStateOf(0) }
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
                 favoriteVM.lastPauseTime = System.currentTimeMillis()
@@ -171,6 +178,11 @@ fun FavoritePage(
                         (System.currentTimeMillis() - favoriteVM.lastPauseTime < 2000L)
 
                 coroutineScope.launch {
+                    if (pendingScrollToTop) {
+                        lazyListState.scrollToItem(0)
+                        pendingScrollToTop = false
+                    }
+
                     kotlinx.coroutines.delay(350)
 
                     if (isQuickReturn) {
@@ -196,12 +208,6 @@ fun FavoritePage(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val hapticFeedback = LocalHapticFeedback.current
-    val lazyListState = rememberLazyListState()
-    var previousListSize by remember { mutableIntStateOf(favoriteList.size) }
-    var wasAtTop by remember { mutableStateOf(true) }
-    var showTopToast by remember { mutableStateOf(false) }
-    var newItemsCount by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(lazyListState) {
         androidx.compose.runtime.snapshotFlow {
@@ -443,142 +449,133 @@ fun FavoritePage(
                             onDismissRequest = { menuExpanded = false },
                             offset = DpOffset(x = 9.dp, y = 16.dp),
                             modifier = Modifier
+                                .width(300.dp) // 横向加宽以容纳两列
                                 .background(Color(0xFFFFFCF0))
                                 .clip(RoundedCornerShape(12.dp))
                         ) {
-                            DropdownMenuItem(
-                                text = { Text(if (isFavoriteCollapsed) "关闭折叠" else "开启折叠") },
-                                onClick = {
-                                    val newState = !isFavoriteCollapsed
-                                    GlobalData.isFavoriteCollapsed.value = newState
-                                    SettingsUtil.saveFavoriteCollapseMode(newState)
-                                    menuExpanded = false
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        painter = painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("设置首页") },
-                                onClick = { showHomePageDialog = true; menuExpanded = false },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.Home,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                            )
-                            // 管理缓存、管理书签、管理目录、管理收藏、刷新列表
-                            DropdownMenuItem(
-                                text = { Text("管理缓存") },
-                                onClick = { showCacheManagement = true; menuExpanded = false },
-                                leadingIcon = {
-                                    Icon(
-                                        painterResource(R.drawable.ic_download),
-                                        null,
-                                        Modifier.size(24.dp)
-                                    )
-                                })
-                            DropdownMenuItem(
-                                text = { Text("管理书签") },
-                                onClick = { showBookmarkManagement = true; menuExpanded = false },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.DateRange,
-                                        null,
-                                        Modifier.size(24.dp)
-                                    )
-                                })
-                            DropdownMenuItem(
-                                text = { Text("管理目录") },
-                                onClick = {
-                                    favoriteVM.getDirectoryList { dirs ->
-                                        directoryList = dirs; showDirectoryManagement = true
-                                    }; menuExpanded = false
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.List,
-                                        null,
-                                        Modifier.size(24.dp)
-                                    )
-                                })
-                            DropdownMenuItem(
-                                text = { Text("管理收藏") },
-                                onClick = { favoriteVM.toggleManageMode(); menuExpanded = false },
-                                leadingIcon = {
-                                    Icon(
-                                        painterResource(R.drawable.ic_visibility),
-                                        null,
-                                        Modifier.size(24.dp)
-                                    )
-                                })
-                            DropdownMenuItem(
-                                text = {
-                                    Text(if (isDataSaverMode) "关闭省流" else "开启省流")
-                                },
-                                onClick = {
-                                    if (isDataSaverMode) {
-                                        GlobalData.isDataSaverMode.value = false
-                                        SettingsUtil.saveDataSaverMode(false)
-                                    } else {
-                                        showDataSaverDialog = true // 开启前显示弹窗
+                            // 第一排：折叠与首页
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text(if (isFavoriteCollapsed) "关闭折叠" else "折叠模式") },
+                                    onClick = {
+                                        val newState = !isFavoriteCollapsed
+                                        GlobalData.isFavoriteCollapsed.value = newState
+                                        SettingsUtil.saveFavoriteCollapseMode(newState)
+                                        menuExpanded = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less), null, Modifier.size(24.dp))
                                     }
-                                    menuExpanded = false
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        painter = painterResource(
-                                            id = if (isDataSaverMode) R.drawable.ic_close else R.drawable.ic_earth
-                                        ),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                        tint = if (isDataSaverMode) YamiboColors.primary else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(if (isCustomDnsEnabled) "关闭优化" else "网络优化")
-                                },
-                                onClick = {
-                                    if (isCustomDnsEnabled) {
-                                        GlobalData.isCustomDnsEnabled.value = false
-                                        SettingsUtil.saveCustomDnsMode(false)
-                                    } else {
-                                        showCustomDnsDialog = true
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text("设置首页") },
+                                    onClick = { showHomePageDialog = true; menuExpanded = false },
+                                    leadingIcon = { Icon(Icons.Default.Home, null, Modifier.size(24.dp)) }
+                                )
+                            }
+
+                            // 第二排：缓存与书签
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text("管理缓存") },
+                                    onClick = { showCacheManagement = true; menuExpanded = false },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_download), null, Modifier.size(24.dp)) }
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text("管理书签") },
+                                    onClick = { showBookmarkManagement = true; menuExpanded = false },
+                                    leadingIcon = { Icon(Icons.Default.DateRange, null, Modifier.size(24.dp)) }
+                                )
+                            }
+
+                            // 第三排：目录与收藏管理
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text("管理目录") },
+                                    onClick = {
+                                        favoriteVM.getDirectoryList { dirs -> directoryList = dirs; showDirectoryManagement = true }
+                                        menuExpanded = false
+                                    },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, null, Modifier.size(24.dp)) }
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text("管理收藏") },
+                                    onClick = { favoriteVM.toggleManageMode(); menuExpanded = false },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_visibility), null, Modifier.size(24.dp)) }
+                                )
+                            }
+
+                            // 第四排：省流与网络优化
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text(if (isDataSaverMode) "关闭省流" else "省流模式") },
+                                    onClick = {
+                                        if (isDataSaverMode) {
+                                            GlobalData.isDataSaverMode.value = false
+                                            SettingsUtil.saveDataSaverMode(false)
+                                        } else showDataSaverDialog = true
+                                        menuExpanded = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(painterResource(id = if (isDataSaverMode) R.drawable.ic_close else R.drawable.ic_earth), null, Modifier.size(24.dp), tint = if (isDataSaverMode) YamiboColors.primary else MaterialTheme.colorScheme.onSurface)
                                     }
-                                    menuExpanded = false
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Build,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                        tint = if (isCustomDnsEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("刷新列表") },
-                                onClick = {
-                                    favoriteVM.refreshList(showLoading = true, isSmartSync = false)
-                                    menuExpanded = false
-                                },
-                                enabled = !isRefreshing,
-                                leadingIcon = {
-                                    if (isRefreshing) CircularProgressIndicator(
-                                        Modifier.size(
-                                            24.dp
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text(if (isCustomDnsEnabled) "关闭优化" else "网络优化") },
+                                    onClick = {
+                                        if (isCustomDnsEnabled) {
+                                            GlobalData.isCustomDnsEnabled.value = false
+                                            SettingsUtil.saveCustomDnsMode(false)
+                                        } else showCustomDnsDialog = true
+                                        menuExpanded = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Build, null, Modifier.size(24.dp), tint = if (isCustomDnsEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface)
+                                    }
+                                )
+                            }
+                            // 第五排：阅后置顶与刷新
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text(if (isClickToTopEnabled) "关闭置顶" else "阅后置顶") },
+                                    onClick = {
+                                        if (isClickToTopEnabled) {
+                                            GlobalData.isClickToTopEnabled.value = false
+                                            SettingsUtil.saveClickToTopMode(false)
+                                        } else showClickToTopDialog = true
+                                        menuExpanded = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_align_top),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                            tint = if (isClickToTopEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface
                                         )
-                                    ) else Icon(Icons.Default.Refresh, null, Modifier.size(24.dp))
-                                }
-                            )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text("刷新列表") },
+                                    onClick = {
+                                        favoriteVM.refreshList(showLoading = true, isSmartSync = false)
+                                        menuExpanded = false
+                                    },
+                                    enabled = !isRefreshing,
+                                    leadingIcon = {
+                                        if (isRefreshing) CircularProgressIndicator(Modifier.size(24.dp)) else Icon(Icons.Default.Refresh, null, Modifier.size(24.dp))
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -599,6 +596,65 @@ fun FavoritePage(
                     items = favoriteList,
                     key = { _, item -> item.url }
                 ) { _, item ->
+                    val currentOnClick = remember(item, isInManageMode, isClickToTopEnabled) {
+                        {
+                            if (isInManageMode) {
+                                favoriteVM.toggleItemSelection(item.url)
+                            } else {
+                                if (isClickToTopEnabled) {
+                                    val capturedWasAtTop = wasAtTop
+                                    if (capturedWasAtTop) {
+                                        pendingScrollToTop = true
+                                    }
+                                    coroutineScope.launch {
+                                        kotlinx.coroutines.delay(400)
+                                        favoriteVM.moveToTop(item.url)
+                                        if (capturedWasAtTop) {
+                                            kotlinx.coroutines.delay(50)
+                                            lazyListState.scrollToItem(0)
+                                            pendingScrollToTop = false
+                                        }
+                                    }
+                                }
+                                favoriteVM.updateStrategyBeforeNavigation(item.type)
+                                val encodedUrl = java.net.URLEncoder.encode(item.url, "utf-8")
+                                when (item.type) {
+                                    0 -> navController.navigate("ProbingPage/$encodedUrl")
+                                    1 -> navController.navigate("ReaderPage/$encodedUrl")
+                                    3 -> navController.navigate("OtherWebPage/$encodedUrl")
+                                    else -> {
+                                        val targetUrl = item.lastMangaUrl ?: item.url
+                                        val encodedTarget = java.net.URLEncoder.encode(targetUrl, "utf-8")
+                                        val encodedOriginal = java.net.URLEncoder.encode(item.url, "utf-8")
+                                        probingUrl = targetUrl
+                                        probingJob = coroutineScope.launch {
+                                            MangaProber().probeUrl(
+                                                context = context,
+                                                url = targetUrl,
+                                                onSuccess = { urls, title, html ->
+                                                    GlobalData.tempMangaUrls = urls
+                                                    GlobalData.tempHtml = html
+                                                    GlobalData.tempTitle = title
+                                                    GlobalData.tempMangaIndex = item.lastPage.coerceIn(0, maxOf(0, urls.size - 1))
+                                                    navController.navigate("NativeMangaPage?url=$encodedTarget&originalUrl=$encodedOriginal")
+                                                    coroutineScope.launch {
+                                                        kotlinx.coroutines.delay(300)
+                                                        probingUrl = null
+                                                        probingJob = null
+                                                    }
+                                                },
+                                                onFallback = {
+                                                    navController.navigate("MangaWebPage/$encodedTarget/$encodedOriginal?fastForward=false&initialPage=${item.lastPage}")
+                                                    probingUrl = null
+                                                    probingJob = null
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     ReorderableItem(
                         state = reorderableState,
                         key = item.url,
@@ -609,64 +665,7 @@ fun FavoritePage(
                             item.lastView,
                             item.lastPage,
                             item.lastChapter,
-                            onClick = {
-                                if (isInManageMode) {
-                                    favoriteVM.toggleItemSelection(item.url)
-                                } else {
-                                    favoriteVM.updateStrategyBeforeNavigation(item.type)
-
-                                    val encodedUrl = java.net.URLEncoder.encode(item.url, "utf-8")
-
-                                    when (item.type) {
-                                        0 -> {
-                                            navController.navigate("ProbingPage/$encodedUrl")
-                                        }
-                                        1 -> {
-                                            navController.navigate("ReaderPage/$encodedUrl")
-                                        }
-                                        3 -> {
-                                            navController.navigate("OtherWebPage/$encodedUrl")
-                                        }
-                                        else -> {
-                                            val targetUrl = item.lastMangaUrl ?: item.url
-                                            val encodedTarget = java.net.URLEncoder.encode(targetUrl, "utf-8")
-                                            val encodedOriginal = java.net.URLEncoder.encode(item.url, "utf-8")
-
-                                            probingUrl = targetUrl
-
-                                            probingJob = coroutineScope.launch {
-                                                MangaProber().probeUrl(
-                                                    context = context,
-                                                    url = targetUrl,
-                                                    onSuccess = { urls, title, html ->
-                                                        GlobalData.tempMangaUrls = urls
-                                                        GlobalData.tempHtml = html
-                                                        GlobalData.tempTitle = title
-                                                        GlobalData.tempMangaIndex =
-                                                            item.lastPage.coerceIn(
-                                                                0,
-                                                                maxOf(0, urls.size - 1)
-                                                            )
-
-                                                        navController.navigate("NativeMangaPage?url=$encodedTarget&originalUrl=$encodedOriginal")
-
-                                                        coroutineScope.launch {
-                                                            kotlinx.coroutines.delay(300)
-                                                            probingUrl = null
-                                                            probingJob = null
-                                                        }
-                                                    },
-                                                    onFallback = {
-                                                        navController.navigate("MangaWebPage/$encodedTarget/$encodedOriginal?fastForward=false&initialPage=${item.lastPage}")
-                                                        probingUrl = null
-                                                        probingJob = null
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            },
+                            onClick = currentOnClick,
                             modifier = Modifier
                                 .animateItem()
                                 .longPressDraggableHandle(
@@ -813,6 +812,31 @@ fun FavoritePage(
                 },
                 dismissButton = {
                     TextButton(onClick = { showHomePageDialog = false }) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
+        if (showClickToTopDialog) {
+            AlertDialog(
+                onDismissRequest = { showClickToTopDialog = false },
+                title = {
+                    Text("开启阅后置顶", color = MaterialTheme.colorScheme.primary)
+                },
+                text = {
+                    Text("开启后，点击进入的收藏项将自动排序至列表首位。")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        GlobalData.isClickToTopEnabled.value = true
+                        SettingsUtil.saveClickToTopMode(true)
+                        showClickToTopDialog = false
+                    }) {
+                        Text("确认开启")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClickToTopDialog = false }) {
                         Text("取消")
                     }
                 }
@@ -1412,7 +1436,7 @@ fun BookmarkManagementDialog(
             }
         )
     }
-}// 在文件末尾添加目录管理对话框
+}
 
 @Composable
 fun DirectoryManagementDialog(
