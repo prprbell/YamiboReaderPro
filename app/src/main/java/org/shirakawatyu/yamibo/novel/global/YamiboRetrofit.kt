@@ -1,5 +1,7 @@
 package org.shirakawatyu.yamibo.novel.global
 
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
@@ -11,6 +13,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.net.InetAddress
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class DynamicDns(private val bootstrapClient: OkHttpClient) : okhttp3.Dns {
 
@@ -35,13 +38,36 @@ class DynamicDns(private val bootstrapClient: OkHttpClient) : okhttp3.Dns {
             return systemDns.lookup(hostname)
         }
 
-        return try {
-            aliDns.lookup(hostname)
-        } catch (_: Exception) {
+        return runBlocking {
+            val channel = Channel<List<InetAddress>>(1)
+            val errorCount = AtomicInteger(0)
+            val racers = listOf(aliDns, tencentDns)
+
+            val raceJob = launch(Dispatchers.IO) {
+                racers.forEach { dns ->
+                    launch {
+                        try {
+                            val result = dns.lookup(hostname)
+                            if (result.isNotEmpty()) {
+                                channel.trySend(result)
+                            }
+                        } catch (e: Exception) {
+                            if (errorCount.incrementAndGet() == racers.size) {
+                                channel.close(e)
+                            }
+                        }
+                    }
+                }
+            }
+
             try {
-                tencentDns.lookup(hostname)
+                withTimeout(1500) {
+                    channel.receive()
+                }
             } catch (_: Exception) {
                 systemDns.lookup(hostname)
+            } finally {
+                raceJob.cancel()
             }
         }
     }
@@ -82,12 +108,14 @@ class YamiboRetrofit {
 
         private fun createOkHttpClient(): OkHttpClient {
             val bootstrapClient = OkHttpClient.Builder()
-                .connectTimeout(3, TimeUnit.SECONDS)
+                .connectTimeout(5, TimeUnit.SECONDS)
                 .build()
-            val baseDns = DynamicDns(bootstrapClient)
 
-            val cachedDns =
-                TtlDnsCache(delegate = baseDns, ttlMillis = TimeUnit.MINUTES.toMillis(5))
+            // 基础解析层
+            val raceDns = DynamicDns(bootstrapClient)
+
+            // 缓存装饰层
+            val cachedDns = TtlDnsCache(delegate = raceDns)
 
             return OkHttpClient.Builder()
                 .dns(cachedDns)
