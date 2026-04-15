@@ -251,9 +251,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                 GlobalData.isAppInitialized = true
 
 //                 自动签到（自用）
-                launch(Dispatchers.IO) {
-                    AutoSignManager.checkAndSignIfNeeded(context)
-                }
+//                launch(Dispatchers.IO) {
+//                    AutoSignManager.checkAndSignIfNeeded(context)
+//                }
             }
         }
     }
