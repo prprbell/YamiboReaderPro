@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel.global
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import okhttp3.ConnectionPool
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
@@ -10,6 +11,7 @@ import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.util.TtlDnsCache
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.File
 import java.net.InetAddress
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -90,8 +92,27 @@ class YamiboRetrofit {
             "${locale.language}-${locale.country},${locale.language};q=0.9,en-US;q=0.8,en;q=0.7"
         }
 
+        // --- 全局共享资源 (降低内存开销并提升复用率) ---
+        private val sharedConnectionPool = ConnectionPool(10, 5, TimeUnit.MINUTES)
+
+        private val sharedBootstrapClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .build()
+        }
+
+        private val sharedDns by lazy {
+            TtlDnsCache(delegate = DynamicDns(sharedBootstrapClient))
+        }
+
+        // 基础客户端：负责Retrofit接口、WebView里的UI图标、轮播图
         val okHttpClient: OkHttpClient by lazy {
-            createOkHttpClient()
+            createOkHttpClient("http_cache_default", 50L * 1024 * 1024)
+        }
+
+        // 帖子图片专用客户端：负责WebView中直接加载的大图。
+        private val threadOkHttpClient: OkHttpClient by lazy {
+            createOkHttpClient("http_cache_thread", 150L * 1024 * 1024)
         }
 
         private val YamiboInstance: Retrofit by lazy {
@@ -106,18 +127,14 @@ class YamiboRetrofit {
             return YamiboInstance
         }
 
-        private fun createOkHttpClient(): OkHttpClient {
-            val bootstrapClient = OkHttpClient.Builder()
-                .connectTimeout(5, TimeUnit.SECONDS)
-                .build()
+        private fun createOkHttpClient(cacheDirName: String, cacheSize: Long): OkHttpClient {
+            val cacheDir = File(YamiboApplication.globalCacheDir, cacheDirName)
+            val cache = okhttp3.Cache(cacheDir, cacheSize)
 
-            val raceDns = DynamicDns(bootstrapClient)
-            val cachedDns = TtlDnsCache(delegate = raceDns)
-            val cacheSize = 100L * 1024 * 1024
-            val cache = okhttp3.Cache(YamiboApplication.globalCacheDir, cacheSize)
             return OkHttpClient.Builder()
                 .cache(cache)
-                .dns(cachedDns)
+                .dns(sharedDns) // 共享DNS
+                .connectionPool(sharedConnectionPool) // 共享连接池
                 .addInterceptor { chain ->
                     val original = chain.request()
                     if (!original.url.host.contains("yamibo.com")) {
@@ -145,12 +162,28 @@ class YamiboRetrofit {
 
                     val response = chain.proceed(request)
                     val urlStr = request.url.toString()
-
+                    val isForumImage = urlStr.contains("attachment/forum", ignoreCase = true)
+                    // 图片强缓存头
                     if (response.isSuccessful && urlStr.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE))) {
-                        return@addInterceptor response.newBuilder()
-                            .header("Cache-Control", "public, max-age=${60 * 60 * 24 * 7}")
-                            .removeHeader("Pragma")
-                            .build()
+
+                        if (isForumImage) {
+                            val maxAge = 60 * 60 * 2
+                            return@addInterceptor response.newBuilder()
+                                .header("Cache-Control", "public, max-age=$maxAge")
+                                .removeHeader("Pragma")
+                                .build()
+                        } else {
+                            val baseMaxAge = 60 * 60 * 24 * 7
+                            val jitter = kotlin.random.Random.nextInt(-86400, 86400)
+                            val maxAge = baseMaxAge + jitter
+
+                            val swr = 60 * 60 * 24 * 1
+
+                            return@addInterceptor response.newBuilder()
+                                .header("Cache-Control", "public, max-age=$maxAge, stale-while-revalidate=$swr")
+                                .removeHeader("Pragma")
+                                .build()
+                        }
                     }
 
                     return@addInterceptor response
@@ -161,6 +194,12 @@ class YamiboRetrofit {
         fun proxyWebViewResource(request: android.webkit.WebResourceRequest): android.webkit.WebResourceResponse? {
             val url = request.url.toString()
             if (request.method != "GET" || url.startsWith("data:")) return null
+
+            // 判断是否为WebView内帖子正文图片
+            val isForumImage = url.contains("attachment/forum", ignoreCase = true)
+
+            // 路由分配
+            val client = if (isForumImage) threadOkHttpClient else okHttpClient
 
             try {
                 val reqBuilder = okhttp3.Request.Builder().url(url)
@@ -174,7 +213,7 @@ class YamiboRetrofit {
                     reqBuilder.header("Cookie", cookie)
                 }
 
-                val response = okHttpClient.newCall(reqBuilder.build()).execute()
+                val response = client.newCall(reqBuilder.build()).execute()
 
                 if (response.isSuccessful) {
                     val contentType = response.header("Content-Type", "") ?: ""

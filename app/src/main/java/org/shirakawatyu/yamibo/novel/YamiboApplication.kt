@@ -2,7 +2,6 @@ package org.shirakawatyu.yamibo.novel
 
 import android.app.Activity
 import android.app.Application
-import android.content.Context
 import android.os.Bundle
 import android.os.Looper
 import android.webkit.WebSettings
@@ -10,6 +9,9 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import okhttp3.ConnectionPool
 import okhttp3.brotli.BrotliInterceptor
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
@@ -29,6 +31,7 @@ class YamiboApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         globalCacheDir = applicationContext.cacheDir
+        clearThreadCacheAsync()
         WebViewPool.init(this)
 
         Looper.myQueue().addIdleHandler {
@@ -66,7 +69,18 @@ class YamiboApplication : Application(), ImageLoaderFactory {
             override fun onActivityDestroyed(activity: Activity) {}
         })
     }
-
+    private fun clearThreadCacheAsync() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val threadCacheDir = File(globalCacheDir, "http_cache_thread")
+                if (threadCacheDir.exists() && threadCacheDir.isDirectory) {
+                    threadCacheDir.deleteRecursively()
+                }
+            } catch (_: Exception) {
+                // 忽略
+            }
+        }
+    }
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .memoryCache {

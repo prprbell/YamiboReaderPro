@@ -56,6 +56,7 @@ import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.NetworkMonitor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
+import java.io.File
 import java.net.URLDecoder
 import kotlin.coroutines.resume
 
@@ -187,6 +188,14 @@ class MainActivity : ComponentActivity() {
 
         BBSPageState.hasSuccessfullyLoaded = false
         GlobalData.isAppInitialized = false
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val threadCacheDir = File(cacheDir, "http_cache_thread")
+                if (threadCacheDir.exists()) {
+                    threadCacheDir.deleteRecursively()
+                }
+            } catch (_: Exception) {}
+        }
     }
 }
 
