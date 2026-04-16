@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel
 
 import android.app.Activity
 import android.app.Application
+import android.content.Context
 import android.os.Bundle
 import android.os.Looper
 import android.webkit.WebSettings
@@ -14,17 +15,20 @@ import okhttp3.brotli.BrotliInterceptor
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.util.NetworkPreWarmer
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 class YamiboApplication : Application(), ImageLoaderFactory {
 
     companion object {
+        lateinit var globalCacheDir: File
+            private set
         var systemUserAgent: String = ""
     }
 
     override fun onCreate() {
         super.onCreate()
-
+        globalCacheDir = applicationContext.cacheDir
         WebViewPool.init(this)
 
         Looper.myQueue().addIdleHandler {
@@ -78,6 +82,7 @@ class YamiboApplication : Application(), ImageLoaderFactory {
             }
             .okHttpClient {
                 YamiboRetrofit.okHttpClient.newBuilder()
+                    .cache(null)
                     .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
                     .addInterceptor(BrotliInterceptor)
                     .build()

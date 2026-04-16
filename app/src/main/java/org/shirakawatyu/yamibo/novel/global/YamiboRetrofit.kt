@@ -111,13 +111,12 @@ class YamiboRetrofit {
                 .connectTimeout(5, TimeUnit.SECONDS)
                 .build()
 
-            // 基础解析层
             val raceDns = DynamicDns(bootstrapClient)
-
-            // 缓存装饰层
             val cachedDns = TtlDnsCache(delegate = raceDns)
-
+            val cacheSize = 100L * 1024 * 1024
+            val cache = okhttp3.Cache(YamiboApplication.globalCacheDir, cacheSize)
             return OkHttpClient.Builder()
+                .cache(cache)
                 .dns(cachedDns)
                 .addInterceptor { chain ->
                     val original = chain.request()
@@ -143,7 +142,18 @@ class YamiboRetrofit {
                         .header("Cookie", cookie)
                         .method(original.method, original.body)
                         .build()
-                    chain.proceed(request)
+
+                    val response = chain.proceed(request)
+                    val urlStr = request.url.toString()
+
+                    if (response.isSuccessful && urlStr.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE))) {
+                        return@addInterceptor response.newBuilder()
+                            .header("Cache-Control", "public, max-age=${60 * 60 * 24 * 7}")
+                            .removeHeader("Pragma")
+                            .build()
+                    }
+
+                    return@addInterceptor response
                 }
                 .build()
         }
