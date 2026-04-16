@@ -311,18 +311,15 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
                     val selectedItemIndex = pageList.indexOf(currentRoute).coerceAtLeast(0)
 
-                    LaunchedEffect(bbsWebView, isNetworkAvailable) {
-                        if (bbsWebView != null && isNetworkAvailable && !BBSPageState.hasSuccessfullyLoaded) {
+                    LaunchedEffect(bbsWebView, isNetworkAvailable, homeRoute) {
+                        if (bbsWebView != null && isNetworkAvailable && homeRoute != "BBSPage" && !BBSPageState.hasSuccessfullyLoaded) {
                             try {
                                 CookieManager.getInstance().setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
                                 CookieManager.getInstance().flush()
-
                                 val targetUrl = BBSPageState.currentUrl?.takeIf { it.isNotBlank() && it != "about:blank" }
                                     ?: "https://bbs.yamibo.com/forum.php?mobile=2"
-
                                 bbsWebView.loadUrl(targetUrl)
                                 BBSPageState.isLoading = true
-
                                 launch {
                                     delay(18000)
                                     if (BBSPageState.isLoading) {
@@ -337,6 +334,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                             }
                         }
                     }
+
 
                     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
@@ -462,7 +460,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                                     }
                                 } else {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator(color = YamiboColors.primary)
+                                        CircularProgressIndicator(color = YamiboColors.secondary)
                                     }
                                 }
                             }
@@ -603,7 +601,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                 }
             } else {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = YamiboColors.primary)
+                    CircularProgressIndicator(color = YamiboColors.secondary)
                 }
             }
         }

@@ -520,7 +520,6 @@ fun BBSPage(
                 if (currentUrl.contains("mod=space") && currentUrl.contains("do=profile")) {
                     forceKeepPolling = true
                 }
-
                 if (activeSeconds < POLLING_LIMIT_SECONDS || forceKeepPolling) {
                     val cookieManager = CookieManager.getInstance()
                     val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
@@ -537,9 +536,7 @@ fun BBSPage(
                         BBSPageState.lastLoginState = currentLoginState
                     }
                 }
-
                 delay(1000)
-
                 if (activeSeconds < POLLING_LIMIT_SECONDS) {
                     activeSeconds++
                 }
