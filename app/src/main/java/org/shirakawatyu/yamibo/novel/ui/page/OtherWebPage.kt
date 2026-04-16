@@ -394,6 +394,9 @@ fun OtherWebPage(
             override fun onPageCommitVisible(view: WebView?, commitUrl: String?) {
                 if (commitUrl == "about:blank" || commitUrl?.contains("warmup=true") == true) return
                 super.onPageCommitVisible(view, commitUrl)
+
+                view?.evaluateJavascript(PageJsScripts.OTHER_WEB_INIT_PSWP_JS, null)
+
                 if (isLoading) {
                     timeoutJob?.cancel()
                     retryCount = 0

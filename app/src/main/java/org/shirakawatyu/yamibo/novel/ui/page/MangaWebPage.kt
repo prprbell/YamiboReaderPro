@@ -447,6 +447,9 @@ fun MangaWebPage(
             override fun onPageCommitVisible(view: WebView?, commitUrl: String?) {
                 if (commitUrl == "about:blank" || commitUrl?.contains("warmup=true") == true) return
                 super.onPageCommitVisible(view, commitUrl)
+
+                view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
+
                 if (isLoading) {
                     timeoutJob?.cancel()
                     retryCount = 0
@@ -482,11 +485,8 @@ fun MangaWebPage(
                     mangaWebView.loadUrl(finalUrl)
                 }
 
-                view?.evaluateJavascript(PageJsScripts.MANGA_WEB_IS_MANGA_SECTION_JS) { result ->
-                    if (result == "true" && !currentAutoOpenMode) {
-                        view.evaluateJavascript(PageJsScripts.MANGA_WEB_INJECT_CLICK_LISTENER_JS, null)
-                    }
-                }
+                view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
+
             }
 
             override fun onReceivedError(
