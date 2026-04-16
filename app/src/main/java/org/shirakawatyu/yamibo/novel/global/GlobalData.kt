@@ -31,7 +31,7 @@ class GlobalData {
         var tempHtml: String = ""
         var tempTitle: String = ""
 
-        val isDataSaverMode = MutableStateFlow(false)
+        val isAutoSignInEnabled = mutableStateOf(false)
         val isFavoriteCollapsed = MutableStateFlow(false)
         val webProgress = MutableStateFlow(0)
         val homePageRoute = MutableStateFlow("BBSPage")

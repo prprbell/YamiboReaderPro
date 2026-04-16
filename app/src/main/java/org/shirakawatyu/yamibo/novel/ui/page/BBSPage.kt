@@ -155,15 +155,6 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
                         referer == "https://bbs.yamibo.com/" ||
                         (referer.contains("forum.php") && !referer.contains("mod="))
 
-                if (GlobalData.isDataSaverMode.value && !isHomePage) {
-                    if (count >= 3) {
-                        return WebResourceResponse(
-                            "image/png",
-                            "UTF-8",
-                            ByteArrayInputStream(ByteArray(0))
-                        )
-                    }
-                }
                 if (request.method == "GET") {
                     if (urlStr.contains("yamibo.com")) {
                         val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)

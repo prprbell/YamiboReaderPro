@@ -488,15 +488,6 @@ fun MinePage(
                             return super.shouldInterceptRequest(view, request)
                         }
 
-                        if (GlobalData.isDataSaverMode.value) {
-                            if (count >= 3) {
-                                return WebResourceResponse(
-                                    "image/png",
-                                    "UTF-8",
-                                    ByteArrayInputStream(ByteArray(0))
-                                )
-                            }
-                        }
                         if (request.method == "GET") {
                             if (urlStr.contains("yamibo.com")) {
                                 val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)

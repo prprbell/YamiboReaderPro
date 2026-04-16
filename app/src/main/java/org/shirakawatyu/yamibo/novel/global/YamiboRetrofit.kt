@@ -6,6 +6,7 @@ import okhttp3.ConnectionPool
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
+import okio.ByteString.Companion.encodeUtf8
 import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.util.TtlDnsCache
@@ -111,8 +112,8 @@ class YamiboRetrofit {
         }
 
         // 帖子图片专用客户端：负责WebView中直接加载的大图。
-        private val threadOkHttpClient: OkHttpClient by lazy {
-            createOkHttpClient("http_cache_thread", 150L * 1024 * 1024)
+        val threadOkHttpClient: OkHttpClient by lazy {
+            createOkHttpClient("http_cache_thread", 300L * 1024 * 1024)
         }
 
         private val YamiboInstance: Retrofit by lazy {
@@ -195,10 +196,8 @@ class YamiboRetrofit {
             val url = request.url.toString()
             if (request.method != "GET" || url.startsWith("data:")) return null
 
-            // 判断是否为WebView内帖子正文图片
             val isForumImage = url.contains("attachment/forum", ignoreCase = true)
 
-            // 路由分配
             val client = if (isForumImage) threadOkHttpClient else okHttpClient
 
             try {
@@ -224,14 +223,55 @@ class YamiboRetrofit {
                         null
                     }
                     val inputStream = response.body?.byteStream()
+
                     if (inputStream != null) {
-                        return android.webkit.WebResourceResponse(mimeType, encoding, inputStream)
+                        val webResourceResponse = android.webkit.WebResourceResponse(mimeType, encoding, inputStream)
+
+                        webResourceResponse.setStatusCodeAndReasonPhrase(
+                            response.code,
+                            response.message.ifBlank { "OK" }
+                        )
+
+                        val responseHeaders = mutableMapOf<String, String>()
+                        response.headers.forEach { (name, value) ->
+                            if (name.equals("content-encoding", true) && value.equals("br", true)) {
+                                return@forEach
+                            }
+                            responseHeaders[name] = value
+                        }
+                        webResourceResponse.responseHeaders = responseHeaders
+
+                        return webResourceResponse
                     }
                 }
             } catch (_: Exception) {
                 return null
             }
             return null
+        }
+        fun isImageCachedInOkHttp(url: String): Boolean {
+            val isForumImage = url.contains("attachment/forum", ignoreCase = true)
+            val cache = if (isForumImage) threadOkHttpClient.cache else okHttpClient.cache
+            if (cache == null) return false
+
+            return try {
+                val key = url.encodeUtf8().md5().hex()
+                File(cache.directory, "$key.1").exists()
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        fun getOkHttpImageCacheSize(): Long {
+            return threadOkHttpClient.cache?.size() ?: 0L
+        }
+
+        fun clearAllOkHttpImageCache() {
+            try {
+                threadOkHttpClient.cache?.evictAll()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 }

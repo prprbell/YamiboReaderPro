@@ -188,14 +188,6 @@ class MainActivity : ComponentActivity() {
 
         BBSPageState.hasSuccessfullyLoaded = false
         GlobalData.isAppInitialized = false
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val threadCacheDir = File(cacheDir, "http_cache_thread")
-                if (threadCacheDir.exists()) {
-                    threadCacheDir.deleteRecursively()
-                }
-            } catch (_: Exception) {}
-        }
     }
 }
 
@@ -220,7 +212,6 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
             textZoom = 100
             domStorageEnabled = true
         }
-        // 注意：这里的 WebViewClient 会在后面的改动中被设置并写入全局状态
         webViewClient = BBSGlobalWebViewClient()
         webChromeClient = chromeClient ?: GlobalData.webChromeClient
 
@@ -239,6 +230,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
         NetworkMonitor.observeNetwork(context)
     }.collectAsState(initial = false)
     val homeRoute by GlobalData.homePageRoute.collectAsState()
+
     LaunchedEffect(Unit) {
         if (!GlobalData.isAppInitialized) {
             try {
@@ -246,11 +238,10 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
             } catch (_: Exception) {
                 GlobalData.currentCookie = ""
             } finally {
-                SettingsUtil.getDataSaverMode { GlobalData.isDataSaverMode.value = it }
                 SettingsUtil.getFavoriteCollapseMode { GlobalData.isFavoriteCollapsed.value = it }
                 SettingsUtil.getCustomDnsMode { GlobalData.isCustomDnsEnabled.value = it }
                 SettingsUtil.getClickToTopMode { GlobalData.isClickToTopEnabled.value = it }
-
+                SettingsUtil.getAutoSignInMode { GlobalData.isAutoSignInEnabled.value = it }
                 val route = suspendCancellableCoroutine { continuation ->
                     SettingsUtil.getHomePage {
                         continuation.resume(it)
@@ -259,11 +250,22 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                 GlobalData.homePageRoute.value = route
 
                 GlobalData.isAppInitialized = true
+            }
+        }
+    }
 
-//                 自动签到（自用）
-//                launch(Dispatchers.IO) {
-//                    AutoSignManager.checkAndSignIfNeeded(context)
-//                }
+    LaunchedEffect(isAppInitialized, isNetworkAvailable) {
+        if (isAppInitialized && isNetworkAvailable && GlobalData.isAutoSignInEnabled.value) {
+            launch(Dispatchers.IO) {
+                val needsSign = AutoSignManager.needsSignIn()
+
+                if (needsSign) {
+                    delay(1000L)
+                } else {
+                    delay(8000L)
+                }
+
+                AutoSignManager.checkAndSignIfNeeded(context)
             }
         }
     }

@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -18,6 +19,7 @@ import retrofit2.http.Url
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 private interface SignApi {
     @GET
@@ -32,44 +34,83 @@ object AutoSignManager {
     private const val BASE_URL = "https://bbs.yamibo.com/"
     private const val SIGN_PAGE_URL = "https://bbs.yamibo.com/plugin.php?id=zqlj_sign&mobile=2"
 
-    private val LAST_SIGN_DATE_KEY = stringPreferencesKey("last_sign_date")
+    private var memorySignSuccessDate = ""
 
-    @OptIn(DelicateCoroutinesApi::class)
-    suspend fun checkAndSignIfNeeded(context: Context) = withContext(Dispatchers.IO) {
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    private fun getServerToday(): String {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).apply {
+            timeZone = TimeZone.getTimeZone("GMT+08:00")
+        }
+        return sdf.format(Date())
+    }
+
+    private fun getSignKeyForCurrentAccount(): androidx.datastore.preferences.core.Preferences.Key<String>? {
+        val cookie = GlobalData.currentCookie
+        val authMatch = Regex("EeqY_2132_auth=([^;]+)").find(cookie)
+        val authString = authMatch?.groupValues?.get(1) ?: return null
+        return stringPreferencesKey("last_sign_date_${authString.hashCode()}")
+    }
+
+    /**
+     * 前置预判：今天是否还需要签到？
+     * 利用内存和 DataStore 文件缓存极速判定，无需建立任何网络连接
+     */
+    suspend fun needsSignIn(): Boolean {
+        val today = getServerToday()
+
+        if (memorySignSuccessDate == today) return false
+
+        val signKey = getSignKeyForCurrentAccount() ?: return true
 
         val prefs = GlobalData.dataStore?.data?.first()
-        val lastSignDate = prefs?.get(LAST_SIGN_DATE_KEY) ?: ""
+        val lastSignDate = prefs?.get(signKey) ?: ""
 
-        if (lastSignDate == today) {
-            Log.i(TAG, "今天 ($today) 已打卡")
+        return lastSignDate != today
+    }
+
+    @OptIn(DelicateCoroutinesApi::class)
+    suspend fun checkAndSignIfNeeded(context: Context, force: Boolean = false) = withContext(Dispatchers.IO) {
+        val serverToday = getServerToday()
+
+        if (!force && memorySignSuccessDate == serverToday) {
+            return@withContext
+        }
+
+        val signKey = getSignKeyForCurrentAccount() ?: return@withContext
+
+        val prefs = GlobalData.dataStore?.data?.first()
+        val lastSignDate = prefs?.get(signKey) ?: ""
+
+        if (!force && lastSignDate == serverToday) {
+            memorySignSuccessDate = serverToday
             return@withContext
         }
 
         val (success, msg) = performAutoSign()
 
         if (success) {
+            memorySignSuccessDate = serverToday
             GlobalData.dataStore?.edit { preferences ->
-                preferences[LAST_SIGN_DATE_KEY] = today
+                preferences[signKey] = serverToday
             }
-            withContext(Dispatchers.Main) {
-                val toast = Toast.makeText(context, "签到成功", Toast.LENGTH_SHORT)
-                toast.show()
 
-                kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) {
-                    kotlinx.coroutines.delay(1200L)
-                    toast.cancel()
+            if (msg == "签到成功" || msg == "打卡请求已发送" || (force && msg == "今日已打卡")) {
+                withContext(Dispatchers.Main) {
+                    val toast = Toast.makeText(context, msg, Toast.LENGTH_SHORT)
+                    toast.show()
+
+                    GlobalScope.launch(Dispatchers.Main) {
+                        kotlinx.coroutines.delay(1200L)
+                        toast.cancel()
+                    }
                 }
+            } else {
+                Log.i(TAG, "自动签到检查: $msg")
             }
         } else {
-            Log.w(TAG, "签到未成功 ($msg)")
+            Log.w(TAG, "签到判定未成功，留待下次重试 ($msg)")
         }
     }
 
-    /**
-     * 核心签到逻辑
-     * @return Pair<Boolean, String> 返回 <是否成功/已签到, 提示信息>
-     */
     private suspend fun performAutoSign(): Pair<Boolean, String> {
         try {
             val cookie = GlobalData.currentCookie
@@ -78,8 +119,11 @@ object AutoSignManager {
             }
 
             val api = YamiboRetrofit.getInstance().create(SignApi::class.java)
-
             val pageHtml = api.fetchHtml(SIGN_PAGE_URL).string()
+
+            if (pageHtml.contains("今日已打卡") || pageHtml.contains("您今天已经打过卡了")) {
+                return Pair(true, "今日已打卡")
+            }
 
             val regex = """href="(plugin\.php\?id=zqlj_sign(?:&amp;|&)sign=[a-zA-Z0-9]+)"""".toRegex()
             val matchResult = regex.find(pageHtml)
@@ -89,16 +133,18 @@ object AutoSignManager {
                 val finalSignUrl = BASE_URL + path
                 val resultHtml = api.fetchHtml(finalSignUrl).string()
 
-                return if (resultHtml.contains("成功") || resultHtml.contains("今日已打卡")) {
-                    Pair(true, "打卡成功")
+                return if (resultHtml.contains("成功")) {
+                    Pair(true, "签到成功")
+                } else if (resultHtml.contains("今日已打卡")) {
+                    Pair(true, "今日已打卡")
                 } else {
                     Pair(true, "打卡请求已发送")
                 }
             } else {
-                return Pair(true, "确认已完成打卡 (未检测到打卡按钮)")
+                return Pair(false, "未检测到打卡状态，页面解析异常")
             }
         } catch (_: Exception) {
-            return Pair(false, "网络或解析异常")
+            return Pair(false, "网络或请求异常")
         }
     }
 }

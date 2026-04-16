@@ -7,18 +7,12 @@ import android.os.Looper
 import android.webkit.WebSettings
 import coil.ImageLoader
 import coil.ImageLoaderFactory
-import coil.disk.DiskCache
 import coil.memory.MemoryCache
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import okhttp3.ConnectionPool
 import okhttp3.brotli.BrotliInterceptor
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.util.NetworkPreWarmer
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 class YamiboApplication : Application(), ImageLoaderFactory {
 
@@ -31,7 +25,6 @@ class YamiboApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         globalCacheDir = applicationContext.cacheDir
-        clearThreadCacheAsync()
         WebViewPool.init(this)
 
         Looper.myQueue().addIdleHandler {
@@ -69,37 +62,33 @@ class YamiboApplication : Application(), ImageLoaderFactory {
             override fun onActivityDestroyed(activity: Activity) {}
         })
     }
-    private fun clearThreadCacheAsync() {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val threadCacheDir = File(globalCacheDir, "http_cache_thread")
-                if (threadCacheDir.exists() && threadCacheDir.isDirectory) {
-                    threadCacheDir.deleteRecursively()
-                }
-            } catch (_: Exception) {
-                // 忽略
-            }
-        }
-    }
     override fun newImageLoader(): ImageLoader {
+        val coilDefaultClient by lazy {
+            YamiboRetrofit.okHttpClient.newBuilder()
+                .addInterceptor(BrotliInterceptor)
+                .build()
+        }
+
+        val coilThreadClient by lazy {
+            YamiboRetrofit.threadOkHttpClient.newBuilder()
+                .addInterceptor(BrotliInterceptor)
+                .build()
+        }
+
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.30)
                     .build()
             }
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(300L * 1024 * 1024)
-                    .build()
-            }
-            .okHttpClient {
-                YamiboRetrofit.okHttpClient.newBuilder()
-                    .cache(null)
-                    .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
-                    .addInterceptor(BrotliInterceptor)
-                    .build()
+            .diskCachePolicy(coil.request.CachePolicy.DISABLED)
+            .callFactory { request ->
+                val url = request.url.toString()
+                if (url.contains("attachment/forum", ignoreCase = true)) {
+                    coilThreadClient.newCall(request)
+                } else {
+                    coilDefaultClient.newCall(request)
+                }
             }
             .crossfade(false)
             .build()

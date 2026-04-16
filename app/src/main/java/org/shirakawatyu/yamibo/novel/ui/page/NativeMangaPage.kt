@@ -129,6 +129,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 import org.shirakawatyu.yamibo.novel.bean.MangaSettings
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
@@ -573,7 +574,7 @@ fun NativeMangaPage(
                             fun isCached(url: String): Boolean {
                                 val inMemory = imageLoader.memoryCache?.get(MemoryCache.Key(url)) != null
                                 if (inMemory) return true
-                                return imageLoader.diskCache?.openSnapshot(url)?.use { true } ?: false
+                                return YamiboRetrofit.isImageCachedInOkHttp(url)
                             }
 
                             var windowStart = maxOf(0, index - 3)
@@ -606,7 +607,6 @@ fun NativeMangaPage(
                                         .addHeader("Cookie", cookie)
                                         .addHeader("Referer", "https://bbs.yamibo.com/")
                                         .memoryCachePolicy(CachePolicy.ENABLED)
-                                        .diskCachePolicy(CachePolicy.ENABLED)
                                         .build()
 
                                     imageLoader.execute(request)
@@ -699,7 +699,6 @@ fun NativeMangaPage(
                                     .addHeader("Cookie", cookie)
                                     .addHeader("Referer", "https://bbs.yamibo.com/")
                                     .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
                                     .crossfade(false)
                                     .build()
                             }
@@ -741,7 +740,6 @@ fun NativeMangaPage(
                                             .addHeader("Cookie", cookie)
                                             .addHeader("Referer", "https://bbs.yamibo.com/")
                                             .memoryCachePolicy(CachePolicy.ENABLED)
-                                            .diskCachePolicy(CachePolicy.ENABLED)
                                             .crossfade(false)
                                             .listener(
                                                 onStart = { isImageLoading = true },

@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
@@ -103,12 +104,14 @@ import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
+import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.MangaProber
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import sh.calvin.reorderable.ReorderableItem
@@ -129,7 +132,6 @@ fun FavoritePage(
     val favoriteList = uiState.favoriteList
     val isRefreshing = uiState.isRefreshing
     val isInManageMode = uiState.isInManageMode
-    val isDataSaverMode by GlobalData.isDataSaverMode.collectAsState()
     val isFavoriteCollapsed by GlobalData.isFavoriteCollapsed.collectAsState()
     val isCustomDnsEnabled by GlobalData.isCustomDnsEnabled.collectAsState()
     val isClickToTopEnabled by GlobalData.isClickToTopEnabled.collectAsState()
@@ -433,9 +435,16 @@ fun FavoritePage(
                     Button(onClick = { favoriteVM.toggleManageMode() }) { Text("完成") }
                 } else {
                     var menuExpanded by remember { mutableStateOf(false) }
+                    var lastMenuClickTime by remember { mutableLongStateOf(0L) }
                     Box {
                         IconButton(
-                            onClick = { menuExpanded = true },
+                            onClick = {
+                                val currentTime = System.currentTimeMillis()
+                                if (currentTime - lastMenuClickTime > 250L) {
+                                    lastMenuClickTime = currentTime
+                                    menuExpanded = true
+                                }
+                            },
                             modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
@@ -450,7 +459,7 @@ fun FavoritePage(
                             onDismissRequest = { menuExpanded = false },
                             offset = DpOffset(x = 9.dp, y = 16.dp),
                             modifier = Modifier
-                                .width(300.dp)
+                                .width(256.dp)
                                 .background(Color(0xFFFFFCF0))
                                 .clip(RoundedCornerShape(12.dp))
                         ) {
@@ -476,10 +485,13 @@ fun FavoritePage(
                                     modifier = Modifier.weight(1f),
                                     text = { Text(if (isFavoriteCollapsed) "关闭折叠" else "折叠模式") },
                                     onClick = {
-                                        val newState = !isFavoriteCollapsed
-                                        GlobalData.isFavoriteCollapsed.value = newState
-                                        SettingsUtil.saveFavoriteCollapseMode(newState)
                                         menuExpanded = false
+                                        coroutineScope.launch {
+                                            kotlinx.coroutines.delay(250)
+                                            val newState = !isFavoriteCollapsed
+                                            GlobalData.isFavoriteCollapsed.value = newState
+                                            SettingsUtil.saveFavoriteCollapseMode(newState)
+                                        }
                                     },
                                     leadingIcon = {
                                         Icon(painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less), null, Modifier.size(24.dp))
@@ -499,11 +511,14 @@ fun FavoritePage(
                                     modifier = Modifier.weight(1f),
                                     text = { Text(if (isClickToTopEnabled) "关闭置顶" else "阅后置顶") },
                                     onClick = {
-                                        if (isClickToTopEnabled) {
-                                            GlobalData.isClickToTopEnabled.value = false
-                                            SettingsUtil.saveClickToTopMode(false)
-                                        } else showClickToTopDialog = true
                                         menuExpanded = false
+                                        if (isClickToTopEnabled) {
+                                            coroutineScope.launch {
+                                                kotlinx.coroutines.delay(250)
+                                                GlobalData.isClickToTopEnabled.value = false
+                                                SettingsUtil.saveClickToTopMode(false)
+                                            }
+                                        } else showClickToTopDialog = true
                                     },
                                     leadingIcon = {
                                         Icon(
@@ -528,11 +543,14 @@ fun FavoritePage(
                                     modifier = Modifier.weight(1f),
                                     text = { Text(if (isCustomDnsEnabled) "关闭优化" else "网络优化") },
                                     onClick = {
-                                        if (isCustomDnsEnabled) {
-                                            GlobalData.isCustomDnsEnabled.value = false
-                                            SettingsUtil.saveCustomDnsMode(false)
-                                        } else showCustomDnsDialog = true
                                         menuExpanded = false
+                                        if (isCustomDnsEnabled) {
+                                            coroutineScope.launch {
+                                                kotlinx.coroutines.delay(250)
+                                                GlobalData.isCustomDnsEnabled.value = false
+                                                SettingsUtil.saveCustomDnsMode(false)
+                                            }
+                                        } else showCustomDnsDialog = true
                                     },
                                     leadingIcon = {
                                         Icon(Icons.Default.Build, null, Modifier.size(24.dp), tint = if (isCustomDnsEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface)
@@ -549,29 +567,32 @@ fun FavoritePage(
                                 )
                             }
 
-                            // 第五排：省流模式 刷新
+                            // 第五排：自动签到 刷新
                             Row(modifier = Modifier.fillMaxWidth()) {
+                                val isAutoSignIn = GlobalData.isAutoSignInEnabled.value
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
-                                    text = {
-                                        Text(
-                                            text = if (isDataSaverMode) "关闭省流" else "省流模式",
-                                            modifier = Modifier.alpha(0.8f)
-                                        )
-                                    },
+                                    text = { Text(if (isAutoSignIn) "关闭签到" else "自动签到") },
                                     onClick = {
-                                        if (isDataSaverMode) {
-                                            GlobalData.isDataSaverMode.value = false
-                                            SettingsUtil.saveDataSaverMode(false)
-                                        } else showDataSaverDialog = true
                                         menuExpanded = false
+                                        coroutineScope.launch {
+                                            kotlinx.coroutines.delay(250)
+                                            val newState = !isAutoSignIn
+                                            GlobalData.isAutoSignInEnabled.value = newState
+                                            SettingsUtil.saveAutoSignInMode(newState)
+
+                                            if (newState) {
+                                                AutoSignManager.checkAndSignIfNeeded(context, force = true)
+                                            }
+                                        }
                                     },
                                     leadingIcon = {
                                         Icon(
-                                            painter = painterResource(id = if (isDataSaverMode) R.drawable.ic_close else R.drawable.ic_earth),
+                                            imageVector = if (isAutoSignIn) Icons.Default.Clear
+                                            else Icons.Default.CheckCircle,
                                             contentDescription = null,
-                                            modifier = Modifier.size(24.dp).alpha(0.8f),
-                                            tint = if (isDataSaverMode) YamiboColors.primary else MaterialTheme.colorScheme.onSurface
+                                            modifier = Modifier.size(24.dp),
+                                            tint = if (isAutoSignIn) YamiboColors.primary else MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 )
@@ -584,7 +605,7 @@ fun FavoritePage(
                                     },
                                     enabled = !isRefreshing,
                                     leadingIcon = {
-                                        if (isRefreshing) CircularProgressIndicator(Modifier.size(24.dp)) else Icon(Icons.Default.Refresh, null, Modifier.size(24.dp))
+                                        if (isRefreshing) CircularProgressIndicator(Modifier.size(24.dp)) else Icon(androidx.compose.material.icons.Icons.Default.Refresh, null, Modifier.size(24.dp))
                                     }
                                 )
                             }
@@ -899,58 +920,32 @@ fun FavoritePage(
                 }
             )
         }
-        //省流对话框
-        if (showDataSaverDialog) {
+        // DNS确认对话框
+        if (showCustomDnsDialog) {
             AlertDialog(
-                onDismissRequest = { showDataSaverDialog = false },
+                onDismissRequest = { showCustomDnsDialog = false },
                 title = {
-                    Text("开启省流模式", color = MaterialTheme.colorScheme.primary)
+                    Text("开启网络优化", color = MaterialTheme.colorScheme.primary)
                 },
                 text = {
-                    Text("开启后，系统将强行拦截网络请求，并只显示前三张图片以节省流量。\n\n如需阅读完整漫画，请点击前三张图片进入「漫画阅读模式」。")
+                    Text("开启后，应用将使用阿里云或腾讯云的公共DoH来获取服务器地址，以尝试绕过部分网络环境的干扰。\n\n此功能不一定有效，若开启后出现无法连接的情况，请关闭此选项。")
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        GlobalData.isDataSaverMode.value = true
-                        SettingsUtil.saveDataSaverMode(true)
-                        showDataSaverDialog = false
+                        GlobalData.isCustomDnsEnabled.value = true
+                        SettingsUtil.saveCustomDnsMode(true)
+                        showCustomDnsDialog = false
                     }) {
                         Text("确认开启")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showDataSaverDialog = false }) {
+                    TextButton(onClick = { showCustomDnsDialog = false }) {
                         Text("取消")
                     }
                 }
             )
         }
-    }
-    // DNS确认对话框
-    if (showCustomDnsDialog) {
-        AlertDialog(
-            onDismissRequest = { showCustomDnsDialog = false },
-            title = {
-                Text("开启网络优化", color = MaterialTheme.colorScheme.primary)
-            },
-            text = {
-                Text("开启后，应用将使用阿里云或腾讯云的公共DoH来获取服务器地址，以尝试绕过部分网络环境的干扰。\n\n此功能不一定有效，若开启后出现无法连接的情况，请关闭此选项。")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    GlobalData.isCustomDnsEnabled.value = true
-                    SettingsUtil.saveCustomDnsMode(true)
-                    showCustomDnsDialog = false
-                }) {
-                    Text("确认开启")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCustomDnsDialog = false }) {
-                    Text("取消")
-                }
-            }
-        )
     }
     // 监听探测状态，隐藏底部导航栏，让黑屏真正全屏
     LaunchedEffect(probingUrl) {
@@ -1003,7 +998,7 @@ fun CacheManagementDialog(
     // 获取Coil图片磁盘缓存的大小
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
-            imageCacheSize = context.imageLoader.diskCache?.size ?: 0L
+            imageCacheSize = YamiboRetrofit.getOkHttpImageCacheSize()
         }
     }
 
@@ -1064,11 +1059,9 @@ fun CacheManagementDialog(
                         IconButton(
                             onClick = {
                                 coroutineScope.launch(Dispatchers.IO) {
-                                    // 清理磁盘缓存和内存缓存
-                                    context.imageLoader.diskCache?.clear()
+                                    YamiboRetrofit.clearAllOkHttpImageCache()
                                     context.imageLoader.memoryCache?.clear()
-                                    // 重新读取大小
-                                    imageCacheSize = context.imageLoader.diskCache?.size ?: 0L
+                                    imageCacheSize = YamiboRetrofit.getOkHttpImageCacheSize()
                                 }
                             },
                             enabled = imageCacheSize > 0

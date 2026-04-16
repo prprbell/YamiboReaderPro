@@ -1,9 +1,14 @@
 package org.shirakawatyu.yamibo.novel.util
 
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.alibaba.fastjson2.JSON
 import com.alibaba.fastjson2.JSONException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import org.shirakawatyu.yamibo.novel.bean.ReaderSettings
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 
 /**
  * 设置管理工具
@@ -12,11 +17,11 @@ import org.shirakawatyu.yamibo.novel.bean.ReaderSettings
 class SettingsUtil {
     companion object {
         private val key = stringPreferencesKey("settings")
-        private val dataSaverKey = stringPreferencesKey("data_saver_mode")
         private val collapseModeKey = stringPreferencesKey("favorite_collapse_mode")
         private val homePageKey = stringPreferencesKey("home_page")
         private val customDnsKey = stringPreferencesKey("custom_dns_mode")
         private val clickToTopKey = stringPreferencesKey("click_to_top_mode")
+        private val autoSignInKey = stringPreferencesKey("auto_sign_in")
         fun saveSettings(settings: ReaderSettings) {
             DataStoreUtil.addData(JSON.toJSONString(settings), key)
         }
@@ -32,17 +37,6 @@ class SettingsUtil {
             }, onNull = onNull)
         }
 
-        fun saveDataSaverMode(isDataSaver: Boolean) {
-            DataStoreUtil.addData(isDataSaver.toString(), dataSaverKey)
-        }
-
-        fun getDataSaverMode(callback: (isDataSaver: Boolean) -> Unit) {
-            DataStoreUtil.getData(dataSaverKey, callback = {
-                callback(it.toBooleanStrictOrNull() ?: false)
-            }, onNull = {
-                callback(false)
-            })
-        }
 
         fun saveFavoriteCollapseMode(isCollapsed: Boolean) {
             DataStoreUtil.addData(isCollapsed.toString(), collapseModeKey)
@@ -83,6 +77,17 @@ class SettingsUtil {
 
         fun getClickToTopMode(callback: (isEnabled: Boolean) -> Unit) {
             DataStoreUtil.getData(clickToTopKey, callback = {
+                callback(it.toBooleanStrictOrNull() ?: false)
+            }, onNull = {
+                callback(false)
+            })
+        }
+        fun saveAutoSignInMode(isEnabled: Boolean) {
+            DataStoreUtil.addData(isEnabled.toString(), autoSignInKey)
+        }
+
+        fun getAutoSignInMode(callback: (Boolean) -> Unit) {
+            DataStoreUtil.getData(autoSignInKey, callback = {
                 callback(it.toBooleanStrictOrNull() ?: false)
             }, onNull = {
                 callback(false)
