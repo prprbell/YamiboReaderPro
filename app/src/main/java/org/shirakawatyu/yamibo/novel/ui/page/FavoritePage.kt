@@ -71,6 +71,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -449,11 +450,27 @@ fun FavoritePage(
                             onDismissRequest = { menuExpanded = false },
                             offset = DpOffset(x = 9.dp, y = 16.dp),
                             modifier = Modifier
-                                .width(300.dp) // 横向加宽以容纳两列
+                                .width(300.dp)
                                 .background(Color(0xFFFFFCF0))
                                 .clip(RoundedCornerShape(12.dp))
                         ) {
-                            // 第一排：折叠与首页
+                            // 第一排：设置首页 管理缓存
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text("设置首页") },
+                                    onClick = { showHomePageDialog = true; menuExpanded = false },
+                                    leadingIcon = { Icon(Icons.Default.Home, null, Modifier.size(24.dp)) }
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text("管理缓存") },
+                                    onClick = { showCacheManagement = true; menuExpanded = false },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_download), null, Modifier.size(24.dp)) }
+                                )
+                            }
+
+                            // 第二排：折叠 管理书签
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
@@ -470,79 +487,13 @@ fun FavoritePage(
                                 )
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
-                                    text = { Text("设置首页") },
-                                    onClick = { showHomePageDialog = true; menuExpanded = false },
-                                    leadingIcon = { Icon(Icons.Default.Home, null, Modifier.size(24.dp)) }
-                                )
-                            }
-
-                            // 第二排：缓存与书签
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = { Text("管理缓存") },
-                                    onClick = { showCacheManagement = true; menuExpanded = false },
-                                    leadingIcon = { Icon(painterResource(R.drawable.ic_download), null, Modifier.size(24.dp)) }
-                                )
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
                                     text = { Text("管理书签") },
                                     onClick = { showBookmarkManagement = true; menuExpanded = false },
                                     leadingIcon = { Icon(Icons.Default.DateRange, null, Modifier.size(24.dp)) }
                                 )
                             }
 
-                            // 第三排：目录与收藏管理
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = { Text("管理目录") },
-                                    onClick = {
-                                        favoriteVM.getDirectoryList { dirs -> directoryList = dirs; showDirectoryManagement = true }
-                                        menuExpanded = false
-                                    },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, null, Modifier.size(24.dp)) }
-                                )
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = { Text("管理收藏") },
-                                    onClick = { favoriteVM.toggleManageMode(); menuExpanded = false },
-                                    leadingIcon = { Icon(painterResource(R.drawable.ic_visibility), null, Modifier.size(24.dp)) }
-                                )
-                            }
-
-                            // 第四排：省流与网络优化
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = { Text(if (isDataSaverMode) "关闭省流" else "省流模式") },
-                                    onClick = {
-                                        if (isDataSaverMode) {
-                                            GlobalData.isDataSaverMode.value = false
-                                            SettingsUtil.saveDataSaverMode(false)
-                                        } else showDataSaverDialog = true
-                                        menuExpanded = false
-                                    },
-                                    leadingIcon = {
-                                        Icon(painterResource(id = if (isDataSaverMode) R.drawable.ic_close else R.drawable.ic_earth), null, Modifier.size(24.dp), tint = if (isDataSaverMode) YamiboColors.primary else MaterialTheme.colorScheme.onSurface)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = { Text(if (isCustomDnsEnabled) "关闭优化" else "网络优化") },
-                                    onClick = {
-                                        if (isCustomDnsEnabled) {
-                                            GlobalData.isCustomDnsEnabled.value = false
-                                            SettingsUtil.saveCustomDnsMode(false)
-                                        } else showCustomDnsDialog = true
-                                        menuExpanded = false
-                                    },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.Build, null, Modifier.size(24.dp), tint = if (isCustomDnsEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface)
-                                    }
-                                )
-                            }
-                            // 第五排：阅后置顶与刷新
+                            // 第三排：置顶 管理收藏
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
@@ -560,6 +511,67 @@ fun FavoritePage(
                                             contentDescription = null,
                                             modifier = Modifier.size(24.dp),
                                             tint = if (isClickToTopEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text("管理收藏") },
+                                    onClick = { favoriteVM.toggleManageMode(); menuExpanded = false },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_visibility), null, Modifier.size(24.dp)) }
+                                )
+                            }
+
+                            // 第四排：网络优化 管理目录
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text(if (isCustomDnsEnabled) "关闭优化" else "网络优化") },
+                                    onClick = {
+                                        if (isCustomDnsEnabled) {
+                                            GlobalData.isCustomDnsEnabled.value = false
+                                            SettingsUtil.saveCustomDnsMode(false)
+                                        } else showCustomDnsDialog = true
+                                        menuExpanded = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Build, null, Modifier.size(24.dp), tint = if (isCustomDnsEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = { Text("管理目录") },
+                                    onClick = {
+                                        favoriteVM.getDirectoryList { dirs -> directoryList = dirs; showDirectoryManagement = true }
+                                        menuExpanded = false
+                                    },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, null, Modifier.size(24.dp)) }
+                                )
+                            }
+
+                            // 第五排：省流模式 刷新
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.weight(1f),
+                                    text = {
+                                        Text(
+                                            text = if (isDataSaverMode) "关闭省流" else "省流模式",
+                                            modifier = Modifier.alpha(0.8f)
+                                        )
+                                    },
+                                    onClick = {
+                                        if (isDataSaverMode) {
+                                            GlobalData.isDataSaverMode.value = false
+                                            SettingsUtil.saveDataSaverMode(false)
+                                        } else showDataSaverDialog = true
+                                        menuExpanded = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            painter = painterResource(id = if (isDataSaverMode) R.drawable.ic_close else R.drawable.ic_earth),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp).alpha(0.8f),
+                                            tint = if (isDataSaverMode) YamiboColors.primary else MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 )
