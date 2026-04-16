@@ -680,18 +680,20 @@ fun MinePage(
     }
 
     BackHandler(enabled = true) {
-        val currentWebViewUrl = mineWebView.url ?: ""
-        val isAtMineHome = currentWebViewUrl.contains("mod=space") && currentWebViewUrl.contains("do=profile")
-
+        val checkUrl = currentUrl ?: mineWebView.url ?: ""
+        val isAtMineHome = checkUrl.contains("mod=space") && checkUrl.contains("do=profile")
         when {
             needFallbackToHome -> {
                 needFallbackToHome = false
+                timeoutJob?.cancel()
                 startLoading(mineWebView, mineUrl)
             }
             evaluateCanGoBack(mineWebView) -> {
+                timeoutJob?.cancel()
                 mineWebView.goBack()
             }
-            !isAtMineHome && currentWebViewUrl != "about:blank" && currentWebViewUrl.isNotBlank() -> {
+            !isAtMineHome -> {
+                timeoutJob?.cancel()
                 startLoading(mineWebView, mineUrl)
             }
             else -> {

@@ -260,7 +260,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
             launch(Dispatchers.IO) {
                 val needsSign = AutoSignManager.needsSignIn()
                 if (needsSign) {
-                    delay(1000L)
+                    delay(2000L)
                 } else {
                     delay(8000L)
                 }

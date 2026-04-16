@@ -1,6 +1,5 @@
 package org.shirakawatyu.yamibo.novel.module
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import android.webkit.RenderProcessGoneDetail
@@ -8,6 +7,7 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import android.content.Context
 import com.alibaba.fastjson2.JSON
 import com.alibaba.fastjson2.JSONException
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
@@ -30,14 +30,15 @@ class PassageWebViewClient(
     YamiboWebViewClient() {
     private val logTag = "PassageWebViewClient"
 
+    // 用于防止onPageFinished在onReceivedError之后错误地报告成功
     private var hasErrorOccurred = false
 
     override fun shouldInterceptRequest(
         view: WebView?,
         request: WebResourceRequest?
     ): WebResourceResponse? {
-        val fullUrl = request?.url?.toString()?.lowercase() ?: ""
-
+        val originalUrl = request?.url?.toString() ?: ""
+        val fullUrl = originalUrl.lowercase()
         val baseUrl = fullUrl.substringBefore("?")
 
         // 屏蔽CSS、字体以及统计脚本
@@ -59,18 +60,23 @@ class PassageWebViewClient(
 
             return response
         }
+
         val accept = request?.requestHeaders?.get("Accept") ?: ""
-        val isImage = accept.contains("image/", ignoreCase = true) ||
-                fullUrl.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)) ||
-                fullUrl.contains("attachment")
+
+        val isImage = request?.isForMainFrame == false && (
+                accept.contains("image/", ignoreCase = true) ||
+                        fullUrl.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)) ||
+                        fullUrl.contains("attachment")
+                )
 
         if (request?.method == "GET") {
             if (fullUrl.contains("yamibo.com")) {
+                // 图片交给 Coil 统管
                 if (isImage) {
                     val headers = mutableMapOf<String, String>()
                     request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
 
-                    val coilResponse = CoilWebViewProxy.interceptImage(context, fullUrl, headers)
+                    val coilResponse = CoilWebViewProxy.interceptImage(context, originalUrl, headers)
                     if (coilResponse != null) return coilResponse
                 }
 
@@ -91,9 +97,6 @@ class PassageWebViewClient(
 
     /**
      * 对 JavaScript 执行结果进行反序列化处理，去除JSON转义字符。
-     *
-     * @param jsString JavaScript 返回的原始字符串。
-     * @return 处理后的字符串内容。
      */
     private fun unescapeJsResult(jsString: String?): String {
         if (jsString == null || jsString == "null") {

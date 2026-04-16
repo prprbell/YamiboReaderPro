@@ -511,7 +511,7 @@ fun BBSPage(
 
         var activeSeconds = 0
         var forceKeepPolling = false
-        val POLLING_LIMIT_SECONDS = 20
+        val POLLING_LIMIT_SECONDS = 10
 
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (isActive) {
@@ -538,7 +538,7 @@ fun BBSPage(
                     }
                 }
 
-                delay(500)
+                delay(1000)
 
                 if (activeSeconds < POLLING_LIMIT_SECONDS) {
                     activeSeconds++
