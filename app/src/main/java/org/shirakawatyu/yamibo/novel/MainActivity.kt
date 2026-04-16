@@ -52,8 +52,10 @@ import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
+import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
+import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.NetworkMonitor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import java.io.File
@@ -148,7 +150,6 @@ class MainActivity : ComponentActivity() {
         backgroundStopJob = null
 
         if (bbsWebViewState == null) {
-            // 兜底创建
             bbsWebViewState = createBbsWebView(this, customWebChromeClient)
         } else {
             bbsWebViewState?.onResume()
@@ -212,7 +213,7 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
             textZoom = 100
             domStorageEnabled = true
         }
-        webViewClient = BBSGlobalWebViewClient()
+        webViewClient = BBSGlobalWebViewClient(context)
         webChromeClient = chromeClient ?: GlobalData.webChromeClient
 
         resumeTimers()
@@ -258,18 +259,38 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
         if (isAppInitialized && isNetworkAvailable && GlobalData.isAutoSignInEnabled.value) {
             launch(Dispatchers.IO) {
                 val needsSign = AutoSignManager.needsSignIn()
-
                 if (needsSign) {
                     delay(1000L)
                 } else {
                     delay(8000L)
                 }
-
                 AutoSignManager.checkAndSignIfNeeded(context)
             }
         }
     }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
 
+    DisposableEffect(lifecycleOwner, isAppInitialized, isNetworkAvailable) {
+        if (!isAppInitialized || !isNetworkAvailable) return@DisposableEffect onDispose {}
+
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                coroutineScope.launch(Dispatchers.IO) {
+                    AccountSyncManager.syncCookieAndCheckSign(context, "APP_RESUME")
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        coroutineScope.launch(Dispatchers.IO) {
+            AccountSyncManager.syncCookieAndCheckSign(context, "APP_INIT")
+        }
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     _300文学Theme {
         Surface(
             modifier = Modifier.fillMaxSize(),

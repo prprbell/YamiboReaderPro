@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.module.PassageWebViewClient
@@ -26,9 +27,10 @@ fun PassageWebView(
     ) -> Unit
 ) {
     val currentOnFinished by rememberUpdatedState(onFinished)
+    val context = LocalContext.current
 
     val passageWebViewClient = remember {
-        PassageWebViewClient { success, html, loadedUrl, maxPage, title ->
+        PassageWebViewClient(context) { success, html, loadedUrl, maxPage, title ->
             currentOnFinished(success, html, loadedUrl, maxPage, title)
         }
     }

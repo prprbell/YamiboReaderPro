@@ -73,11 +73,13 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.alibaba.fastjson2.JSON
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -85,6 +87,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MinePageVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
+import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
@@ -333,6 +336,7 @@ fun MinePage(
                     mineWebView.stopLoading()
                     mineWebView.onPause()
 
+
                     autoOpenMangaMode = false
                     val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
 
@@ -416,20 +420,8 @@ fun MinePage(
     LaunchedEffect(mineWebView, isSelected) {
         mineWebView.webViewClient = object : YamiboWebViewClient() {
             val contentImageCount = AtomicInteger(0)
-            override fun onFormResubmission(
-                view: WebView?,
-                dontResend: android.os.Message?,
-                resend: android.os.Message?
-            ) {
-                resend?.sendToTarget()
-            }
-
-            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                if (url == "about:blank" || url?.contains("warmup=true") == true || url?.startsWith("data:") == true) return
-
-                val checkUrl = url ?: ""
-
-                val isHomepage = when (checkUrl) {
+            private fun isHomepageUrl(url: String): Boolean {
+                return when (url) {
                     "https://bbs.yamibo.com/",
                     "https://bbs.yamibo.com",
                     "https://bbs.yamibo.com/?mobile=2",
@@ -442,8 +434,39 @@ fun MinePage(
                     "https://bbs.yamibo.com/forum.php?mobile=no" -> true
                     else -> false
                 }
-                if (isSelected && isHomepage && view != null) {
+            }
+            override fun onFormResubmission(
+                view: WebView?,
+                dontResend: android.os.Message?,
+                resend: android.os.Message?
+            ) {
+                resend?.sendToTarget()
+            }
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val urlStr = request?.url?.toString() ?: ""
+
+                if (isSelected && isHomepageUrl(urlStr) && view != null) {
+                    scope.launch(Dispatchers.IO) {
+                        delay(500L)
+                        AccountSyncManager.syncCookieAndCheckSign(context, "LOGIN_REDIRECT_INTERCEPT")
+                    }
+                    startLoading(view, mineUrl)
+                    return true
+                }
+
+                return super.shouldOverrideUrlLoading(view, request)
+            }
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                if (url == "about:blank" || url?.contains("warmup=true") == true || url?.startsWith("data:") == true) return
+
+                val checkUrl = url ?: ""
+
+                if (isSelected && isHomepageUrl(checkUrl) && view != null) {
                     view.stopLoading()
+                    scope.launch(Dispatchers.IO) {
+                        delay(500L)
+                        AccountSyncManager.syncCookieAndCheckSign(context, "LOGIN_REDIRECT_INTERCEPT")
+                    }
                     startLoading(view, mineUrl)
                     return
                 }
@@ -490,6 +513,12 @@ fun MinePage(
 
                         if (request.method == "GET") {
                             if (urlStr.contains("yamibo.com")) {
+                                val headers = mutableMapOf<String, String>()
+                                request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
+
+                                val coilResponse = CoilWebViewProxy.interceptImage(context, urlStr, headers)
+                                if (coilResponse != null) return coilResponse
+
                                 val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
                                 if (proxyResponse != null) return proxyResponse
                             }
@@ -737,7 +766,14 @@ fun MinePage(
                 },
                 onRelease = { _ ->
                     timeoutJob?.cancel()
-                    mineWebView.onPause()
+
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        try {
+                            mineWebView.onPause()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }, 3000L)
                 }
             )
             ReaderModeFAB(

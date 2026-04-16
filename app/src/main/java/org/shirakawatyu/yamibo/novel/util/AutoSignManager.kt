@@ -95,7 +95,7 @@ object AutoSignManager {
 
             if (msg == "签到成功" || msg == "打卡请求已发送" || (force && msg == "今日已打卡")) {
                 withContext(Dispatchers.Main) {
-                    val toast = Toast.makeText(context, msg, Toast.LENGTH_SHORT)
+                    val toast = Toast.makeText(context.applicationContext, msg, Toast.LENGTH_SHORT)
                     toast.show()
 
                     GlobalScope.launch(Dispatchers.Main) {
@@ -121,10 +121,6 @@ object AutoSignManager {
             val api = YamiboRetrofit.getInstance().create(SignApi::class.java)
             val pageHtml = api.fetchHtml(SIGN_PAGE_URL).string()
 
-            if (pageHtml.contains("今日已打卡") || pageHtml.contains("您今天已经打过卡了")) {
-                return Pair(true, "今日已打卡")
-            }
-
             val regex = """href="(plugin\.php\?id=zqlj_sign(?:&amp;|&)sign=[a-zA-Z0-9]+)"""".toRegex()
             val matchResult = regex.find(pageHtml)
 
@@ -133,15 +129,19 @@ object AutoSignManager {
                 val finalSignUrl = BASE_URL + path
                 val resultHtml = api.fetchHtml(finalSignUrl).string()
 
-                return if (resultHtml.contains("成功")) {
+                return if (resultHtml.contains("成功") || resultHtml.contains("今日已打卡")) {
                     Pair(true, "签到成功")
-                } else if (resultHtml.contains("今日已打卡")) {
-                    Pair(true, "今日已打卡")
                 } else {
                     Pair(true, "打卡请求已发送")
                 }
-            } else {
-                return Pair(false, "未检测到打卡状态，页面解析异常")
+            }
+            else if (pageHtml.contains("""class="btna">今日已打卡</a>""") ||
+                pageHtml.contains(">今日已打卡</a>")) {
+
+                return Pair(true, "今日已打卡")
+            }
+            else {
+                return Pair(false, "未检测到打卡按钮，页面解析异常")
             }
         } catch (_: Exception) {
             return Pair(false, "网络或请求异常")

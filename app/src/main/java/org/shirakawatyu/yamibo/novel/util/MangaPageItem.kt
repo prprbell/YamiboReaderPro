@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import coil.imageLoader
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
@@ -97,7 +100,7 @@ class MangaReaderManager(
                     val newPages = urls.mapIndexed { i, imgUrl ->
                         MangaPageItem(
                             uniqueId = "${prevChapterInfo.tid}_$i",
-                            globalIndex = 0, // 会在 updateFlatPages 被重写
+                            globalIndex = 0,
                             tid = prevChapterInfo.tid,
                             chapterUrl = prevChapterInfo.url,
                             chapterTitle = title,
@@ -110,11 +113,13 @@ class MangaReaderManager(
 
                     // 头插法
                     loadedChapters.add(0, newChapter)
-                    // 超过3话，移除尾部（最下方/最后方）的章节
+                    // 超过限制，移除尾部章节
                     if (loadedChapters.size > maxLoadedChapters) {
-                        loadedChapters.removeLast()
+                        loadedChapters.removeAt(loadedChapters.lastIndex)
                     }
                     updateFlatPages()
+
+                    preloadImagesViaCoil(urls)
 
                     if (isManualJump) isManualJumping = false else isLoadingPrev = false
                     onLoaded?.invoke()
@@ -160,11 +165,13 @@ class MangaReaderManager(
 
                     // 尾插法
                     loadedChapters.add(newChapter)
-                    // 超过3话，移除头部（最上方/最前方）的章节
+                    // 超过限制，移除头部章节
                     if (loadedChapters.size > maxLoadedChapters) {
-                        loadedChapters.removeFirst()
+                        loadedChapters.removeAt(0)
                     }
                     updateFlatPages()
+
+                    preloadImagesViaCoil(urls)
 
                     if (isManualJump) isManualJumping = false else isLoadingNext = false
                     onLoaded?.invoke()
@@ -177,20 +184,33 @@ class MangaReaderManager(
         }
     }
 
+    /**
+     * 充分利用接管后的全局 Coil 连接池：
+     * 不占用内存缓存，直接将未来的图片静默拉取到磁盘中。
+     * 当原生 UI 滑动到这些页时，读取速度堪比本地加载。
+     */
+    private fun preloadImagesViaCoil(urls: List<String>) {
+        urls.forEach { imgUrl ->
+            val request = ImageRequest.Builder(context)
+                .data(imgUrl)
+                .memoryCachePolicy(CachePolicy.DISABLED) // 拒绝进入内存，防止OOM
+                .diskCachePolicy(CachePolicy.ENABLED)    // 强制塞进磁盘
+                .build()
+            context.imageLoader.enqueue(request)
+        }
+    }
+
     // 处理无缝跳转逻辑
     fun jumpToChapter(targetUrl: String, onScrollTo: (Int) -> Unit) {
         val targetTid = org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner.extractTidFromUrl(targetUrl) ?: return
         val globalIndex = flatPages.indexOfFirst { it.tid == targetTid }
 
         if (globalIndex != -1) {
-            // 目标话数已在内存中，直接滚动过去
             onScrollTo(globalIndex)
         } else {
             val dir = mangaDirVM.currentDirectory ?: return fallbackNavigate(targetUrl)
             val chapters = dir.chapters
 
-            // 如果目标是相邻章节但不在内存中（可能由于被回收），尝试探测后跳转
-            // 如果跨度较大（比如直接通过目录跳了10话），则走传统的 navigate 销毁当前页重建
             val currentFirstTid = loadedChapters.firstOrNull()?.tid
             val currentLastTid = loadedChapters.lastOrNull()?.tid
 
@@ -198,20 +218,22 @@ class MangaReaderManager(
             val firstIndex = chapters.indexOfFirst { it.tid == currentFirstTid }
             val lastIndex = chapters.indexOfFirst { it.tid == currentLastTid }
 
-            if (targetIndex == firstIndex - 1) {
-                // 手动跳转模式（带全局遮罩）
-                loadPrevious(isManualJump = true) {
-                    val newGlobalIdx = flatPages.indexOfFirst { it.tid == targetTid }
-                    if (newGlobalIdx != -1) onScrollTo(newGlobalIdx)
+            when (targetIndex) {
+                firstIndex - 1 -> {
+                    loadPrevious(isManualJump = true) {
+                        val newGlobalIdx = flatPages.indexOfFirst { it.tid == targetTid }
+                        if (newGlobalIdx != -1) onScrollTo(newGlobalIdx)
+                    }
                 }
-            } else if (targetIndex == lastIndex + 1) {
-                // 手动跳转模式（带全局遮罩）
-                loadNext(isManualJump = true) {
-                    val newGlobalIdx = flatPages.indexOfFirst { it.tid == targetTid }
-                    if (newGlobalIdx != -1) onScrollTo(newGlobalIdx)
+                lastIndex + 1 -> {
+                    loadNext(isManualJump = true) {
+                        val newGlobalIdx = flatPages.indexOfFirst { it.tid == targetTid }
+                        if (newGlobalIdx != -1) onScrollTo(newGlobalIdx)
+                    }
                 }
-            } else {
-                fallbackNavigate(targetUrl)
+                else -> {
+                    fallbackNavigate(targetUrl)
+                }
             }
         }
     }

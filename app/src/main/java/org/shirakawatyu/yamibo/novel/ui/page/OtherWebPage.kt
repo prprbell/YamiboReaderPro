@@ -340,6 +340,12 @@ fun OtherWebPage(
 
                         if (request.method == "GET") {
                             if (urlStr.contains("yamibo.com")) {
+                                val headers = mutableMapOf<String, String>()
+                                request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
+
+                                val coilResponse = org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy.interceptImage(context, urlStr, headers)
+                                if (coilResponse != null) return coilResponse
+
                                 val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
                                 if (proxyResponse != null) return proxyResponse
                             }

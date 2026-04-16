@@ -378,6 +378,36 @@ fun MangaWebPage(
                 return true
             }
 
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val urlStr = request?.url?.toString() ?: ""
+                val accept = request?.requestHeaders?.get("Accept") ?: ""
+
+                val isImage = accept.contains("image/", ignoreCase = true) ||
+                        urlStr.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)) ||
+                        urlStr.contains("attachment")
+
+                if (request?.isForMainFrame == false && isImage) {
+                    if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
+                        !urlStr.contains("common") && !urlStr.contains("static/image")
+                    ) {
+                        if (request.method == "GET" && urlStr.contains("yamibo.com")) {
+                            val headers = mutableMapOf<String, String>()
+                            request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
+
+                            val coilResponse = org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy.interceptImage(context, urlStr, headers)
+                            if (coilResponse != null) return coilResponse
+
+                            val proxyResponse = org.shirakawatyu.yamibo.novel.global.YamiboRetrofit.proxyWebViewResource(request)
+                            if (proxyResponse != null) return proxyResponse
+                        }
+                    }
+                }
+                return super.shouldInterceptRequest(view, request)
+            }
+
             override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, pageUrl, favicon)
 

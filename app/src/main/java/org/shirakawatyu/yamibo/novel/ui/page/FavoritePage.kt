@@ -104,7 +104,6 @@ import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
 import org.shirakawatyu.yamibo.novel.global.GlobalData
-import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -995,10 +994,10 @@ fun CacheManagementDialog(
     val coroutineScope = rememberCoroutineScope()
     var imageCacheSize by remember { mutableLongStateOf(0L) }
 
-    // 获取Coil图片磁盘缓存的大小
+    // 【关键改动】直接获取 Coil 图片磁盘缓存的大小
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
-            imageCacheSize = YamiboRetrofit.getOkHttpImageCacheSize()
+            imageCacheSize = context.imageLoader.diskCache?.size ?: 0L
         }
     }
 
@@ -1059,9 +1058,9 @@ fun CacheManagementDialog(
                         IconButton(
                             onClick = {
                                 coroutineScope.launch(Dispatchers.IO) {
-                                    YamiboRetrofit.clearAllOkHttpImageCache()
+                                    context.imageLoader.diskCache?.clear()
                                     context.imageLoader.memoryCache?.clear()
-                                    imageCacheSize = YamiboRetrofit.getOkHttpImageCacheSize()
+                                    imageCacheSize = context.imageLoader.diskCache?.size ?: 0L
                                 }
                             },
                             enabled = imageCacheSize > 0

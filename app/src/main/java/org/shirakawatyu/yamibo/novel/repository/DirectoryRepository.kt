@@ -254,7 +254,7 @@ class DirectoryRepository private constructor(private val context: Context) {
         return getFileLock(cleanName).withLock {
             val cachedDir = loadDirectory(cleanName)
 
-            // 直接提取当前页超链接（无需再做虚拟话数补全）
+            // 直接提取当前页超链接
             val rawSamePageLinks = MangaHtmlParser.extractSamePageLinks(mobileHtml)
 
             val currentChapter = MangaChapterItem(

@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.module
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import android.webkit.RenderProcessGoneDetail
@@ -17,6 +18,7 @@ import java.io.ByteArrayInputStream
  * 小说界面的 WebViewClient，用于处理小说内容页面的加载逻辑。
  */
 class PassageWebViewClient(
+    private val context: Context,
     val onFinished: (
         success: Boolean,
         contentHtml: String,
@@ -28,7 +30,6 @@ class PassageWebViewClient(
     YamiboWebViewClient() {
     private val logTag = "PassageWebViewClient"
 
-    // 用于防止onPageFinished在onReceivedError之后错误地报告成功
     private var hasErrorOccurred = false
 
     override fun shouldInterceptRequest(
@@ -58,8 +59,21 @@ class PassageWebViewClient(
 
             return response
         }
+        val accept = request?.requestHeaders?.get("Accept") ?: ""
+        val isImage = accept.contains("image/", ignoreCase = true) ||
+                fullUrl.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)) ||
+                fullUrl.contains("attachment")
+
         if (request?.method == "GET") {
             if (fullUrl.contains("yamibo.com")) {
+                if (isImage) {
+                    val headers = mutableMapOf<String, String>()
+                    request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
+
+                    val coilResponse = CoilWebViewProxy.interceptImage(context, fullUrl, headers)
+                    if (coilResponse != null) return coilResponse
+                }
+
                 val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
                 if (proxyResponse != null) return proxyResponse
             }

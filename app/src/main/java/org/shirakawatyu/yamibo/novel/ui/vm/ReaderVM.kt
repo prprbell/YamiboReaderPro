@@ -198,7 +198,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     webChromeClient = GlobalData.webChromeClient
                 }
                 // 设置专用的Client回调
-                cacheWebViewClient = PassageWebViewClient(::handleCacheLoadFinished)
+                cacheWebViewClient = PassageWebViewClient(applicationContext, ::handleCacheLoadFinished)
                 cacheWebView?.webViewClient = cacheWebViewClient!!
             }
             // 启动缓存队列

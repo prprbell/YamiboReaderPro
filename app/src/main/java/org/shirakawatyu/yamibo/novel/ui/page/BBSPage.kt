@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import android.annotation.SuppressLint
+import android.content.Context
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
@@ -53,6 +54,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.state.BBSPageState
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
@@ -103,7 +105,8 @@ class NativeMangaJSInterface {
     }
 }
 
-class BBSGlobalWebViewClient : YamiboWebViewClient() {
+
+class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient() {
     private val contentImageCount = AtomicInteger(0)
 
     companion object {
@@ -115,7 +118,6 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
     }
 
     fun forceInjectMangaJs(webView: WebView) {
-        // 使用外部提取的脚本常量
         webView.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
     }
 
@@ -148,15 +150,17 @@ class BBSGlobalWebViewClient : YamiboWebViewClient() {
             ) {
                 val count = contentImageCount.getAndIncrement()
 
-                val referer = request.requestHeaders?.get("Referer") ?: request.requestHeaders?.get("referer") ?: ""
-                val isHomePage = referer.endsWith("forum.php") ||
-                        referer.endsWith("forum.php?mobile=2") ||
-                        referer.endsWith("index.php?mobile=2") ||
-                        referer == "https://bbs.yamibo.com/" ||
-                        (referer.contains("forum.php") && !referer.contains("mod="))
-
                 if (request.method == "GET") {
                     if (urlStr.contains("yamibo.com")) {
+                        val headers = mutableMapOf<String, String>()
+                        request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
+
+                        val coilResponse = CoilWebViewProxy.interceptImage(context, urlStr, headers)
+                        if (coilResponse != null) {
+                            return coilResponse
+                        }
+
+                        // 作为极端的降级选项保留
                         val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
                         if (proxyResponse != null) {
                             return proxyResponse
@@ -307,7 +311,6 @@ fun BBSPage(
                     webView.evaluateJavascript("window.stop();", null)
                     webView.stopLoading()
                     webView.onPause()
-
                     autoOpenMangaMode = false
                     val passUrl = BBSPageState.currentUrl ?: indexUrl
 
@@ -505,25 +508,41 @@ fun BBSPage(
 
     LaunchedEffect(webView, isSelected) {
         if (!isSelected) return@LaunchedEffect
+
+        var activeSeconds = 0
+        var forceKeepPolling = false
+        val POLLING_LIMIT_SECONDS = 20
+
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (isActive) {
-                val cookieManager = CookieManager.getInstance()
-                val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
-                val currentLoginState = isLoggedIn(currentCookie)
+                val currentUrl = webView.url ?: ""
 
-                if (BBSPageState.isLoading) {
-                    BBSPageState.lastLoginState = currentLoginState
-                } else if (BBSPageState.showLoadError) {
-                    BBSPageState.lastLoginState = currentLoginState
-                } else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
-                    Log.i("BBSPage", "状态变更: ${BBSPageState.lastLoginState} -> $currentLoginState, 准备刷新")
-                    BBSPageState.lastLoginState = currentLoginState
-                    startLoading(mobileIndexUrl)
-                } else if (BBSPageState.lastLoginState == null) {
-                    BBSPageState.lastLoginState = currentLoginState
+                if (currentUrl.contains("mod=space") && currentUrl.contains("do=profile")) {
+                    forceKeepPolling = true
                 }
 
-                delay(1000)
+                if (activeSeconds < POLLING_LIMIT_SECONDS || forceKeepPolling) {
+                    val cookieManager = CookieManager.getInstance()
+                    val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
+                    val currentLoginState = isLoggedIn(currentCookie)
+
+                    if (BBSPageState.isLoading) {
+                        BBSPageState.lastLoginState = currentLoginState
+                    } else if (BBSPageState.showLoadError) {
+                        BBSPageState.lastLoginState = currentLoginState
+                    } else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
+                        BBSPageState.lastLoginState = currentLoginState
+                        startLoading(mobileIndexUrl)
+                    } else if (BBSPageState.lastLoginState == null) {
+                        BBSPageState.lastLoginState = currentLoginState
+                    }
+                }
+
+                delay(500)
+
+                if (activeSeconds < POLLING_LIMIT_SECONDS) {
+                    activeSeconds++
+                }
             }
         }
     }
@@ -627,12 +646,13 @@ fun BBSPage(
                     BBSPageState.pageTitle = webView.title ?: ""
                 },
                 onRelease = {
-                    if (!BBSPageState.hasExecutedInitialDelay) {
-                        BBSPageState.schedulePause(webView)
+                    val delayMs = if (!BBSPageState.hasExecutedInitialDelay) {
                         BBSPageState.hasExecutedInitialDelay = true
+                        8000L
                     } else {
-                        webView.onPause()
+                        3000L
                     }
+                    BBSPageState.schedulePause(webView, delayMs)
                 }
             )
 

@@ -114,7 +114,6 @@ fun MangaChapterPanel(
     val isSearchMode = strategy != DirectoryStrategy.TAG || showSearchShortcut
     val canUpdate = !isUpdating && cooldownSeconds <= 0
 
-    // buttonText 里用上倒计时
     val buttonText = when {
         isUpdating -> "更新中"
         cooldownSeconds > 0 -> "${cooldownSeconds}s"
@@ -592,8 +591,6 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
             maxLines = if (isExpanded) Int.MAX_VALUE else 1,
             overflow = TextOverflow.Ellipsis,
             onTextLayout = { textLayoutResult ->
-                // 【核心修复】：只有在“未展开”的状态下才去判定是否截断
-                // 只要发现视觉溢出，就立刻标记为已截断（无论如何滑动都不会丢失该判定）
                 if (!isExpanded && textLayoutResult.hasVisualOverflow) {
                     isTruncated = true
                 }
@@ -601,7 +598,6 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
             modifier = Modifier.weight(1f)
         )
 
-        // 如果名字太长被截断了，就显示操作按钮
         if (isTruncated) {
             Text(
                 text = if (isExpanded) "收起" else "展开",

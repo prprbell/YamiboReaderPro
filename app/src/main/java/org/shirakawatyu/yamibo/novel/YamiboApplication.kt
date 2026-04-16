@@ -17,6 +17,8 @@ import java.io.File
 class YamiboApplication : Application(), ImageLoaderFactory {
 
     companion object {
+        lateinit var application: Application
+            private set
         lateinit var globalCacheDir: File
             private set
         var systemUserAgent: String = ""
@@ -24,6 +26,7 @@ class YamiboApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        application = this
         globalCacheDir = applicationContext.cacheDir
         WebViewPool.init(this)
 
@@ -35,7 +38,6 @@ class YamiboApplication : Application(), ImageLoaderFactory {
             }
 
             NetworkPreWarmer.warmUp()
-
             false
         }
 
@@ -62,6 +64,7 @@ class YamiboApplication : Application(), ImageLoaderFactory {
             override fun onActivityDestroyed(activity: Activity) {}
         })
     }
+
     override fun newImageLoader(): ImageLoader {
         val coilDefaultClient by lazy {
             YamiboRetrofit.okHttpClient.newBuilder()
@@ -81,7 +84,13 @@ class YamiboApplication : Application(), ImageLoaderFactory {
                     .maxSizePercent(0.30)
                     .build()
             }
-            .diskCachePolicy(coil.request.CachePolicy.DISABLED)
+            .diskCache {
+                coil.disk.DiskCache.Builder()
+                    .directory(File(globalCacheDir, "coil_image_cache"))
+                    .maxSizeBytes(300L * 1024 * 1024) // 300MB
+                    .build()
+            }
+            .diskCachePolicy(coil.request.CachePolicy.ENABLED)
             .callFactory { request ->
                 val url = request.url.toString()
                 if (url.contains("attachment/forum", ignoreCase = true)) {
