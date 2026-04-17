@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.app.Activity
 import android.content.ComponentCallbacks2
+import android.graphics.Bitmap
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.WindowManager
@@ -117,6 +118,8 @@ import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
@@ -189,7 +192,8 @@ fun NativeMangaPage(
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
     val pageScope = rememberCoroutineScope()
 
-    // 核心优化：智能预加载管理器
+    var activeLoadWindow by remember { mutableStateOf<IntRange?>(null) }
+
     val preloadManager = remember(context) {
         object {
             private val semaphore = Semaphore(2) // 控制并发下载数为2
@@ -197,18 +201,25 @@ fun NativeMangaPage(
             private val runningJobs = ConcurrentHashMap<String, Job>() // 已经获取许可，正在下载中的任务
 
             fun updatePreloadList(urlsToLoad: List<String>, cookie: String) {
+                val urlsSet = urlsToLoad.toSet()
 
-                pendingJobs.values.forEach { it.cancel() }
-                pendingJobs.clear()
+                // 拦截与清理：只清理“排队中”且不在新需求列表中的任务。
+                val iterator = pendingJobs.entries.iterator()
+                while (iterator.hasNext()) {
+                    val entry = iterator.next()
+                    if (!urlsSet.contains(entry.key)) {
+                        entry.value.cancel() // 取消协程
+                        iterator.remove() // 从排队队列移除
+                    }
+                }
 
-
+                // 调度新任务
                 urlsToLoad.forEach { url ->
-                    if (!runningJobs.containsKey(url)) {
+                    if (!pendingJobs.containsKey(url) && !runningJobs.containsKey(url)) {
                         val job = pageScope.launch {
                             try {
                                 semaphore.withPermit {
                                     pendingJobs.remove(url)
-
                                     if (!isActive) return@withPermit
 
                                     runningJobs[url] = coroutineContext[Job]!!
@@ -408,6 +419,12 @@ fun NativeMangaPage(
 
     val lazyListState = rememberLazyListState(initialFirstVisibleItemIndex = 0)
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { readerManager.flatPages.size })
+
+    LaunchedEffect(readerManager.flatPages.size) {
+        if (activeLoadWindow == null && readerManager.flatPages.isNotEmpty()) {
+            activeLoadWindow = 0..minOf(readerManager.flatPages.size - 1, 6)
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (GlobalData.tempMangaUrls.isNotEmpty()) {
@@ -628,7 +645,7 @@ fun NativeMangaPage(
             LaunchedEffect(cookie) {
                 snapshotFlow { currentIndex }
                     .distinctUntilChanged()
-                    .debounce(250L)
+                    .debounce(200L)
                     .collectLatest { index ->
                         val pagesSnapshot = readerManager.flatPages
                         if (pagesSnapshot.isEmpty() || index !in pagesSnapshot.indices) return@collectLatest
@@ -642,27 +659,29 @@ fun NativeMangaPage(
                                 return YamiboRetrofit.isImageCachedInOkHttp(url)
                             }
 
-                            val currentTid = pagesSnapshot[index].tid
-
-                            val windowStart = maxOf(0, index - 3)
-
-                            var windowEnd = index
-                            while (windowEnd < totalSize - 1 && pagesSnapshot[windowEnd + 1].tid == currentTid) {
-                                windowEnd++
+                            var windowStart = maxOf(0, index - 3)
+                            var cachedBackwardCount = 0
+                            for (i in windowStart until index) {
+                                if (isCached(pagesSnapshot[i].imageUrl)) cachedBackwardCount++
                             }
 
+                            val dynamicEndOffset = 6 + cachedBackwardCount
+                            val windowEnd = minOf(totalSize - 1, index + dynamicEndOffset)
+
+                            var cachedForwardCount = 0
+                            for (i in index + 1..windowEnd) {
+                                if (isCached(pagesSnapshot[i].imageUrl)) cachedForwardCount++
+                            }
+
+                            val expandBackward = minOf(cachedForwardCount, 2)
+                            windowStart = maxOf(0, windowStart - expandBackward)
+
+                            activeLoadWindow = windowStart..windowEnd
+
                             val urlsToLoad = pagesSnapshot.subList(windowStart, windowEnd + 1)
-                                .filter { it.globalIndex != index } // 跳过当前页
-                                .filter { !isCached(it.imageUrl) } // 过滤掉已经缓存的
-                                .sortedWith { a, b ->
-                                    val distA = kotlin.math.abs(a.globalIndex - index)
-                                    val distB = kotlin.math.abs(b.globalIndex - index)
-                                    if (distA != distB) {
-                                        distA.compareTo(distB)
-                                    } else {
-                                        if (a.globalIndex > index) -1 else 1
-                                    }
-                                }
+                                .filter { it.globalIndex != index }
+                                .filter { !isCached(it.imageUrl) }
+                                .sortedBy { kotlin.math.abs(it.globalIndex - index) }
                                 .map { it.imageUrl }
 
                             preloadManager.updatePreloadList(urlsToLoad, cookie)
@@ -747,56 +766,66 @@ fun NativeMangaPage(
                             items = readerManager.flatPages,
                             key = { _, item -> item.uniqueId }
                         ) { _, item ->
-                            // 增加了重试状态记录
-                            var retryHash by remember { mutableIntStateOf(0) }
-                            var errorCount by remember { mutableIntStateOf(0) }
+                            val inActiveWindow = activeLoadWindow?.let { item.globalIndex in it } ?: false
 
-                            val request = remember(item.imageUrl, cookie, retryHash) {
-                                ImageRequest.Builder(context.applicationContext)
-                                    .data(item.imageUrl)
-                                    .addHeader("Cookie", cookie)
-                                    .addHeader("Referer", "https://bbs.yamibo.com/")
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .crossfade(false)
-                                    .listener(
-                                        onSuccess = { _, _ -> errorCount = 0 }
-                                    )
-                                    .build()
-                            }
-                            SubcomposeAsyncImage(
-                                model = request,
-                                contentDescription = null,
-                                contentScale = ContentScale.FillWidth,
-                                modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = defaultMinHeight),
-                                loading = {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator(color = YamiboColors.tertiary)
-                                    }
-                                },
-                                error = {
-                                    // 发生错误时，引入指数退避重试，提升网络波动时的体验
-                                    LaunchedEffect(retryHash) {
-                                        if (errorCount < 3) {
-                                            delay(500L + (errorCount * 500L))
-                                            errorCount++
-                                            retryHash++
-                                        }
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .defaultMinSize(minHeight = 300.dp)
-                                            .clickable { retryHash++ },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray)
-                                            Spacer(Modifier.height(8.dp))
-                                            Text(if (errorCount < 3) "加载失败，正在自动重试..." else "加载超时或失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
-                                        }
-                                    }
+                            if (inActiveWindow) {
+                                var retryHash by remember { mutableIntStateOf(0) }
+                                var errorCount by remember { mutableIntStateOf(0) }
+
+                                val request = remember(item.imageUrl, cookie, retryHash) {
+                                    ImageRequest.Builder(context.applicationContext)
+                                        .data(item.imageUrl)
+                                        .addHeader("Cookie", cookie)
+                                        .addHeader("Referer", "https://bbs.yamibo.com/")
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .crossfade(false)
+                                        .listener(
+                                            onSuccess = { _, _ -> errorCount = 0 }
+                                        )
+                                        .build()
                                 }
-                            )
+                                SubcomposeAsyncImage(
+                                    model = request,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.FillWidth,
+                                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = defaultMinHeight),
+                                    loading = {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            CircularProgressIndicator(color = YamiboColors.tertiary)
+                                        }
+                                    },
+                                    error = {
+                                        LaunchedEffect(retryHash) {
+                                            if (errorCount < 3) {
+                                                val jitter = (0..500).random().toLong()
+                                                delay(300L + (errorCount * 1000L) + jitter)
+                                                errorCount++
+                                                retryHash++
+                                            }
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .defaultMinSize(minHeight = 300.dp)
+                                                .clickable { retryHash++ },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray)
+                                                Spacer(Modifier.height(8.dp))
+                                                Text(if (errorCount < 3) "加载失败，正在自动重试..." else "加载超时或失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
+                                            }
+                                        }
+                                    }
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = defaultMinHeight),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(color = YamiboColors.tertiary)
+                                }
+                            }
                         }
                     }
                 } else {
@@ -812,61 +841,73 @@ fun NativeMangaPage(
                                 val item = readerManager.flatPages.getOrNull(page)
 
                                 if (item != null) {
-                                    var retryHash by remember { mutableIntStateOf(0) }
-                                    var errorCount by remember { mutableIntStateOf(0) }
-                                    var isImageLoading by remember(item.imageUrl, retryHash) { mutableStateOf(true) }
-                                    var isImageError by remember(item.imageUrl, retryHash) { mutableStateOf(false) }
+                                    val inActiveWindow = activeLoadWindow?.let { item.globalIndex in it } ?: false
 
-                                    LaunchedEffect(isImageError) {
-                                        if (isImageError && errorCount < 3) {
-                                            delay(800L + (errorCount * 1000L))
-                                            errorCount++
-                                            retryHash++
+                                    if (inActiveWindow) {
+                                        var retryHash by remember { mutableIntStateOf(0) }
+                                        var errorCount by remember { mutableIntStateOf(0) }
+                                        var isImageLoading by remember(item.imageUrl, retryHash) { mutableStateOf(true) }
+                                        var isImageError by remember(item.imageUrl, retryHash) { mutableStateOf(false) }
+
+                                        LaunchedEffect(isImageError) {
+                                            if (isImageError && errorCount < 3) {
+                                                val jitter = (0..500).random().toLong()
+                                                delay(800L + (errorCount * 1000L) + jitter)
+                                                errorCount++
+                                                retryHash++
+                                            }
                                         }
-                                    }
 
-                                    val request = remember(item.imageUrl, cookie, retryHash) {
-                                        ImageRequest.Builder(context.applicationContext)
-                                            .data(item.imageUrl)
-                                            .addHeader("Cookie", cookie)
-                                            .addHeader("Referer", "https://bbs.yamibo.com/")
-                                            .memoryCachePolicy(CachePolicy.ENABLED)
-                                            .crossfade(false)
-                                            .listener(
-                                                onStart = { isImageLoading = true; isImageError = false },
-                                                onSuccess = { _, _ -> isImageLoading = false; isImageError = false; errorCount = 0 },
-                                                onError = { _, _ -> isImageLoading = false; isImageError = true },
-                                                onCancel = { isImageLoading = false }
-                                            ).build()
-                                    }
-                                    Box(modifier = Modifier.fillMaxSize()) {
-                                        ZoomableAsyncImage(
-                                            model = request,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Fit,
-                                            onClick = horizontalPagerClick
-                                        )
-                                        if (isImageLoading) {
+                                        val request = remember(item.imageUrl, cookie, retryHash) {
+                                            ImageRequest.Builder(context.applicationContext)
+                                                .data(item.imageUrl)
+                                                .addHeader("Cookie", cookie)
+                                                .addHeader("Referer", "https://bbs.yamibo.com/")
+                                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                                .crossfade(false)
+                                                .listener(
+                                                    onStart = { isImageLoading = true; isImageError = false },
+                                                    onSuccess = { _, _ -> isImageLoading = false; isImageError = false; errorCount = 0 },
+                                                    onError = { _, _ -> isImageLoading = false; isImageError = true },
+                                                    onCancel = { isImageLoading = false }
+                                                ).build()
+                                        }
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            ZoomableAsyncImage(
+                                                model = request,
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Fit,
+                                                onClick = horizontalPagerClick
+                                            )
+                                            if (isImageLoading) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.align(Alignment.Center),
+                                                    color = YamiboColors.tertiary
+                                                )
+                                            }
+                                            if (isImageError) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .align(Alignment.Center)
+                                                        .clickable { retryHash++ }
+                                                        .padding(32.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                        Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray, modifier = Modifier.size(36.dp))
+                                                        Spacer(Modifier.height(12.dp))
+                                                        Text(if (errorCount < 3) "加载失败，自动重试中..." else "图片加载失败，点击重试", color = Color.LightGray, fontSize = 16.sp)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        Box(modifier = Modifier.fillMaxSize()) {
                                             CircularProgressIndicator(
                                                 modifier = Modifier.align(Alignment.Center),
                                                 color = YamiboColors.tertiary
                                             )
-                                        }
-                                        if (isImageError) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .align(Alignment.Center)
-                                                    .clickable { retryHash++ }
-                                                    .padding(32.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray, modifier = Modifier.size(36.dp))
-                                                    Spacer(Modifier.height(12.dp))
-                                                    Text(if (errorCount < 3) "加载失败，自动重试中..." else "图片加载失败，点击重试", color = Color.LightGray, fontSize = 16.sp)
-                                                }
-                                            }
                                         }
                                     }
                                 }
