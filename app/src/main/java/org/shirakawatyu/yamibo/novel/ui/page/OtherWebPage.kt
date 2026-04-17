@@ -227,6 +227,15 @@ fun OtherWebPage(
             this.webChromeClient = webChromeClient
         }
     }
+    LaunchedEffect(Unit) {
+        try {
+            otherWebView.onResume()
+            otherWebView.resumeTimers()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     ActivityWebViewLifecycleObserver(otherWebView)
 
     LaunchedEffect(isFullscreenState.value, autoOpenMangaMode) {
@@ -589,8 +598,15 @@ fun OtherWebPage(
                     it.apply {
                         removeJavascriptInterface("AndroidFullscreen")
                     }
-                    WebViewPool.release(it)
+
+                    try {
+                        it.onPause()
+                        WebViewPool.release(it)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
+
             )
 
             if (showLoadError) {

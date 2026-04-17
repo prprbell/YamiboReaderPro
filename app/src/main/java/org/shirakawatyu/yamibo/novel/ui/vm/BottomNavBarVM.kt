@@ -20,6 +20,8 @@ class BottomNavBarVM : ViewModel() {
     private val _uiState = MutableStateFlow(BottomNavBarState())
     val uiState = _uiState.asStateFlow()
     private val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
+    var isBbsAtRoot by mutableStateOf(true)
+    var isMineAtRoot by mutableStateOf(true)
     var isNavigating by mutableStateOf(false)
         private set
     var showBottomNavBar by mutableStateOf(true)

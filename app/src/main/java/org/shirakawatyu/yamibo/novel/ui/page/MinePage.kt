@@ -94,7 +94,8 @@ import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
-
+private var mineWebViewPauseRunnable: Runnable? = null
+private val mineWebViewHandler = Handler(Looper.getMainLooper())
 class FullscreenApiMine {
     var onStateChange: ((Boolean) -> Unit)? = null
     var onMangaActionDone: (() -> Unit)? = null
@@ -462,6 +463,9 @@ fun MinePage(
 
                 val checkUrl = url ?: ""
 
+                val isHomePage = isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("do=profile")
+                bottomNavBarVM.isMineAtRoot = isHomePage
+
                 if (isSelected && isHomepageUrl(checkUrl) && view != null) {
                     view.stopLoading()
                     scope.launch(Dispatchers.IO) {
@@ -535,6 +539,10 @@ fun MinePage(
                     view?.clearHistory()
                 }
                 canGoBack = evaluateCanGoBack(view)
+
+                val checkUrl = url ?: ""
+                val isHomePage = isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("do=profile")
+                bottomNavBarVM.isMineAtRoot = isHomePage
             }
 
             override fun onPageCommitVisible(view: WebView?, url: String?) {
@@ -658,9 +666,19 @@ fun MinePage(
             canGoBack = evaluateCanGoBack(mineWebView)
         }
     }
-
     LaunchedEffect(isSelected) {
-        if (!isSelected) {
+        if (isSelected) {
+            mineWebViewPauseRunnable?.let {
+                mineWebViewHandler.removeCallbacks(it)
+                mineWebViewPauseRunnable = null
+            }
+            try {
+                mineWebView.onResume()
+                mineWebView.resumeTimers()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        } else {
             timeoutJob?.cancel()
             retryCount = 0
             isLoading = false
@@ -770,13 +788,18 @@ fun MinePage(
                 onRelease = { _ ->
                     timeoutJob?.cancel()
 
-                    Handler(Looper.getMainLooper()).postDelayed({
+                    mineWebViewPauseRunnable?.let {
+                        mineWebViewHandler.removeCallbacks(it)
+                    }
+                    val runnable = Runnable {
                         try {
                             mineWebView.onPause()
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
-                    }, 3000L)
+                    }
+                    mineWebViewPauseRunnable = runnable
+                    mineWebViewHandler.postDelayed(runnable, 3000L)
                 }
             )
             ReaderModeFAB(

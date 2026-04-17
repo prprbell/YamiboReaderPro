@@ -220,23 +220,31 @@ fun MangaWebPage(
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
+        try {
+            mangaWebView.onResume()
+            mangaWebView.resumeTimers()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 if (isWaitingForNativeReturn) {
                     isWaitingForNativeReturn = false
                 }
                 mangaWebView.onResume()
+                mangaWebView.resumeTimers()
                 mangaWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
                 val window = activity?.window
                 if (window != null) {
-                    WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars =
-                        false
+                    WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
                 }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+
     LaunchedEffect(showBlackScreen) {
         mangaWebView.settings.apply {
             blockNetworkImage = showBlackScreen
@@ -622,8 +630,14 @@ fun MangaWebPage(
                         removeJavascriptInterface("AndroidFullscreen")
                         removeJavascriptInterface("NativeMangaApi")
                     }
-                    WebViewPool.release(webView)
+                    try {
+                        webView.onPause()
+                        WebViewPool.release(webView)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
+
             )
 
             if (showLoadError) {

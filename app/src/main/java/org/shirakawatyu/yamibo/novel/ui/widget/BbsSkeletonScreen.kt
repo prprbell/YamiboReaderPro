@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,7 +32,7 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
     )
 
     val baseHeaderColor = Color(0xFF551200)
-    val animatedHeaderColor = baseHeaderColor.copy(alpha = 0.7f + (alpha * 0.6f))
+    val headerBg = baseHeaderColor.copy(alpha = alpha + 0.8f)
 
     val baseYellowishColor = Color(0xFFD4C8B0)
     val skeletonColor = baseYellowishColor.copy(alpha = alpha)
@@ -45,24 +46,24 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
     ) {
-        // 顶部栏保持贴边
+        // 顶部栏
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp)
-                .background(animatedHeaderColor)
+                .background(headerBg)
                 .padding(horizontal = 12.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             Box(Modifier.width(100.dp).height(24.dp).clip(RoundedCornerShape(4.dp)).background(skeletonColor))
             Box(Modifier.align(Alignment.CenterEnd).size(24.dp).clip(CircleShape).background(skeletonColor))
         }
-
+        // 轮播图
         Box(
             modifier = Modifier
                 .padding(horizontal = 15.dp, vertical = 10.dp)
                 .fillMaxWidth()
-                .aspectRatio(2.6f)
+                .aspectRatio(2.81f)
                 .clip(RoundedCornerShape(4.dp))
                 .background(skeletonColor.copy(alpha = alpha * 0.8f))
         )
@@ -134,5 +135,9 @@ private fun BbsSkeletonForumItem(skeletonColor: Color, alpha: Float) {
             Box(Modifier.height(14.dp).fillMaxWidth(0.8f).clip(RoundedCornerShape(2.dp)).background(skeletonColor.copy(alpha = alpha * 0.7f)))
         }
     }
-    Divider(color = Color.Gray.copy(alpha = 0.1f), thickness = 0.8.dp, modifier = Modifier.padding(horizontal = 15.dp))
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 15.dp),
+        thickness = 0.8.dp,
+        color = Color.Gray.copy(alpha = 0.1f)
+    )
 }

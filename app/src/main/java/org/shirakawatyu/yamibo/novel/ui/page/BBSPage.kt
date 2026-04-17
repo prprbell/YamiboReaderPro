@@ -127,13 +127,29 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         GlobalData.webProgress.value = 0
         contentImageCount.set(0)
         super.onPageStarted(view, url, favicon)
+        val safeUrl = url ?: ""
+        val isHomepage = safeUrl == INDEX_URL || safeUrl == BBS_URL || safeUrl == BASE_BBS_URL || safeUrl == MOBILE_INDEX_URL ||
+                (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains("mod="))
+        (context as? ComponentActivity)?.let { activity ->
+            val navBarVM = androidx.lifecycle.ViewModelProvider(activity)[BottomNavBarVM::class.java]
+            navBarVM.isBbsAtRoot = isHomepage
+        }
 
         BBSPageState.currentUrl = url
         BBSPageState.isLoading = true
         BBSPageState.showLoadError = false
         BBSPageState.isErrorState = false
     }
-
+    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+        super.doUpdateVisitedHistory(view, url, isReload)
+        val safeUrl = url ?: ""
+        val isHomepage = safeUrl == INDEX_URL || safeUrl == BBS_URL || safeUrl == BASE_BBS_URL || safeUrl == MOBILE_INDEX_URL ||
+                (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains("mod="))
+        (context as? ComponentActivity)?.let { activity ->
+            val navBarVM = androidx.lifecycle.ViewModelProvider(activity)[BottomNavBarVM::class.java]
+            navBarVM.isBbsAtRoot = isHomepage
+        }
+    }
     override fun onFormResubmission(view: WebView?, dontResend: android.os.Message?, resend: android.os.Message?) {
         resend?.sendToTarget()
     }
@@ -714,19 +730,12 @@ fun BBSPage(
                 }
             }
 
-            if (BBSPageState.isLoading && !isPullRefreshing) {
-                if (!BBSPageState.hasSuccessfullyLoaded) {
-                    BbsSkeletonScreen(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .zIndex(1f)
-                    )
-                } else {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        color = YamiboColors.secondary
-                    )
-                }
+            if (BBSPageState.isLoading && !isPullRefreshing && !BBSPageState.hasSuccessfullyLoaded) {
+                BbsSkeletonScreen(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(1f)
+                )
             }
 
             ReaderModeFAB(

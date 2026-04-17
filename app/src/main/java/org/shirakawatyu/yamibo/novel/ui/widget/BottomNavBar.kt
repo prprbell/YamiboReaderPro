@@ -310,9 +310,16 @@ fun BottomNavBar(
         }
 
         // 网页进度条
+        val isAtRoot = when (currentRoute) {
+            "BBSPage" -> navBarVM.isBbsAtRoot
+            "MinePage" -> navBarVM.isMineAtRoot
+            else -> true
+        }
+
         AnimatedVisibility(
             visible = webProgress > 0 && animatedProgress.value < 1f &&
-                    (currentRoute == "BBSPage" || currentRoute == "MinePage"),
+                    (currentRoute == "BBSPage" || currentRoute == "MinePage") &&
+                    !isAtRoot,
             enter = fadeIn(tween(200)) + expandVertically(
                 expandFrom = Alignment.Top,
                 animationSpec = tween(200)
