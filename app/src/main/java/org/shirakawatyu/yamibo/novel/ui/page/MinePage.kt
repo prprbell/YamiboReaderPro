@@ -307,6 +307,7 @@ fun MinePage(
                     autoOpenMangaMode = false
                 }
                 mineWebView.onResume()
+                mineWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -317,7 +318,7 @@ fun MinePage(
 
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         mineWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
-            scope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            scope.launch(Dispatchers.Default) {
                 val cleanHtml = try {
                     JSON.parse(htmlResult) as? String ?: ""
                 } catch (_: Exception) {
@@ -326,12 +327,12 @@ fun MinePage(
 
                 val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
 
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
                     GlobalData.tempMangaUrls = urls
                     GlobalData.tempMangaIndex = clickedIndex
                     GlobalData.tempHtml = cleanHtml
                     GlobalData.tempTitle = title
-
+                    mineWebView.evaluateJavascript(PageJsScripts.FREEZE_BROKEN_IMAGES_JS, null)
                     mineWebView.evaluateJavascript("window.stop();", null)
                     mineWebView.stopLoading()
                     mineWebView.onPause()

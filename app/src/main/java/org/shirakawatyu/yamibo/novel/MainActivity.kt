@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.datastore.core.DataStore
@@ -51,6 +52,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
+import org.shirakawatyu.yamibo.novel.ui.widget.BbsSkeletonScreen
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
 import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
@@ -133,13 +135,11 @@ class MainActivity : ComponentActivity() {
         }
         window.statusBarColor = Color.TRANSPARENT
 
+        if (bbsWebViewState == null) {
+            bbsWebViewState = createBbsWebView(this, customWebChromeClient)
+        }
+
         setContent {
-            LaunchedEffect(Unit) {
-                withFrameNanos { }
-                if (bbsWebViewState == null) {
-                    bbsWebViewState = createBbsWebView(this@MainActivity, customWebChromeClient)
-                }
-            }
             App(bbsWebView = bbsWebViewState, webChromeClient = customWebChromeClient)
         }
     }
@@ -239,17 +239,16 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
             } catch (_: Exception) {
                 GlobalData.currentCookie = ""
             } finally {
-                SettingsUtil.getFavoriteCollapseMode { GlobalData.isFavoriteCollapsed.value = it }
-                SettingsUtil.getCustomDnsMode { GlobalData.isCustomDnsEnabled.value = it }
-                SettingsUtil.getClickToTopMode { GlobalData.isClickToTopEnabled.value = it }
-                SettingsUtil.getAutoSignInMode { GlobalData.isAutoSignInEnabled.value = it }
                 val route = suspendCancellableCoroutine { continuation ->
                     SettingsUtil.getHomePage {
                         continuation.resume(it)
                     }
                 }
                 GlobalData.homePageRoute.value = route
-
+                SettingsUtil.getFavoriteCollapseMode { GlobalData.isFavoriteCollapsed.value = it }
+                SettingsUtil.getCustomDnsMode { GlobalData.isCustomDnsEnabled.value = it }
+                SettingsUtil.getClickToTopMode { GlobalData.isClickToTopEnabled.value = it }
+                SettingsUtil.getAutoSignInMode { GlobalData.isAutoSignInEnabled.value = it }
                 GlobalData.isAppInitialized = true
             }
         }
@@ -309,10 +308,10 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     val bottomNavBarVM: BottomNavBarVM = viewModel(stateOwner!!)
                     val context = LocalContext.current
                     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
-                    val selectedItemIndex = pageList.indexOf(currentRoute).coerceAtLeast(0)
+                    val selectedItemIndex = pageList.indexOf(currentRoute ?: homeRoute).coerceAtLeast(0)
 
                     LaunchedEffect(bbsWebView, isNetworkAvailable, homeRoute) {
-                        if (bbsWebView != null && isNetworkAvailable && homeRoute != "BBSPage" && !BBSPageState.hasSuccessfullyLoaded) {
+                        if (bbsWebView != null && isNetworkAvailable && !BBSPageState.hasSuccessfullyLoaded) {
                             try {
                                 CookieManager.getInstance().setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
                                 CookieManager.getInstance().flush()
@@ -336,17 +335,33 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     }
 
 
+                    val density = androidx.compose.ui.platform.LocalDensity.current.density
+
+                    val initialNavHeight = remember(context, density) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                            val insets = wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
+                                android.view.WindowInsets.Type.navigationBars() or android.view.WindowInsets.Type.displayCutout()
+                            )
+                            insets.bottom / density
+                        } else {
+                            0f
+                        }
+                    }
+
                     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                    var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
                     val currentPaddingValue = navBarsPadding.value
 
-                    LaunchedEffect(currentPaddingValue) {
+                    var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(initialNavHeight) }
+
+                    SideEffect {
                         if (currentPaddingValue > lockedNavHeightValue) {
                             lockedNavHeightValue = currentPaddingValue
                         }
                     }
 
-                    val lockedNavHeight = lockedNavHeightValue.dp
+                    val lockedNavHeight = maxOf(currentPaddingValue, lockedNavHeightValue).dp
+
                     Box(modifier = Modifier.fillMaxSize()) {
                         val statusBarColor = when {
                             currentRoute == "FavoritePage" -> YamiboColors.onSurface
@@ -600,8 +615,44 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                     }
                 }
             } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = YamiboColors.secondary)
+                val density = androidx.compose.ui.platform.LocalDensity.current.density
+                val initStatusHeight = remember(context, density) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                        val insets = wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
+                            android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
+                        )
+                        insets.top / density
+                    } else {
+                        24f
+                    }
+                }
+
+                val currentTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
+                val lockedTopPadding = maxOf(initStatusHeight, currentTopPadding).dp
+
+                if (homeRoute == "BBSPage") {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Spacer(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(lockedTopPadding)
+                                .background(YamiboColors.primary)
+                                .align(Alignment.TopCenter)
+                                .zIndex(1f)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = lockedTopPadding)
+                        ) {
+                            BbsSkeletonScreen(modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = YamiboColors.secondary)
+                    }
                 }
             }
         }

@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -61,6 +62,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
+import org.shirakawatyu.yamibo.novel.ui.widget.BbsSkeletonScreen
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
 import java.io.ByteArrayInputStream
@@ -266,6 +268,7 @@ fun BBSPage(
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 webView.onResume()
+                webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -307,7 +310,7 @@ fun BBSPage(
                     GlobalData.tempMangaIndex = clickedIndex
                     GlobalData.tempHtml = cleanHtml
                     GlobalData.tempTitle = title
-
+                    webView.evaluateJavascript(PageJsScripts.FREEZE_BROKEN_IMAGES_JS, null)
                     webView.evaluateJavascript("window.stop();", null)
                     webView.stopLoading()
                     webView.onPause()
@@ -568,30 +571,40 @@ fun BBSPage(
         }
     }
 
+    val density = LocalDensity.current.density
+    val initialInsets = remember(context, density) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val wm = context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+            val insets = wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
+                android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
+            )
+            Pair(insets.top / density, insets.bottom / density)
+        } else {
+            Pair(24f, 0f)
+        }
+    }
+
+    val statusBarsPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
+
+    var lockedStatusHeight by rememberSaveable { mutableFloatStateOf(initialInsets.first) }
+    var lockedNavHeight by rememberSaveable { mutableFloatStateOf(initialInsets.second) }
 
     SideEffect {
-        if (navBarsPadding.value > lockedNavHeightValue) {
-            lockedNavHeightValue = navBarsPadding.value
+        if (statusBarsPadding.value > lockedStatusHeight) {
+            lockedStatusHeight = statusBarsPadding.value
         }
-    }
-    val lockedNavHeight = lockedNavHeightValue.dp
-
-    val statusBarsPaddingVal = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    var lockedStatusHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
-
-    SideEffect {
-        if (statusBarsPaddingVal.value > lockedStatusHeightValue) {
-            lockedStatusHeightValue = statusBarsPaddingVal.value
+        if (navBarsPadding.value > lockedNavHeight) {
+            lockedNavHeight = navBarsPadding.value
         }
     }
 
-    val lockedStatusHeight = lockedStatusHeightValue.dp
+    val finalStatusHeight = lockedStatusHeight.dp
+    val finalNavHeight = lockedNavHeight.dp
 
     val isFullscreen = isFullscreenState.value || autoOpenMangaMode
     val topSpacerColor = if (isFullscreen) Color.Black else YamiboColors.primary
-    val bottomPad = if (isFullscreen) lockedNavHeight else (lockedNavHeight + 50.dp)
+    val bottomPad = if (isFullscreen) finalNavHeight else (finalNavHeight + 50.dp)
 
     Box(
         modifier = Modifier
@@ -601,7 +614,7 @@ fun BBSPage(
         Spacer(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(lockedStatusHeight)
+                .height(finalStatusHeight)
                 .background(topSpacerColor)
                 .align(Alignment.TopCenter)
                 .zIndex(1f)
@@ -610,7 +623,7 @@ fun BBSPage(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(
-                    top = lockedStatusHeight,
+                    top = finalStatusHeight,
                     bottom = bottomPad
                 )
         ) {
@@ -702,10 +715,18 @@ fun BBSPage(
             }
 
             if (BBSPageState.isLoading && !isPullRefreshing) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center),
-                    color = YamiboColors.secondary
-                )
+                if (!BBSPageState.hasSuccessfullyLoaded) {
+                    BbsSkeletonScreen(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(1f)
+                    )
+                } else {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                        color = YamiboColors.secondary
+                    )
+                }
             }
 
             ReaderModeFAB(

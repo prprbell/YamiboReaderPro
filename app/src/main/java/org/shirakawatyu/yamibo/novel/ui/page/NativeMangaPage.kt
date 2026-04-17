@@ -18,6 +18,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -123,7 +125,10 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
@@ -140,6 +145,7 @@ import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.ZoomPanGestureHandler
 import org.shirakawatyu.yamibo.novel.util.verticalMangaZoomGesture
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 
 private val SpecialChapterRegex = Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)
 private val ChapterIndexFormat = java.text.DecimalFormat("0.###")
@@ -185,7 +191,51 @@ fun NativeMangaPage(
 
     var isMultiTouch by remember { mutableStateOf(false) }
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
+    val pageScope = rememberCoroutineScope()
+    val preloadManager = remember(context) {
+        object {
+            private val semaphore = Semaphore(2)
+            private val queuedJobs = ConcurrentHashMap<String, Job>()
+            private val inFlightUrls = ConcurrentHashMap.newKeySet<String>()
 
+            fun updatePreloadList(urlsToLoad: List<String>, cookie: String) {
+                val urlsSet = urlsToLoad.toSet()
+
+                queuedJobs.keys().toList().forEach { url ->
+                    if (!urlsSet.contains(url)) {
+                        queuedJobs[url]?.cancel()
+                        queuedJobs.remove(url)
+                    }
+                }
+
+                urlsToLoad.forEach { url ->
+                    if (!queuedJobs.containsKey(url) && !inFlightUrls.contains(url)) {
+                        val job = pageScope.launch {
+                            try {
+                                semaphore.withPermit {
+                                    queuedJobs.remove(url)
+                                    inFlightUrls.add(url)
+
+                                    val request = ImageRequest.Builder(context.applicationContext)
+                                        .data(url)
+                                        .addHeader("Cookie", cookie)
+                                        .addHeader("Referer", "https://bbs.yamibo.com/")
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .build()
+
+                                    context.imageLoader.execute(request)
+                                }
+                            } finally {
+                                queuedJobs.remove(url)
+                                inFlightUrls.remove(url)
+                            }
+                        }
+                        queuedJobs[url] = job
+                    }
+                }
+            }
+        }
+    }
     val handleVerticalClick: () -> Unit = remember {
         {
             if (showUi) {
@@ -572,7 +622,8 @@ fun NativeMangaPage(
 
                         withContext(Dispatchers.IO) {
                             fun isCached(url: String): Boolean {
-                                val inMemory = imageLoader.memoryCache?.get(MemoryCache.Key(url)) != null
+                                val inMemory =
+                                    imageLoader.memoryCache?.get(MemoryCache.Key(url)) != null
                                 if (inMemory) return true
                                 return YamiboRetrofit.isImageCachedInOkHttp(url)
                             }
@@ -600,18 +651,7 @@ fun NativeMangaPage(
                                 .sortedBy { kotlin.math.abs(it.globalIndex - index) }
                                 .map { it.imageUrl }
 
-                            urlsToLoad.map { url ->
-                                async {
-                                    val request = ImageRequest.Builder(context.applicationContext)
-                                        .data(url)
-                                        .addHeader("Cookie", cookie)
-                                        .addHeader("Referer", "https://bbs.yamibo.com/")
-                                        .memoryCachePolicy(CachePolicy.ENABLED)
-                                        .build()
-
-                                    imageLoader.execute(request)
-                                }
-                            }.awaitAll()
+                            preloadManager.updatePreloadList(urlsToLoad, cookie)
                         }
                     }
             }
@@ -693,7 +733,9 @@ fun NativeMangaPage(
                             items = readerManager.flatPages,
                             key = { _, item -> item.uniqueId }
                         ) { _, item ->
-                            val request = remember(item.imageUrl, cookie) {
+                            var retryHash by remember { mutableIntStateOf(0) }
+
+                            val request = remember(item.imageUrl, cookie, retryHash) {
                                 ImageRequest.Builder(context.applicationContext)
                                     .data(item.imageUrl)
                                     .addHeader("Cookie", cookie)
@@ -711,10 +753,24 @@ fun NativeMangaPage(
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         CircularProgressIndicator(color = YamiboColors.tertiary)
                                     }
+                                },
+                                error = {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .defaultMinSize(minHeight = 300.dp)
+                                            .clickable { retryHash++ },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray)
+                                            Spacer(Modifier.height(8.dp))
+                                            Text("加载超时或失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
+                                        }
+                                    }
                                 }
                             )
                         }
-
                     }
                 } else {
                     CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
@@ -729,12 +785,11 @@ fun NativeMangaPage(
                                 val item = readerManager.flatPages.getOrNull(page)
 
                                 if (item != null) {
-                                    var isImageLoading by remember(item.imageUrl) {
-                                        mutableStateOf(
-                                            true
-                                        )
-                                    }
-                                    val request = remember(item.imageUrl, cookie) {
+                                    var retryHash by remember { mutableIntStateOf(0) }
+                                    var isImageLoading by remember(item.imageUrl, retryHash) { mutableStateOf(true) }
+                                    var isImageError by remember(item.imageUrl, retryHash) { mutableStateOf(false) }
+
+                                    val request = remember(item.imageUrl, cookie, retryHash) {
                                         ImageRequest.Builder(context.applicationContext)
                                             .data(item.imageUrl)
                                             .addHeader("Cookie", cookie)
@@ -742,9 +797,9 @@ fun NativeMangaPage(
                                             .memoryCachePolicy(CachePolicy.ENABLED)
                                             .crossfade(false)
                                             .listener(
-                                                onStart = { isImageLoading = true },
-                                                onSuccess = { _, _ -> isImageLoading = false },
-                                                onError = { _, _ -> isImageLoading = false },
+                                                onStart = { isImageLoading = true; isImageError = false },
+                                                onSuccess = { _, _ -> isImageLoading = false; isImageError = false },
+                                                onError = { _, _ -> isImageLoading = false; isImageError = true },
                                                 onCancel = { isImageLoading = false }
                                             ).build()
                                     }
@@ -758,10 +813,24 @@ fun NativeMangaPage(
                                         )
                                         if (isImageLoading) {
                                             CircularProgressIndicator(
-                                                modifier = Modifier.align(
-                                                    Alignment.Center
-                                                ), color = YamiboColors.tertiary
+                                                modifier = Modifier.align(Alignment.Center),
+                                                color = YamiboColors.tertiary
                                             )
+                                        }
+                                        if (isImageError) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.Center)
+                                                    .clickable { retryHash++ }
+                                                    .padding(32.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray, modifier = Modifier.size(36.dp))
+                                                    Spacer(Modifier.height(12.dp))
+                                                    Text("图片加载失败，点击重试", color = Color.LightGray, fontSize = 16.sp)
+                                                }
+                                            }
                                         }
                                     }
                                 }

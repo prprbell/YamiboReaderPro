@@ -724,4 +724,33 @@ object PageJsScripts {
             return "3";
         })();
     """.trimIndent()
+    val FREEZE_BROKEN_IMAGES_JS = """
+        (function() {
+            var imgs = document.querySelectorAll('img');
+            for(var i=0; i<imgs.length; i++) {
+                if(!imgs[i].complete || typeof imgs[i].naturalWidth === 'undefined' || imgs[i].naturalWidth === 0) {
+                    imgs[i].style.opacity = '0'; 
+                }
+            }
+            window.stop();
+        })();
+    """.trimIndent()
+    val RELOAD_BROKEN_IMAGES_JS = """
+        (function(){
+            var imgs = document.querySelectorAll('img');
+            for(var i=0; i<imgs.length; i++) {
+                var img = imgs[i];
+                if(!img.complete || typeof img.naturalWidth === 'undefined' || img.naturalWidth === 0 || img.style.opacity === '0') {
+                    img.onload = function() { 
+                        this.style.transition = 'opacity 0.2s ease-in'; 
+                        this.style.opacity = '1'; 
+                    };
+                    var src = img.src;
+                    img.src = ''; 
+                    img.src = src; 
+                }
+            }
+        })();
+    """.trimIndent()
+
 }

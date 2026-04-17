@@ -226,6 +226,7 @@ fun MangaWebPage(
                     isWaitingForNativeReturn = false
                 }
                 mangaWebView.onResume()
+                mangaWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
                 val window = activity?.window
                 if (window != null) {
                     WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars =
@@ -259,7 +260,7 @@ fun MangaWebPage(
 
             GlobalData.tempHtml = cleanHtml
             GlobalData.tempTitle = title
-
+            mangaWebView.evaluateJavascript(PageJsScripts.FREEZE_BROKEN_IMAGES_JS, null)
             mangaWebView.evaluateJavascript("window.stop();", null)
             mangaWebView.stopLoading()
             mangaWebView.onPause()
