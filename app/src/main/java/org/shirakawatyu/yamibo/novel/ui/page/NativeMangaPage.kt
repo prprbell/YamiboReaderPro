@@ -7,6 +7,7 @@ import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.WindowManager
 import android.webkit.CookieManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -48,9 +49,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -191,8 +196,6 @@ fun NativeMangaPage(
     var isMultiTouch by remember { mutableStateOf(false) }
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
     val pageScope = rememberCoroutineScope()
-
-    var activeLoadWindow by remember { mutableStateOf<IntRange?>(null) }
 
     val preloadManager = remember(context) {
         object {
@@ -419,12 +422,10 @@ fun NativeMangaPage(
 
     val lazyListState = rememberLazyListState(initialFirstVisibleItemIndex = 0)
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { readerManager.flatPages.size })
+    val initialIndex = remember { GlobalData.tempMangaIndex }
 
-    LaunchedEffect(readerManager.flatPages.size) {
-        if (activeLoadWindow == null && readerManager.flatPages.isNotEmpty()) {
-            activeLoadWindow = 0..minOf(readerManager.flatPages.size - 1, 6)
-        }
-    }
+    val forceReloadTriggers = remember { androidx.compose.runtime.mutableStateMapOf<String, Int>() }
+    var showReloadDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         if (GlobalData.tempMangaUrls.isNotEmpty()) {
@@ -659,7 +660,7 @@ fun NativeMangaPage(
                                 return YamiboRetrofit.isImageCachedInOkHttp(url)
                             }
 
-                            var windowStart = maxOf(0, index - 3)
+                            var windowStart = maxOf(0, index - 5)
                             var cachedBackwardCount = 0
                             for (i in windowStart until index) {
                                 if (isCached(pagesSnapshot[i].imageUrl)) cachedBackwardCount++
@@ -675,8 +676,6 @@ fun NativeMangaPage(
 
                             val expandBackward = minOf(cachedForwardCount, 2)
                             windowStart = maxOf(0, windowStart - expandBackward)
-
-                            activeLoadWindow = windowStart..windowEnd
 
                             val urlsToLoad = pagesSnapshot.subList(windowStart, windowEnd + 1)
                                 .filter { it.globalIndex != index }
@@ -766,43 +765,63 @@ fun NativeMangaPage(
                             items = readerManager.flatPages,
                             key = { _, item -> item.uniqueId }
                         ) { _, item ->
-                            val inActiveWindow = activeLoadWindow?.let { item.globalIndex in it } ?: false
+                            val externalRetry = forceReloadTriggers[item.imageUrl] ?: 0
+                            var retryHash by remember(item.imageUrl, externalRetry) { mutableIntStateOf(0) }
+                            var errorCount by remember(item.imageUrl, externalRetry) { mutableIntStateOf(0) }
 
-                            if (inActiveWindow) {
-                                var retryHash by remember { mutableIntStateOf(0) }
-                                var errorCount by remember { mutableIntStateOf(0) }
-
-                                val request = remember(item.imageUrl, cookie, retryHash) {
-                                    ImageRequest.Builder(context.applicationContext)
-                                        .data(item.imageUrl)
-                                        .addHeader("Cookie", cookie)
-                                        .addHeader("Referer", "https://bbs.yamibo.com/")
-                                        .memoryCachePolicy(CachePolicy.ENABLED)
-                                        .crossfade(false)
-                                        .listener(
-                                            onSuccess = { _, _ -> errorCount = 0 }
-                                        )
-                                        .build()
+                            val request = remember(item.imageUrl, cookie, retryHash, externalRetry) {
+                                val cacheBustingUrl = if (externalRetry > 0) {
+                                    if (item.imageUrl.contains("?")) "${item.imageUrl}&_t=$externalRetry" else "${item.imageUrl}?_t=$externalRetry"
+                                } else {
+                                    item.imageUrl
                                 }
-                                SubcomposeAsyncImage(
-                                    model = request,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.FillWidth,
-                                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = defaultMinHeight),
-                                    loading = {
+
+                                val builder = ImageRequest.Builder(context.applicationContext)
+                                    .data(cacheBustingUrl) // 使用击穿URL
+                                    .diskCacheKey(item.imageUrl) // 但依然写入原始的DiskCache Key以覆盖原图
+                                    .memoryCacheKey(MemoryCache.Key(item.imageUrl)) // 依然使用原始Memory Cache Key
+                                    .addHeader("Cookie", cookie)
+                                    .addHeader("Referer", "https://bbs.yamibo.com/")
+                                    .crossfade(false)
+                                    .listener(
+                                        onSuccess = { _, _ -> errorCount = 0 }
+                                    )
+
+                                if (externalRetry > 0) {
+                                    builder.memoryCachePolicy(CachePolicy.WRITE_ONLY)
+                                    builder.diskCachePolicy(CachePolicy.WRITE_ONLY)
+                                } else {
+                                    builder.memoryCachePolicy(CachePolicy.ENABLED)
+                                    builder.diskCachePolicy(CachePolicy.ENABLED)
+                                }
+
+                                builder.build()
+                            }
+
+                            SubcomposeAsyncImage(
+                                model = request,
+                                contentDescription = null,
+                                contentScale = ContentScale.FillWidth,
+                                modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = defaultMinHeight),
+                                loading = {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(color = YamiboColors.tertiary)
+                                    }
+                                },
+                                error = {
+                                    LaunchedEffect(retryHash) {
+                                        if (errorCount < 3) {
+                                            val jitter = (0..500).random().toLong()
+                                            delay(500L + (errorCount * 1000L) + jitter)
+                                            errorCount++
+                                            retryHash++
+                                        }
+                                    }
+                                    if (errorCount < 3) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             CircularProgressIndicator(color = YamiboColors.tertiary)
                                         }
-                                    },
-                                    error = {
-                                        LaunchedEffect(retryHash) {
-                                            if (errorCount < 3) {
-                                                val jitter = (0..500).random().toLong()
-                                                delay(300L + (errorCount * 1000L) + jitter)
-                                                errorCount++
-                                                retryHash++
-                                            }
-                                        }
+                                    } else {
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -813,19 +832,12 @@ fun NativeMangaPage(
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                 Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray)
                                                 Spacer(Modifier.height(8.dp))
-                                                Text(if (errorCount < 3) "加载失败，正在自动重试..." else "加载超时或失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
+                                                Text("加载超时或失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
                                             }
                                         }
                                     }
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = defaultMinHeight),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(color = YamiboColors.tertiary)
                                 }
-                            }
+                            )
                         }
                     }
                 } else {
@@ -841,73 +853,81 @@ fun NativeMangaPage(
                                 val item = readerManager.flatPages.getOrNull(page)
 
                                 if (item != null) {
-                                    val inActiveWindow = activeLoadWindow?.let { item.globalIndex in it } ?: false
+                                    val externalRetry = forceReloadTriggers[item.imageUrl] ?: 0
+                                    var retryHash by remember(item.imageUrl, externalRetry) { mutableIntStateOf(0) }
+                                    var errorCount by remember(item.imageUrl, externalRetry) { mutableIntStateOf(0) }
+                                    var isImageLoading by remember(item.imageUrl, retryHash, externalRetry) { mutableStateOf(true) }
+                                    var isImageError by remember(item.imageUrl, retryHash, externalRetry) { mutableStateOf(false) }
 
-                                    if (inActiveWindow) {
-                                        var retryHash by remember { mutableIntStateOf(0) }
-                                        var errorCount by remember { mutableIntStateOf(0) }
-                                        var isImageLoading by remember(item.imageUrl, retryHash) { mutableStateOf(true) }
-                                        var isImageError by remember(item.imageUrl, retryHash) { mutableStateOf(false) }
+                                    LaunchedEffect(isImageError) {
+                                        if (isImageError && errorCount < 3) {
+                                            val jitter = (0..500).random().toLong()
+                                            delay(800L + (errorCount * 1000L) + jitter)
+                                            errorCount++
+                                            retryHash++
+                                        }
+                                    }
 
-                                        LaunchedEffect(isImageError) {
-                                            if (isImageError && errorCount < 3) {
-                                                val jitter = (0..500).random().toLong()
-                                                delay(800L + (errorCount * 1000L) + jitter)
-                                                errorCount++
-                                                retryHash++
-                                            }
+                                    val request = remember(item.imageUrl, cookie, retryHash, externalRetry) {
+                                        val cacheBustingUrl = if (externalRetry > 0) {
+                                            if (item.imageUrl.contains("?")) "${item.imageUrl}&_t=$externalRetry" else "${item.imageUrl}?_t=$externalRetry"
+                                        } else {
+                                            item.imageUrl
                                         }
 
-                                        val request = remember(item.imageUrl, cookie, retryHash) {
-                                            ImageRequest.Builder(context.applicationContext)
-                                                .data(item.imageUrl)
-                                                .addHeader("Cookie", cookie)
-                                                .addHeader("Referer", "https://bbs.yamibo.com/")
-                                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                                .crossfade(false)
-                                                .listener(
-                                                    onStart = { isImageLoading = true; isImageError = false },
-                                                    onSuccess = { _, _ -> isImageLoading = false; isImageError = false; errorCount = 0 },
-                                                    onError = { _, _ -> isImageLoading = false; isImageError = true },
-                                                    onCancel = { isImageLoading = false }
-                                                ).build()
-                                        }
-                                        Box(modifier = Modifier.fillMaxSize()) {
-                                            ZoomableAsyncImage(
-                                                model = request,
-                                                contentDescription = null,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Fit,
-                                                onClick = horizontalPagerClick
+                                        val builder = ImageRequest.Builder(context.applicationContext)
+                                            .data(cacheBustingUrl)
+                                            .diskCacheKey(item.imageUrl)
+                                            .memoryCacheKey(MemoryCache.Key(item.imageUrl))
+                                            .addHeader("Cookie", cookie)
+                                            .addHeader("Referer", "https://bbs.yamibo.com/")
+                                            .crossfade(false)
+                                            .listener(
+                                                onStart = { isImageLoading = true; isImageError = false },
+                                                onSuccess = { _, _ -> isImageLoading = false; isImageError = false; errorCount = 0 },
+                                                onError = { _, _ -> isImageLoading = false; isImageError = true },
+                                                onCancel = { isImageLoading = false }
                                             )
-                                            if (isImageLoading) {
-                                                CircularProgressIndicator(
-                                                    modifier = Modifier.align(Alignment.Center),
-                                                    color = YamiboColors.tertiary
-                                                )
-                                            }
-                                            if (isImageError) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .align(Alignment.Center)
-                                                        .clickable { retryHash++ }
-                                                        .padding(32.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                        Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray, modifier = Modifier.size(36.dp))
-                                                        Spacer(Modifier.height(12.dp))
-                                                        Text(if (errorCount < 3) "加载失败，自动重试中..." else "图片加载失败，点击重试", color = Color.LightGray, fontSize = 16.sp)
-                                                    }
-                                                }
-                                            }
+
+                                        if (externalRetry > 0) {
+                                            builder.memoryCachePolicy(CachePolicy.WRITE_ONLY)
+                                            builder.diskCachePolicy(CachePolicy.WRITE_ONLY)
+                                        } else {
+                                            builder.memoryCachePolicy(CachePolicy.ENABLED)
+                                            builder.diskCachePolicy(CachePolicy.ENABLED)
                                         }
-                                    } else {
-                                        Box(modifier = Modifier.fillMaxSize()) {
+
+                                        builder.build()
+                                    }
+
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        ZoomableAsyncImage(
+                                            model = request,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Fit,
+                                            onClick = horizontalPagerClick
+                                        )
+                                        if (isImageLoading || (isImageError && errorCount < 3)) {
                                             CircularProgressIndicator(
                                                 modifier = Modifier.align(Alignment.Center),
                                                 color = YamiboColors.tertiary
                                             )
+                                        }
+                                        if (isImageError && errorCount >= 3) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.Center)
+                                                    .clickable { retryHash++ }
+                                                    .padding(32.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray, modifier = Modifier.size(36.dp))
+                                                    Spacer(Modifier.height(12.dp))
+                                                    Text("图片加载失败，点击重试", color = Color.LightGray, fontSize = 16.sp)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1096,7 +1116,18 @@ fun NativeMangaPage(
                                 Text("设置", color = Color.LightGray, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                             }
                             Spacer(modifier = Modifier.width(50.dp))
-                            Box(modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0x552C2C32)).padding(horizontal = 16.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0x552C2C32))
+                                    .clickable {
+                                        if (currentItem != null) {
+                                            showReloadDialog = true
+                                        }
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 val displayLocal = (currentItem?.localIndex ?: 0) + 1
                                 val displayTotal = currentItem?.chapterTotalPages ?: 1
                                 Text(text = "$displayLocal / $displayTotal", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -1168,6 +1199,51 @@ fun NativeMangaPage(
                     },
                     onBrightnessChange = { imageBrightness = it },
                     onDismiss = { showSettingsPanel = false; showUi = false },
+                )
+            }
+            if (showReloadDialog && currentItem != null) {
+                AlertDialog(
+                    onDismissRequest = { showReloadDialog = false },
+                    shape = RoundedCornerShape(12.dp),
+                    containerColor = Color(0xFF1C2028),
+                    titleContentColor = Color(0xE5E0DCD6),
+                    textContentColor = Color(0xE5E0DCD6).copy(alpha = 0.8f),
+                    title = {
+                        Text(
+                            text = "重新加载",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    },
+                    text = {
+                        Text("是否重载第 ${(currentItem.localIndex) + 1} 页图片？")
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showReloadDialog = false
+                            forceReloadTriggers[currentItem.imageUrl] = (forceReloadTriggers[currentItem.imageUrl] ?: 0) + 1
+                            scope.launch(Dispatchers.IO) {
+                                context.imageLoader.diskCache?.remove(currentItem.imageUrl)
+                                context.imageLoader.memoryCache?.remove(MemoryCache.Key(currentItem.imageUrl))
+                            }
+                        }) {
+                            Text(
+                                text = "确认重载",
+                                color = Color(0xE5DB562A),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showReloadDialog = false }) {
+                            Text(
+                                text = "取消",
+                                color = Color(0xFF8A8F9B),
+                                fontSize = 15.sp
+                            )
+                        }
+                    }
                 )
             }
         } else {
