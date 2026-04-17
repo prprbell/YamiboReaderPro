@@ -2,7 +2,6 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.app.Activity
 import android.content.ComponentCallbacks2
-import android.graphics.Bitmap
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.WindowManager
@@ -118,8 +117,6 @@ import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
@@ -170,7 +167,6 @@ fun NativeMangaPage(
     var readMode by rememberSaveable { mutableIntStateOf(MangaSettings.getSettings(context).readMode) }
     val isVerticalMode = readMode == 0
     var imageBrightness by rememberSaveable { mutableFloatStateOf(1f) }
-    var initialIndex by rememberSaveable { mutableIntStateOf(0) }
     var showUi by rememberSaveable { mutableStateOf(false) }
     var showChapterList by rememberSaveable { mutableStateOf(false) }
     var showSettingsPanel by rememberSaveable { mutableStateOf(false) }
@@ -192,29 +188,30 @@ fun NativeMangaPage(
     var isMultiTouch by remember { mutableStateOf(false) }
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
     val pageScope = rememberCoroutineScope()
+
+    // 核心优化：智能预加载管理器
     val preloadManager = remember(context) {
         object {
-            private val semaphore = Semaphore(2)
-            private val queuedJobs = ConcurrentHashMap<String, Job>()
-            private val inFlightUrls = ConcurrentHashMap.newKeySet<String>()
+            private val semaphore = Semaphore(2) // 控制并发下载数为2
+            private val pendingJobs = ConcurrentHashMap<String, Job>() // 等待获取Semaphore许可的任务
+            private val runningJobs = ConcurrentHashMap<String, Job>() // 已经获取许可，正在下载中的任务
 
             fun updatePreloadList(urlsToLoad: List<String>, cookie: String) {
-                val urlsSet = urlsToLoad.toSet()
 
-                queuedJobs.keys().toList().forEach { url ->
-                    if (!urlsSet.contains(url)) {
-                        queuedJobs[url]?.cancel()
-                        queuedJobs.remove(url)
-                    }
-                }
+                pendingJobs.values.forEach { it.cancel() }
+                pendingJobs.clear()
+
 
                 urlsToLoad.forEach { url ->
-                    if (!queuedJobs.containsKey(url) && !inFlightUrls.contains(url)) {
+                    if (!runningJobs.containsKey(url)) {
                         val job = pageScope.launch {
                             try {
                                 semaphore.withPermit {
-                                    queuedJobs.remove(url)
-                                    inFlightUrls.add(url)
+                                    pendingJobs.remove(url)
+
+                                    if (!isActive) return@withPermit
+
+                                    runningJobs[url] = coroutineContext[Job]!!
 
                                     val request = ImageRequest.Builder(context.applicationContext)
                                         .data(url)
@@ -226,16 +223,17 @@ fun NativeMangaPage(
                                     context.imageLoader.execute(request)
                                 }
                             } finally {
-                                queuedJobs.remove(url)
-                                inFlightUrls.remove(url)
+                                pendingJobs.remove(url)
+                                runningJobs.remove(url)
                             }
                         }
-                        queuedJobs[url] = job
+                        pendingJobs[url] = job
                     }
                 }
             }
         }
     }
+
     val handleVerticalClick: () -> Unit = remember {
         {
             if (showUi) {
@@ -312,24 +310,6 @@ fun NativeMangaPage(
         MangaReaderManager(context, mangaDirVM, scope) { fallbackUrl -> fallbackNavigate(fallbackUrl) }
     }
 
-    LaunchedEffect(Unit) {
-        if (GlobalData.tempMangaUrls.isNotEmpty()) {
-            val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: ""
-            readerManager.initFirstChapter(tid, url, GlobalData.tempTitle, GlobalData.tempMangaUrls)
-            initialIndex = GlobalData.tempMangaIndex
-
-            if (GlobalData.tempHtml.isNotBlank()) {
-                mangaDirVM.initDirectoryFromWeb(url, GlobalData.tempHtml, GlobalData.tempTitle)
-            } else {
-                if (mangaDirVM.currentDirectory == null) mangaDirVM.loadDirectoryByUrl(url)
-            }
-            GlobalData.tempMangaUrls = emptyList()
-            GlobalData.tempHtml = ""
-            GlobalData.tempMangaIndex = 0
-        } else {
-            if (mangaDirVM.currentDirectory == null) mangaDirVM.loadDirectoryByUrl(url)
-        }
-    }
 
     val performExit = {
         isExiting = true
@@ -426,6 +406,43 @@ fun NativeMangaPage(
     }
     val cookie = cookieState.value
 
+    val lazyListState = rememberLazyListState(initialFirstVisibleItemIndex = 0)
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { readerManager.flatPages.size })
+
+    LaunchedEffect(Unit) {
+        if (GlobalData.tempMangaUrls.isNotEmpty()) {
+            val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: ""
+            readerManager.initFirstChapter(tid, url, GlobalData.tempTitle, GlobalData.tempMangaUrls)
+
+            if (GlobalData.tempHtml.isNotBlank()) {
+                mangaDirVM.initDirectoryFromWeb(url, GlobalData.tempHtml, GlobalData.tempTitle)
+            } else {
+                if (mangaDirVM.currentDirectory == null) mangaDirVM.loadDirectoryByUrl(url)
+            }
+
+            val targetIndex = GlobalData.tempMangaIndex
+            GlobalData.tempMangaUrls = emptyList()
+            GlobalData.tempHtml = ""
+            GlobalData.tempMangaIndex = 0
+
+            scope.launch {
+                if (targetIndex > 0) {
+                    if (isVerticalMode) lazyListState.scrollToItem(targetIndex)
+                    else pagerState.scrollToPage(targetIndex)
+                }
+            }
+        } else {
+            if (mangaDirVM.currentDirectory == null) mangaDirVM.loadDirectoryByUrl(url)
+
+            readerManager.jumpToChapter(url) { globalIdx ->
+                scope.launch {
+                    if (isVerticalMode) lazyListState.scrollToItem(globalIdx)
+                    else pagerState.scrollToPage(globalIdx)
+                }
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -443,8 +460,6 @@ fun NativeMangaPage(
             }
     ) {
         if (readerManager.flatPages.isNotEmpty() && cookie != "-1") {
-            val lazyListState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
-            val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { readerManager.flatPages.size })
 
             val currentIndex by remember(isVerticalMode, lazyListState, pagerState) {
                 derivedStateOf {
@@ -622,33 +637,32 @@ fun NativeMangaPage(
 
                         withContext(Dispatchers.IO) {
                             fun isCached(url: String): Boolean {
-                                val inMemory =
-                                    imageLoader.memoryCache?.get(MemoryCache.Key(url)) != null
+                                val inMemory = imageLoader.memoryCache?.get(MemoryCache.Key(url)) != null
                                 if (inMemory) return true
                                 return YamiboRetrofit.isImageCachedInOkHttp(url)
                             }
 
-                            var windowStart = maxOf(0, index - 3)
-                            var cachedBackwardCount = 0
-                            for (i in windowStart until index) {
-                                if (isCached(pagesSnapshot[i].imageUrl)) cachedBackwardCount++
+                            val currentTid = pagesSnapshot[index].tid
+
+                            val windowStart = maxOf(0, index - 3)
+
+                            var windowEnd = index
+                            while (windowEnd < totalSize - 1 && pagesSnapshot[windowEnd + 1].tid == currentTid) {
+                                windowEnd++
                             }
-
-                            val dynamicEndOffset = 6 + cachedBackwardCount
-                            val windowEnd = minOf(totalSize - 1, index + dynamicEndOffset)
-
-                            var cachedForwardCount = 0
-                            for (i in index + 1..windowEnd) {
-                                if (isCached(pagesSnapshot[i].imageUrl)) cachedForwardCount++
-                            }
-
-                            val expandBackward = minOf(cachedForwardCount, 2)
-                            windowStart = maxOf(0, windowStart - expandBackward)
 
                             val urlsToLoad = pagesSnapshot.subList(windowStart, windowEnd + 1)
-                                .filter { it.globalIndex != index }
-                                .filter { !isCached(it.imageUrl) }
-                                .sortedBy { kotlin.math.abs(it.globalIndex - index) }
+                                .filter { it.globalIndex != index } // 跳过当前页
+                                .filter { !isCached(it.imageUrl) } // 过滤掉已经缓存的
+                                .sortedWith { a, b ->
+                                    val distA = kotlin.math.abs(a.globalIndex - index)
+                                    val distB = kotlin.math.abs(b.globalIndex - index)
+                                    if (distA != distB) {
+                                        distA.compareTo(distB)
+                                    } else {
+                                        if (a.globalIndex > index) -1 else 1
+                                    }
+                                }
                                 .map { it.imageUrl }
 
                             preloadManager.updatePreloadList(urlsToLoad, cookie)
@@ -733,7 +747,9 @@ fun NativeMangaPage(
                             items = readerManager.flatPages,
                             key = { _, item -> item.uniqueId }
                         ) { _, item ->
+                            // 增加了重试状态记录
                             var retryHash by remember { mutableIntStateOf(0) }
+                            var errorCount by remember { mutableIntStateOf(0) }
 
                             val request = remember(item.imageUrl, cookie, retryHash) {
                                 ImageRequest.Builder(context.applicationContext)
@@ -742,6 +758,9 @@ fun NativeMangaPage(
                                     .addHeader("Referer", "https://bbs.yamibo.com/")
                                     .memoryCachePolicy(CachePolicy.ENABLED)
                                     .crossfade(false)
+                                    .listener(
+                                        onSuccess = { _, _ -> errorCount = 0 }
+                                    )
                                     .build()
                             }
                             SubcomposeAsyncImage(
@@ -755,6 +774,14 @@ fun NativeMangaPage(
                                     }
                                 },
                                 error = {
+                                    // 发生错误时，引入指数退避重试，提升网络波动时的体验
+                                    LaunchedEffect(retryHash) {
+                                        if (errorCount < 3) {
+                                            delay(500L + (errorCount * 500L))
+                                            errorCount++
+                                            retryHash++
+                                        }
+                                    }
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -765,7 +792,7 @@ fun NativeMangaPage(
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray)
                                             Spacer(Modifier.height(8.dp))
-                                            Text("加载超时或失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
+                                            Text(if (errorCount < 3) "加载失败，正在自动重试..." else "加载超时或失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
                                         }
                                     }
                                 }
@@ -786,8 +813,17 @@ fun NativeMangaPage(
 
                                 if (item != null) {
                                     var retryHash by remember { mutableIntStateOf(0) }
+                                    var errorCount by remember { mutableIntStateOf(0) }
                                     var isImageLoading by remember(item.imageUrl, retryHash) { mutableStateOf(true) }
                                     var isImageError by remember(item.imageUrl, retryHash) { mutableStateOf(false) }
+
+                                    LaunchedEffect(isImageError) {
+                                        if (isImageError && errorCount < 3) {
+                                            delay(800L + (errorCount * 1000L))
+                                            errorCount++
+                                            retryHash++
+                                        }
+                                    }
 
                                     val request = remember(item.imageUrl, cookie, retryHash) {
                                         ImageRequest.Builder(context.applicationContext)
@@ -798,7 +834,7 @@ fun NativeMangaPage(
                                             .crossfade(false)
                                             .listener(
                                                 onStart = { isImageLoading = true; isImageError = false },
-                                                onSuccess = { _, _ -> isImageLoading = false; isImageError = false },
+                                                onSuccess = { _, _ -> isImageLoading = false; isImageError = false; errorCount = 0 },
                                                 onError = { _, _ -> isImageLoading = false; isImageError = true },
                                                 onCancel = { isImageLoading = false }
                                             ).build()
@@ -828,7 +864,7 @@ fun NativeMangaPage(
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                     Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray, modifier = Modifier.size(36.dp))
                                                     Spacer(Modifier.height(12.dp))
-                                                    Text("图片加载失败，点击重试", color = Color.LightGray, fontSize = 16.sp)
+                                                    Text(if (errorCount < 3) "加载失败，自动重试中..." else "图片加载失败，点击重试", color = Color.LightGray, fontSize = 16.sp)
                                                 }
                                             }
                                         }
