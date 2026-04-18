@@ -4,6 +4,36 @@ object PageJsScripts {
 
     // 基础脚本
 
+    val FIX_CAROUSEL_LAYOUT_JS = """
+        (function() {
+            if (document.getElementById('carousel-fix-style')) return;
+            var style = document.createElement('style');
+            style.id = 'carousel-fix-style';
+            style.innerHTML = `
+                .swiper-wrapper {
+                    display: flex !important;
+                    flex-direction: row !important;
+                    flex-wrap: nowrap !important;
+                }
+                .swiper-slide, .slidebox, .scrool_img, .slide, #slide, .img_slide { 
+                    width: 100% !important; 
+                    flex-shrink: 0 !important;
+                    aspect-ratio: 363 / 126 !important; 
+                    background-color: rgba(212, 200, 176, 0.2) !important; 
+                    display: block !important;
+                    box-sizing: border-box !important;
+                }
+                .swiper-slide img, .slidebox img, .scrool_img img, .slide img, #slide img, .img_slide img { 
+                    width: 100% !important; 
+                    height: 100% !important; 
+                    object-fit: cover !important; 
+                }
+            `;
+            if(document.head) document.head.appendChild(style);
+            else document.documentElement.appendChild(style);
+        })();
+    """.trimIndent()
+
     val INJECT_PSWP_AND_MANGA_JS = """
         (function(){
             window.__pswpInit = function() {

@@ -52,7 +52,7 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .height(50.dp)
                 .background(headerBg)
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 15.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             Box(Modifier.width(100.dp).height(24.dp).clip(RoundedCornerShape(4.dp)).background(skeletonColor))
@@ -61,7 +61,7 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
         // 轮播图
         Box(
             modifier = Modifier
-                .padding(horizontal = 15.dp, vertical = 10.dp)
+                .padding(horizontal = 10.dp, vertical = 10.dp)
                 .fillMaxWidth()
                 .aspectRatio(2.81f)
                 .clip(RoundedCornerShape(4.dp))
@@ -87,7 +87,7 @@ private fun BbsSkeletonSectionHeader(title: String, bgColor: Color, fgColor: Col
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 15.dp, vertical = 5.dp)
+            .padding(horizontal = 10.dp, vertical = 5.dp)
             .height(36.dp)
             .clip(RoundedCornerShape(4.dp))
             .background(bgColor),
@@ -107,7 +107,7 @@ private fun BbsSkeletonForumItem(skeletonColor: Color, alpha: Float) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 15.dp, vertical = 12.dp),
+            .padding(horizontal = 10.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 左侧 48x48 图标
@@ -136,7 +136,7 @@ private fun BbsSkeletonForumItem(skeletonColor: Color, alpha: Float) {
         }
     }
     HorizontalDivider(
-        modifier = Modifier.padding(horizontal = 15.dp),
+        modifier = Modifier.padding(horizontal = 12.dp),
         thickness = 0.8.dp,
         color = Color.Gray.copy(alpha = 0.1f)
     )

@@ -121,6 +121,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
     fun forceInjectMangaJs(webView: WebView) {
         webView.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
+        webView.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
     }
 
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -200,6 +201,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
     override fun onPageCommitVisible(view: WebView?, url: String?) {
         super.onPageCommitVisible(view, url)
         view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
+        view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
 
         BBSPageState.pageTitle = view?.title ?: ""
         if (!BBSPageState.isErrorState) {
@@ -215,6 +217,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
             view?.clearHistory()
         }
         view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
+        view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
 
         BBSPageState.isLoading = false
 
@@ -526,7 +529,6 @@ fun BBSPage(
             timeoutJob?.cancel()
             retryCount = 0
             isPullRefreshing = false
-            BBSPageState.isLoading = false
         }
 
         onDispose { }

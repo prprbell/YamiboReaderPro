@@ -179,6 +179,8 @@ class MainActivity : ComponentActivity() {
         GlobalData.homePageRoute.value = initialRoute
         super.onCreate(savedInstanceState)
 
+        val isRestoring = savedInstanceState != null
+
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val layoutParams = window.attributes
@@ -195,7 +197,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            App(bbsWebView = bbsWebViewState, webChromeClient = customWebChromeClient)
+            App(bbsWebView = bbsWebViewState, webChromeClient = customWebChromeClient, isRestoring = isRestoring)
         }
     }
 
@@ -279,7 +281,7 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
 @RequiresApi(Build.VERSION_CODES.O)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
+fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boolean = false) {
     val isAppInitialized = GlobalData.isAppInitialized
     val context = LocalContext.current
     val isNetworkAvailable by remember {
@@ -686,7 +688,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                 val currentTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
                 val lockedTopPadding = maxOf(initStatusHeight, currentTopPadding).dp
 
-                if (homeRoute == "BBSPage") {
+                if (homeRoute == "BBSPage" && !isRestoring) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         Spacer(
                             modifier = Modifier
@@ -705,8 +707,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient) {
                         }
                     }
                 } else {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = YamiboColors.secondary)
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!isRestoring) {
+                            CircularProgressIndicator(color = YamiboColors.secondary)
+                        }
                     }
                 }
             }
