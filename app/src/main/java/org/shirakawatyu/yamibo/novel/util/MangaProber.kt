@@ -9,6 +9,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.annotation.Keep
@@ -17,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
+import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -25,13 +27,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 class MangaProber {
 
     companion object {
-        // 新增：全局缓存单例
+        // 全局缓存单例
         private var cachedProberJSInterface: ProberJSInterface? = null
     }
 
     @Keep
     class ProberJSInterface {
-        // 移除构造参数，改为可变属性
         var onSuccess: ((String, String) -> Unit)? = null
         var onFail: (() -> Unit)? = null
 
@@ -59,6 +60,8 @@ class MangaProber {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            blockNetworkImage = false
+            loadsImagesAutomatically = true
         }
 
         val activity = context as? Activity
@@ -170,6 +173,37 @@ class MangaProber {
 
                 private var retryCount = 0
                 private val MAX_RETRIES = 2
+
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): WebResourceResponse? {
+                    val urlStr = request?.url?.toString() ?: ""
+                    val accept = request?.requestHeaders?.get("Accept") ?: ""
+
+                    val isImage = accept.contains("image/", ignoreCase = true) ||
+                            urlStr.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)) ||
+                            urlStr.contains("attachment")
+
+                    if (request?.isForMainFrame == false && isImage) {
+                        if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
+                            !urlStr.contains("common") && !urlStr.contains("static/image") &&
+                            !urlStr.contains("template") && !urlStr.contains("block")
+                        ) {
+                            if (request.method == "GET" && urlStr.contains("yamibo.com")) {
+                                val headers = mutableMapOf<String, String>()
+                                request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
+
+                                val coilResponse = org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy.interceptImage(context, urlStr, headers)
+                                if (coilResponse != null) return coilResponse
+                                val proxyResponse = org.shirakawatyu.yamibo.novel.global.YamiboRetrofit.proxyWebViewResource(request)
+                                if (proxyResponse != null) return proxyResponse
+                                return WebResourceResponse("image/jpeg", "utf-8", 404, "Blocked by Interceptor", null, ByteArrayInputStream(ByteArray(0)))
+                            }
+                        }
+                    }
+                    return super.shouldInterceptRequest(view, request)
+                }
 
                 private fun handlePotentialTransientError(view: WebView?, errorCode: Int) {
                     if (!isFinished.get()) {

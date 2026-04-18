@@ -141,7 +141,7 @@ class YamiboRetrofit {
                 builder.cache(okhttp3.Cache(cacheDir, cacheSize))
             }
 
-            // 1. 应用拦截器 (Application Interceptor)
+            // 1. 应用拦截器
             builder.addInterceptor { chain ->
                 // 前置网络状态检查
                 val cm = YamiboApplication.application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -182,7 +182,7 @@ class YamiboRetrofit {
                 chain.proceed(request)
             }
 
-            // 2. 网络拦截器 (Network Interceptor)
+            // 2. 网络拦截器
             builder.addNetworkInterceptor { chain ->
                 val request = chain.request()
                 val rawResponse = chain.proceed(request)
