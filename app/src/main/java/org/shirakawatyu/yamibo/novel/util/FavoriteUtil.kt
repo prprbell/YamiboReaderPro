@@ -17,7 +17,6 @@ import kotlinx.coroutines.sync.withLock
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
 /**
  * 收藏管理工具
@@ -34,15 +33,21 @@ class FavoriteUtil {
         fun getFavoriteFlow(): Flow<List<Favorite>> {
             val dataStore = GlobalData.dataStore ?: throw IllegalStateException("DataStore not initialized")
             return dataStore.data.map { preferences ->
-                val jsonString = preferences[key]
-                if (jsonString != null) {
-                    try {
-                        jsonToHashMap(jsonString).values.toList()
-                    } catch (e: Exception) {
+                writeMutex.withLock {
+                    pendingFavMap?.let {
+                        return@withLock it.values.toList()
+                    }
+
+                    val jsonString = preferences[key]
+                    if (jsonString != null) {
+                        try {
+                            jsonToHashMap(jsonString).values.toList()
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    } else {
                         emptyList()
                     }
-                } else {
-                    emptyList()
                 }
             }
         }
@@ -134,7 +139,7 @@ class FavoriteUtil {
 
                 if (hasNewItems) {
                     pendingFavMap = null
-                    suspendCancellableCoroutine<Unit> { cont ->
+                    suspendCancellableCoroutine { cont ->
                         DataStoreUtil.addData(JSON.toJSONString(newMap), key) { cont.resume(Unit) }
                     }
                 }
@@ -166,7 +171,7 @@ class FavoriteUtil {
                 if (map.containsKey(favorite.url)) {
                     map[favorite.url] = favorite
                     pendingFavMap = null
-                    suspendCancellableCoroutine<Unit> { cont ->
+                    suspendCancellableCoroutine { cont ->
                         DataStoreUtil.addData(JSON.toJSONString(map), key) { cont.resume(Unit) }
                     }
                 }
@@ -181,7 +186,7 @@ class FavoriteUtil {
                     if (fav.title != title) {
                         map[url] = fav.copy(title = title)
                         pendingFavMap = null
-                        suspendCancellableCoroutine<Unit> { cont ->
+                        suspendCancellableCoroutine { cont ->
                             DataStoreUtil.addData(JSON.toJSONString(map), key) { cont.resume(Unit) }
                         }
                     }
@@ -217,7 +222,7 @@ class FavoriteUtil {
                     newMap[url] = fav
                     newMap.putAll(map)
                     pendingFavMap = null
-                    suspendCancellableCoroutine<Unit> { cont ->
+                    suspendCancellableCoroutine { cont ->
                         DataStoreUtil.addData(JSON.toJSONString(newMap), key) { cont.resume(Unit) }
                     }
                 }
