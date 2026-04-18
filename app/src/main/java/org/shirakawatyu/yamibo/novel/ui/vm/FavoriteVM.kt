@@ -536,17 +536,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     }
     fun moveToTop(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            stateMutex.withLock {
-                val index = allFavorites.indexOfFirst { it.url == url }
-                if (index > 0) {
-                    val mutableList = allFavorites.toMutableList()
-                    val item = mutableList.removeAt(index)
-                    mutableList.add(0, item)
-                    allFavorites = mutableList.toList()
-                    FavoriteUtil.saveFavoriteOrder(allFavorites)
-                }
-            }
-            withContext(Dispatchers.Main) { updateUiList() }
+            FavoriteUtil.moveUrlToTopSuspend(url)
         }
     }
 }

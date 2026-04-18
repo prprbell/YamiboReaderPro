@@ -179,5 +179,20 @@ class FavoriteUtil {
             }
             return map
         }
+        suspend fun moveUrlToTopSuspend(url: String) {
+            writeMutex.withLock {
+                val map = getFavoriteMapSuspend()
+                if (map.containsKey(url)) {
+                    val fav = map.remove(url)!!
+                    val newMap = LinkedHashMap<String, Favorite>()
+                    newMap[url] = fav
+                    newMap.putAll(map)
+
+                    suspendCancellableCoroutine<Unit> { cont ->
+                        DataStoreUtil.addData(JSON.toJSONString(newMap), key) { cont.resume(Unit) }
+                    }
+                }
+            }
+        }
     }
 }

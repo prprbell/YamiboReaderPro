@@ -24,7 +24,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavController
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,73 +50,6 @@ fun ProbingPage(url: String, navController: NavController) {
 
     val checkJs = remember { PageJsScripts.PROBING_CHECK_JS }
 
-    val handleNavigation: (Int, List<String>?) -> Unit = { type, parts ->
-        if (!isRedirecting) {
-            isRedirecting = true
-
-            CoroutineScope(Dispatchers.IO).launch {
-                kotlinx.coroutines.delay(600)
-                val map = FavoriteUtil.getFavoriteMapSuspend()
-                map[url]?.let { fav ->
-                    var changed = false
-                    var newFav = fav
-
-                    if (type == 1 && parts != null) {
-                        val authorId = parts.getOrNull(1)?.takeIf { it.isNotBlank() }
-                        if (fav.type != 1 || fav.authorId != authorId) {
-                            newFav = newFav.copy(type = 1, authorId = authorId)
-                            changed = true
-                        }
-
-                        val encodedTitle = parts.getOrNull(2) ?: ""
-                        var rawTitle = if (encodedTitle.isNotBlank()) URLDecoder.decode(encodedTitle, "UTF-8") else ""
-                        rawTitle = rawTitle.replace(Regex("\\s+[-—–_]+\\s+.*?(文学区|小说区|译文区|百合会|论坛).*$"), "").trim()
-                        if (rawTitle.isNotBlank() && newFav.title != rawTitle) {
-                            newFav = newFav.copy(title = rawTitle)
-                            changed = true
-                        }
-                    } else {
-                        if (fav.type != type) {
-                            newFav = newFav.copy(type = type)
-                            changed = true
-                        }
-                    }
-
-                    if (changed) {
-                        FavoriteUtil.updateFavoriteSuspend(newFav)
-                    }
-                }
-            }
-
-            // 立刻执行路由跳转，不阻塞 UI
-            val encoded = URLEncoder.encode(url, "utf-8")
-            if (type == 2 && parts != null) {
-                val title = URLDecoder.decode(parts.getOrNull(1) ?: "", "UTF-8")
-                val urlsJoined = parts.getOrNull(2) ?: ""
-                val htmlContent = URLDecoder.decode(parts.getOrNull(3) ?: "", "UTF-8")
-                val urlsList = urlsJoined.split("|||").filter { it.isNotBlank() }
-
-                GlobalData.tempMangaUrls = urlsList
-                GlobalData.tempTitle = title
-                GlobalData.tempHtml = htmlContent
-                GlobalData.tempMangaIndex = 0
-
-                navController.navigate("MangaWebPage/$encoded/$encoded?fastForward=true") {
-                    popUpTo("ProbingPage/{url}") { inclusive = true }
-                }
-                navController.navigate("NativeMangaPage?url=$encoded")
-            } else {
-                val route = when (type) {
-                    1 -> "ReaderPage/$encoded"
-                    else -> "OtherWebPage/$encoded"
-                }
-                navController.navigate(route) {
-                    popUpTo("ProbingPage/{url}") { inclusive = true }
-                }
-            }
-        }
-    }
-
     LaunchedEffect(webViewRef) {
         val webView = webViewRef ?: return@LaunchedEffect
         var timeWaited = 0
@@ -139,17 +71,83 @@ fun ProbingPage(url: String, navController: NavController) {
                         return@evaluateJavascript
                     }
 
+                    isRedirecting = true
+
                     val parts = cleanResult.split(":::")
                     val type = parts[0].toIntOrNull() ?: 3
-                    handleNavigation(type, parts)
+
+                    scope.launch(Dispatchers.IO) {
+                        val map = FavoriteUtil.getFavoriteMapSuspend()
+                        map[url]?.let { fav ->
+                            var changed = false
+                            var newFav = fav
+
+                            if (type == 1) {
+                                val authorId = parts.getOrNull(1)?.takeIf { it.isNotBlank() }
+                                if (fav.type != 1 || fav.authorId != authorId) {
+                                    newFav = newFav.copy(type = 1, authorId = authorId)
+                                    changed = true
+                                }
+
+                                val encodedTitle = parts.getOrNull(2) ?: ""
+                                var rawTitle = if (encodedTitle.isNotBlank()) URLDecoder.decode(encodedTitle, "UTF-8") else ""
+                                rawTitle = rawTitle.replace(Regex("\\s+[-—–_]+\\s+.*?(文学区|小说区|译文区|百合会|论坛).*$"), "").trim()
+                                if (rawTitle.isNotBlank() && newFav.title != rawTitle) {
+                                    newFav = newFav.copy(title = rawTitle)
+                                    changed = true
+                                }
+                            } else {
+                                if (fav.type != type) {
+                                    newFav = newFav.copy(type = type)
+                                    changed = true
+                                }
+                            }
+
+                            if (changed) {
+                                FavoriteUtil.updateFavoriteSuspend(newFav)
+                            }
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            val encoded = URLEncoder.encode(url, "utf-8")
+                            if (type == 2) {
+                                val title = URLDecoder.decode(parts.getOrNull(1) ?: "", "UTF-8")
+                                val urlsJoined = parts.getOrNull(2) ?: ""
+                                val htmlContent = URLDecoder.decode(parts.getOrNull(3) ?: "", "UTF-8")
+                                val urlsList = urlsJoined.split("|||").filter { it.isNotBlank() }
+
+                                GlobalData.tempMangaUrls = urlsList
+                                GlobalData.tempTitle = title
+                                GlobalData.tempHtml = htmlContent
+                                GlobalData.tempMangaIndex = 0
+
+                                navController.navigate("MangaWebPage/$encoded/$encoded?fastForward=true") {
+                                    popUpTo("ProbingPage/{url}") { inclusive = true }
+                                }
+                                navController.navigate("NativeMangaPage?url=$encoded")
+                            } else {
+                                val route = when (type) {
+                                    1 -> "ReaderPage/$encoded"
+                                    else -> "OtherWebPage/$encoded"
+                                }
+                                navController.navigate(route) {
+                                    popUpTo("ProbingPage/{url}") { inclusive = true }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // 超时兜底
+        // 超时兜底逻辑
         if (!isRedirecting) {
+            isRedirecting = true
             withContext(Dispatchers.Main) {
-                handleNavigation(3, null)
+                val encoded = URLEncoder.encode(url, "utf-8")
+                navController.navigate("OtherWebPage/$encoded") {
+                    popUpTo("ProbingPage/{url}") { inclusive = true }
+                }
             }
         }
     }
@@ -177,13 +175,20 @@ fun ProbingPage(url: String, navController: NavController) {
                                 return YamiboRetrofit.proxyWebViewResource(request!!)
                                     ?: super.shouldInterceptRequest(view, request)
                             }
-
                             override fun onRenderProcessGone(
                                 view: WebView?,
                                 detail: android.webkit.RenderProcessGoneDetail?
                             ): Boolean {
                                 view?.let { WebViewPool.discard(it) }
-                                handleNavigation(3, null)
+                                if (!isRedirecting) {
+                                    isRedirecting = true
+                                    val encoded = URLEncoder.encode(url, "utf-8")
+                                    scope.launch(Dispatchers.Main) {
+                                        navController.navigate("OtherWebPage/$encoded") {
+                                            popUpTo("ProbingPage/{url}") { inclusive = true }
+                                        }
+                                    }
+                                }
                                 return true
                             }
 
@@ -201,7 +206,13 @@ fun ProbingPage(url: String, navController: NavController) {
                                         ERROR_BAD_URL
                                     )
                                     if (fatalErrors.contains(errorCode)) {
-                                        handleNavigation(3, null)
+                                        isRedirecting = true
+                                        val encoded = URLEncoder.encode(url, "utf-8")
+                                        scope.launch(Dispatchers.Main) {
+                                            navController.navigate("OtherWebPage/$encoded") {
+                                                popUpTo("ProbingPage/{url}") { inclusive = true }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -211,6 +222,7 @@ fun ProbingPage(url: String, navController: NavController) {
                             if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
 
                         resumeTimers()
+
                         post { loadUrl(finalUrl) }
                     }
                 },
