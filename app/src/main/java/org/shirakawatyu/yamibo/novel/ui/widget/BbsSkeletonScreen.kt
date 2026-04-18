@@ -55,7 +55,7 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
                 .padding(horizontal = 15.dp),
             contentAlignment = Alignment.CenterStart
         ) {
-            Box(Modifier.width(100.dp).height(24.dp).clip(RoundedCornerShape(4.dp)).background(skeletonColor))
+            Box(Modifier.width(130.dp).height(24.dp).clip(RoundedCornerShape(4.dp)).background(skeletonColor))
             Box(Modifier.align(Alignment.CenterEnd).size(24.dp).clip(CircleShape).background(skeletonColor))
         }
         // 轮播图
