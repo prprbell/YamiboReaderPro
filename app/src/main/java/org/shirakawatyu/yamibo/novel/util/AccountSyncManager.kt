@@ -27,8 +27,10 @@ object AccountSyncManager {
                 GlobalData.currentCookie = currentCookie
                 if (GlobalData.isAutoSignInEnabled.value) {
                     val needsSign = AutoSignManager.needsSignIn()
-                    if (needsSign) kotlinx.coroutines.delay(1000L) else kotlinx.coroutines.delay(8000L)
-                    AutoSignManager.checkAndSignIfNeeded(context, force = false)
+                    if (needsSign) {
+                        kotlinx.coroutines.delay(1000L)
+                        AutoSignManager.checkAndSignIfNeeded(context, force = false)
+                    }
                 }
             }
             return
@@ -43,7 +45,7 @@ object AccountSyncManager {
 
                 if (GlobalData.isAutoSignInEnabled.value) {
                     kotlinx.coroutines.delay(2000L)
-                    AutoSignManager.checkAndSignIfNeeded(context, force = true)
+                    AutoSignManager.checkAndSignIfNeeded(context, force = false)
                 }
             } else {
                 GlobalData.currentCookie = ""

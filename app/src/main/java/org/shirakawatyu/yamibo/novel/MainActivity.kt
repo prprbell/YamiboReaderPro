@@ -66,6 +66,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -317,14 +318,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                 val needsSign = AutoSignManager.needsSignIn()
                 if (needsSign) {
                     delay(2000L)
-                } else {
-                    delay(8000L)
+                    AutoSignManager.checkAndSignIfNeeded(context)
                 }
                 AutoSignManager.checkAndSignIfNeeded(context)
             }
         }
     }
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
 
     DisposableEffect(lifecycleOwner, isAppInitialized, isNetworkAvailable) {
