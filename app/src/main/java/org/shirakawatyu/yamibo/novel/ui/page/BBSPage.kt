@@ -51,6 +51,7 @@ import androidx.navigation.NavController
 import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
@@ -223,8 +224,15 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
                 BBSPageState.hasSuccessfullyLoaded = true
             }
         }
+        checkAndUpdateLoginState()
     }
+    private fun checkAndUpdateLoginState() {
+        val cookieManager = CookieManager.getInstance()
+        val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
+        val currentLoginState = currentCookie.contains("EeqY_2132_auth=")
 
+        BBSPageState.lastLoginState = currentLoginState
+    }
     override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
         handleErrorState()
         return true
@@ -533,39 +541,34 @@ fun BBSPage(
     LaunchedEffect(webView, isSelected) {
         if (!isSelected) return@LaunchedEffect
 
-        var activeSeconds = 0
-        var forceKeepPolling = false
-        val POLLING_LIMIT_SECONDS = 10
+        snapshotFlow { webView.url }
+            .collectLatest { url ->
+                val safeUrl = url ?: ""
+                val isHomepage = safeUrl == BBSGlobalWebViewClient.INDEX_URL ||
+                        safeUrl == BBSGlobalWebViewClient.MOBILE_INDEX_URL ||
+                        safeUrl == BBSGlobalWebViewClient.BBS_URL ||
+                        safeUrl == BBSGlobalWebViewClient.BASE_BBS_URL ||
+                        (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains("mod="))
 
-        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (isActive) {
-                val currentUrl = webView.url ?: ""
+                if (isHomepage) {
+                    for (i in 0 until 4) {
+                        val cookieManager = CookieManager.getInstance()
+                        val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
+                        val currentLoginState = isLoggedIn(currentCookie)
 
-                if (currentUrl.contains("mod=space") && currentUrl.contains("do=profile")) {
-                    forceKeepPolling = true
-                }
-                if (activeSeconds < POLLING_LIMIT_SECONDS || forceKeepPolling) {
-                    val cookieManager = CookieManager.getInstance()
-                    val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
-                    val currentLoginState = isLoggedIn(currentCookie)
-
-                    if (BBSPageState.isLoading) {
-                        BBSPageState.lastLoginState = currentLoginState
-                    } else if (BBSPageState.showLoadError) {
-                        BBSPageState.lastLoginState = currentLoginState
-                    } else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
-                        BBSPageState.lastLoginState = currentLoginState
-                        startLoading(mobileIndexUrl)
-                    } else if (BBSPageState.lastLoginState == null) {
-                        BBSPageState.lastLoginState = currentLoginState
+                        if (BBSPageState.isLoading || BBSPageState.showLoadError) {
+                            BBSPageState.lastLoginState = currentLoginState
+                        } else if (BBSPageState.lastLoginState != null && BBSPageState.lastLoginState != currentLoginState) {
+                            BBSPageState.lastLoginState = currentLoginState
+                            startLoading(BBSGlobalWebViewClient.MOBILE_INDEX_URL)
+                            break
+                        } else {
+                            BBSPageState.lastLoginState = currentLoginState
+                        }
+                        delay(800)
                     }
                 }
-                delay(1000)
-                if (activeSeconds < POLLING_LIMIT_SECONDS) {
-                    activeSeconds++
-                }
             }
-        }
     }
 
     BackHandler(enabled = true) {
