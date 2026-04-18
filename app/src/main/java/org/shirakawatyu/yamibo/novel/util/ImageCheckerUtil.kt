@@ -3,43 +3,40 @@ package org.shirakawatyu.yamibo.novel.util
 import android.graphics.BitmapFactory
 import android.util.Log
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.asResponseBody
+import okio.Buffer
+import okio.ForwardingSource
+import okio.buffer
 import java.io.IOException
 
 /**
- * 错误图拦截工具类
+ * 垃圾图/错误图拦截工具类
  */
 object ImageCheckerUtil {
     private const val TAG = "ImageCheckerUtil"
 
-    // 漫画图最小体积阈值（15KB），低于此值的被认为是报错图、半截图或透明占位图
+    // 漫画图最小体积阈值（15KB）
     private const val MIN_IMAGE_SIZE_BYTES = 15 * 1024L
-
     // 合法的图片 Content-Type 白名单
     private val VALID_IMAGE_TYPES = listOf("image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp")
 
     /**
-     * 第一道防线：通过 HTTP 响应头快速拦截（体积与格式比对）
-     * 适用于 OkHttp Interceptor。如果在该阶段抛出 IOException，网络库会认为请求失败，绝对不会落盘缓存。
-     *
-     * @param response OkHttp 的响应对象
-     * @param url 请求的 URL，用于区分是否是需要拦截的漫画图片
-     * @throws IOException 如果判定为垃圾图，直接抛出异常切断下载
+     * 终极防线：流式拦截图片响应
+     * 包含 Header 校验和底层流式 EOF (文件尾) 校验，防止半截黑屏图污染缓存。
      */
     @Throws(IOException::class)
-    fun checkOkHttpResponseHeaders(response: Response, url: String) {
-        // 过滤：只对论坛的附件图片或明确有图片后缀的 URL 进行严格校验，避免误伤普通网页加载
+    fun interceptAndCheckImageStream(response: Response, url: String): Response {
         val isForumAttachment = url.contains("attachment/forum", ignoreCase = true)
         val hasImageExtension = url.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE))
-        
+
         if (!isForumAttachment && !hasImageExtension) {
-            return
+            return response
         }
 
         val contentType = response.header("Content-Type") ?: ""
         val contentLength = response.body?.contentLength() ?: -1L
 
-        // 1. 检查 Content-Type (防御返回 502 或 404 HTML 文本，但状态码却是 200 的情况)
-        // 注意：有的服务器可能不返回 Content-Type，所以只有在返回了且不合法时才拦截
+        // 1. 检查 Content-Type
         if (contentType.isNotEmpty()) {
             val isImage = VALID_IMAGE_TYPES.any { contentType.contains(it, ignoreCase = true) }
             if (!isImage && !contentType.contains("application/octet-stream", ignoreCase = true)) {
@@ -48,35 +45,70 @@ object ImageCheckerUtil {
             }
         }
 
-        // 2. 检查体积下限 (防御体积只有几KB的极限模糊图、1x1占位图)
-        // 注意：如果使用了 Transfer-Encoding: chunked 分块传输，Content-Length 会是 -1，放行靠后续处理
+        // 2. 检查声明体积
         if (contentLength in 1 until MIN_IMAGE_SIZE_BYTES) {
             Log.e(TAG, "拦截极小体积图片 (Size: $contentLength bytes) -> URL: $url")
-            throw IOException("Image size too small ($contentLength bytes). Suspected garbage or placeholder image.")
+            throw IOException("Image size too small ($contentLength bytes). Suspected garbage image.")
         }
+
+        // 3. 构建数据流拦截器（防半截黑屏图，零内存额外拷贝）
+        val originalBody = response.body ?: return response
+        val isJpeg = url.contains(".jpg", ignoreCase = true) || url.contains(".jpeg", ignoreCase = true) || contentType.contains("jpeg", ignoreCase = true)
+        val isPng = url.contains(".png", ignoreCase = true) || contentType.contains("png", ignoreCase = true)
+
+        val eofCheckingSource = object : ForwardingSource(originalBody.source()) {
+            var prevByte = -1
+            var lastByte = -1
+            var totalBytesRead = 0L
+
+            override fun read(sink: Buffer, byteCount: Long): Long {
+                val bytesRead = super.read(sink, byteCount)
+                if (bytesRead > 0) {
+                    totalBytesRead += bytesRead
+                    // 动态获取当前读入块的最后两个字节
+                    if (bytesRead >= 2) {
+                        prevByte = sink[sink.size - 2].toInt() and 0xFF
+                        lastByte = sink[sink.size - 1].toInt() and 0xFF
+                    } else {
+                        prevByte = lastByte
+                        lastByte = sink[sink.size - 1].toInt() and 0xFF
+                    }
+                } else if (bytesRead == -1L) {
+                    // 【绝杀核心】流读取完毕，检查底层数据是否完整
+
+                    if (totalBytesRead < MIN_IMAGE_SIZE_BYTES) {
+                        Log.e(TAG, "拦截极小体积图片 (实际下载 Size: $totalBytesRead) -> URL: $url")
+                        throw IOException("Actual downloaded image size too small ($totalBytesRead bytes).")
+                    }
+
+                    // JPEG 必须以 0xFF 0xD9 结尾
+                    if (isJpeg) {
+                        if (prevByte != 0xFF || lastByte != 0xD9) {
+                            throw IOException("Incomplete JPEG image detected (Missing EOF marker).")
+                        }
+                    }
+                    // PNG 必须以 IEND 块结尾，其最后两个字节必然是 0x60 0x82
+                    else if (isPng) {
+                        if (prevByte != 0x60 || lastByte != 0x82) {
+                            throw IOException("Incomplete PNG image detected (Missing IEND chunk).")
+                        }
+                    }
+                }
+                return bytesRead
+            }
+        }
+
+        // 返回包含 EOF 监听流的全新 Response
+        val newBody = eofCheckingSource.buffer().asResponseBody(originalBody.contentType(), contentLength)
+        return response.newBuilder().body(newBody).build()
     }
 
-    /**
-     * 第二道防线：通过图片物理尺寸拦截（防御经过体积伪装、但其实只有几个像素的报错图）
-     *
-     * @param width 图片宽
-     * @param height 图片高
-     * @return true 如果是垃圾图
-     */
     fun isGarbageByBounds(width: Int, height: Int): Boolean {
-        // 正常的漫画页分辨率极少会低于 300x300
-        // 如果长宽都很小（比如 1x1, 150x50 等），大概率是论坛的“图片已失效”占位图标
         return width > 0 && height > 0 && width < 300 && height < 300
     }
 
-    /**
-     * 辅助方法：只解码图片边界（不加载到内存），快速判断尺寸是否合法
-     * 适用于拿到 InputStream 或 ByteArray 后的二次校验
-     */
     fun checkImageBoundsValid(imageBytes: ByteArray): Boolean {
-        val options = BitmapFactory.Options().apply {
-            inJustDecodeBounds = true // 只读属性，不耗费过多内存
-        }
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, options)
         return !isGarbageByBounds(options.outWidth, options.outHeight)
     }

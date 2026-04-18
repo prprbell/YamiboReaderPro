@@ -141,8 +141,9 @@ class YamiboRetrofit {
                 builder.cache(okhttp3.Cache(cacheDir, cacheSize))
             }
 
-            // 应用拦截器
+            // 1. 应用拦截器 (Application Interceptor)
             builder.addInterceptor { chain ->
+                // 前置网络状态检查
                 val cm = YamiboApplication.application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
                 val capabilities = cm.getNetworkCapabilities(cm.activeNetwork)
                 val isInternetReady = capabilities?.let {
@@ -181,24 +182,24 @@ class YamiboRetrofit {
                 chain.proceed(request)
             }
 
-            // 网络拦截器 负责过滤服务器返回的坏图和修改缓存头
+            // 2. 网络拦截器 (Network Interceptor)
             builder.addNetworkInterceptor { chain ->
                 val request = chain.request()
-                val response = chain.proceed(request)
+                val rawResponse = chain.proceed(request)
                 val urlStr = request.url.toString()
 
-                try {
-                    org.shirakawatyu.yamibo.novel.util.ImageCheckerUtil.checkOkHttpResponseHeaders(response, urlStr)
+                val checkedResponse = try {
+                    org.shirakawatyu.yamibo.novel.util.ImageCheckerUtil.interceptAndCheckImageStream(rawResponse, urlStr)
                 } catch (e: Exception) {
                     throw java.io.IOException("Blocked garbage data by NetworkInterceptor", e)
                 }
 
                 val isForumImage = urlStr.contains("attachment/forum", ignoreCase = true)
 
-                if (response.isSuccessful && urlStr.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE))) {
+                if (checkedResponse.isSuccessful && urlStr.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE))) {
                     if (isForumImage) {
                         val maxAge = 60 * 60 * 2
-                        return@addNetworkInterceptor response.newBuilder()
+                        return@addNetworkInterceptor checkedResponse.newBuilder()
                             .header("Cache-Control", "public, max-age=$maxAge")
                             .removeHeader("Pragma")
                             .build()
@@ -206,13 +207,13 @@ class YamiboRetrofit {
                         val baseMaxAge = 60 * 60 * 24 * 7
                         val maxAge = baseMaxAge + kotlin.random.Random.nextInt(-86400, 86400)
                         val swr = 60 * 60 * 24 * 1
-                        return@addNetworkInterceptor response.newBuilder()
+                        return@addNetworkInterceptor checkedResponse.newBuilder()
                             .header("Cache-Control", "public, max-age=$maxAge, stale-while-revalidate=$swr")
                             .removeHeader("Pragma")
                             .build()
                     }
                 }
-                response
+                checkedResponse
             }
 
             return builder.build()
