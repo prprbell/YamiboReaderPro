@@ -30,7 +30,7 @@ class FavoriteUtil {
         private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private var saveJob: Job? = null
         private val writeMutex = Mutex()
-
+        private var pendingFavMap: LinkedHashMap<String, Favorite>? = null
         fun getFavoriteFlow(): Flow<List<Favorite>> {
             val dataStore = GlobalData.dataStore ?: throw IllegalStateException("DataStore not initialized")
             return dataStore.data.map { preferences ->
@@ -47,28 +47,52 @@ class FavoriteUtil {
             }
         }
 
+        // 修改后
         fun saveFavoriteOrder(orderedList: List<Favorite>) {
-            val favMap = LinkedHashMap<String, Favorite>()
-            orderedList.forEach { favMap[it.url] = it }
-
-            saveJob?.cancel()
-            saveJob = ioScope.launch {
-                delay(1500L)
+            ioScope.launch {
                 writeMutex.withLock {
-                    DataStoreUtil.addData(JSON.toJSONString(favMap), key)
+                    val currentMap = pendingFavMap ?: getFavoriteMapSuspend()
+                    val favMap = LinkedHashMap<String, Favorite>()
+
+                    for (fav in orderedList) {
+                        currentMap[fav.url]?.let { favMap[fav.url] = it }
+                    }
+                    for ((url, fav) in currentMap) {
+                        if (!favMap.containsKey(url)) {
+                            favMap[url] = fav
+                        }
+                    }
+
+                    pendingFavMap = favMap
+
+                    saveJob?.cancel()
+                    saveJob = launch {
+                        delay(1500L)
+                        writeMutex.withLock {
+                            pendingFavMap?.let {
+                                DataStoreUtil.addData(JSON.toJSONString(it), key)
+                                pendingFavMap = null // 写入完毕后清空
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // 提供给悬挂函数的同步获取 Map 方法
-        suspend fun getFavoriteMapSuspend(): LinkedHashMap<String, Favorite> = suspendCoroutine { cont ->
-            DataStoreUtil.getData(key, callback = {
-                val favMap = jsonToHashMap(it)
-                cont.resume(favMap)
-            }, onNull = {
-                cont.resume(LinkedHashMap())
-            })
-        }
+        suspend fun getFavoriteMapSuspend(): LinkedHashMap<String, Favorite> =
+            suspendCancellableCoroutine { cont ->
+                pendingFavMap?.let {
+                    cont.resume(LinkedHashMap(it))
+                    return@suspendCancellableCoroutine
+                }
+
+                DataStoreUtil.getData(key, callback = {
+                    val favMap = jsonToHashMap(it)
+                    cont.resume(favMap)
+                }, onNull = {
+                    cont.resume(LinkedHashMap())
+                })
+            }
 
         suspend fun updateHiddenStatus(urls: Set<String>, isHidden: Boolean) {
             writeMutex.withLock {
@@ -83,6 +107,7 @@ class FavoriteUtil {
                     }
                 }
                 if (changed) {
+                    pendingFavMap = null
                     suspendCancellableCoroutine { cont ->
                         DataStoreUtil.addData(JSON.toJSONString(oldMap), key) { cont.resume(Unit) }
                     }
@@ -108,7 +133,8 @@ class FavoriteUtil {
                 }
 
                 if (hasNewItems) {
-                    suspendCoroutine<Unit> { cont ->
+                    pendingFavMap = null
+                    suspendCancellableCoroutine<Unit> { cont ->
                         DataStoreUtil.addData(JSON.toJSONString(newMap), key) { cont.resume(Unit) }
                     }
                 }
@@ -129,6 +155,7 @@ class FavoriteUtil {
                 }
 
                 if (cleanedMap.size != oldMap.size) {
+                    pendingFavMap = null
                     DataStoreUtil.addData(JSON.toJSONString(cleanedMap), key)
                 }
             }
@@ -138,6 +165,7 @@ class FavoriteUtil {
                 val map = getFavoriteMapSuspend()
                 if (map.containsKey(favorite.url)) {
                     map[favorite.url] = favorite
+                    pendingFavMap = null
                     suspendCancellableCoroutine<Unit> { cont ->
                         DataStoreUtil.addData(JSON.toJSONString(map), key) { cont.resume(Unit) }
                     }
@@ -152,6 +180,7 @@ class FavoriteUtil {
                 map[url]?.let { fav ->
                     if (fav.title != title) {
                         map[url] = fav.copy(title = title)
+                        pendingFavMap = null
                         suspendCancellableCoroutine<Unit> { cont ->
                             DataStoreUtil.addData(JSON.toJSONString(map), key) { cont.resume(Unit) }
                         }
@@ -187,7 +216,7 @@ class FavoriteUtil {
                     val newMap = LinkedHashMap<String, Favorite>()
                     newMap[url] = fav
                     newMap.putAll(map)
-
+                    pendingFavMap = null
                     suspendCancellableCoroutine<Unit> { cont ->
                         DataStoreUtil.addData(JSON.toJSONString(newMap), key) { cont.resume(Unit) }
                     }
