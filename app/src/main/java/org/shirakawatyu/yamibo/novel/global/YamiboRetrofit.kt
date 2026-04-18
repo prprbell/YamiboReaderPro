@@ -1,5 +1,8 @@
 package org.shirakawatyu.yamibo.novel.global
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import coil.annotation.ExperimentalCoilApi
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -138,7 +141,19 @@ class YamiboRetrofit {
                 builder.cache(okhttp3.Cache(cacheDir, cacheSize))
             }
 
+            // 应用拦截器
             builder.addInterceptor { chain ->
+                val cm = YamiboApplication.application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                val capabilities = cm.getNetworkCapabilities(cm.activeNetwork)
+                val isInternetReady = capabilities?.let {
+                    it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                            it.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                } ?: false
+
+                if (!isInternetReady) {
+                    throw java.io.IOException("Network is not validated (Disconnected or Captive Portal)")
+                }
+
                 val original = chain.request()
                 if (!original.url.host.contains("yamibo.com")) {
                     return@addInterceptor chain.proceed(original)
@@ -163,15 +178,27 @@ class YamiboRetrofit {
                     .method(original.method, original.body)
                     .build()
 
-                val response = chain.proceed(request)
+                chain.proceed(request)
+            }
 
+            // 网络拦截器 负责过滤服务器返回的坏图和修改缓存头
+            builder.addNetworkInterceptor { chain ->
+                val request = chain.request()
+                val response = chain.proceed(request)
                 val urlStr = request.url.toString()
+
+                try {
+                    org.shirakawatyu.yamibo.novel.util.ImageCheckerUtil.checkOkHttpResponseHeaders(response, urlStr)
+                } catch (e: Exception) {
+                    throw java.io.IOException("Blocked garbage data by NetworkInterceptor", e)
+                }
+
                 val isForumImage = urlStr.contains("attachment/forum", ignoreCase = true)
 
                 if (response.isSuccessful && urlStr.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE))) {
                     if (isForumImage) {
                         val maxAge = 60 * 60 * 2
-                        return@addInterceptor response.newBuilder()
+                        return@addNetworkInterceptor response.newBuilder()
                             .header("Cache-Control", "public, max-age=$maxAge")
                             .removeHeader("Pragma")
                             .build()
@@ -179,14 +206,15 @@ class YamiboRetrofit {
                         val baseMaxAge = 60 * 60 * 24 * 7
                         val maxAge = baseMaxAge + kotlin.random.Random.nextInt(-86400, 86400)
                         val swr = 60 * 60 * 24 * 1
-                        return@addInterceptor response.newBuilder()
+                        return@addNetworkInterceptor response.newBuilder()
                             .header("Cache-Control", "public, max-age=$maxAge, stale-while-revalidate=$swr")
                             .removeHeader("Pragma")
                             .build()
                     }
                 }
-                return@addInterceptor response
+                response
             }
+
             return builder.build()
         }
 

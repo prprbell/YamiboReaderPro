@@ -826,13 +826,22 @@ fun NativeMangaPage(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .defaultMinSize(minHeight = 300.dp)
-                                                .clickable { retryHash++ },
+                                                .clickable {
+                                                    forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+
+                                                    scope.launch(Dispatchers.IO) {
+                                                        context.imageLoader.diskCache?.remove(item.imageUrl)
+                                                        context.imageLoader.memoryCache?.remove(MemoryCache.Key(item.imageUrl))
+                                                    }
+
+                                                    retryHash++
+                                                },
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                 Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray)
                                                 Spacer(Modifier.height(8.dp))
-                                                Text("加载超时或失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
+                                                Text("加载失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
                                             }
                                         }
                                     }
@@ -918,7 +927,16 @@ fun NativeMangaPage(
                                             Box(
                                                 modifier = Modifier
                                                     .align(Alignment.Center)
-                                                    .clickable { retryHash++ }
+                                                    .clickable {
+                                                        forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+
+                                                        scope.launch(Dispatchers.IO) {
+                                                            context.imageLoader.diskCache?.remove(item.imageUrl)
+                                                            context.imageLoader.memoryCache?.remove(MemoryCache.Key(item.imageUrl))
+                                                        }
+
+                                                        retryHash++
+                                                    }
                                                     .padding(32.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {

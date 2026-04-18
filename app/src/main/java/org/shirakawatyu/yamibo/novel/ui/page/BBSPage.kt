@@ -178,11 +178,18 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
                             return coilResponse
                         }
 
-                        // 作为极端的降级选项保留
                         val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
                         if (proxyResponse != null) {
                             return proxyResponse
                         }
+                        return WebResourceResponse(
+                            "image/jpeg",
+                            "utf-8",
+                            404,
+                            "Blocked by Interceptor",
+                            null,
+                            ByteArrayInputStream(ByteArray(0))
+                        )
                     }
                 }
             }

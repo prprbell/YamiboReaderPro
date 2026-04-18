@@ -82,6 +82,7 @@ class PassageWebViewClient(
 
                 val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
                 if (proxyResponse != null) return proxyResponse
+                return WebResourceResponse("image/jpeg", "utf-8", 404, "Blocked by Interceptor", null, ByteArrayInputStream(ByteArray(0)))
             }
         }
         return super.shouldInterceptRequest(view, request)

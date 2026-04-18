@@ -411,6 +411,7 @@ fun MangaWebPage(
 
                             val proxyResponse = org.shirakawatyu.yamibo.novel.global.YamiboRetrofit.proxyWebViewResource(request)
                             if (proxyResponse != null) return proxyResponse
+                            return WebResourceResponse("image/jpeg", "utf-8", 404, "Blocked by Interceptor", null, java.io.ByteArrayInputStream(ByteArray(0)))
                         }
                     }
                 }
