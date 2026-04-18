@@ -15,6 +15,7 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -133,7 +134,8 @@ class NativeMangaMineJSInterface {
         }
     }
 }
-
+private var cachedFullscreenApiMine: FullscreenApiMine? = null
+private var cachedNativeMangaApiMine: NativeMangaMineJSInterface? = null
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun MinePage(
@@ -236,12 +238,21 @@ fun MinePage(
         }
     }
 
-    val fullscreenApi = remember { FullscreenApiMine() }
+    val fullscreenApi = remember {
+        if (cachedFullscreenApiMine == null) {
+            cachedFullscreenApiMine = FullscreenApiMine()
+        }
+        cachedFullscreenApiMine!!
+    }
     fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
 
-    val nativeMangaApi = remember { NativeMangaMineJSInterface() }
-
+    val nativeMangaApi = remember {
+        if (cachedNativeMangaApiMine == null) {
+            cachedNativeMangaApiMine = NativeMangaMineJSInterface()
+        }
+        cachedNativeMangaApiMine!!
+    }
     val mineWebView = remember {
         val isNew = minePageVM.cachedWebView == null
         val webView = minePageVM.getOrAcquireWebView(context)
@@ -259,14 +270,9 @@ fun MinePage(
             }
             webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
-            webView.webChromeClient = webChromeClient
-        } else {
-            webView.removeJavascriptInterface("AndroidFullscreen")
-            webView.removeJavascriptInterface("NativeMangaApi")
-            webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
-            webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
-            webView.webChromeClient = webChromeClient
         }
+        webView.webChromeClient = webChromeClient
+
         webView
     }
 
@@ -337,7 +343,6 @@ fun MinePage(
                     mineWebView.evaluateJavascript("window.stop();", null)
                     mineWebView.stopLoading()
                     mineWebView.onPause()
-
 
                     autoOpenMangaMode = false
                     val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
@@ -667,7 +672,7 @@ fun MinePage(
             canGoBack = evaluateCanGoBack(mineWebView)
         }
     }
-    LaunchedEffect(isSelected) {
+    DisposableEffect(mineWebView, isSelected) {
         if (isSelected) {
             mineWebViewPauseRunnable?.let {
                 mineWebViewHandler.removeCallbacks(it)
@@ -685,6 +690,7 @@ fun MinePage(
             isLoading = false
             isPullRefreshing = false
         }
+        onDispose { }
     }
 
     LaunchedEffect(isLoading) {
@@ -772,19 +778,26 @@ fun MinePage(
         ) {
             AndroidView(
                 modifier = Modifier,
-                factory = { _ ->
-                    (mineWebView.parent as? ViewGroup)?.removeView(mineWebView)
-                    mineWebView.layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-
-                    mineWebView
+                factory = { ctx ->
+                    FrameLayout(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        (mineWebView.parent as? ViewGroup)?.removeView(mineWebView)
+                        addView(
+                            mineWebView,
+                            ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        )
+                    }
                 },
-                update = { webView ->
-                    canGoBack = evaluateCanGoBack(webView)
-                    currentUrl = webView.url
-                    pageTitle = webView.title ?: ""
+                update = { _ ->
+                    canGoBack = evaluateCanGoBack(mineWebView)
+                    currentUrl = mineWebView.url
+                    pageTitle = mineWebView.title ?: ""
                 },
                 onRelease = { _ ->
                     timeoutJob?.cancel()

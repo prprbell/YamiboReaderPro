@@ -102,7 +102,8 @@ class FullscreenApiManga {
         Handler(Looper.getMainLooper()).post { onMangaActionDone?.invoke() }
     }
 }
-
+private var cachedFullscreenApiManga: FullscreenApiManga? = null
+private var cachedNativeMangaApiManga: MangaWebNativeJSInterface? = null
 class MangaWebNativeJSInterface {
     var onTriggerManga: ((String, Int, String) -> Unit)? = null
     private var lastNavTime = 0L
@@ -197,10 +198,17 @@ fun MangaWebPage(
 
     val isFullscreenState = remember { mutableStateOf(false) }
 
-    val fullscreenApi = remember { FullscreenApiManga() }
+    val fullscreenApi = remember {
+        if (cachedFullscreenApiManga == null) cachedFullscreenApiManga = FullscreenApiManga()
+        cachedFullscreenApiManga!!
+    }
     fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
-    val nativeMangaApi = remember { MangaWebNativeJSInterface() }
+
+    val nativeMangaApi = remember {
+        if (cachedNativeMangaApiManga == null) cachedNativeMangaApiManga = MangaWebNativeJSInterface()
+        cachedNativeMangaApiManga!!
+    }
     var initialLoadTriggered by remember { mutableStateOf(false) }
     val mangaWebView = remember {
         WebViewPool.acquire(context).apply {
@@ -211,6 +219,8 @@ fun MangaWebPage(
                 displayZoomControls = false
                 textZoom = 100
                 domStorageEnabled = true
+                loadsImagesAutomatically = true
+                blockNetworkImage = false
             }
             addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
@@ -245,12 +255,6 @@ fun MangaWebPage(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(showBlackScreen) {
-        mangaWebView.settings.apply {
-            blockNetworkImage = showBlackScreen
-            loadsImagesAutomatically = !showBlackScreen
-        }
-    }
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
             val cleanHtml = try {
@@ -630,10 +634,6 @@ fun MangaWebPage(
                 onRelease = { webView ->
                     timeoutJob?.cancel()
                     (webView.parent as? ViewGroup)?.removeView(webView)
-                    webView.apply {
-                        removeJavascriptInterface("AndroidFullscreen")
-                        removeJavascriptInterface("NativeMangaApi")
-                    }
                     try {
                         webView.onPause()
                         WebViewPool.release(webView)

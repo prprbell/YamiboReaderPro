@@ -87,10 +87,10 @@ import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicInteger
 
-class FullscreenApiOther(
-    private val onStateChange: ((Boolean) -> Unit)?,
-    private val onMangaActionDone: (() -> Unit)?
-) {
+class FullscreenApiOther {
+    var onStateChange: ((Boolean) -> Unit)? = null
+    var onMangaActionDone: (() -> Unit)? = null
+
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
         Handler(Looper.getMainLooper()).post { onStateChange?.invoke(isFullscreen) }
@@ -101,6 +101,8 @@ class FullscreenApiOther(
         Handler(Looper.getMainLooper()).post { onMangaActionDone?.invoke() }
     }
 }
+
+private var cachedFullscreenApiOther: FullscreenApiOther? = null
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -202,7 +204,12 @@ fun OtherWebPage(
             bottomNavBarVM.setBottomNavBarVisibility(true)
         }
     }
-
+    val fullscreenApi = remember {
+        if (cachedFullscreenApiOther == null) cachedFullscreenApiOther = FullscreenApiOther()
+        cachedFullscreenApiOther!!
+    }
+    fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
+    fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
     val otherWebView = remember {
         WebViewPool.acquire(context).apply {
             settings.apply {
@@ -217,13 +224,7 @@ fun OtherWebPage(
                 loadsImagesAutomatically = true
                 blockNetworkImage = false
             }
-            addJavascriptInterface(
-                FullscreenApiOther(
-                    onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen },
-                    onMangaActionDone = { autoOpenMangaMode = false }
-                ),
-                "AndroidFullscreen"
-            )
+            addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             this.webChromeClient = webChromeClient
         }
     }
@@ -599,10 +600,6 @@ fun OtherWebPage(
                 onRelease = {
                     timeoutJob?.cancel()
                     (it.parent as? ViewGroup)?.removeView(it)
-                    it.apply {
-                        removeJavascriptInterface("AndroidFullscreen")
-                    }
-
                     try {
                         it.onPause()
                         WebViewPool.release(it)

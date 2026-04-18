@@ -24,23 +24,30 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class MangaProber {
 
+    companion object {
+        // 新增：全局缓存单例
+        private var cachedProberJSInterface: ProberJSInterface? = null
+    }
+
     @Keep
-    class ProberJSInterface(
-        private val onSuccess: (String, String) -> Unit,
-        private val onFail: () -> Unit
-    ) {
+    class ProberJSInterface {
+        // 移除构造参数，改为可变属性
+        var onSuccess: ((String, String) -> Unit)? = null
+        var onFail: (() -> Unit)? = null
+
         @Keep
         @JavascriptInterface
         fun triggerSuccess(urlsJoined: String, title: String) {
-            Handler(Looper.getMainLooper()).post { onSuccess(urlsJoined, title) }
+            Handler(Looper.getMainLooper()).post { onSuccess?.invoke(urlsJoined, title) }
         }
 
         @Keep
         @JavascriptInterface
         fun triggerFail() {
-            Handler(Looper.getMainLooper()).post { onFail() }
+            Handler(Looper.getMainLooper()).post { onFail?.invoke() }
         }
     }
+
 
     suspend fun probeUrl(
         context: Context,
@@ -69,7 +76,9 @@ class MangaProber {
 
         val cleanupAndFinish = {
             if (isFinished.compareAndSet(false, true)) {
-                webView.removeJavascriptInterface("ProberApi")
+                cachedProberJSInterface?.onSuccess = null
+                cachedProberJSInterface?.onFail = null
+
                 webView.stopLoading()
                 (webView.parent as? ViewGroup)?.removeView(webView)
                 WebViewPool.release(webView)
@@ -119,38 +128,38 @@ class MangaProber {
         """.trimIndent()
 
         val startTime = System.currentTimeMillis()
-        var absoluteMaxTimeout = 12000L // 基础超时：12秒
-        val MAX_ABSOLUTE_TIMEOUT = 18000L // 哪怕网络疯狂重试，绝对不可超过 18 秒
+        var absoluteMaxTimeout = 10000L
+        val MAX_ABSOLUTE_TIMEOUT = 18000L
 
         try {
-            webView.addJavascriptInterface(
-                ProberJSInterface(
-                    onSuccess = { urlsJoined, title ->
-                        if (!isFinished.get()) {
-                            webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
-                                val cleanHtml = try {
-                                    com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
-                                } catch (e: Exception) {
-                                    htmlResult?.trim('"')?.replace("\\u003C", "<")
-                                        ?.replace("\\\"", "\"") ?: ""
-                                }
-                                val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
-                                cleanupAndFinish()
-                                onSuccess(urls, title, cleanHtml)
-                            }
+            val proberApi = cachedProberJSInterface ?: ProberJSInterface().also { cachedProberJSInterface = it }
+
+            proberApi.onSuccess = { urlsJoined, title ->
+                if (!isFinished.get()) {
+                    webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
+                        val cleanHtml = try {
+                            com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+                        } catch (_: Exception) {
+                            htmlResult?.trim('"')?.replace("\\u003C", "<")
+                                ?.replace("\\\"", "\"") ?: ""
                         }
-                    },
-                    onFail = {
-                        if (!isFinished.get()) {
-                            cleanupAndFinish()
-                            onFallback()
-                        }
+                        val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+                        cleanupAndFinish()
+                        onSuccess(urls, title, cleanHtml)
                     }
-                ), "ProberApi"
-            )
+                }
+            }
+
+            proberApi.onFail = {
+                if (!isFinished.get()) {
+                    cleanupAndFinish()
+                    onFallback()
+                }
+            }
+
+            webView.addJavascriptInterface(proberApi, "ProberApi")
 
             webView.webViewClient = object : YamiboWebViewClient() {
-
                 private val transientErrors = listOf(
                     ERROR_HOST_LOOKUP,
                     ERROR_CONNECT,

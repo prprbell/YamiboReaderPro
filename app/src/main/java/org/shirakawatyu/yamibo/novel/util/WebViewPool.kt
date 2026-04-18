@@ -186,9 +186,6 @@ object WebViewPool {
 
         webView.apply {
             stopLoading()
-            removeJavascriptInterface("ProberApi")
-            removeJavascriptInterface("AndroidFullscreen")
-            removeJavascriptInterface("NativeMangaApi")
             webViewClient = EMPTY_WEB_CLIENT
             webChromeClient = EMPTY_CHROME_CLIENT
             settings.apply {
