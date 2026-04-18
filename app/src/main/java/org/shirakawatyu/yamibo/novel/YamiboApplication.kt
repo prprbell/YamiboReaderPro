@@ -10,6 +10,7 @@ import coil.ImageLoaderFactory
 import coil.memory.MemoryCache
 import okhttp3.brotli.BrotliInterceptor
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import org.shirakawatyu.yamibo.novel.util.CoilEvictionUtil
 import org.shirakawatyu.yamibo.novel.util.NetworkPreWarmer
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.File
@@ -59,9 +60,14 @@ class YamiboApplication : Application(), ImageLoaderFactory {
             override fun onActivityStarted(activity: Activity) {}
             override fun onActivityResumed(activity: Activity) {}
             override fun onActivityPaused(activity: Activity) {}
-            override fun onActivityStopped(activity: Activity) {}
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: Activity) {}
+            override fun onActivityStopped(activity: Activity) {
+                Looper.myQueue().addIdleHandler {
+                    CoilEvictionUtil.checkAndTriggerEviction(this@YamiboApplication)
+                    false
+                }
+            }
         })
     }
 
@@ -87,7 +93,7 @@ class YamiboApplication : Application(), ImageLoaderFactory {
             .diskCache {
                 coil.disk.DiskCache.Builder()
                     .directory(File(globalCacheDir, "coil_image_cache"))
-                    .maxSizeBytes(300L * 1024 * 1024) // 300MB
+                    .maxSizeBytes(400L * 1024 * 1024)
                     .build()
             }
             .diskCachePolicy(coil.request.CachePolicy.ENABLED)
