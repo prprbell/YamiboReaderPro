@@ -69,22 +69,28 @@ class PassageWebViewClient(
                         fullUrl.contains("attachment")
                 )
 
-        if (request?.method == "GET") {
-            if (fullUrl.contains("yamibo.com")) {
-                // 图片交给 Coil 统管
-                if (isImage) {
-                    val headers = mutableMapOf<String, String>()
-                    request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
-
-                    val coilResponse = CoilWebViewProxy.interceptImage(context, originalUrl, headers)
-                    if (coilResponse != null) return coilResponse
+        if (request?.method == "GET" && fullUrl.contains("yamibo.com")) {
+            if (isImage) {
+                if (fullUrl.contains("smiley") || fullUrl.contains("avatar") ||
+                    fullUrl.contains("common") || fullUrl.contains("static/image") ||
+                    fullUrl.contains("template") || fullUrl.contains("block")
+                ) {
+                    return super.shouldInterceptRequest(view, request)
                 }
 
-                val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
-                if (proxyResponse != null) return proxyResponse
-                return WebResourceResponse("image/jpeg", "utf-8", 404, "Blocked by Interceptor", null, ByteArrayInputStream(ByteArray(0)))
+                val headers = mutableMapOf<String, String>()
+                request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
+
+                val coilResponse = CoilWebViewProxy.interceptImage(context, originalUrl, headers)
+                if (coilResponse != null) return coilResponse
             }
+
+            val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+            if (proxyResponse != null) return proxyResponse
+
+            return WebResourceResponse("image/jpeg", "utf-8", 404, "Blocked by Interceptor", null, ByteArrayInputStream(ByteArray(0)))
         }
+
         return super.shouldInterceptRequest(view, request)
     }
 

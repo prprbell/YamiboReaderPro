@@ -165,33 +165,29 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
         if (request?.isForMainFrame == false && isImage) {
             if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
-                !urlStr.contains("common") && !urlStr.contains("static/image")
+                !urlStr.contains("common") && !urlStr.contains("static/image") &&
+                !urlStr.contains("template") && !urlStr.contains("block")
             ) {
                 val count = contentImageCount.getAndIncrement()
 
-                if (request.method == "GET") {
-                    if (urlStr.contains("yamibo.com")) {
-                        val headers = mutableMapOf<String, String>()
-                        request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
+                if (request.method == "GET" && urlStr.contains("yamibo.com")) {
+                    val headers = mutableMapOf<String, String>()
+                    request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
 
-                        val coilResponse = CoilWebViewProxy.interceptImage(context, urlStr, headers)
-                        if (coilResponse != null) {
-                            return coilResponse
-                        }
+                    val coilResponse = CoilWebViewProxy.interceptImage(context, urlStr, headers)
+                    if (coilResponse != null) return coilResponse
 
-                        val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
-                        if (proxyResponse != null) {
-                            return proxyResponse
-                        }
-                        return WebResourceResponse(
-                            "image/jpeg",
-                            "utf-8",
-                            404,
-                            "Blocked by Interceptor",
-                            null,
-                            ByteArrayInputStream(ByteArray(0))
-                        )
-                    }
+                    val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+                    if (proxyResponse != null) return proxyResponse
+
+                    return WebResourceResponse(
+                        "image/jpeg",
+                        "utf-8",
+                        404,
+                        "Blocked by Interceptor",
+                        null,
+                        ByteArrayInputStream(ByteArray(0))
+                    )
                 }
             }
         }

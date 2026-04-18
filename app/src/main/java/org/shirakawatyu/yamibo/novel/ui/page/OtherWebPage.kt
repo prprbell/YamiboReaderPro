@@ -343,7 +343,8 @@ fun OtherWebPage(
 
                 if (request?.isForMainFrame == false && isImage) {
                     if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
-                        !urlStr.contains("common") && !urlStr.contains("static/image")
+                        !urlStr.contains("common") && !urlStr.contains("static/image") &&
+                        !urlStr.contains("template") && !urlStr.contains("block")
                     ) {
                         val count = contentImageCount.getAndIncrement()
 
@@ -357,11 +358,13 @@ fun OtherWebPage(
 
                                 val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
                                 if (proxyResponse != null) return proxyResponse
+
                                 return WebResourceResponse("image/jpeg", "utf-8", 404, "Blocked by Interceptor", null, java.io.ByteArrayInputStream(ByteArray(0)))
                             }
                         }
                     }
                 }
+
                 return super.shouldInterceptRequest(view, request)
             }
 

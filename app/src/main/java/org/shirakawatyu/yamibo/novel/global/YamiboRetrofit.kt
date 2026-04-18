@@ -13,6 +13,7 @@ import okhttp3.dnsoverhttps.DnsOverHttps
 import coil.imageLoader
 import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
+import org.shirakawatyu.yamibo.novel.util.ImageCheckerUtil
 import org.shirakawatyu.yamibo.novel.util.TtlDnsCache
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -111,12 +112,11 @@ class YamiboRetrofit {
 
         // 基础客户端
         val okHttpClient: OkHttpClient by lazy {
-            createOkHttpClient("http_cache_default", 50L * 1024 * 1024, enableCache = true)
+            createOkHttpClient("http_cache_default", 50L * 1024 * 1024, enableCache = true, enableImageChecker = false)
         }
 
-        // 图片专用客户端
         val threadOkHttpClient: OkHttpClient by lazy {
-            createOkHttpClient("http_cache_thread", 0L, enableCache = false)
+            createOkHttpClient("http_cache_thread", 0L, enableCache = false, enableImageChecker = true)
         }
 
         private val YamiboInstance: Retrofit by lazy {
@@ -131,7 +131,7 @@ class YamiboRetrofit {
             return YamiboInstance
         }
 
-        private fun createOkHttpClient(cacheDirName: String, cacheSize: Long, enableCache: Boolean): OkHttpClient {
+        private fun createOkHttpClient(cacheDirName: String, cacheSize: Long, enableCache: Boolean,enableImageChecker: Boolean): OkHttpClient {
             val builder = OkHttpClient.Builder()
                 .dns(sharedDns)
                 .connectionPool(sharedConnectionPool)
@@ -188,10 +188,14 @@ class YamiboRetrofit {
                 val rawResponse = chain.proceed(request)
                 val urlStr = request.url.toString()
 
-                val checkedResponse = try {
-                    org.shirakawatyu.yamibo.novel.util.ImageCheckerUtil.interceptAndCheckImageStream(rawResponse, urlStr)
-                } catch (e: Exception) {
-                    throw java.io.IOException("Blocked garbage data by NetworkInterceptor", e)
+                val checkedResponse = if (enableImageChecker) {
+                    try {
+                        ImageCheckerUtil.interceptAndCheckImageStream(rawResponse, urlStr)
+                    } catch (e: Exception) {
+                        throw java.io.IOException("Blocked garbage data by NetworkInterceptor", e)
+                    }
+                } else {
+                    rawResponse
                 }
 
                 val isForumImage = urlStr.contains("attachment/forum", ignoreCase = true)

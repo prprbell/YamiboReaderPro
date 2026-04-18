@@ -400,7 +400,8 @@ fun MangaWebPage(
 
                 if (request?.isForMainFrame == false && isImage) {
                     if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
-                        !urlStr.contains("common") && !urlStr.contains("static/image")
+                        !urlStr.contains("common") && !urlStr.contains("static/image") &&
+                        !urlStr.contains("template") && !urlStr.contains("block")
                     ) {
                         if (request.method == "GET" && urlStr.contains("yamibo.com")) {
                             val headers = mutableMapOf<String, String>()
@@ -411,10 +412,12 @@ fun MangaWebPage(
 
                             val proxyResponse = org.shirakawatyu.yamibo.novel.global.YamiboRetrofit.proxyWebViewResource(request)
                             if (proxyResponse != null) return proxyResponse
+
                             return WebResourceResponse("image/jpeg", "utf-8", 404, "Blocked by Interceptor", null, java.io.ByteArrayInputStream(ByteArray(0)))
                         }
                     }
                 }
+
                 return super.shouldInterceptRequest(view, request)
             }
 
