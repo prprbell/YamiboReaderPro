@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -106,8 +107,10 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -1549,32 +1552,31 @@ private fun MainSettingsMenu(
                         contentDescription = "上一页(网页)"
                     )
                 }
+                val textMeasurer = rememberTextMeasurer()
+                val textStyle = MaterialTheme.typography.bodyLarge
+                val fullText = "网页: ${uiState.currentView} / ${uiState.maxWebView}"
+                val shortText = "${uiState.currentView} / ${uiState.maxWebView}"
+                val density = LocalDensity.current
 
-                var showPrefix by remember(uiState.currentView, uiState.maxWebView) {
-                    mutableStateOf(true)
-                }
-
-                val displayText = if (showPrefix) {
-                    "网页: ${uiState.currentView} / ${uiState.maxWebView}"
-                } else {
-                    "${uiState.currentView} / ${uiState.maxWebView}"
-                }
-
-                Text(
-                    text = displayText,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip,
-                    onTextLayout = { textLayoutResult ->
-                        if (textLayoutResult.hasVisualOverflow && showPrefix) {
-                            showPrefix = false
-                        }
-                    },
+                BoxWithConstraints(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 4.dp)
-                )
+                        .padding(horizontal = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val maxDp = this.maxWidth
+                    val maxWidthPx = with(density) { maxDp.toPx() }
+                    val textWidthPx = textMeasurer.measure(text = fullText, style = textStyle).size.width.toFloat()
+                    val displayText = if (textWidthPx > maxWidthPx) shortText else fullText
+
+                    Text(
+                        text = displayText,
+                        style = textStyle,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip
+                    )
+                }
 
                 IconButton(
                     onClick = { debouncedSetView(uiState.currentView + 1) },

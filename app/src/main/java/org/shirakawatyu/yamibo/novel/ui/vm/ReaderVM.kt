@@ -475,7 +475,19 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     fun firstLoad(initUrl: String, initHeight: Dp, initWidth: Dp) {
         pageEnterTime = System.currentTimeMillis()
         viewModelScope.launch {
-            url = initUrl
+            val pageMatch = Regex("(?<=[?&])page=(\\d+)").find(initUrl)
+            val initialPageNum = pageMatch?.groupValues?.get(1)?.toIntOrNull()
+
+            val authorIdMatch = Regex("(?<=[?&])authorid=(\\d+)").find(initUrl)
+            if (authorIdMatch != null && currentAuthorId == null) {
+                currentAuthorId = authorIdMatch.groupValues[1]
+            }
+
+            var cleanUrl = initUrl.replace(Regex("(?<=[?&])page=\\d+&?"), "")
+            cleanUrl = cleanUrl.replace(Regex("(?<=[?&])authorid=\\d+&?"), "")
+            cleanUrl = cleanUrl.removeSuffix("&").removeSuffix("?")
+
+            url = cleanUrl
             maxWidth = initWidth
             maxHeight = initHeight
 
@@ -503,7 +515,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     fontFamily = settings?.getFontFamily() ?: 0
                 )
                 updateFontRatios()
-                loadWithSettings()
+                loadWithSettings(initialPageNum)
             }
 
             SettingsUtil.getSettings(
@@ -524,7 +536,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         }
     }
 
-    private fun loadWithSettings() {
+    private fun loadWithSettings(initialPageNum: Int? = null) {
         viewModelScope.launch {
             if (!initialized) {
                 showLoadingScrim = true
@@ -532,16 +544,19 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             val favMap = FavoriteUtil.getFavoriteMapSuspend()
 
             val favorite = favMap[url]
-            val targetView = favorite?.lastView ?: 1
-            val targetPageNum = favorite?.lastPage ?: 0
-            currentAuthorId = favorite?.authorId
+
+            val targetView = favorite?.lastView ?: initialPageNum ?: 1
+
+            if (favorite?.authorId != null) {
+                currentAuthorId = favorite.authorId
+            }
 
             val targetIndex: Int
             if (_uiState.value.isVerticalMode) {
                 val avgItemsPerPage = getAvgItemsPerHorizontalPage()
-                targetIndex = (targetPageNum * avgItemsPerPage)
+                targetIndex = ((favorite?.lastPage ?: 0) * avgItemsPerPage)
             } else {
-                targetIndex = targetPageNum
+                targetIndex = favorite?.lastPage ?: 0
             }
             viewModelScope.launch {
                 val localCacheData = localCache.loadPage(url, targetView)
