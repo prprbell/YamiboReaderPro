@@ -7,6 +7,7 @@ import android.os.Looper
 import android.webkit.WebSettings
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.imageLoader
 import coil.memory.MemoryCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,23 +35,28 @@ class YamiboApplication : Application(), ImageLoaderFactory {
         application = this
         globalCacheDir = applicationContext.cacheDir
 
-        // 读取自动清理配置并执行
+        GlobalData.dataStore = applicationContext.dataStore
+
         SettingsUtil.getAutoClearCacheMode { isEnabled ->
             GlobalData.isAutoClearCacheEnabled.value = isEnabled
             if (isEnabled) {
-                val coilCacheDir = File(globalCacheDir, "coil_image_cache")
-                if (coilCacheDir.exists()) {
-                    val trashDir = File(globalCacheDir, "coil_trash_${System.currentTimeMillis()}")
-                    if (coilCacheDir.renameTo(trashDir)) {
-                        CoroutineScope(Dispatchers.IO).launch {
-                            try {
-                                trashDir.deleteRecursively()
-                            } catch (_: Exception) {
-                                // 忽略极端情况下的文件占用异常
-                            }
-                        }
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        this@YamiboApplication.imageLoader.diskCache?.clear()
+                        this@YamiboApplication.imageLoader.memoryCache?.clear()
+                    } catch (_: Exception) {
                     }
                 }
+            }
+        }
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                globalCacheDir.listFiles { _, name -> name.startsWith("coil_trash_") }?.forEach {
+                    it.deleteRecursively()
+                }
+            } catch (_: Exception) {
+                // 忽略极端情况下的文件占用异常
             }
         }
 

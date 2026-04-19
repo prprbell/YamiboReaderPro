@@ -1094,7 +1094,7 @@ fun CacheManagementDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "冷启动时自动清空图片缓存",
+                                "自动清空图片缓存",
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
@@ -1127,9 +1127,11 @@ fun CacheManagementDialog(
                         Column(
                             modifier = Modifier.padding(16.dp)
                         ) {
-                            Text("文本缓存总计: ${cacheInfoMap.size} 部作品", fontSize = 14.sp)
-                            // Text("缓存页数: $totalCached 页", fontSize = 14.sp)
-                            Text("占用空间: ${formatFileSize(totalSize)}", fontSize = 14.sp)
+                            Text("文本缓存: ${cacheInfoMap.size} 部，占用空间: ${
+                                formatFileSize(
+                                    totalSize
+                                )
+                            }", fontSize = 12.sp)
                         }
                     }
 
