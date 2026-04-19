@@ -192,7 +192,7 @@ fun NativeMangaPage(
 
     val preloadManager = remember(context) {
         object {
-            private val semaphore = Semaphore(2) // 控制并发下载数为2
+            private val semaphore = Semaphore(3) // 控制并发下载数为3
             private val pendingJobs = ConcurrentHashMap<String, Job>() // 等待获取Semaphore许可的任务
             private val runningJobs = ConcurrentHashMap<String, Job>() // 已经获取许可，正在下载中的任务
 
