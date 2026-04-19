@@ -52,7 +52,6 @@ class FavoriteUtil {
             }
         }
 
-        // 修改后
         fun saveFavoriteOrder(orderedList: List<Favorite>) {
             ioScope.launch {
                 writeMutex.withLock {
@@ -60,8 +59,12 @@ class FavoriteUtil {
                     val favMap = LinkedHashMap<String, Favorite>()
 
                     for (fav in orderedList) {
-                        currentMap[fav.url]?.let { favMap[fav.url] = it }
+                        if (currentMap.containsKey(fav.url)) {
+                            favMap[fav.url] = fav
+                        }
                     }
+
+                    // 补齐未在 orderedList 中的剩余旧数据
                     for ((url, fav) in currentMap) {
                         if (!favMap.containsKey(url)) {
                             favMap[url] = fav
@@ -84,20 +87,6 @@ class FavoriteUtil {
             }
         }
 
-        suspend fun getFavoriteMapSuspend(): LinkedHashMap<String, Favorite> =
-            suspendCancellableCoroutine { cont ->
-                pendingFavMap?.let {
-                    cont.resume(LinkedHashMap(it))
-                    return@suspendCancellableCoroutine
-                }
-
-                DataStoreUtil.getData(key, callback = {
-                    val favMap = jsonToHashMap(it)
-                    cont.resume(favMap)
-                }, onNull = {
-                    cont.resume(LinkedHashMap())
-                })
-            }
 
         suspend fun updateHiddenStatus(urls: Set<String>, isHidden: Boolean) {
             writeMutex.withLock {
@@ -193,26 +182,51 @@ class FavoriteUtil {
                 }
             }
         }
+        // 替换原来的 jsonToHashMap
         private fun jsonToHashMap(text: String): LinkedHashMap<String, Favorite> {
-            val jsonObject: JSONObject = JSON.parseObject(text)
             val map = LinkedHashMap<String, Favorite>()
-            jsonObject.values.forEach {
-                val obj = it as JSONObject
-                val fav = Favorite(
-                    obj["title"] as String,
-                    obj["url"] as String,
-                    obj["lastPage"] as Int,
-                    obj["lastView"] as Int,
-                    obj["lastChapter"] as? String,
-                    obj["authorId"] as? String,
-                    obj["isHidden"] as? Boolean ?: false,
-                    obj["type"] as? Int ?: 0,
-                    obj["lastMangaUrl"] as? String
-                )
-                map[fav.url] = fav
+            try {
+                val jsonObject: JSONObject = JSON.parseObject(text)
+                jsonObject.values.forEach {
+                    val obj = it as JSONObject
+                    val fav = Favorite(
+                        title = obj.getString("title") ?: "",
+                        url = obj.getString("url") ?: "",
+                        lastPage = obj.getIntValue("lastPage"),   // 安全：没有此字段会返回 0
+                        lastView = obj.getIntValue("lastView"),
+                        lastChapter = obj.getString("lastChapter"),
+                        authorId = obj.getString("authorId"),
+                        isHidden = obj.getBooleanValue("isHidden"), // 安全：返回 false
+                        type = obj.getIntValue("type"),
+                        lastMangaUrl = obj.getString("lastMangaUrl")
+                    )
+                    map[fav.url] = fav
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
             return map
         }
+
+        suspend fun getFavoriteMapSuspend(): LinkedHashMap<String, Favorite> =
+            suspendCancellableCoroutine { cont ->
+                pendingFavMap?.let {
+                    cont.resume(LinkedHashMap(it))
+                    return@suspendCancellableCoroutine
+                }
+
+                DataStoreUtil.getData(key, callback = {
+                    try {
+                        val favMap = jsonToHashMap(it)
+                        cont.resume(favMap)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        cont.resume(LinkedHashMap())
+                    }
+                }, onNull = {
+                    cont.resume(LinkedHashMap())
+                })
+            }
         suspend fun moveUrlToTopSuspend(url: String) {
             writeMutex.withLock {
                 val map = getFavoriteMapSuspend()

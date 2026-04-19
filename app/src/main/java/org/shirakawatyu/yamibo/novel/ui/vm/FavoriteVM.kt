@@ -346,16 +346,16 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             stateMutex.withLock {
                 val updated = allFavorites.map { fav ->
                     if (fav.url == favoriteUrl) {
-                        fav.copy(lastMangaUrl = chapterUrl, lastChapter = chapterTitle, lastPage = pageIndex)
+                        val updatedFav = fav.copy(lastMangaUrl = chapterUrl, lastChapter = chapterTitle, lastPage = pageIndex)
+                        launch { FavoriteUtil.updateFavoriteSuspend(updatedFav) }
+                        updatedFav
                     } else fav
                 }
                 allFavorites = updated
-                FavoriteUtil.saveFavoriteOrder(updated)
             }
             withContext(Dispatchers.Main) { updateUiList() }
         }
     }
-
     // 3. 拖拽排序
     fun moveFavorite(from: Int, to: Int) {
         if (_uiState.value.isInManageMode) return
