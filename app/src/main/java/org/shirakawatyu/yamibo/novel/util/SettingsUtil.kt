@@ -22,6 +22,8 @@ class SettingsUtil {
         private val customDnsKey = stringPreferencesKey("custom_dns_mode")
         private val clickToTopKey = stringPreferencesKey("click_to_top_mode")
         private val autoSignInKey = stringPreferencesKey("auto_sign_in")
+        private val autoClearCacheKey = stringPreferencesKey("auto_clear_cache")
+
         fun saveSettings(settings: ReaderSettings) {
             DataStoreUtil.addData(JSON.toJSONString(settings), key)
         }
@@ -88,6 +90,17 @@ class SettingsUtil {
 
         fun getAutoSignInMode(callback: (Boolean) -> Unit) {
             DataStoreUtil.getData(autoSignInKey, callback = {
+                callback(it.toBooleanStrictOrNull() ?: false)
+            }, onNull = {
+                callback(false)
+            })
+        }
+        fun saveAutoClearCacheMode(isEnabled: Boolean) {
+            DataStoreUtil.addData(isEnabled.toString(), autoClearCacheKey)
+        }
+
+        fun getAutoClearCacheMode(callback: (Boolean) -> Unit) {
+            DataStoreUtil.getData(autoClearCacheKey, callback = {
                 callback(it.toBooleanStrictOrNull() ?: false)
             }, onNull = {
                 callback(false)

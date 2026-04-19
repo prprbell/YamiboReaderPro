@@ -192,24 +192,41 @@ fun NativeMangaPage(
 
     val preloadManager = remember(context) {
         object {
-            private val semaphore = Semaphore(3) // 控制并发下载数为3
-            private val pendingJobs = ConcurrentHashMap<String, Job>() // 等待获取Semaphore许可的任务
-            private val runningJobs = ConcurrentHashMap<String, Job>() // 已经获取许可，正在下载中的任务
+            // 定义轻量级包装类，记录任务的发起时间
+            inner class PreloadTask(val job: Job, val startTime: Long = System.currentTimeMillis())
+
+            private val semaphore = Semaphore(6) // 总并发容量为6
+            private val pendingJobs = ConcurrentHashMap<String, PreloadTask>() // 等待获取Semaphore许可的任务
+            private val runningJobs = ConcurrentHashMap<String, PreloadTask>() // 已经获取许可，正在下载中的任务
 
             fun updatePreloadList(urlsToLoad: List<String>, cookie: String) {
                 val urlsSet = urlsToLoad.toSet()
 
-                // 拦截与清理：只清理“排队中”且不在新需求列表中的任务。
-                val iterator = pendingJobs.entries.iterator()
-                while (iterator.hasNext()) {
-                    val entry = iterator.next()
+                // 1. 拦截与清理：只清理“排队中”且不在新需求列表中的任务。
+                val pendingIterator = pendingJobs.entries.iterator()
+                while (pendingIterator.hasNext()) {
+                    val entry = pendingIterator.next()
                     if (!urlsSet.contains(entry.key)) {
-                        entry.value.cancel() // 取消协程
-                        iterator.remove() // 从排队队列移除
+                        entry.value.job.cancel()
+                        pendingIterator.remove() // 从排队队列移除
                     }
                 }
 
-                // 调度新任务
+                // 2. 精准节流：控制正在下载的“老任务”数量不超过3个，且保留最早发起的3个
+                val oldTasks = runningJobs.entries.filter { !urlsSet.contains(it.key) }
+                if (oldTasks.size > 3) {
+                    // 按照 startTime 升序排序，最早的排在前面
+                    val sortedOldTasks = oldTasks.sortedBy { it.value.startTime }
+
+                    // 放过前3个（最早的），把后面的统统取消并释放并发通道
+                    for (i in 3 until sortedOldTasks.size) {
+                        val entryToCancel = sortedOldTasks[i]
+                        entryToCancel.value.job.cancel()
+                        runningJobs.remove(entryToCancel.key)
+                    }
+                }
+
+                // 3. 调度新任务
                 urlsToLoad.forEach { url ->
                     if (!pendingJobs.containsKey(url) && !runningJobs.containsKey(url)) {
                         val job = pageScope.launch {
@@ -218,7 +235,7 @@ fun NativeMangaPage(
                                     pendingJobs.remove(url)
                                     if (!isActive) return@withPermit
 
-                                    runningJobs[url] = coroutineContext[Job]!!
+                                    runningJobs[url] = PreloadTask(coroutineContext[Job]!!)
 
                                     val request = ImageRequest.Builder(context.applicationContext)
                                         .data(url)
@@ -234,7 +251,7 @@ fun NativeMangaPage(
                                 runningJobs.remove(url)
                             }
                         }
-                        pendingJobs[url] = job
+                        pendingJobs[url] = PreloadTask(job)
                     }
                 }
             }

@@ -55,6 +55,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -993,8 +994,8 @@ fun CacheManagementDialog(
 
     val coroutineScope = rememberCoroutineScope()
     var imageCacheSize by remember { mutableLongStateOf(0L) }
+    val isAutoClearCache by GlobalData.isAutoClearCacheEnabled.collectAsState()
 
-    // 【关键改动】直接获取 Coil 图片磁盘缓存的大小
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             imageCacheSize = context.imageLoader.diskCache?.size ?: 0L
@@ -1034,42 +1035,75 @@ fun CacheManagementDialog(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                     )
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 16.dp, top = 16.dp, bottom = 12.dp, end = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "图片缓存 (漫画)",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "占用空间: ${formatFileSize(imageCacheSize)}",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        context.imageLoader.diskCache?.clear()
+                                        context.imageLoader.memoryCache?.clear()
+                                        imageCacheSize = context.imageLoader.diskCache?.size ?: 0L
+                                    }
+                                },
+                                enabled = imageCacheSize > 0
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "清理图片",
+                                    tint = if (imageCacheSize > 0) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.1f)
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newState = !isAutoClearCache
+                                    GlobalData.isAutoClearCacheEnabled.value = newState
+                                    SettingsUtil.saveAutoClearCacheMode(newState)
+                                }
+                                .padding(start = 16.dp, top = 12.dp, bottom = 16.dp, end = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                "图片缓存 (漫画)",
+                                "冷启动时自动清空图片缓存",
                                 fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "占用空间: ${formatFileSize(imageCacheSize)}",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    context.imageLoader.diskCache?.clear()
-                                    context.imageLoader.memoryCache?.clear()
-                                    imageCacheSize = context.imageLoader.diskCache?.size ?: 0L
+                            Switch(
+                                checked = isAutoClearCache,
+                                onCheckedChange = { newState ->
+                                    GlobalData.isAutoClearCacheEnabled.value = newState
+                                    SettingsUtil.saveAutoClearCacheMode(newState)
                                 }
-                            },
-                            enabled = imageCacheSize > 0
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "清理图片",
-                                tint = if (imageCacheSize > 0) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                             )
                         }
                     }
@@ -1277,7 +1311,6 @@ fun BookmarkManagementDialog(
     onClearAll: () -> Unit
 ) {
     var showClearAllConfirm by remember { mutableStateOf(false) }
-
     // 筛选出存在阅读进度的收藏 (只要页数大于0、网页大于1、有最后章节名，或者有漫画URL，就算有进度)
     val bookmarkedList = favoriteList.filter {
         it.lastPage > 0 || it.lastView > 1 || !it.lastChapter.isNullOrEmpty() || !it.lastMangaUrl.isNullOrEmpty()

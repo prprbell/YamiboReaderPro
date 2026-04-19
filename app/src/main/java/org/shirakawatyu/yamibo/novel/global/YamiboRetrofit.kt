@@ -116,7 +116,7 @@ class YamiboRetrofit {
         }
 
         val threadOkHttpClient: OkHttpClient by lazy {
-            createOkHttpClient("http_cache_thread", 0L, enableCache = false, enableImageChecker = true)
+            createOkHttpClient("http_cache_thread", 0L, enableCache = false, enableImageChecker = true,maxRequestsPerHost = 10)
         }
 
         private val YamiboInstance: Retrofit by lazy {
@@ -131,8 +131,18 @@ class YamiboRetrofit {
             return YamiboInstance
         }
 
-        private fun createOkHttpClient(cacheDirName: String, cacheSize: Long, enableCache: Boolean,enableImageChecker: Boolean): OkHttpClient {
+        private fun createOkHttpClient(
+            cacheDirName: String,
+            cacheSize: Long,
+            enableCache: Boolean,
+            enableImageChecker: Boolean,
+            maxRequestsPerHost: Int = 5
+        ): OkHttpClient {
+            val customDispatcher = okhttp3.Dispatcher().apply {
+                this.maxRequestsPerHost = maxRequestsPerHost
+            }
             val builder = OkHttpClient.Builder()
+                .dispatcher(customDispatcher)
                 .dns(sharedDns)
                 .connectionPool(sharedConnectionPool)
                 .pingInterval(20, TimeUnit.SECONDS)
