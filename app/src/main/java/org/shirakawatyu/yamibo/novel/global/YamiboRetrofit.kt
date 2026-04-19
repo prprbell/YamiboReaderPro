@@ -98,7 +98,7 @@ class YamiboRetrofit {
             "${locale.language}-${locale.country},${locale.language};q=0.9,en-US;q=0.8,en;q=0.7"
         }
 
-        private val sharedConnectionPool = ConnectionPool(10, 5, TimeUnit.MINUTES)
+        private val sharedConnectionPool = ConnectionPool(15, 1, TimeUnit.MINUTES)
 
         private val sharedBootstrapClient by lazy {
             OkHttpClient.Builder()
@@ -135,6 +135,7 @@ class YamiboRetrofit {
             val builder = OkHttpClient.Builder()
                 .dns(sharedDns)
                 .connectionPool(sharedConnectionPool)
+                .pingInterval(20, TimeUnit.SECONDS)
 
             if (enableCache) {
                 val cacheDir = File(YamiboApplication.globalCacheDir, cacheDirName)

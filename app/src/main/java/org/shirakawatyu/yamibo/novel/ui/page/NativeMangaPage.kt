@@ -2,12 +2,10 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.app.Activity
 import android.content.ComponentCallbacks2
-import android.graphics.Bitmap
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.WindowManager
 import android.webkit.CookieManager
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -50,12 +48,9 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -123,8 +118,6 @@ import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
@@ -812,7 +805,14 @@ fun NativeMangaPage(
                                     LaunchedEffect(retryHash) {
                                         if (errorCount < 3) {
                                             val jitter = (0..500).random().toLong()
-                                            delay(500L + (errorCount * 1000L) + jitter)
+                                            delay(300L + (errorCount * 1000L) + jitter)
+
+                                            forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+                                            withContext(Dispatchers.IO) {
+                                                context.imageLoader.diskCache?.remove(item.imageUrl)
+                                                context.imageLoader.memoryCache?.remove(MemoryCache.Key(item.imageUrl))
+                                            }
+
                                             errorCount++
                                             retryHash++
                                         }
@@ -871,7 +871,14 @@ fun NativeMangaPage(
                                     LaunchedEffect(isImageError) {
                                         if (isImageError && errorCount < 3) {
                                             val jitter = (0..500).random().toLong()
-                                            delay(800L + (errorCount * 1000L) + jitter)
+                                            delay(300L + (errorCount * 1000L) + jitter)
+
+                                            forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+                                            withContext(Dispatchers.IO) {
+                                                context.imageLoader.diskCache?.remove(item.imageUrl)
+                                                context.imageLoader.memoryCache?.remove(MemoryCache.Key(item.imageUrl))
+                                            }
+
                                             errorCount++
                                             retryHash++
                                         }
