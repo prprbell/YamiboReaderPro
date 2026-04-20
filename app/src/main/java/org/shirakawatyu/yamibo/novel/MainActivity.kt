@@ -315,12 +315,10 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
     LaunchedEffect(isAppInitialized, isNetworkAvailable) {
         if (isAppInitialized && isNetworkAvailable && GlobalData.isAutoSignInEnabled.value) {
             launch(Dispatchers.IO) {
-                val needsSign = AutoSignManager.needsSignIn()
-                if (needsSign) {
+                if (AutoSignManager.needsSignIn()) {
                     delay(2000L)
                     AutoSignManager.checkAndSignIfNeeded(context)
                 }
-                AutoSignManager.checkAndSignIfNeeded(context)
             }
         }
     }
