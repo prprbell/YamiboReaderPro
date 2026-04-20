@@ -173,26 +173,24 @@ fun Modifier.verticalMangaZoomGesture(
                 var consumedY = 0f
                 val scale = handler.scale.value
 
-                if (scale > 1f) {
-                    val speedReductionY = available.y * (1f - 1f / scale)
-                    consumedY += speedReductionY
-                }
+                val speedReductionY = available.y * (1f - 1f / scale)
+                consumedY += speedReductionY
 
                 val deltaY = available.y - consumedY
                 val currentOffsetY = handler.offsetY.value
 
                 if (currentOffsetY > 0.01f && deltaY < 0f) {
-                    val extraConsumeY = deltaY.coerceAtLeast(-currentOffsetY)
+                    val screenConsumeY = available.y.coerceAtLeast(-currentOffsetY)
                     scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                        handler.offsetY.snapTo(currentOffsetY + extraConsumeY)
+                        handler.offsetY.snapTo(currentOffsetY + screenConsumeY)
                     }
-                    consumedY += extraConsumeY
+                    consumedY += (screenConsumeY / scale)
                 } else if (currentOffsetY < -0.01f && deltaY > 0f) {
-                    val extraConsumeY = deltaY.coerceAtMost(-currentOffsetY)
+                    val screenConsumeY = available.y.coerceAtMost(-currentOffsetY)
                     scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                        handler.offsetY.snapTo(currentOffsetY + extraConsumeY)
+                        handler.offsetY.snapTo(currentOffsetY + screenConsumeY)
                     }
-                    consumedY += extraConsumeY
+                    consumedY += (screenConsumeY / scale)
                 }
 
                 return Offset(0f, consumedY)
@@ -207,16 +205,20 @@ fun Modifier.verticalMangaZoomGesture(
 
                 val unconsumedY = available.y
                 if (abs(unconsumedY) > 0.01f) {
+                    val scale = handler.scale.value
+
+                    val screenUnconsumedY = unconsumedY * scale
+
                     val currentOffsetY = handler.offsetY.value
                     val maxY = handler.maxOffsetY()
-                    val targetY = (currentOffsetY + unconsumedY).coerceIn(-maxY, maxY)
-                    val actualConsumed = targetY - currentOffsetY
+                    val targetY = (currentOffsetY + screenUnconsumedY).coerceIn(-maxY, maxY)
+                    val actualScreenConsumed = targetY - currentOffsetY
 
-                    if (abs(actualConsumed) > 0.01f) {
+                    if (abs(actualScreenConsumed) > 0.01f) {
                         scope.launch(start = CoroutineStart.UNDISPATCHED) {
                             handler.offsetY.snapTo(targetY)
                         }
-                        return Offset(0f, actualConsumed)
+                        return Offset(0f, actualScreenConsumed / scale)
                     }
                 }
                 return Offset.Zero
