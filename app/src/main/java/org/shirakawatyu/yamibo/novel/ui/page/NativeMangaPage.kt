@@ -646,7 +646,7 @@ fun NativeMangaPage(
             }
 
             LaunchedEffect(currentIndex, readerManager.flatPages.size) {
-                if (currentIndex >= readerManager.flatPages.size - 6) {
+                if (currentIndex >= readerManager.flatPages.size - 9) {
                     readerManager.loadNext(isManualJump = false)
                 }
             }
@@ -676,7 +676,7 @@ fun NativeMangaPage(
                                 if (isCached(pagesSnapshot[i].imageUrl)) cachedBackwardCount++
                             }
 
-                            val dynamicEndOffset = 6 + cachedBackwardCount
+                            val dynamicEndOffset = 10 + cachedBackwardCount
                             val windowEnd = minOf(totalSize - 1, index + dynamicEndOffset)
 
                             var cachedForwardCount = 0
