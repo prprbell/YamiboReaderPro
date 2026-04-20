@@ -1,6 +1,7 @@
 package org.shirakawatyu.yamibo.novel.util
 
 import android.content.Context
+import kotlinx.coroutines.delay
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 
 object AccountSyncManager {
@@ -28,7 +29,7 @@ object AccountSyncManager {
                 if (GlobalData.isAutoSignInEnabled.value) {
                     val needsSign = AutoSignManager.needsSignIn()
                     if (needsSign) {
-                        kotlinx.coroutines.delay(1000L)
+                        delay(1000L)
                         AutoSignManager.checkAndSignIfNeeded(context, force = false)
                     }
                 }
@@ -44,7 +45,7 @@ object AccountSyncManager {
                 CookieUtil.saveCookie(currentCookie)
 
                 if (GlobalData.isAutoSignInEnabled.value) {
-                    kotlinx.coroutines.delay(2000L)
+                    delay(2000L)
                     AutoSignManager.checkAndSignIfNeeded(context, force = false)
                 }
             } else {
