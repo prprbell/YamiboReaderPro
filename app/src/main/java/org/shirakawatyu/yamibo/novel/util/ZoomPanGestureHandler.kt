@@ -2,8 +2,8 @@ package org.shirakawatyu.yamibo.novel.util
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
-import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.splineBasedDecay // 修改点：导入原生样条曲线衰减
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -19,6 +19,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
+import androidx.compose.ui.platform.LocalDensity // 修改点：导入 LocalDensity
+import androidx.compose.ui.unit.Density // 修改点：导入 Density
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.coroutineScope
@@ -39,7 +41,6 @@ class ZoomPanGestureHandler(
     private val doubleTapScale: Float = 2.0f,
     private val rubberBandFactor: Float = 0.3f,
     private val flingVelocityThreshold: Float = 50f,
-    private val flingFriction: Float = 1.75f,
 ) {
 
     val isZoomed: Boolean get() = scale.value > 1.01f
@@ -82,9 +83,7 @@ class ZoomPanGestureHandler(
         }
     }
 
-    /**
-     * Y 轴全权交给了 LazyColumn，这里只负责 X 轴的橡皮筋拖拽
-     */
+
     suspend fun handlePanX(panX: Float) {
         if (!isZoomed || panX == 0f) return
         val mx = maxOffsetX()
@@ -100,10 +99,8 @@ class ZoomPanGestureHandler(
         }
     }
 
-    /**
-     * Y 轴的惯性交给 LazyColumn 原生处理，我们只接 X轴的阻尼衰减
-     */
-    suspend fun flingX(velocityX: Float) {
+
+    suspend fun flingX(velocityX: Float, density: Density) {
         val speed = abs(velocityX)
         if (speed < flingVelocityThreshold) {
             snapBackIfNeeded()
@@ -111,7 +108,7 @@ class ZoomPanGestureHandler(
         }
 
         val mx = maxOffsetX()
-        val decaySpec = exponentialDecay<Float>(frictionMultiplier = flingFriction)
+        val decaySpec = splineBasedDecay<Float>(density)
 
         coroutineScope {
             launch {
@@ -154,6 +151,7 @@ class ZoomPanGestureHandler(
 private class TapSuppressionState {
     var isSuppressed = false
 }
+
 /**
  * 竖屏漫画阅读模式的缩放+平移手势 Modifier
  */
@@ -165,29 +163,39 @@ fun Modifier.verticalMangaZoomGesture(
 ): Modifier = composed {
     if (!enabled) return@composed this
 
+    val density = LocalDensity.current
+
     val nestedScrollConnection = remember(handler) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (!handler.isZoomed) return Offset.Zero
 
-                val deltaY = available.y
+                var consumedY = 0f
+                val scale = handler.scale.value
+
+                if (scale > 1f) {
+                    val speedReductionY = available.y * (1f - 1f / scale)
+                    consumedY += speedReductionY
+                }
+
+                val deltaY = available.y - consumedY
                 val currentOffsetY = handler.offsetY.value
 
                 if (currentOffsetY > 0.01f && deltaY < 0f) {
-                    val consumedY = deltaY.coerceAtLeast(-currentOffsetY)
+                    val extraConsumeY = deltaY.coerceAtLeast(-currentOffsetY)
                     scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                        handler.offsetY.snapTo(currentOffsetY + consumedY)
+                        handler.offsetY.snapTo(currentOffsetY + extraConsumeY)
                     }
-                    return Offset(0f, consumedY)
-                }
-                if (currentOffsetY < -0.01f && deltaY > 0f) {
-                    val consumedY = deltaY.coerceAtMost(-currentOffsetY)
+                    consumedY += extraConsumeY
+                } else if (currentOffsetY < -0.01f && deltaY > 0f) {
+                    val extraConsumeY = deltaY.coerceAtMost(-currentOffsetY)
                     scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                        handler.offsetY.snapTo(currentOffsetY + consumedY)
+                        handler.offsetY.snapTo(currentOffsetY + extraConsumeY)
                     }
-                    return Offset(0f, consumedY)
+                    consumedY += extraConsumeY
                 }
-                return Offset.Zero
+
+                return Offset(0f, consumedY)
             }
 
             override fun onPostScroll(
@@ -275,7 +283,8 @@ fun Modifier.verticalMangaZoomGesture(
                         if (handler.isZoomed && !wasMultiTouch) {
                             val velocity = velocityTracker.calculateVelocity()
                             scope.launch {
-                                handler.flingX(velocity.x)
+                                // 修改点 4：在这里将 density 传入 flingX，以确保动画能够使用正确的物理特性
+                                handler.flingX(velocity.x, density)
                             }
                         } else if (wasMultiTouch) {
                             scope.launch { handler.maybeResetIfNoZoom() }
