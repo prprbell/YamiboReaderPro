@@ -106,24 +106,28 @@ class FavoriteUtil {
                 var hasUpdatedFavIds = false
                 val newMap = LinkedHashMap<String, Favorite>()
 
+                val pureNewItems = mutableListOf<Favorite>()
+
                 for (netFav in pageList) {
                     val oldFav = oldMap[netFav.url]
                     if (oldFav == null) {
-                        newMap[netFav.url] = netFav
+                        pureNewItems.add(netFav)
                         hasNewItems = true
                     } else {
+                        // 发现老数据：仅在内存中做 O(1) 的脏数据更新，把缺失的 favId 补上
                         if (oldFav.favId != netFav.favId && !netFav.favId.isNullOrEmpty()) {
                             oldFav.favId = netFav.favId
                             hasUpdatedFavIds = true
                         }
-                        newMap[netFav.url] = oldFav
                     }
                 }
 
+                for (item in pureNewItems) {
+                    newMap[item.url] = item
+                }
+
                 for ((url, oldFav) in oldMap) {
-                    if (!newMap.containsKey(url)) {
-                        newMap[url] = oldFav
-                    }
+                    newMap[url] = oldFav
                 }
 
                 if (hasNewItems || hasUpdatedFavIds) {

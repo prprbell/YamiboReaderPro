@@ -148,6 +148,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 private val SpecialChapterRegex = Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)
 private val ChapterIndexFormat = java.text.DecimalFormat("0.###")
+
 @OptIn(ExperimentalFoundationApi::class, FlowPreview::class, ExperimentalCoilApi::class)
 @Composable
 fun NativeMangaPage(
@@ -193,33 +194,27 @@ fun NativeMangaPage(
 
     val preloadManager = remember(context) {
         object {
-            // 定义轻量级包装类，记录任务的发起时间
             inner class PreloadTask(val job: Job, val startTime: Long = System.currentTimeMillis())
 
-            private val semaphore = Semaphore(6) // 总并发容量为6
-            private val pendingJobs = ConcurrentHashMap<String, PreloadTask>() // 等待获取Semaphore许可的任务
-            private val runningJobs = ConcurrentHashMap<String, PreloadTask>() // 已经获取许可，正在下载中的任务
+            private val semaphore = Semaphore(6)
+            private val pendingJobs = ConcurrentHashMap<String, PreloadTask>()
+            private val runningJobs = ConcurrentHashMap<String, PreloadTask>()
 
             fun updatePreloadList(urlsToLoad: List<String>, cookie: String) {
                 val urlsSet = urlsToLoad.toSet()
 
-                // 1. 拦截与清理：只清理“排队中”且不在新需求列表中的任务。
                 val pendingIterator = pendingJobs.entries.iterator()
                 while (pendingIterator.hasNext()) {
                     val entry = pendingIterator.next()
                     if (!urlsSet.contains(entry.key)) {
                         entry.value.job.cancel()
-                        pendingIterator.remove() // 从排队队列移除
+                        pendingIterator.remove()
                     }
                 }
 
-                // 2. 精准节流：控制正在下载的“老任务”数量不超过3个，且保留最早发起的3个
                 val oldTasks = runningJobs.entries.filter { !urlsSet.contains(it.key) }
                 if (oldTasks.size > 3) {
-                    // 按照 startTime 升序排序，最早的排在前面
                     val sortedOldTasks = oldTasks.sortedBy { it.value.startTime }
-
-                    // 放过前3个（最早的），把后面的统统取消并释放并发通道
                     for (i in 3 until sortedOldTasks.size) {
                         val entryToCancel = sortedOldTasks[i]
                         entryToCancel.value.job.cancel()
@@ -227,7 +222,6 @@ fun NativeMangaPage(
                     }
                 }
 
-                // 3. 调度新任务
                 urlsToLoad.forEach { url ->
                     if (!pendingJobs.containsKey(url) && !runningJobs.containsKey(url)) {
                         val job = pageScope.launch {
@@ -569,7 +563,6 @@ fun NativeMangaPage(
             var hasTriggeredReadyHaptic by remember { mutableStateOf(false) }
 
             LaunchedEffect(pullOverscrollAmount) {
-                // 触发下拉提示框时的震动 (稍微下拉一点点)
                 if (pullOverscrollAmount > showUiDistancePx) {
                     if (!hasTriggeredShowUiHaptic) {
                         HapticUtil.performTick(view)
@@ -579,7 +572,6 @@ fun NativeMangaPage(
                     hasTriggeredShowUiHaptic = false
                 }
 
-                // 下拉距离达标，变为"松开加载上一话"时的震动
                 if (pullOverscrollAmount >= triggerDistancePx) {
                     if (!hasTriggeredReadyHaptic) {
                         HapticUtil.performLongPress(view)
@@ -594,7 +586,6 @@ fun NativeMangaPage(
                 object : NestedScrollConnection {
 
                     override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                        // 100% 还原你最初的逻辑，绝对不破坏原有的缩放平移手感！
                         if (source == NestedScrollSource.UserInput) {
                             if (isVerticalMode) {
                                 val isAtTop = lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
@@ -678,7 +669,10 @@ fun NativeMangaPage(
                             }
                         }
                         if (isVerticalMode && available.y > 0) {
-                            if (pullOverscrollAmount > 0f || (lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0)) {
+                            val isZoomedAndCanPan = gestureHandler.isZoomed &&
+                                    gestureHandler.offsetY.value < gestureHandler.maxOffsetY() - 0.5f
+
+                            if (pullOverscrollAmount > 0f || (lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0 && !isZoomedAndCanPan)) {
                                 consumed = Velocity(0f, available.y)
                             }
                         }
@@ -839,9 +833,9 @@ fun NativeMangaPage(
                                 }
 
                                 val builder = ImageRequest.Builder(context.applicationContext)
-                                    .data(cacheBustingUrl) // 使用击穿URL
-                                    .diskCacheKey(item.imageUrl) // 但依然写入原始的DiskCache Key以覆盖原图
-                                    .memoryCacheKey(MemoryCache.Key(item.imageUrl)) // 依然使用原始Memory Cache Key
+                                    .data(cacheBustingUrl)
+                                    .diskCacheKey(item.imageUrl)
+                                    .memoryCacheKey(MemoryCache.Key(item.imageUrl))
                                     .addHeader("Cookie", cookie)
                                     .addHeader("Referer", "https://bbs.yamibo.com/")
                                     .crossfade(false)

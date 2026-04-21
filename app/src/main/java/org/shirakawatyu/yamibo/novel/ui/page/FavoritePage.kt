@@ -1002,7 +1002,7 @@ fun FavoritePage(
             AlertDialog(
                 onDismissRequest = { showDeleteConfirmDialog = false },
                 title = { Text("删除收藏", color = MaterialTheme.colorScheme.error) },
-                text = { Text("确定要从删除这 ${selectedItems.size} 项收藏吗？请手动删除缓存") },
+                text = { Text("确定要从删除这 ${selectedItems.size} 项收藏吗？") },
                 confirmButton = {
                     TextButton(
                         onClick = {
