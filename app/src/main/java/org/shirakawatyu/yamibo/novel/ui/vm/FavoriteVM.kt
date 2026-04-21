@@ -25,6 +25,7 @@ import org.shirakawatyu.yamibo.novel.network.FavoriteApi
 import org.shirakawatyu.yamibo.novel.parser.MangaHtmlParser
 import org.shirakawatyu.yamibo.novel.ui.state.FavoriteState
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
+import org.shirakawatyu.yamibo.novel.util.FavoriteDeleteUtil
 import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.LocalCacheUtil
 import java.util.concurrent.atomic.AtomicLong
@@ -480,9 +481,19 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             updateUiList()
         }
 
-        // 后台请求删除
+        // 后台请求删除 + 自动清理本地缓存
         viewModelScope.launch(Dispatchers.IO) {
-            org.shirakawatyu.yamibo.novel.util.FavoriteDeleteUtil.deleteFavoritesBatch(prefetchFormHash, favIdsToDelete)
+            FavoriteDeleteUtil.deleteFavoritesBatch(prefetchFormHash, favIdsToDelete)
+
+            itemsToDeleteUrls.forEach { url ->
+                try {
+                    localCache.deleteNovel(url)
+                } catch (e: Exception) {
+                    Log.e(logTag, "自动删除缓存失败: $url", e)
+                }
+            }
+
+            refreshCacheInfo()
         }
     }
 
