@@ -17,7 +17,8 @@
         android:supportsRtl="true"
         android:theme="@style/Theme._300文学"
         android:usesCleartextTraffic="true"
-        tools:targetApi="31">
+        android:enableOnBackInvokedCallback="true"
+        tools:targetApi="33">
         <activity
             android:name=".MainActivity"
             android:exported="true"
