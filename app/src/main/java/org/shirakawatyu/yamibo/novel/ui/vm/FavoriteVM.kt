@@ -452,7 +452,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         }
     }
 
-    // 真正的删除逻辑（乐观更新 + 后台请求）
+
     fun deleteSelectedFavorites(onToast: (String) -> Unit) {
         val itemsToDeleteUrls = _uiState.value.selectedItems.toSet()
         if (itemsToDeleteUrls.isEmpty()) return
@@ -466,7 +466,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             return
         }
 
-        // 1. 乐观 UI 更新
+        // UI更新
         viewModelScope.launch(Dispatchers.Main) {
             stateMutex.withLock {
                 val updatedList = allFavorites.filterNot { itemsToDeleteUrls.contains(it.url) }
@@ -478,10 +478,9 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 isInManageMode = false
             )
             updateUiList()
-            onToast("删除成功")
         }
 
-        // 2. 后台请求物理删除
+        // 后台请求删除
         viewModelScope.launch(Dispatchers.IO) {
             org.shirakawatyu.yamibo.novel.util.FavoriteDeleteUtil.deleteFavoritesBatch(prefetchFormHash, favIdsToDelete)
         }

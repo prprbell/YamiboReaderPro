@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -56,6 +57,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -108,6 +110,7 @@ import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.ui.theme.YellowLightLight
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
@@ -307,10 +310,10 @@ fun FavoritePage(
                 if (isInManageMode) {
                     Text(
                         text = "管理收藏 (${selectedItems.size})",
-                        fontSize = 18.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = 12.dp)
+                        modifier = Modifier.padding(start = 8.dp)
                     )
                     Spacer(modifier = Modifier.weight(1f))
                 } else {
@@ -706,59 +709,70 @@ fun FavoritePage(
                     }
                 }
             }
-
             // 悬浮删除操作栏 (FAB)
             androidx.compose.animation.AnimatedVisibility(
                 visible = isInManageMode,
-                enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) +
-                        androidx.compose.animation.fadeIn(),
-                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) +
-                        androidx.compose.animation.fadeOut(),
+                enter = androidx.compose.animation.slideInVertically(
+                    initialOffsetY = { it + 100 },
+                    animationSpec = tween(300, easing = FastOutSlowInEasing)
+                ),
+                exit = androidx.compose.animation.slideOutVertically(
+                    targetOffsetY = { it + 100 },
+                    animationSpec = tween(250, easing = FastOutSlowInEasing)
+                ),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 32.dp)
             ) {
-                Card(
+                Surface(
                     shape = RoundedCornerShape(50),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    color = YellowLightLight,
+                    shadowElevation = 3.dp,
+                    border = BorderStroke(
+                        width = 2.dp,
+                        color = YamiboColors.primary.copy(alpha = 0.4f)
+                    ),
                     modifier = Modifier.padding(horizontal = 16.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        androidx.compose.material3.ExtendedFloatingActionButton(
+                        TextButton(
                             onClick = { favoriteVM.hideSelectedItems() },
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(0.dp)
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         ) {
-                            Icon(painterResource(R.drawable.ic_visibility_off), "隐藏")
-                            Spacer(Modifier.width(8.dp))
+                            Icon(painterResource(R.drawable.ic_visibility_off), "隐藏", modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text("隐藏")
                         }
 
-                        androidx.compose.material3.ExtendedFloatingActionButton(
+                        TextButton(
                             onClick = { favoriteVM.unhideSelectedItems() },
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(0.dp)
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         ) {
-                            Icon(painterResource(R.drawable.ic_visibility), "显示")
-                            Spacer(Modifier.width(8.dp))
+                            Icon(painterResource(R.drawable.ic_visibility), "显示", modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text("显示")
                         }
 
-                        androidx.compose.material3.ExtendedFloatingActionButton(
+                        Spacer(Modifier.width(4.dp))
+
+                        TextButton(
                             onClick = {
                                 if (selectedItems.isNotEmpty()) showDeleteConfirmDialog = true
                             },
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                            elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(0.dp)
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
                         ) {
-                            Icon(Icons.Default.Delete, "删除")
-                            Spacer(Modifier.width(8.dp))
+                            Icon(Icons.Default.Delete, "删除", modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text("删除")
                         }
                     }

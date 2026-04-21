@@ -58,8 +58,6 @@ class FavoriteUtil {
                 writeMutex.withLock {
                     val favMap = LinkedHashMap<String, Favorite>()
 
-                    // 修复 Bug：直接信任 ViewModel 传来的列表，不再盲目与旧 Map 进行合并
-                    // 这样被删除（不在 orderedList 中）的项就会被彻底丢弃
                     for (fav in orderedList) {
                         favMap[fav.url] = fav
                     }
@@ -72,7 +70,7 @@ class FavoriteUtil {
                         writeMutex.withLock {
                             pendingFavMap?.let {
                                 DataStoreUtil.addData(JSON.toJSONString(it), key)
-                                pendingFavMap = null // 写入完毕后清空
+                                pendingFavMap = null
                             }
                         }
                     }
@@ -105,17 +103,15 @@ class FavoriteUtil {
             return writeMutex.withLock {
                 val oldMap = getFavoriteMapSuspend()
                 var hasNewItems = false
-                var hasUpdatedFavIds = false // 追踪是否更新了 favId
+                var hasUpdatedFavIds = false
                 val newMap = LinkedHashMap<String, Favorite>()
 
                 for (netFav in pageList) {
                     val oldFav = oldMap[netFav.url]
                     if (oldFav == null) {
-                        // 1. 完全是新的收藏
                         newMap[netFav.url] = netFav
                         hasNewItems = true
                     } else {
-                        // 2. 本地已存在：保留本地进度，但强制吸收网络的最新 favId！
                         if (oldFav.favId != netFav.favId && !netFav.favId.isNullOrEmpty()) {
                             oldFav.favId = netFav.favId
                             hasUpdatedFavIds = true
@@ -124,21 +120,19 @@ class FavoriteUtil {
                     }
                 }
 
-                // 3. 补齐本地有但当前网络列表里没抓到的数据
                 for ((url, oldFav) in oldMap) {
                     if (!newMap.containsKey(url)) {
                         newMap[url] = oldFav
                     }
                 }
 
-                // 只要有新条目，或者更新了旧条目的 favId，就触发本地存储写入
                 if (hasNewItems || hasUpdatedFavIds) {
                     pendingFavMap = null
                     suspendCancellableCoroutine { cont ->
                         DataStoreUtil.addData(JSON.toJSONString(newMap), key) { cont.resume(Unit) }
                     }
                 }
-                hasNewItems // 依然只返回是否有新条目，不影响外面的翻页逻辑
+                hasNewItems
             }
         }
 

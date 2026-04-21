@@ -8,7 +8,7 @@ import retrofit2.http.Query
 interface MangaApi {
     // 获取Tag列表页
     // 设置mobile=no并伪装PC端User-Agent
-    @Headers("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    @Headers("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     @GET("/misc.php?mod=tag&type=thread&mobile=no")
     suspend fun getTagPageHtml(
         @Query("id") tagId: String,
