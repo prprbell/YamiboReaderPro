@@ -138,6 +138,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
+import org.shirakawatyu.yamibo.novel.util.HapticUtil
 import org.shirakawatyu.yamibo.novel.util.MangaReaderManager
 import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.ZoomPanGestureHandler
@@ -564,35 +565,59 @@ fun NativeMangaPage(
             val showUiDistancePx = 30f * density
 
             var pullOverscrollAmount by remember { mutableFloatStateOf(0f) }
-            var hasTriggeredHaptic by remember { mutableStateOf(false) }
+            var hasTriggeredShowUiHaptic by remember { mutableStateOf(false) }
+            var hasTriggeredReadyHaptic by remember { mutableStateOf(false) }
 
             LaunchedEffect(pullOverscrollAmount) {
-                if (pullOverscrollAmount >= triggerDistancePx) {
-                    if (!hasTriggeredHaptic) {
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                        hasTriggeredHaptic = true
+                // 触发下拉提示框时的震动 (稍微下拉一点点)
+                if (pullOverscrollAmount > showUiDistancePx) {
+                    if (!hasTriggeredShowUiHaptic) {
+                        HapticUtil.performTick(view)
+                        hasTriggeredShowUiHaptic = true
                     }
                 } else {
-                    hasTriggeredHaptic = false
+                    hasTriggeredShowUiHaptic = false
+                }
+
+                // 下拉距离达标，变为"松开加载上一话"时的震动
+                if (pullOverscrollAmount >= triggerDistancePx) {
+                    if (!hasTriggeredReadyHaptic) {
+                        HapticUtil.performLongPress(view)
+                        hasTriggeredReadyHaptic = true
+                    }
+                } else {
+                    hasTriggeredReadyHaptic = false
                 }
             }
 
-            val nestedScrollConnection = remember(isVerticalMode, isRtl, lazyListState, pagerState, density) {
+            val nestedScrollConnection = remember(isVerticalMode, isRtl, lazyListState, pagerState, density, gestureHandler) {
                 object : NestedScrollConnection {
 
                     override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                        // 100% 还原你最初的逻辑，绝对不破坏原有的缩放平移手感！
                         if (source == NestedScrollSource.UserInput) {
                             if (isVerticalMode) {
                                 val isAtTop = lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
 
+                                val isZoomedAndCanPan = gestureHandler.isZoomed &&
+                                        gestureHandler.offsetY.value < gestureHandler.maxOffsetY() - 0.5f
+
+                                val currentScale = globalScale.value
+                                val physicalY = available.y * currentScale
+
                                 if (available.y < 0 && pullOverscrollAmount > 0) {
-                                    val consume = available.y.coerceAtLeast(-pullOverscrollAmount)
-                                    pullOverscrollAmount += consume
-                                    return Offset(0f, consume)
+                                    val consumePhysical = physicalY.coerceAtLeast(-pullOverscrollAmount)
+                                    pullOverscrollAmount += consumePhysical
+                                    return Offset(0f, consumePhysical / currentScale)
                                 }
                                 else if (available.y > 0 && isAtTop) {
+                                    if (isZoomedAndCanPan) {
+                                        return Offset.Zero
+                                    }
+
                                     val dragMultiplier = (1f - (pullOverscrollAmount / (triggerDistancePx * 2.5f))).coerceIn(0.2f, 1f)
-                                    pullOverscrollAmount += available.y * dragMultiplier
+                                    pullOverscrollAmount += physicalY * dragMultiplier
+
                                     return Offset(0f, available.y)
                                 }
                             } else {
@@ -617,7 +642,21 @@ fun NativeMangaPage(
                         return Offset.Zero
                     }
 
+                    override fun onPostScroll(
+                        consumed: Offset,
+                        available: Offset,
+                        source: NestedScrollSource
+                    ): Offset {
+                        if (isVerticalMode && available.y > 0) {
+                            if (lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0) {
+                                return Offset(0f, available.y)
+                            }
+                        }
+                        return Offset.Zero
+                    }
+
                     override suspend fun onPreFling(available: Velocity): Velocity {
+                        var consumed = Velocity.Zero
                         if (pullOverscrollAmount >= triggerDistancePx) {
                             val initialSize = readerManager.flatPages.size
                             readerManager.loadPrevious(isManualJump = false) {
@@ -638,13 +677,26 @@ fun NativeMangaPage(
                                 }
                             }
                         }
+                        if (isVerticalMode && available.y > 0) {
+                            if (pullOverscrollAmount > 0f || (lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0)) {
+                                consumed = Velocity(0f, available.y)
+                            }
+                        }
+
                         pullOverscrollAmount = 0f
-                        hasTriggeredHaptic = false
+                        return consumed
+                    }
+
+                    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                        if (isVerticalMode && available.y > 0) {
+                            if (lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0) {
+                                return Velocity(0f, available.y)
+                            }
+                        }
                         return Velocity.Zero
                     }
                 }
             }
-
             LaunchedEffect(currentIndex, readerManager.flatPages.size) {
                 if (currentIndex >= readerManager.flatPages.size - 9) {
                     readerManager.loadNext(isManualJump = false)

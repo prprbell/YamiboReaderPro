@@ -59,6 +59,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
+import org.shirakawatyu.yamibo.novel.util.HapticUtil
 
 @Composable
 fun BottomNavBar(
@@ -90,7 +91,7 @@ fun BottomNavBar(
     // 达标时触发震动反馈
     LaunchedEffect(refreshProgress.value) {
         if (refreshProgress.value >= 0.8f && !hasVibrated && !isRefreshing) {
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            HapticUtil.performTick(view)
             hasVibrated = true
         } else if (refreshProgress.value < 0.8f) {
             hasVibrated = false
@@ -205,7 +206,7 @@ fun BottomNavBar(
                         detectDragGesturesAfterLongPress(
                             onDragStart = {
                                 if (isRefreshing) return@detectDragGesturesAfterLongPress
-                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                HapticUtil.performLongPress(view)
                                 showRefreshPopup = true
                                 dragOffset = 0f
                                 coroutineScope.launch {

@@ -44,6 +44,9 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private val logTag = "FavoriteVM"
     private var allFavorites: List<Favorite> = listOf()
 
+    // 预加载的表单校验码
+    private var prefetchFormHash: String? = null
+
     // 记录最后一次成功触发刷新的时间戳
     private var lastSmartSyncTime = 0L
 
@@ -158,9 +161,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         }
 
         CookieUtil.getCookie {
-            // 取消之前的网络请求任务（防止僵尸请求）
             fetchJob?.cancel()
-            // 启动结构化的并发网络请求
             fetchJob = viewModelScope.launch(Dispatchers.IO) {
                 fetchAllFavoritesSuspend(
                     isSmartSync = isSmartSync,
@@ -211,8 +212,22 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
                     favList.forEach { li ->
                         val aTag = li.select("a").last()
+
+                        // 提取包含 favid 的删除标签
+                        val delTag = li.selectFirst("a.mdel")
+                        var extractedFavId: String? = null
+                        if (delTag != null) {
+                            val delHref = delTag.attr("href")
+                            val matchResult = Regex("favid=(\\d+)").find(delHref)
+                            if (matchResult != null) {
+                                extractedFavId = matchResult.groupValues[1]
+                            }
+                        }
+
                         if (aTag != null) {
-                            pageList.add(Favorite(aTag.text(), aTag.attr("href")))
+                            val favorite = Favorite(aTag.text(), aTag.attr("href"))
+                            favorite.favId = extractedFavId // 注入获取到的ID
+                            pageList.add(favorite)
                         }
                     }
                 }
@@ -220,7 +235,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 if (pageList.isNotEmpty()) {
                     accumulatedList.addAll(pageList)
 
-                    // 数据库合并交由 IO 线程挂起执行
                     val hasNewItems = FavoriteUtil.mergeFavoritesProgressiveSuspend(pageList)
                     if (generation != fetchGeneration.get()) break
 
@@ -298,7 +312,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                             if (!isRetry) {
                                 delay(500L)
                                 isRetry = true
-                                continue // 重新尝试第一页
+                                continue
                             } else {
                                 if (isFavoritePageVisible) {
                                     withContext(Dispatchers.Main) {
@@ -336,9 +350,9 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         lastNavigateTime = System.currentTimeMillis()
 
         nextResumeStrategy = when (type) {
-            1 -> RefreshStrategy.SKIP // 看小说，默认不刷新
-            2 -> RefreshStrategy.SKIP // 看漫画，默认不刷新
-            else -> RefreshStrategy.SMART // 去网页版或其他，保持 SMART
+            1 -> RefreshStrategy.SKIP
+            2 -> RefreshStrategy.SKIP
+            else -> RefreshStrategy.SMART
         }
     }
     fun updateMangaProgress(favoriteUrl: String, chapterUrl: String, chapterTitle: String, pageIndex: Int = 0) {
@@ -356,7 +370,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             withContext(Dispatchers.Main) { updateUiList() }
         }
     }
-    // 3. 拖拽排序
     fun moveFavorite(from: Int, to: Int) {
         if (_uiState.value.isInManageMode) return
 
@@ -383,11 +396,27 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     }
 
     fun toggleManageMode() {
+        val newMode = !_uiState.value.isInManageMode
         _uiState.value = _uiState.value.copy(
-            isInManageMode = !_uiState.value.isInManageMode,
+            isInManageMode = newMode,
             selectedItems = emptySet()
         )
         updateUiList()
+
+        // 进入管理模式时，立即开启后台探针偷 Token
+        if (newMode) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val api = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
+                    val faqResponse = api.getFormHash().execute()
+                    val html = faqResponse.body()?.string() ?: return@launch
+                    val match = Regex("""formhash=([a-zA-Z0-9]{8})""").find(html)
+                    prefetchFormHash = match?.groupValues?.get(1)
+                } catch (e: Exception) {
+                    // 静默失败
+                }
+            }
+        }
     }
 
     fun toggleItemSelection(url: String) {
@@ -420,6 +449,41 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             withContext(Dispatchers.Main) {
                 _uiState.value = _uiState.value.copy(selectedItems = emptySet())
             }
+        }
+    }
+
+    // 真正的删除逻辑（乐观更新 + 后台请求）
+    fun deleteSelectedFavorites(onToast: (String) -> Unit) {
+        val itemsToDeleteUrls = _uiState.value.selectedItems.toSet()
+        if (itemsToDeleteUrls.isEmpty()) return
+
+        val favIdsToDelete = allFavorites
+            .filter { itemsToDeleteUrls.contains(it.url) && !it.favId.isNullOrEmpty() }
+            .map { it.favId!! }
+
+        if (favIdsToDelete.isEmpty()) {
+            onToast("数据缺失，请下拉刷新获取最新列表！")
+            return
+        }
+
+        // 1. 乐观 UI 更新
+        viewModelScope.launch(Dispatchers.Main) {
+            stateMutex.withLock {
+                val updatedList = allFavorites.filterNot { itemsToDeleteUrls.contains(it.url) }
+                allFavorites = updatedList
+                FavoriteUtil.saveFavoriteOrder(updatedList)
+            }
+            _uiState.value = _uiState.value.copy(
+                selectedItems = emptySet(),
+                isInManageMode = false
+            )
+            updateUiList()
+            onToast("删除成功")
+        }
+
+        // 2. 后台请求物理删除
+        viewModelScope.launch(Dispatchers.IO) {
+            org.shirakawatyu.yamibo.novel.util.FavoriteDeleteUtil.deleteFavoritesBatch(prefetchFormHash, favIdsToDelete)
         }
     }
 

@@ -173,7 +173,11 @@ fun Modifier.verticalMangaZoomGesture(
                 var consumedY = 0f
                 val scale = handler.scale.value
 
-                val speedReductionY = available.y * (1f - 1f / scale)
+                val maxReductionRatio = 0.25f
+                val calculatedRatio = 1f - 1f / scale
+                val actualReductionRatio = calculatedRatio.coerceAtMost(maxReductionRatio)
+
+                val speedReductionY = available.y * actualReductionRatio
                 consumedY += speedReductionY
 
                 val deltaY = available.y - consumedY

@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -152,6 +153,7 @@ fun FavoritePage(
     }
     var showBookmarkManagement by remember { mutableStateOf(false) }
     var showDirectoryManagement by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var directoryList by remember { mutableStateOf<List<MangaDirectory>>(emptyList()) }
     val context = LocalContext.current
     val bottomNavBarVM: BottomNavBarVM =
@@ -408,30 +410,7 @@ fun FavoritePage(
 
                 // 右半部：操作菜单区域
                 if (isInManageMode) {
-                    Button(
-                        onClick = { favoriteVM.hideSelectedItems() },
-                        enabled = selectedItems.isNotEmpty(),
-                        contentPadding = ButtonDefaults.TextButtonContentPadding,
-                        colors = ButtonDefaults.buttonColors(
-                            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                alpha = 0.67f
-                            )
-                        )
-                    ) { Text("隐藏") }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Button(
-                        onClick = { favoriteVM.unhideSelectedItems() },
-                        enabled = selectedItems.isNotEmpty(),
-                        contentPadding = ButtonDefaults.TextButtonContentPadding,
-                        colors = ButtonDefaults.buttonColors(
-                            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                alpha = 0.67f
-                            )
-                        )
-                    ) { Text("显示") }
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.weight(1f))
                     Button(onClick = { favoriteVM.toggleManageMode() }) { Text("完成") }
                 } else {
                     var menuExpanded by remember { mutableStateOf(false) }
@@ -728,6 +707,64 @@ fun FavoritePage(
                 }
             }
 
+            // 悬浮删除操作栏 (FAB)
+            androidx.compose.animation.AnimatedVisibility(
+                visible = isInManageMode,
+                enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) +
+                        androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) +
+                        androidx.compose.animation.fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 32.dp)
+            ) {
+                Card(
+                    shape = RoundedCornerShape(50),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.ExtendedFloatingActionButton(
+                            onClick = { favoriteVM.hideSelectedItems() },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(0.dp)
+                        ) {
+                            Icon(painterResource(R.drawable.ic_visibility_off), "隐藏")
+                            Spacer(Modifier.width(8.dp))
+                            Text("隐藏")
+                        }
+
+                        androidx.compose.material3.ExtendedFloatingActionButton(
+                            onClick = { favoriteVM.unhideSelectedItems() },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(0.dp)
+                        ) {
+                            Icon(painterResource(R.drawable.ic_visibility), "显示")
+                            Spacer(Modifier.width(8.dp))
+                            Text("显示")
+                        }
+
+                        androidx.compose.material3.ExtendedFloatingActionButton(
+                            onClick = {
+                                if (selectedItems.isNotEmpty()) showDeleteConfirmDialog = true
+                            },
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(0.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, "删除")
+                            Spacer(Modifier.width(8.dp))
+                            Text("删除")
+                        }
+                    }
+                }
+            }
+
             // 悬浮气泡
             androidx.compose.animation.AnimatedVisibility(
                 visible = showTopToast,
@@ -762,6 +799,7 @@ fun FavoritePage(
                 }
             }
         }
+
         // 首页设置对话框
         if (showHomePageDialog) {
             var tempHomePage by remember { mutableStateOf(currentHomePage) }
@@ -943,6 +981,29 @@ fun FavoritePage(
                     TextButton(onClick = { showCustomDnsDialog = false }) {
                         Text("取消")
                     }
+                }
+            )
+        }
+        if (showDeleteConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirmDialog = false },
+                title = { Text("删除收藏", color = MaterialTheme.colorScheme.error) },
+                text = { Text("确定要从删除这 ${selectedItems.size} 项收藏吗？请手动删除缓存") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteConfirmDialog = false
+                            favoriteVM.deleteSelectedFavorites { msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("确认删除")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirmDialog = false }) { Text("取消") }
                 }
             )
         }

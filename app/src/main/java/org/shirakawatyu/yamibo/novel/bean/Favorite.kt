@@ -20,5 +20,6 @@ data class Favorite(
     var authorId: String? = null,
     var isHidden: Boolean = false,
     var type: Int = 0,
-    var lastMangaUrl: String? = null
+    var lastMangaUrl: String? = null,
+    var favId: String? = null,
 )

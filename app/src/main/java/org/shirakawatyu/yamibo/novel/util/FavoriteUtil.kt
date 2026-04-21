@@ -30,6 +30,7 @@ class FavoriteUtil {
         private var saveJob: Job? = null
         private val writeMutex = Mutex()
         private var pendingFavMap: LinkedHashMap<String, Favorite>? = null
+
         fun getFavoriteFlow(): Flow<List<Favorite>> {
             val dataStore = GlobalData.dataStore ?: throw IllegalStateException("DataStore not initialized")
             return dataStore.data.map { preferences ->
@@ -55,20 +56,12 @@ class FavoriteUtil {
         fun saveFavoriteOrder(orderedList: List<Favorite>) {
             ioScope.launch {
                 writeMutex.withLock {
-                    val currentMap = pendingFavMap ?: getFavoriteMapSuspend()
                     val favMap = LinkedHashMap<String, Favorite>()
 
+                    // 修复 Bug：直接信任 ViewModel 传来的列表，不再盲目与旧 Map 进行合并
+                    // 这样被删除（不在 orderedList 中）的项就会被彻底丢弃
                     for (fav in orderedList) {
-                        if (currentMap.containsKey(fav.url)) {
-                            favMap[fav.url] = fav
-                        }
-                    }
-
-                    // 补齐未在 orderedList 中的剩余旧数据
-                    for ((url, fav) in currentMap) {
-                        if (!favMap.containsKey(url)) {
-                            favMap[url] = fav
-                        }
+                        favMap[fav.url] = fav
                     }
 
                     pendingFavMap = favMap
@@ -86,7 +79,6 @@ class FavoriteUtil {
                 }
             }
         }
-
 
         suspend fun updateHiddenStatus(urls: Set<String>, isHidden: Boolean) {
             writeMutex.withLock {
@@ -113,26 +105,40 @@ class FavoriteUtil {
             return writeMutex.withLock {
                 val oldMap = getFavoriteMapSuspend()
                 var hasNewItems = false
+                var hasUpdatedFavIds = false // 追踪是否更新了 favId
                 val newMap = LinkedHashMap<String, Favorite>()
 
                 for (netFav in pageList) {
-                    if (!oldMap.containsKey(netFav.url)) {
+                    val oldFav = oldMap[netFav.url]
+                    if (oldFav == null) {
+                        // 1. 完全是新的收藏
                         newMap[netFav.url] = netFav
                         hasNewItems = true
+                    } else {
+                        // 2. 本地已存在：保留本地进度，但强制吸收网络的最新 favId！
+                        if (oldFav.favId != netFav.favId && !netFav.favId.isNullOrEmpty()) {
+                            oldFav.favId = netFav.favId
+                            hasUpdatedFavIds = true
+                        }
+                        newMap[netFav.url] = oldFav
                     }
                 }
 
+                // 3. 补齐本地有但当前网络列表里没抓到的数据
                 for ((url, oldFav) in oldMap) {
-                    newMap[url] = oldFav
+                    if (!newMap.containsKey(url)) {
+                        newMap[url] = oldFav
+                    }
                 }
 
-                if (hasNewItems) {
+                // 只要有新条目，或者更新了旧条目的 favId，就触发本地存储写入
+                if (hasNewItems || hasUpdatedFavIds) {
                     pendingFavMap = null
                     suspendCancellableCoroutine { cont ->
                         DataStoreUtil.addData(JSON.toJSONString(newMap), key) { cont.resume(Unit) }
                     }
                 }
-                hasNewItems
+                hasNewItems // 依然只返回是否有新条目，不影响外面的翻页逻辑
             }
         }
 
@@ -182,7 +188,7 @@ class FavoriteUtil {
                 }
             }
         }
-        // 替换原来的 jsonToHashMap
+
         private fun jsonToHashMap(text: String): LinkedHashMap<String, Favorite> {
             val map = LinkedHashMap<String, Favorite>()
             try {
@@ -192,13 +198,14 @@ class FavoriteUtil {
                     val fav = Favorite(
                         title = obj.getString("title") ?: "",
                         url = obj.getString("url") ?: "",
-                        lastPage = obj.getIntValue("lastPage"),   // 安全：没有此字段会返回 0
+                        lastPage = obj.getIntValue("lastPage"),
                         lastView = obj.getIntValue("lastView"),
                         lastChapter = obj.getString("lastChapter"),
                         authorId = obj.getString("authorId"),
-                        isHidden = obj.getBooleanValue("isHidden"), // 安全：返回 false
+                        isHidden = obj.getBooleanValue("isHidden"),
                         type = obj.getIntValue("type"),
-                        lastMangaUrl = obj.getString("lastMangaUrl")
+                        lastMangaUrl = obj.getString("lastMangaUrl"),
+                        favId = obj.getString("favId")
                     )
                     map[fav.url] = fav
                 }
@@ -227,6 +234,7 @@ class FavoriteUtil {
                     cont.resume(LinkedHashMap())
                 })
             }
+
         suspend fun moveUrlToTopSuspend(url: String) {
             writeMutex.withLock {
                 val map = getFavoriteMapSuspend()
