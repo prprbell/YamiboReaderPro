@@ -15,7 +15,7 @@ import java.io.IOException
 object ImageCheckerUtil {
     private const val TAG = "ImageCheckerUtil"
 
-    private const val MIN_IMAGE_SIZE_BYTES = 10 * 1024L
+    private const val MIN_IMAGE_SIZE_BYTES = 3 * 1024L
     // 合法的图片 Content-Type 白名单
     private val VALID_IMAGE_TYPES = listOf("image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp")
 
