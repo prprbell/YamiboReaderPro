@@ -455,9 +455,9 @@ fun FavoritePage(
                                 )
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
-                                    text = { Text("管理缓存") },
-                                    onClick = { showCacheManagement = true; menuExpanded = false },
-                                    leadingIcon = { Icon(painterResource(R.drawable.ic_download), null, Modifier.size(24.dp)) }
+                                    text = { Text("管理收藏") },
+                                    onClick = { favoriteVM.toggleManageMode(); menuExpanded = false },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_visibility), null, Modifier.size(24.dp)) }
                                 )
                             }
 
@@ -481,9 +481,9 @@ fun FavoritePage(
                                 )
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
-                                    text = { Text("管理书签") },
-                                    onClick = { showBookmarkManagement = true; menuExpanded = false },
-                                    leadingIcon = { Icon(Icons.Default.DateRange, null, Modifier.size(24.dp)) }
+                                    text = { Text("管理缓存") },
+                                    onClick = { showCacheManagement = true; menuExpanded = false },
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_download), null, Modifier.size(24.dp)) }
                                 )
                             }
 
@@ -513,9 +513,9 @@ fun FavoritePage(
                                 )
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
-                                    text = { Text("管理收藏") },
-                                    onClick = { favoriteVM.toggleManageMode(); menuExpanded = false },
-                                    leadingIcon = { Icon(painterResource(R.drawable.ic_visibility), null, Modifier.size(24.dp)) }
+                                    text = { Text("管理书签") },
+                                    onClick = { showBookmarkManagement = true; menuExpanded = false },
+                                    leadingIcon = { Icon(Icons.Default.DateRange, null, Modifier.size(24.dp)) }
                                 )
                             }
 
