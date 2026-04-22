@@ -709,7 +709,7 @@ fun FavoritePage(
                     }
                 }
             }
-            // 悬浮删除操作栏 (FAB)
+            // 悬浮删除操作栏
             androidx.compose.animation.AnimatedVisibility(
                 visible = isInManageMode,
                 enter = androidx.compose.animation.slideInVertically(
@@ -1002,7 +1002,7 @@ fun FavoritePage(
             AlertDialog(
                 onDismissRequest = { showDeleteConfirmDialog = false },
                 title = { Text("删除收藏", color = MaterialTheme.colorScheme.error) },
-                text = { Text("确定要从删除这 ${selectedItems.size} 项收藏吗？") },
+                text = { Text("确定要删除这 ${selectedItems.size} 项收藏吗？") },
                 confirmButton = {
                     TextButton(
                         onClick = {
