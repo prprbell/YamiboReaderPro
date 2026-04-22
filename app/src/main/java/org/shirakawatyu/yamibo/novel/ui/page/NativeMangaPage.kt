@@ -196,7 +196,7 @@ fun NativeMangaPage(
         object {
             inner class PreloadTask(val job: Job, val startTime: Long = System.currentTimeMillis())
 
-            private val semaphore = Semaphore(6)
+            private val semaphore = Semaphore(4)
             private val pendingJobs = ConcurrentHashMap<String, PreloadTask>()
             private val runningJobs = ConcurrentHashMap<String, PreloadTask>()
 
@@ -692,7 +692,7 @@ fun NativeMangaPage(
                 }
             }
             LaunchedEffect(currentIndex, readerManager.flatPages.size) {
-                if (currentIndex >= readerManager.flatPages.size - 9) {
+                if (currentIndex >= readerManager.flatPages.size - 8) {
                     readerManager.loadNext(isManualJump = false)
                 }
             }
@@ -716,13 +716,13 @@ fun NativeMangaPage(
                                 return YamiboRetrofit.isImageCachedInOkHttp(url)
                             }
 
-                            var windowStart = maxOf(0, index - 5)
+                            var windowStart = maxOf(0, index - 4)
                             var cachedBackwardCount = 0
                             for (i in windowStart until index) {
                                 if (isCached(pagesSnapshot[i].imageUrl)) cachedBackwardCount++
                             }
 
-                            val dynamicEndOffset = 10 + cachedBackwardCount
+                            val dynamicEndOffset = 8 + cachedBackwardCount
                             val windowEnd = minOf(totalSize - 1, index + dynamicEndOffset)
 
                             var cachedForwardCount = 0

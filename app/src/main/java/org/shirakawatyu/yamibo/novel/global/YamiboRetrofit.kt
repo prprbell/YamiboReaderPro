@@ -3,6 +3,7 @@ package org.shirakawatyu.yamibo.novel.global
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.util.Log
 import coil.annotation.ExperimentalCoilApi
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -14,6 +15,7 @@ import coil.imageLoader
 import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.util.ImageCheckerUtil
+import org.shirakawatyu.yamibo.novel.util.RateLimitInterceptor
 import org.shirakawatyu.yamibo.novel.util.TtlDnsCache
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -98,7 +100,11 @@ class YamiboRetrofit {
             "${locale.language}-${locale.country},${locale.language};q=0.9,en-US;q=0.8,en;q=0.7"
         }
 
-        private val sharedConnectionPool = ConnectionPool(15, 1, TimeUnit.MINUTES)
+        private val sharedConnectionPool = ConnectionPool(
+            maxIdleConnections = 8,
+            keepAliveDuration = 5,
+            timeUnit = TimeUnit.MINUTES
+        )
 
         private val sharedBootstrapClient by lazy {
             OkHttpClient.Builder()
@@ -116,7 +122,7 @@ class YamiboRetrofit {
         }
 
         val threadOkHttpClient: OkHttpClient by lazy {
-            createOkHttpClient("http_cache_thread", 0L, enableCache = false, enableImageChecker = true,maxRequestsPerHost = 10)
+            createOkHttpClient("http_cache_thread", 0L, enableCache = false, enableImageChecker = true,maxRequestsPerHost = 6)
         }
 
         private val YamiboInstance: Retrofit by lazy {
@@ -182,17 +188,25 @@ class YamiboRetrofit {
                     YamiboApplication.systemUserAgent.ifEmpty { RequestConfig.UA }
                 }
 
-                val request = original.newBuilder()
+                val requestBuilder = original.newBuilder()
                     .header("User-Agent", finalUa)
                     .header("Accept", RequestConfig.ACCEPT)
                     .header("Accept-Language", acceptLanguage)
                     .header("Cookie", cookie)
+
+                if (original.url.host.contains("yamibo.com")) {
+                    requestBuilder.header("Referer", "https://bbs.yamibo.com/")
+                }
+
+                val request = requestBuilder
                     .method(original.method, original.body)
                     .build()
 
                 chain.proceed(request)
             }
-
+            if (enableImageChecker) {
+                builder.addNetworkInterceptor(RateLimitInterceptor(100L))
+            }
             // 2. 网络拦截器
             builder.addNetworkInterceptor { chain ->
                 val request = chain.request()
@@ -203,7 +217,16 @@ class YamiboRetrofit {
                     try {
                         ImageCheckerUtil.interceptAndCheckImageStream(rawResponse, urlStr)
                     } catch (e: Exception) {
-                        throw java.io.IOException("Blocked garbage data by NetworkInterceptor", e)
+//                        Log.e("YamiboRetrofit", "====== 🚨 触发拦截，响应头分析 START ======")
+//                        Log.e("YamiboRetrofit", "请求 URL: $urlStr")
+//                        Log.e("YamiboRetrofit", "HTTP 状态码: ${rawResponse.code}")
+//
+//                        rawResponse.headers.forEach { (name, value) ->
+//                            Log.e("YamiboRetrofit", "Header -> $name: $value")
+//                        }
+//                        Log.e("YamiboRetrofit", "====== 🚨 触发拦截，响应头分析 END ======")
+
+                        throw java.io.IOException("Blocked by ImageChecker: ${e.message}", e)
                     }
                 } else {
                     rawResponse
@@ -244,7 +267,13 @@ class YamiboRetrofit {
                 val reqBuilder = okhttp3.Request.Builder().url(url)
                 request.requestHeaders?.forEach { (key, value) -> reqBuilder.header(key, value) }
                 val cookie = android.webkit.CookieManager.getInstance().getCookie(url)
-                if (!cookie.isNullOrEmpty()) { reqBuilder.header("Cookie", cookie) }
+                if (!cookie.isNullOrEmpty()) {
+                    reqBuilder.header("Cookie", cookie)
+                }
+
+                if (url.contains("yamibo.com", ignoreCase = true)) {
+                    reqBuilder.header("Referer", "https://bbs.yamibo.com/")
+                }
 
                 val response = client.newCall(reqBuilder.build()).execute()
                 if (response.isSuccessful) {

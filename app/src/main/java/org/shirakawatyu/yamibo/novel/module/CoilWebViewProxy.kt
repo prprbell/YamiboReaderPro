@@ -39,6 +39,10 @@ object CoilWebViewProxy {
                         .diskCachePolicy(CachePolicy.ENABLED)
                         .apply {
                             headers?.forEach { (k, v) -> addHeader(k, v) }
+
+                            if (url.contains("yamibo.com", ignoreCase = true)) {
+                                setHeader("Referer", "https://bbs.yamibo.com/")
+                            }
                         }
                         .build()
 

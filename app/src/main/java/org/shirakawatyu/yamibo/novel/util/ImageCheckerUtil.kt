@@ -10,7 +10,7 @@ import okio.buffer
 import java.io.IOException
 
 /**
- * 垃圾图/错误图拦截工具类 (极简稳定版)
+ * 垃圾图/错误图拦截工具类 (深度日志排查版)
  */
 object ImageCheckerUtil {
     private const val TAG = "ImageCheckerUtil"
@@ -34,13 +34,11 @@ object ImageCheckerUtil {
         if (contentType.isNotEmpty()) {
             val isImage = VALID_IMAGE_TYPES.any { contentType.contains(it, ignoreCase = true) }
             if (!isImage && !contentType.contains("application/octet-stream", ignoreCase = true)) {
-                Log.e(TAG, "拦截非法图片格式 (Content-Type: $contentType) -> URL: $url")
                 throw IOException("Invalid Content-Type: $contentType. Suspected HTML error page.")
             }
         }
 
         if (contentLength in 1 until MIN_IMAGE_SIZE_BYTES) {
-            Log.e(TAG, "拦截极小体积图片 (Size: $contentLength bytes) -> URL: $url")
             throw IOException("Image size too small ($contentLength bytes). Suspected garbage image.")
         }
 
@@ -55,7 +53,6 @@ object ImageCheckerUtil {
                     totalBytesRead += bytesRead
                 } else if (bytesRead == -1L) {
                     if (totalBytesRead < MIN_IMAGE_SIZE_BYTES) {
-                        Log.e(TAG, "拦截极小体积图片 (实际下载 Size: $totalBytesRead) -> URL: $url")
                         throw IOException("Actual downloaded image size too small ($totalBytesRead bytes).")
                     }
                 }
