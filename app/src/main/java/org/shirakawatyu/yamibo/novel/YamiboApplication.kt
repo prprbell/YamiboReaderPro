@@ -15,8 +15,8 @@ import kotlinx.coroutines.launch
 import okhttp3.brotli.BrotliInterceptor
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
-import org.shirakawatyu.yamibo.novel.util.FastScrollDebounceInterceptor
-import org.shirakawatyu.yamibo.novel.util.NetworkPreWarmer
+import org.shirakawatyu.yamibo.novel.util.manga.FastScrollDebounceInterceptor
+import org.shirakawatyu.yamibo.novel.util.network.NetworkPreWarmer
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.File

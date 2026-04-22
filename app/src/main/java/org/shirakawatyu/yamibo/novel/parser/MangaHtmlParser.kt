@@ -2,7 +2,7 @@ package org.shirakawatyu.yamibo.novel.parser
 
 import org.jsoup.Jsoup
 import org.shirakawatyu.yamibo.novel.bean.MangaChapterItem
-import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
+import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import java.text.SimpleDateFormat
 import java.util.Locale
 

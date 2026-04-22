@@ -102,6 +102,7 @@ import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.R
@@ -116,7 +117,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
-import org.shirakawatyu.yamibo.novel.util.MangaProber
+import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -653,7 +654,7 @@ fun FavoritePage(
                                                     GlobalData.tempMangaIndex = item.lastPage.coerceIn(0, maxOf(0, urls.size - 1))
                                                     navController.navigate("NativeMangaPage?url=$encodedTarget&originalUrl=$encodedOriginal")
                                                     coroutineScope.launch {
-                                                        kotlinx.coroutines.delay(300)
+                                                        delay(300)
                                                         probingUrl = null
                                                         probingJob = null
                                                     }

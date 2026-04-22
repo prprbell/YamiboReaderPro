@@ -3,7 +3,6 @@ package org.shirakawatyu.yamibo.novel.ui.page
 import android.app.Activity
 import android.content.ComponentCallbacks2
 import android.os.Build
-import android.view.HapticFeedbackConstants
 import android.view.WindowManager
 import android.webkit.CookieManager
 import androidx.activity.ComponentActivity
@@ -133,16 +132,20 @@ import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 import org.shirakawatyu.yamibo.novel.bean.MangaSettings
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaChapter
+import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaChapterPanel
+import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaSettingsPanel
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.HapticUtil
-import org.shirakawatyu.yamibo.novel.util.MangaReaderManager
-import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
-import org.shirakawatyu.yamibo.novel.util.ZoomPanGestureHandler
-import org.shirakawatyu.yamibo.novel.util.verticalMangaZoomGesture
+import org.shirakawatyu.yamibo.novel.util.manga.MangaReaderManager
+import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
+import org.shirakawatyu.yamibo.novel.util.manga.ZoomPanGestureHandler
+import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
+import org.shirakawatyu.yamibo.novel.util.manga.verticalMangaZoomGesture
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 
@@ -292,7 +295,7 @@ fun NativeMangaPage(
         val encodedOriginalUrl = URLEncoder.encode(originalUrl, "utf-8")
 
         probingJob = scope.launch {
-            org.shirakawatyu.yamibo.novel.util.MangaProber().probeUrl(
+            MangaProber().probeUrl(
                 context = context,
                 url = targetUrl,
                 onSuccess = { urls, title, html ->
@@ -1232,7 +1235,13 @@ fun NativeMangaPage(
             if (showChapterList) {
                 val currentTid = currentItem?.tid ?: ""
                 val displayChapters = mangaDirVM.currentDirectory?.chapters?.map {
-                    MangaChapter(it.chapterNum, it.rawTitle, it.url, isCurrent = it.tid == currentTid, isRead = false)
+                    MangaChapter(
+                        it.chapterNum,
+                        it.rawTitle,
+                        it.url,
+                        isCurrent = it.tid == currentTid,
+                        isRead = false
+                    )
                 } ?: emptyList()
 
                 val initialAuthor = remember(mangaDirVM.currentDirectory, currentTid) {
@@ -1249,15 +1258,20 @@ fun NativeMangaPage(
                 MangaChapterPanel(
                     modifier = Modifier.align(Alignment.BottomCenter),
                     title = mangaDirVM.currentDirectory?.cleanBookName ?: "目录",
-                    initialAuthor = initialAuthor, chapters = displayChapters, isUpdating = mangaDirVM.isUpdatingDirectory,
-                    cooldownSeconds = mangaDirVM.directoryCooldown, strategy = mangaDirVM.currentDirectory?.strategy,
-                    showSearchShortcut = mangaDirVM.showSearchShortcut, searchShortcutCountdown = mangaDirVM.searchShortcutCountdown,
+                    initialAuthor = initialAuthor,
+                    chapters = displayChapters,
+                    isUpdating = mangaDirVM.isUpdatingDirectory,
+                    cooldownSeconds = mangaDirVM.directoryCooldown,
+                    strategy = mangaDirVM.currentDirectory?.strategy,
+                    showSearchShortcut = mangaDirVM.showSearchShortcut,
+                    searchShortcutCountdown = mangaDirVM.searchShortcutCountdown,
                     onUpdateClick = { isForced ->
                         mangaDirVM.updateMangaDirectory(isForced, currentTid)
                     },
                     onDismiss = { showChapterList = false; showUi = false },
                     onTitleEdit = { newTitle, newAuthor ->
-                        val newSearchKeyword = if (newAuthor.isNotBlank()) "$newAuthor $newTitle".trim() else newTitle.trim()
+                        val newSearchKeyword =
+                            if (newAuthor.isNotBlank()) "$newAuthor $newTitle".trim() else newTitle.trim()
                         mangaDirVM.renameDirectory(newTitle.trim(), newSearchKeyword)
                     },
                     onChapterClick = { chapter ->
@@ -1266,7 +1280,9 @@ fun NativeMangaPage(
                                 scope.launch {
                                     showUi = false
                                     showChapterList = false
-                                    if (isVerticalMode) lazyListState.scrollToItem(globalIdx) else pagerState.scrollToPage(globalIdx)
+                                    if (isVerticalMode) lazyListState.scrollToItem(globalIdx) else pagerState.scrollToPage(
+                                        globalIdx
+                                    )
                                 }
                             }
                         }
@@ -1282,7 +1298,9 @@ fun NativeMangaPage(
                         MangaSettings.saveReadMode(context, index)
                         readMode = index
                         scope.launch {
-                            if (index == 0) lazyListState.scrollToItem(targetPage) else pagerState.scrollToPage(targetPage)
+                            if (index == 0) lazyListState.scrollToItem(targetPage) else pagerState.scrollToPage(
+                                targetPage
+                            )
                         }
                     },
                     onBrightnessChange = { imageBrightness = it },

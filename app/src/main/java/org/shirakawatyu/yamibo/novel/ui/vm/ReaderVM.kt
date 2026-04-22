@@ -8,7 +8,6 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
@@ -38,16 +37,16 @@ import org.shirakawatyu.yamibo.novel.module.PassageWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.page.typefaceFromMode
 import org.shirakawatyu.yamibo.novel.ui.state.ChapterInfo
 import org.shirakawatyu.yamibo.novel.ui.state.ReaderState
-import org.shirakawatyu.yamibo.novel.util.CacheData
-import org.shirakawatyu.yamibo.novel.util.CacheUtil
-import org.shirakawatyu.yamibo.novel.util.ChineseConvertUtil
-import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
-import org.shirakawatyu.yamibo.novel.util.FontMetricsUtil
-import org.shirakawatyu.yamibo.novel.util.HTMLUtil
-import org.shirakawatyu.yamibo.novel.util.LocalCacheUtil
+import org.shirakawatyu.yamibo.novel.util.reader.CacheData
+import org.shirakawatyu.yamibo.novel.util.reader.CacheUtil
+import org.shirakawatyu.yamibo.novel.util.reader.ChineseConvertUtil
+import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
+import org.shirakawatyu.yamibo.novel.util.reader.FontMetricsUtil
+import org.shirakawatyu.yamibo.novel.util.reader.HTMLUtil
+import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
-import org.shirakawatyu.yamibo.novel.util.TextUtil
-import org.shirakawatyu.yamibo.novel.util.ValueUtil
+import org.shirakawatyu.yamibo.novel.util.reader.TextUtil
+import org.shirakawatyu.yamibo.novel.util.reader.ValueUtil
 
 @SuppressLint("SetJavaScriptEnabled")
 class ReaderVM(private val applicationContext: Context) : ViewModel() {

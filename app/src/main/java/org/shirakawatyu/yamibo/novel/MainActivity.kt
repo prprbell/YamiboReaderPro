@@ -105,7 +105,7 @@ import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
 import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
-import org.shirakawatyu.yamibo.novel.util.NetworkMonitor
+import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import java.net.URLDecoder
 import kotlin.coroutines.resume

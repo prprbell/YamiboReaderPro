@@ -14,7 +14,7 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.MangaApi
 import org.shirakawatyu.yamibo.novel.parser.MangaHtmlParser
-import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
+import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import java.io.File
 import java.io.IOException
 import java.util.Collections

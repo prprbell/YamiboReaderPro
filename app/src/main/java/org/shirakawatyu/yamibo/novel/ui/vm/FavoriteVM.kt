@@ -25,9 +25,9 @@ import org.shirakawatyu.yamibo.novel.network.FavoriteApi
 import org.shirakawatyu.yamibo.novel.parser.MangaHtmlParser
 import org.shirakawatyu.yamibo.novel.ui.state.FavoriteState
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
-import org.shirakawatyu.yamibo.novel.util.FavoriteDeleteUtil
-import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
-import org.shirakawatyu.yamibo.novel.util.LocalCacheUtil
+import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteDeleteUtil
+import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
+import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -404,7 +404,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         )
         updateUiList()
 
-        // 进入管理模式时，立即开启后台探针偷 Token
+        // 进入管理模式时，开启后台探针
         if (newMode) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
@@ -413,7 +413,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                     val html = faqResponse.body()?.string() ?: return@launch
                     val match = Regex("""formhash=([a-zA-Z0-9]{8})""").find(html)
                     prefetchFormHash = match?.groupValues?.get(1)
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     // 静默失败
                 }
             }

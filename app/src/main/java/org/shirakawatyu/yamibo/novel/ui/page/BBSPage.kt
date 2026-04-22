@@ -7,7 +7,6 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -45,14 +44,12 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
@@ -65,7 +62,8 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BbsSkeletonScreen
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
-import org.shirakawatyu.yamibo.novel.util.ReaderModeDetector
+import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
+import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
@@ -427,7 +425,7 @@ fun BBSPage(
         webView.loadUrl(url)
     }
     val isNetworkAvailable by remember {
-        org.shirakawatyu.yamibo.novel.util.NetworkMonitor.observeNetwork(context)
+        NetworkMonitor.observeNetwork(context)
     }.collectAsState(initial = false)
 
     LaunchedEffect(isNetworkAvailable, BBSPageState.isErrorState) {

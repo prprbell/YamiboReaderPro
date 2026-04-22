@@ -12,7 +12,7 @@ import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy
 import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
 import org.shirakawatyu.yamibo.novel.repository.DirectoryRepository
-import org.shirakawatyu.yamibo.novel.util.MangaTitleCleaner
+import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 
 class MangaDirectoryVM(application: Application) : AndroidViewModel(application) {
     private val repo = DirectoryRepository.getInstance(application)

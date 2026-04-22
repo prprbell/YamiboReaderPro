@@ -137,14 +137,14 @@ import org.shirakawatyu.yamibo.novel.ui.theme.ReaderTheme
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ReaderVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
-import org.shirakawatyu.yamibo.novel.ui.widget.CacheDialog
-import org.shirakawatyu.yamibo.novel.ui.widget.CacheProgressDialog
-import org.shirakawatyu.yamibo.novel.ui.widget.ContentViewer
-import org.shirakawatyu.yamibo.novel.ui.widget.CustomStatusBar
-import org.shirakawatyu.yamibo.novel.ui.widget.DayNightLottieSwitch
-import org.shirakawatyu.yamibo.novel.ui.widget.PassageWebView
-import org.shirakawatyu.yamibo.novel.util.FavoriteUtil
-import org.shirakawatyu.yamibo.novel.util.rememberScreenCorner
+import org.shirakawatyu.yamibo.novel.ui.widget.reader.CacheDialog
+import org.shirakawatyu.yamibo.novel.ui.widget.reader.CacheProgressDialog
+import org.shirakawatyu.yamibo.novel.ui.widget.reader.ContentViewer
+import org.shirakawatyu.yamibo.novel.ui.widget.reader.CustomStatusBar
+import org.shirakawatyu.yamibo.novel.ui.widget.reader.DayNightLottieSwitch
+import org.shirakawatyu.yamibo.novel.ui.widget.reader.PassageWebView
+import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
+import org.shirakawatyu.yamibo.novel.util.reader.rememberScreenCorner
 import kotlin.math.roundToInt
 
 private val backgroundColors = listOf(

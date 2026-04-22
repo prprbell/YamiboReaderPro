@@ -14,9 +14,9 @@ import okhttp3.dnsoverhttps.DnsOverHttps
 import coil.imageLoader
 import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
-import org.shirakawatyu.yamibo.novel.util.ImageCheckerUtil
-import org.shirakawatyu.yamibo.novel.util.RateLimitInterceptor
-import org.shirakawatyu.yamibo.novel.util.TtlDnsCache
+import org.shirakawatyu.yamibo.novel.util.manga.ImageCheckerUtil
+import org.shirakawatyu.yamibo.novel.util.network.RateLimitInterceptor
+import org.shirakawatyu.yamibo.novel.util.network.TtlDnsCache
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.io.File
