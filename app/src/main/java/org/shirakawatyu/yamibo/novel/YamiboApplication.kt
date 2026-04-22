@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import okhttp3.brotli.BrotliInterceptor
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import org.shirakawatyu.yamibo.novel.util.FastScrollDebounceInterceptor
 import org.shirakawatyu.yamibo.novel.util.NetworkPreWarmer
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
@@ -111,6 +112,9 @@ class YamiboApplication : Application(), ImageLoaderFactory {
         }
 
         return ImageLoader.Builder(this)
+            .components {
+                add(FastScrollDebounceInterceptor())
+            }
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.30)
