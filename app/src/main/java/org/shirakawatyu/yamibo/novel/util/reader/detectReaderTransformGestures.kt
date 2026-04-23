@@ -1,4 +1,4 @@
-package org.shirakawatyu.yamibo.novel.util.favorite
+package org.shirakawatyu.yamibo.novel.util.reader
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown

@@ -27,6 +27,7 @@ import org.shirakawatyu.yamibo.novel.ui.state.FavoriteState
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteDeleteUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
+import org.shirakawatyu.yamibo.novel.util.favorite.TombstoneQueueUtil
 import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -58,7 +59,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private var pendingSyncJob: Job? = null
     private var fetchJob: Job? = null
     private var lastNavigateTime = 0L
-    private val SMART_SYNC_TIMEOUT = 10 * 60 * 1000L
+    private val SMART_SYNC_TIMEOUT = 60 * 60 * 1000L
     // 记录正在删除过程中的URL
     private val pendingDeleteUrls = mutableSetOf<String>()
     enum class RefreshStrategy {
@@ -77,6 +78,9 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
     init {
         viewModelScope.launch {
+            TombstoneQueueUtil.initQueue()
+            retryPendingDeletesQuietly()
+
             FavoriteUtil.getFavoriteFlow()
                 .flowOn(Dispatchers.IO)
                 .collect { fullList ->
@@ -235,8 +239,9 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 }
 
                 if (pageList.isNotEmpty()) {
+                    val pendingUrls = TombstoneQueueUtil.getPendingUrls()
                     val safePageList = stateMutex.withLock {
-                        pageList.filterNot { pendingDeleteUrls.contains(it.url) }
+                        pageList.filterNot { pendingUrls.contains(it.url) }
                     }
 
                     accumulatedList.addAll(safePageList)
@@ -402,6 +407,10 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     }
 
     fun toggleManageMode() {
+        val realCookie = android.webkit.CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
+        val isLoggedIn = realCookie.contains("EeqY_2132_auth=")
+
+        if (!isLoggedIn) return
         val newMode = !_uiState.value.isInManageMode
         _uiState.value = _uiState.value.copy(
             isInManageMode = newMode,
@@ -477,6 +486,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         // 刷新UI
         viewModelScope.launch(Dispatchers.Main) {
             stateMutex.withLock {
+                TombstoneQueueUtil.addUrls(itemsToDeleteUrls)
                 pendingDeleteUrls.addAll(itemsToDeleteUrls)
                 val updatedList = allFavorites.filterNot { itemsToDeleteUrls.contains(it.url) }
                 allFavorites = updatedList
@@ -500,12 +510,14 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 }
             }
             if (isSuccess) {
+                TombstoneQueueUtil.removeUrls(itemsToDeleteUrls)
                 itemsToDeleteUrls.forEach { url ->
                     try { localCache.deleteNovel(url) } catch (e: Exception) {}
                 }
                 refreshCacheInfo()
             } else {
                 stateMutex.withLock {
+                    TombstoneQueueUtil.removeUrls(itemsToDeleteUrls)
                     allFavorites = backupList
                     FavoriteUtil.saveFavoriteOrder(backupList)
                 }
@@ -631,6 +643,29 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     fun moveToTop(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
             FavoriteUtil.moveUrlToTopSuspend(url)
+        }
+    }
+    /**
+     * 后台重试离线删除任务
+     */
+    private suspend fun retryPendingDeletesQuietly() {
+        withContext(Dispatchers.IO) {
+            val pendingUrls = TombstoneQueueUtil.getPendingUrls()
+            if (pendingUrls.isEmpty()) return@withContext
+
+            val currentFavMap = FavoriteUtil.getFavoriteMapSuspend()
+
+            val favIdsToDelete = pendingUrls
+                .mapNotNull { url -> currentFavMap[url]?.favId }
+                .filter { it.isNotEmpty() }
+
+            if (favIdsToDelete.isNotEmpty()) {
+                val isSuccess = FavoriteDeleteUtil.deleteFavoritesBatch(null, favIdsToDelete)
+
+                if (isSuccess) {
+                    TombstoneQueueUtil.removeUrls(pendingUrls)
+                }
+            }
         }
     }
 }

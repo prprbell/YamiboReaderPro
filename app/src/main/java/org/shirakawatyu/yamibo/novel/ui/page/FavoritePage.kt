@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
+import android.webkit.CookieManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -148,6 +149,10 @@ fun FavoritePage(
     var showCustomDnsDialog by remember { mutableStateOf(false) }
     var showClickToTopDialog by remember { mutableStateOf(false) }
     var pendingScrollToTop by remember { mutableStateOf(false) }
+    var isLoggedIn by remember {
+        mutableStateOf(CookieManager.getInstance().getCookie("https://bbs.yamibo.com")?.contains("EeqY_2132_auth=") == true)
+    }
+
     LaunchedEffect(Unit) { favoriteVM.refreshCacheInfo() }
     DisposableEffect(Unit) {
         favoriteVM.isFavoritePageVisible = true
@@ -182,9 +187,18 @@ fun FavoritePage(
             if (event == Lifecycle.Event.ON_PAUSE) {
                 favoriteVM.lastPauseTime = System.currentTimeMillis()
             } else if (event == Lifecycle.Event.ON_RESUME) {
-
+                coroutineScope.launch(Dispatchers.IO) {
+                    for (i in 0 until 5) {
+                        val realCookie = CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
+                        val auth = realCookie.contains("EeqY_2132_auth=")
+                        if (isLoggedIn != auth) {
+                            withContext(Dispatchers.Main) { isLoggedIn = auth }
+                        }
+                        delay(1000)
+                    }
+                }
                 val isQuickReturn = favoriteVM.lastPauseTime != 0L &&
-                        (System.currentTimeMillis() - favoriteVM.lastPauseTime < 2000L)
+                        (System.currentTimeMillis() - favoriteVM.lastPauseTime < 2400L)
 
                 coroutineScope.launch {
                     if (pendingScrollToTop) {
@@ -192,10 +206,9 @@ fun FavoritePage(
                         pendingScrollToTop = false
                     }
 
-                    kotlinx.coroutines.delay(350)
+                    delay(350)
 
-                    if (isQuickReturn) {
-                    } else {
+                    if (!isQuickReturn){
                         when (favoriteVM.getEffectiveResumeStrategy()) {
                             FavoriteVM.RefreshStrategy.SKIP -> {
                             }
@@ -251,7 +264,7 @@ fun FavoritePage(
     }
     LaunchedEffect(showTopToast) {
         if (showTopToast) {
-            kotlinx.coroutines.delay(2500)
+            delay(2500)
             showTopToast = false
         }
     }
@@ -457,9 +470,17 @@ fun FavoritePage(
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
                                     text = { Text("管理收藏") },
+                                    enabled = isLoggedIn,
                                     onClick = { favoriteVM.toggleManageMode(); menuExpanded = false },
-                                    leadingIcon = { Icon(painterResource(R.drawable.ic_visibility), null, Modifier.size(24.dp)) }
-                                )
+                                    leadingIcon = {
+                                        Icon(
+                                            painterResource(R.drawable.ic_visibility),
+                                            null,
+                                            Modifier.size(24.dp),
+                                            tint = if (isLoggedIn) MaterialTheme.colorScheme.onSurface
+                                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                        )
+                                    }                                )
                             }
 
                             // 第二排：折叠 管理书签
@@ -470,7 +491,7 @@ fun FavoritePage(
                                     onClick = {
                                         menuExpanded = false
                                         coroutineScope.launch {
-                                            kotlinx.coroutines.delay(250)
+                                            delay(250)
                                             val newState = !isFavoriteCollapsed
                                             GlobalData.isFavoriteCollapsed.value = newState
                                             SettingsUtil.saveFavoriteCollapseMode(newState)
@@ -497,7 +518,7 @@ fun FavoritePage(
                                         menuExpanded = false
                                         if (isClickToTopEnabled) {
                                             coroutineScope.launch {
-                                                kotlinx.coroutines.delay(250)
+                                                delay(250)
                                                 GlobalData.isClickToTopEnabled.value = false
                                                 SettingsUtil.saveClickToTopMode(false)
                                             }
@@ -529,7 +550,7 @@ fun FavoritePage(
                                         menuExpanded = false
                                         if (isCustomDnsEnabled) {
                                             coroutineScope.launch {
-                                                kotlinx.coroutines.delay(250)
+                                                delay(250)
                                                 GlobalData.isCustomDnsEnabled.value = false
                                                 SettingsUtil.saveCustomDnsMode(false)
                                             }
@@ -559,7 +580,7 @@ fun FavoritePage(
                                     onClick = {
                                         menuExpanded = false
                                         coroutineScope.launch {
-                                            kotlinx.coroutines.delay(250)
+                                            delay(250)
                                             val newState = !isAutoSignIn
                                             GlobalData.isAutoSignInEnabled.value = newState
                                             SettingsUtil.saveAutoSignInMode(newState)
@@ -623,10 +644,10 @@ fun FavoritePage(
                                         pendingScrollToTop = true
                                     }
                                     coroutineScope.launch {
-                                        kotlinx.coroutines.delay(400)
+                                        delay(400)
                                         favoriteVM.moveToTop(item.url)
                                         if (capturedWasAtTop) {
-                                            kotlinx.coroutines.delay(50)
+                                            delay(50)
                                             lazyListState.scrollToItem(0)
                                             pendingScrollToTop = false
                                         }
