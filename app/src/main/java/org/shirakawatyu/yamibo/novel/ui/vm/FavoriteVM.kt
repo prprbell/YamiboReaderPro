@@ -494,7 +494,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 pendingDeleteUrls.removeAll(itemsToDeleteUrls)
 
                 if (!isSuccess) {
-                    // 失败了，回滚数据
+                    // 失败，回滚数据
                     allFavorites = backupList
                     FavoriteUtil.saveFavoriteOrder(backupList)
                 }
@@ -504,7 +504,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                     try { localCache.deleteNovel(url) } catch (e: Exception) {}
                 }
                 refreshCacheInfo()
-                withContext(Dispatchers.Main) { onToast("删除成功") }
             } else {
                 stateMutex.withLock {
                     allFavorites = backupList
