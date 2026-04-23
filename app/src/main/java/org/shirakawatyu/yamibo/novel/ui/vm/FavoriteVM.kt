@@ -59,7 +59,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private var fetchJob: Job? = null
     private var lastNavigateTime = 0L
     private val SMART_SYNC_TIMEOUT = 10 * 60 * 1000L
-
+    // 记录正在删除过程中的URL
+    private val pendingDeleteUrls = mutableSetOf<String>()
     enum class RefreshStrategy {
         FULL,   // 全量刷新
         SMART,  // 增量刷新
@@ -234,9 +235,13 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 }
 
                 if (pageList.isNotEmpty()) {
-                    accumulatedList.addAll(pageList)
+                    val safePageList = stateMutex.withLock {
+                        pageList.filterNot { pendingDeleteUrls.contains(it.url) }
+                    }
 
-                    val hasNewItems = FavoriteUtil.mergeFavoritesProgressiveSuspend(pageList)
+                    accumulatedList.addAll(safePageList)
+                    val hasNewItems = FavoriteUtil.mergeFavoritesProgressiveSuspend(safePageList)
+
                     if (generation != fetchGeneration.get()) break
 
                     if (currentPage == 1) {
@@ -467,33 +472,49 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             return
         }
 
-        // UI更新
+        val backupList = allFavorites
+
+        // 刷新UI
         viewModelScope.launch(Dispatchers.Main) {
             stateMutex.withLock {
+                pendingDeleteUrls.addAll(itemsToDeleteUrls)
                 val updatedList = allFavorites.filterNot { itemsToDeleteUrls.contains(it.url) }
                 allFavorites = updatedList
                 FavoriteUtil.saveFavoriteOrder(updatedList)
             }
-            _uiState.value = _uiState.value.copy(
-                selectedItems = emptySet(),
-                isInManageMode = false
-            )
+            _uiState.value = _uiState.value.copy(selectedItems = emptySet(), isInManageMode = false)
             updateUiList()
         }
 
         // 后台请求删除 + 自动清理本地缓存
         viewModelScope.launch(Dispatchers.IO) {
-            FavoriteDeleteUtil.deleteFavoritesBatch(prefetchFormHash, favIdsToDelete)
+            val isSuccess = FavoriteDeleteUtil.deleteFavoritesBatch(prefetchFormHash, favIdsToDelete)
+            stateMutex.withLock {
+                // 无论成功还是失败，网络请求结束，移除黑名单
+                pendingDeleteUrls.removeAll(itemsToDeleteUrls)
 
-            itemsToDeleteUrls.forEach { url ->
-                try {
-                    localCache.deleteNovel(url)
-                } catch (e: Exception) {
-                    Log.e(logTag, "自动删除缓存失败: $url", e)
+                if (!isSuccess) {
+                    // 失败了，回滚数据
+                    allFavorites = backupList
+                    FavoriteUtil.saveFavoriteOrder(backupList)
                 }
             }
-
-            refreshCacheInfo()
+            if (isSuccess) {
+                itemsToDeleteUrls.forEach { url ->
+                    try { localCache.deleteNovel(url) } catch (e: Exception) {}
+                }
+                refreshCacheInfo()
+                withContext(Dispatchers.Main) { onToast("删除成功") }
+            } else {
+                stateMutex.withLock {
+                    allFavorites = backupList
+                    FavoriteUtil.saveFavoriteOrder(backupList)
+                }
+                withContext(Dispatchers.Main) {
+                    updateUiList()
+                    onToast("网络异常，删除失败")
+                }
+            }
         }
     }
 
