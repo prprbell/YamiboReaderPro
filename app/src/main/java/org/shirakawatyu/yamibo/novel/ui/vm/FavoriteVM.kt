@@ -472,21 +472,22 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         val itemsToDeleteUrls = _uiState.value.selectedItems.toSet()
         if (itemsToDeleteUrls.isEmpty()) return
 
-        val favIdsToDelete = allFavorites
-            .filter { itemsToDeleteUrls.contains(it.url) && !it.favId.isNullOrEmpty() }
-            .map { it.favId!! }
+        val itemsToTombstone = allFavorites.filter {
+            itemsToDeleteUrls.contains(it.url) && !it.favId.isNullOrEmpty()
+        }
 
-        if (favIdsToDelete.isEmpty()) {
-            onToast("数据缺失，请下拉刷新获取最新列表！")
+        if (itemsToTombstone.isEmpty()) {
+            onToast("数据缺失 请刷新")
             return
         }
 
+        val favIdsToDelete = itemsToTombstone.map { it.favId!! }
         val backupList = allFavorites
 
-        // 刷新UI
         viewModelScope.launch(Dispatchers.Main) {
             stateMutex.withLock {
-                TombstoneQueueUtil.addUrls(itemsToDeleteUrls)
+                TombstoneQueueUtil.addItems(itemsToTombstone)
+
                 pendingDeleteUrls.addAll(itemsToDeleteUrls)
                 val updatedList = allFavorites.filterNot { itemsToDeleteUrls.contains(it.url) }
                 allFavorites = updatedList
@@ -650,20 +651,16 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
      */
     private suspend fun retryPendingDeletesQuietly() {
         withContext(Dispatchers.IO) {
-            val pendingUrls = TombstoneQueueUtil.getPendingUrls()
-            if (pendingUrls.isEmpty()) return@withContext
+            val pendingEntries = TombstoneQueueUtil.getPendingUrls()
+            if (pendingEntries.isEmpty()) return@withContext
 
-            val currentFavMap = FavoriteUtil.getFavoriteMapSuspend()
-
-            val favIdsToDelete = pendingUrls
-                .mapNotNull { url -> currentFavMap[url]?.favId }
-                .filter { it.isNotEmpty() }
+            val favIdsToDelete = pendingEntries.map { it.substringAfter("|") }
 
             if (favIdsToDelete.isNotEmpty()) {
                 val isSuccess = FavoriteDeleteUtil.deleteFavoritesBatch(null, favIdsToDelete)
 
                 if (isSuccess) {
-                    TombstoneQueueUtil.removeUrls(pendingUrls)
+                    TombstoneQueueUtil.removeUrls(pendingEntries)
                 }
             }
         }

@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 
 /**
@@ -37,16 +38,21 @@ object TombstoneQueueUtil {
     /**
      * 追加到墓碑队列
      */
-    suspend fun addUrls(urls: Set<String>) {
+    suspend fun addItems(favorites: List<Favorite>) {
         tombstoneMutex.withLock {
-            memoryTombstoneQueue.addAll(urls)
+            val newEntries = favorites.mapNotNull {
+                if (it.favId != null) "${it.url}|${it.favId}" else null
+            }
+            memoryTombstoneQueue.addAll(newEntries)
             val snapshot = memoryTombstoneQueue.toSet()
             GlobalData.dataStore?.edit { pref ->
                 pref[pendingDeleteKey] = snapshot
             }
         }
     }
-
+    fun getPendingFavIds(): List<String> {
+        return memoryTombstoneQueue.map { it.substringAfter("|") }
+    }
     /**
      * 从墓碑队列中移除
      */
