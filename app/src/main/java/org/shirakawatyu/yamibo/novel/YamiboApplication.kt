@@ -7,6 +7,7 @@ import android.os.Looper
 import android.webkit.WebSettings
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import coil.memory.MemoryCache
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +32,7 @@ class YamiboApplication : Application(), ImageLoaderFactory {
         var systemUserAgent: String = ""
     }
 
+    @OptIn(ExperimentalCoilApi::class)
     override fun onCreate() {
         super.onCreate()
         application = this
