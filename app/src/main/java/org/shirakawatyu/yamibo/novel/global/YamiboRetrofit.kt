@@ -12,6 +12,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
 import coil.imageLoader
+import okhttp3.Dns
+import okhttp3.HttpUrl
 import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.util.manga.ImageCheckerUtil
@@ -20,8 +22,10 @@ import org.shirakawatyu.yamibo.novel.util.network.TtlDnsCache
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.io.File
+import java.io.IOException
 import java.net.InetAddress
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -41,11 +45,46 @@ class DynamicDns(private val bootstrapClient: OkHttpClient) : okhttp3.Dns {
             .includeIPv6(false).build()
     }
 
-    private val systemDns = okhttp3.Dns.SYSTEM
+    private val systemDns = Dns.SYSTEM
+
+    private val manualDnsCache = ConcurrentHashMap<String, Dns>()
+
+    private fun getBootstrapHostsForDoHUrl(url: HttpUrl): List<InetAddress> {
+        val host = url.host.lowercase()
+        return when {
+            host.contains("alidns") || host.contains("dns.aliyun") ->
+                listOf(InetAddress.getByName("223.5.5.5"), InetAddress.getByName("223.6.6.6"))
+            host.contains("doh.pub") || host.contains("dnspod") ->
+                listOf(InetAddress.getByName("1.12.12.12"), InetAddress.getByName("120.53.53.53"))
+            host.contains("cloudflare") || host.contains("1.1.1.1") ->
+                listOf(InetAddress.getByName("1.1.1.1"), InetAddress.getByName("1.0.0.1"))
+            host.contains("google") || host.contains("dns.google") ->
+                listOf(InetAddress.getByName("8.8.8.8"), InetAddress.getByName("8.8.4.4"))
+            else -> listOf(InetAddress.getByName("223.5.5.5"))
+        }
+    }
 
     override fun lookup(hostname: String): List<InetAddress> {
-        if (!GlobalData.isCustomDnsEnabled.value) {
-            return systemDns.lookup(hostname)
+        val enabled = GlobalData.isDnsOptimizationEnabled.value
+        if (!enabled) return systemDns.lookup(hostname)
+
+        val mode = GlobalData.dnsOptimizationMode.value
+        if (mode == "manual") {
+            val url = GlobalData.customDnsUrl.value
+            if (url.isBlank() || !url.startsWith("https://")) return systemDns.lookup(hostname)
+
+            return try {
+                val manualDns = manualDnsCache.getOrPut(url) {
+                    DnsOverHttps.Builder().client(bootstrapClient)
+                        .url(url.toHttpUrl())
+                        .bootstrapDnsHosts(getBootstrapHostsForDoHUrl(url.toHttpUrl()))
+                        .includeIPv6(false)
+                        .build()
+                }
+                manualDns.lookup(hostname)
+            } catch (_: Exception) {
+                systemDns.lookup(hostname)
+            }
         }
 
         return runBlocking {
@@ -217,16 +256,7 @@ class YamiboRetrofit {
                     try {
                         ImageCheckerUtil.interceptAndCheckImageStream(rawResponse, urlStr)
                     } catch (e: Exception) {
-//                        Log.e("YamiboRetrofit", "====== 🚨 触发拦截，响应头分析 START ======")
-//                        Log.e("YamiboRetrofit", "请求 URL: $urlStr")
-//                        Log.e("YamiboRetrofit", "HTTP 状态码: ${rawResponse.code}")
-//
-//                        rawResponse.headers.forEach { (name, value) ->
-//                            Log.e("YamiboRetrofit", "Header -> $name: $value")
-//                        }
-//                        Log.e("YamiboRetrofit", "====== 🚨 触发拦截，响应头分析 END ======")
-
-                        throw java.io.IOException("Blocked by ImageChecker: ${e.message}", e)
+                        throw IOException("Blocked by ImageChecker: ${e.message}", e)
                     }
                 } else {
                     rawResponse

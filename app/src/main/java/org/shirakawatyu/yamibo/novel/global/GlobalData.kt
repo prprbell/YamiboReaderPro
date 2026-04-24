@@ -38,5 +38,9 @@ class GlobalData {
         val isCustomDnsEnabled = MutableStateFlow(false)
         val isClickToTopEnabled = MutableStateFlow(false)
         val isAutoClearCacheEnabled = MutableStateFlow(false)
+        val isDnsOptimizationEnabled = MutableStateFlow(false)
+        val dnsOptimizationMode = MutableStateFlow("auto")
+        val customDnsUrl = MutableStateFlow("")
+
     }
 }

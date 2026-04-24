@@ -116,6 +116,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YellowLightLight
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
+import org.shirakawatyu.yamibo.novel.ui.widget.NetworkOptimizationDialog
 import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
@@ -545,19 +546,14 @@ fun FavoritePage(
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
-                                    text = { Text(if (isCustomDnsEnabled) "关闭优化" else "网络优化") },
+                                    text = { Text("网络优化") },
                                     onClick = {
                                         menuExpanded = false
-                                        if (isCustomDnsEnabled) {
-                                            coroutineScope.launch {
-                                                delay(250)
-                                                GlobalData.isCustomDnsEnabled.value = false
-                                                SettingsUtil.saveCustomDnsMode(false)
-                                            }
-                                        } else showCustomDnsDialog = true
+                                        showCustomDnsDialog = true
                                     },
                                     leadingIcon = {
-                                        Icon(Icons.Default.Build, null, Modifier.size(24.dp), tint = if (isCustomDnsEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface)
+                                        Icon(Icons.Default.Build, null, Modifier.size(24.dp),
+                                            tint = if (isCustomDnsEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface)
                                     }
                                 )
                                 DropdownMenuItem(
@@ -996,29 +992,7 @@ fun FavoritePage(
         }
         // DNS确认对话框
         if (showCustomDnsDialog) {
-            AlertDialog(
-                onDismissRequest = { showCustomDnsDialog = false },
-                title = {
-                    Text("开启网络优化", color = MaterialTheme.colorScheme.primary)
-                },
-                text = {
-                    Text("开启后，应用将使用阿里云或腾讯云的公共DoH来获取服务器地址，以尝试绕过部分网络环境的干扰。\n\n此功能不一定有效，若开启后出现无法连接的情况，请关闭此选项。")
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        GlobalData.isCustomDnsEnabled.value = true
-                        SettingsUtil.saveCustomDnsMode(true)
-                        showCustomDnsDialog = false
-                    }) {
-                        Text("确认开启")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showCustomDnsDialog = false }) {
-                        Text("取消")
-                    }
-                }
-            )
+            NetworkOptimizationDialog(onDismiss = { showCustomDnsDialog = false })
         }
         if (showDeleteConfirmDialog) {
             AlertDialog(

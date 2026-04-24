@@ -307,6 +307,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                 SettingsUtil.getCustomDnsMode { GlobalData.isCustomDnsEnabled.value = it }
                 SettingsUtil.getClickToTopMode { GlobalData.isClickToTopEnabled.value = it }
                 SettingsUtil.getAutoSignInMode { GlobalData.isAutoSignInEnabled.value = it }
+                SettingsUtil.getDnsOptimizationEnabled { GlobalData.isDnsOptimizationEnabled.value = it }
+                SettingsUtil.getDnsOptimizationMode { GlobalData.dnsOptimizationMode.value = it }
+                SettingsUtil.getCustomDnsUrl { GlobalData.customDnsUrl.value = it }
                 GlobalData.isAppInitialized = true
             }
         }
