@@ -7,23 +7,33 @@ import coil.request.ImageResult
 import kotlinx.coroutines.delay
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 
-class FastScrollDebounceInterceptor : Interceptor {
+/**
+ * 快速滑动防抖。
+ */
+class FastScrollDebounceInterceptor(
+    private val delayMs: Long = 200L
+) : Interceptor {
+
     override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
         val request = chain.request
         val data = request.data.toString()
 
-        if (data.startsWith("http", ignoreCase = true)) {
+        if (delayMs <= 0L || !data.startsWith("http", ignoreCase = true)) {
+            return chain.proceed(request)
+        }
 
-            val memoryKey = request.memoryCacheKey?.key ?: data
+        val cacheKey = request.diskCacheKey
+            ?: request.memoryCacheKey?.key
+            ?: data
 
-            val inMemory = request.context.imageLoader.memoryCache?.get(MemoryCache.Key(memoryKey)) != null
+        val inMemory = request.context.imageLoader.memoryCache
+            ?.get(MemoryCache.Key(cacheKey)) != null
 
-            if (!inMemory) {
-                val inDisk = YamiboRetrofit.Companion.isImageCachedInOkHttp(data)
+        if (!inMemory) {
+            val inDisk = YamiboRetrofit.isImageCachedInCoilDisk(cacheKey)
 
-                if (!inDisk) {
-                    delay(200L)
-                }
+            if (!inDisk) {
+                delay(delayMs)
             }
         }
 

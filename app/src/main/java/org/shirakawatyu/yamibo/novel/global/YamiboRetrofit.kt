@@ -3,7 +3,6 @@ package org.shirakawatyu.yamibo.novel.global
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.util.Log
 import coil.annotation.ExperimentalCoilApi
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -17,7 +16,6 @@ import okhttp3.HttpUrl
 import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.util.manga.ImageCheckerUtil
-import org.shirakawatyu.yamibo.novel.util.network.RateLimitInterceptor
 import org.shirakawatyu.yamibo.novel.util.network.TtlDnsCache
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -243,9 +241,6 @@ class YamiboRetrofit {
 
                 chain.proceed(request)
             }
-            if (enableImageChecker) {
-                builder.addNetworkInterceptor(RateLimitInterceptor(100L))
-            }
             // 2. 网络拦截器
             builder.addNetworkInterceptor { chain ->
                 val request = chain.request()
@@ -331,28 +326,14 @@ class YamiboRetrofit {
         }
 
         @OptIn(ExperimentalCoilApi::class)
-        fun isImageCachedInOkHttp(url: String): Boolean {
+        fun isImageCachedInCoilDisk(cacheKey: String): Boolean {
             return try {
-                val diskCache = YamiboApplication.application.imageLoader.diskCache
-                val snapshot = diskCache?.openSnapshot(url)
-                snapshot?.close()
-                snapshot != null
+                val diskCache = YamiboApplication.application.imageLoader.diskCache ?: return false
+                diskCache.openSnapshot(cacheKey)?.use {
+                    true
+                } ?: false
             } catch (_: Exception) {
                 false
-            }
-        }
-
-        @OptIn(ExperimentalCoilApi::class)
-        fun getOkHttpImageCacheSize(): Long {
-            return YamiboApplication.application.imageLoader.diskCache?.size ?: 0L
-        }
-
-        @OptIn(ExperimentalCoilApi::class)
-        fun clearAllOkHttpImageCache() {
-            try {
-                YamiboApplication.application.imageLoader.diskCache?.clear()
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }

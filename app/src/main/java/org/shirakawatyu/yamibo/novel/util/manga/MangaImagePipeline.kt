@@ -29,12 +29,6 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 漫画图片统一加载管线。
- *
- * 核心语义：
- * 1. 保留 WebView -> Coil -> Native 的接续能力。
- * 2. WebView 接管、进入 Native 前 handoff、Native 热窗口预取、跨章节冷预取统一入口。
- * 3. 所有后台下载共享同一个 in-flight map，避免 WebView / Native / 章节预取重复调度同一 URL。
- * 4. 统一 Cookie / Referer / diskCacheKey / memoryCacheKey / force reload 语义。
  */
 @OptIn(ExperimentalCoilApi::class)
 object MangaImagePipeline {
@@ -99,11 +93,6 @@ object MangaImagePipeline {
 
     /**
      * WebView 图片请求接管入口。
-     *
-     * 保留原业务语义：
-     * - disk cache hit：立即返回 WebResourceResponse。
-     * - miss：由 Coil 下载到 disk cache；下载完成后打开 snapshot 返回给 WebView。
-     * - 失败或超时：返回 null，由调用方 fallback 到 YamiboRetrofit.proxyWebViewResource。
      */
     fun interceptForWebView(
         context: Context,
@@ -141,11 +130,6 @@ object MangaImagePipeline {
         }
     }
 
-    /**
-     * BBSPage / MinePage / MangaWebPage / MangaProber 已经拿到整章图片 URL 后调用。
-     *
-     * 这一步用于补齐“WebView 还没来得及发起资源请求”的图片，保证进入 Native 后也能继续接续。
-     */
     fun handoffPrefetch(
         context: Context,
         urls: List<String>,
@@ -180,9 +164,6 @@ object MangaImagePipeline {
 
     /**
      * Native 阅读页当前窗口预热入口。
-     *
-     * NativeMangaPage 只需要在 currentIndex / flatPages / readMode 变化后调用这个方法；
-     * 具体哪些图进 memory、哪些只进 disk，由这里统一决定。
      */
     fun updateNativeWindow(
         context: Context,
@@ -321,9 +302,6 @@ object MangaImagePipeline {
 
     /**
      * 生成 Native 可见图片请求。
-     *
-     * forceVersion > 0 时，data URL 增加 _t 参数绕过旧响应；
-     * 但 diskCacheKey / memoryCacheKey 仍使用原始 URL，避免产生一堆 _t 缓存副本。
      */
     fun buildImageRequest(
         context: Context,
@@ -632,8 +610,6 @@ object MangaImagePipeline {
     }
 
     private fun cacheKey(url: String): String {
-        // 兼容我们 force reload 追加的 _t 参数，保证强刷不会制造多个缓存 key。
-        // 使用 raw string，避免 Kotlin 普通字符串里的 \d 转义编译错误。
         return url
             .replace(Regex("""([?&])_t=\d+(&?)""")) { match ->
                 val prefix = match.groupValues[1]
