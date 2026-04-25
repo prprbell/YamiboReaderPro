@@ -91,6 +91,7 @@ import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
+import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
@@ -331,13 +332,26 @@ fun MinePage(
                     htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
                 }
 
-                val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+                val urls = urlsJoined
+                    .split("|||")
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+
+                val safeClickedIndex = clickedIndex.coerceIn(0, maxOf(0, urls.size - 1))
+
+                MangaImagePipeline.handoffPrefetch(
+                    context = context.applicationContext,
+                    urls = urls,
+                    clickedIndex = safeClickedIndex
+                )
 
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     GlobalData.tempMangaUrls = urls
-                    GlobalData.tempMangaIndex = clickedIndex
+                    GlobalData.tempMangaIndex = safeClickedIndex
                     GlobalData.tempHtml = cleanHtml
                     GlobalData.tempTitle = title
+
                     mineWebView.evaluateJavascript(PageJsScripts.FREEZE_BROKEN_IMAGES_JS, null)
                     mineWebView.evaluateJavascript("window.stop();", null)
                     mineWebView.stopLoading()

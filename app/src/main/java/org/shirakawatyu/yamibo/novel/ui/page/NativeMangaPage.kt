@@ -111,27 +111,17 @@ import androidx.navigation.NavController
 import coil.annotation.ExperimentalCoilApi
 import coil.compose.SubcomposeAsyncImage
 import coil.imageLoader
-import coil.memory.MemoryCache
-import coil.request.CachePolicy
-import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 import org.shirakawatyu.yamibo.novel.bean.MangaSettings
 import org.shirakawatyu.yamibo.novel.global.GlobalData
-import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaChapter
 import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaChapterPanel
 import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaSettingsPanel
@@ -145,9 +135,9 @@ import org.shirakawatyu.yamibo.novel.util.manga.MangaReaderManager
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.manga.ZoomPanGestureHandler
 import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
+import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.verticalMangaZoomGesture
 import java.net.URLEncoder
-import java.util.concurrent.ConcurrentHashMap
 
 private val SpecialChapterRegex = Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)
 private val ChapterIndexFormat = java.text.DecimalFormat("0.###")
@@ -193,67 +183,8 @@ fun NativeMangaPage(
 
     var isMultiTouch by remember { mutableStateOf(false) }
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
-    val pageScope = rememberCoroutineScope()
-
-    val preloadManager = remember(context) {
-        object {
-            inner class PreloadTask(val job: Job, val startTime: Long = System.currentTimeMillis())
-
-            private val semaphore = Semaphore(4)
-            private val pendingJobs = ConcurrentHashMap<String, PreloadTask>()
-            private val runningJobs = ConcurrentHashMap<String, PreloadTask>()
-
-            fun updatePreloadList(urlsToLoad: List<String>, cookie: String) {
-                val urlsSet = urlsToLoad.toSet()
-
-                val pendingIterator = pendingJobs.entries.iterator()
-                while (pendingIterator.hasNext()) {
-                    val entry = pendingIterator.next()
-                    if (!urlsSet.contains(entry.key)) {
-                        entry.value.job.cancel()
-                        pendingIterator.remove()
-                    }
-                }
-
-                val oldTasks = runningJobs.entries.filter { !urlsSet.contains(it.key) }
-                if (oldTasks.size > 3) {
-                    val sortedOldTasks = oldTasks.sortedBy { it.value.startTime }
-                    for (i in 3 until sortedOldTasks.size) {
-                        val entryToCancel = sortedOldTasks[i]
-                        entryToCancel.value.job.cancel()
-                        runningJobs.remove(entryToCancel.key)
-                    }
-                }
-
-                urlsToLoad.forEach { url ->
-                    if (!pendingJobs.containsKey(url) && !runningJobs.containsKey(url)) {
-                        val job = pageScope.launch {
-                            try {
-                                semaphore.withPermit {
-                                    pendingJobs.remove(url)
-                                    if (!isActive) return@withPermit
-
-                                    runningJobs[url] = PreloadTask(coroutineContext[Job]!!)
-
-                                    val request = ImageRequest.Builder(context.applicationContext)
-                                        .data(url)
-                                        .addHeader("Cookie", cookie)
-                                        .addHeader("Referer", "https://bbs.yamibo.com/")
-                                        .memoryCachePolicy(CachePolicy.ENABLED)
-                                        .build()
-
-                                    context.imageLoader.execute(request)
-                                }
-                            } finally {
-                                pendingJobs.remove(url)
-                                runningJobs.remove(url)
-                            }
-                        }
-                        pendingJobs[url] = PreloadTask(job)
-                    }
-                }
-            }
-        }
+    val nativePipelineOwnerKey = remember(url, originalUrl) {
+        "native:${url.hashCode()}:${originalUrl.hashCode()}:${System.nanoTime()}"
     }
 
     val handleVerticalClick: () -> Unit = remember {
@@ -299,7 +230,18 @@ fun NativeMangaPage(
                 context = context,
                 url = targetUrl,
                 onSuccess = { urls, title, html ->
-                    GlobalData.tempMangaUrls = urls
+                    val normalizedUrls = urls
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+
+                    MangaImagePipeline.handoffPrefetch(
+                        context = context.applicationContext,
+                        urls = normalizedUrls,
+                        clickedIndex = 0
+                    )
+
+                    GlobalData.tempMangaUrls = normalizedUrls
                     GlobalData.tempHtml = html
                     GlobalData.tempTitle = title
                     GlobalData.tempMangaIndex = 0
@@ -403,7 +345,7 @@ fun NativeMangaPage(
         ZoomPanGestureHandler(scale = globalScale, offsetX = globalOffsetX, offsetY = globalOffsetY, screenWidthPx = screenWidthPx, screenHeightPx = screenHeightPx)
     }
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, nativePipelineOwnerKey) {
         val window = activity?.window
         window?.let { WindowCompat.getInsetsController(it, view) }
         if (window != null) {
@@ -415,6 +357,7 @@ fun NativeMangaPage(
             bottomNavBarVM.setBottomNavBarVisibility(false)
         }
         onDispose {
+            MangaImagePipeline.cancelNativeWindow(nativePipelineOwnerKey)
             if (!isJumpingChapter) {
                 activity?.window?.let { WindowCompat.getInsetsController(it, view).show(WindowInsetsCompat.Type.systemBars()) }
                 bottomNavBarVM.setBottomNavBarVisibility(true)
@@ -700,51 +643,22 @@ fun NativeMangaPage(
                 }
             }
 
-            val imageLoader = context.imageLoader
+            LaunchedEffect(cookie, currentIndex, readerManager.flatPages, readMode, nativePipelineOwnerKey) {
+                val pagesSnapshot = readerManager.flatPages
+                if (pagesSnapshot.isEmpty() || currentIndex !in pagesSnapshot.indices) {
+                    MangaImagePipeline.cancelNativeWindow(nativePipelineOwnerKey)
+                    return@LaunchedEffect
+                }
 
-            LaunchedEffect(cookie) {
-                snapshotFlow { currentIndex }
-                    .distinctUntilChanged()
-                    .debounce(200L)
-                    .collectLatest { index ->
-                        val pagesSnapshot = readerManager.flatPages
-                        if (pagesSnapshot.isEmpty() || index !in pagesSnapshot.indices) return@collectLatest
-
-                        val totalSize = pagesSnapshot.size
-
-                        withContext(Dispatchers.IO) {
-                            fun isCached(url: String): Boolean {
-                                val inMemory = imageLoader.memoryCache?.get(MemoryCache.Key(url)) != null
-                                if (inMemory) return true
-                                return YamiboRetrofit.isImageCachedInOkHttp(url)
-                            }
-
-                            var windowStart = maxOf(0, index - 4)
-                            var cachedBackwardCount = 0
-                            for (i in windowStart until index) {
-                                if (isCached(pagesSnapshot[i].imageUrl)) cachedBackwardCount++
-                            }
-
-                            val dynamicEndOffset = 8 + cachedBackwardCount
-                            val windowEnd = minOf(totalSize - 1, index + dynamicEndOffset)
-
-                            var cachedForwardCount = 0
-                            for (i in index + 1..windowEnd) {
-                                if (isCached(pagesSnapshot[i].imageUrl)) cachedForwardCount++
-                            }
-
-                            val expandBackward = minOf(cachedForwardCount, 2)
-                            windowStart = maxOf(0, windowStart - expandBackward)
-
-                            val urlsToLoad = pagesSnapshot.subList(windowStart, windowEnd + 1)
-                                .filter { it.globalIndex != index }
-                                .filter { !isCached(it.imageUrl) }
-                                .sortedBy { kotlin.math.abs(it.globalIndex - index) }
-                                .map { it.imageUrl }
-
-                            preloadManager.updatePreloadList(urlsToLoad, cookie)
-                        }
-                    }
+                MangaImagePipeline.updateNativeWindow(
+                    context = context.applicationContext,
+                    ownerKey = nativePipelineOwnerKey,
+                    urls = pagesSnapshot.map { it.imageUrl },
+                    currentIndex = currentIndex,
+                    cookie = cookie,
+                    isVerticalMode = isVerticalMode,
+                    isRtl = isRtl
+                )
             }
 
             val horizontalPagerClick: (Offset) -> Unit = remember(screenWidthPx, isRtl, pagerState) {
@@ -825,36 +739,21 @@ fun NativeMangaPage(
                             key = { _, item -> item.uniqueId }
                         ) { _, item ->
                             val externalRetry = forceReloadTriggers[item.imageUrl] ?: 0
-                            var retryHash by remember(item.imageUrl, externalRetry) { mutableIntStateOf(0) }
-                            var errorCount by remember(item.imageUrl, externalRetry) { mutableIntStateOf(0) }
+                            var retryHash by remember(item.imageUrl) { mutableIntStateOf(0) }
+                            var errorCount by remember(item.imageUrl) { mutableIntStateOf(0) }
 
                             val request = remember(item.imageUrl, cookie, retryHash, externalRetry) {
-                                val cacheBustingUrl = if (externalRetry > 0) {
-                                    if (item.imageUrl.contains("?")) "${item.imageUrl}&_t=$externalRetry" else "${item.imageUrl}?_t=$externalRetry"
-                                } else {
-                                    item.imageUrl
-                                }
-
-                                val builder = ImageRequest.Builder(context.applicationContext)
-                                    .data(cacheBustingUrl)
-                                    .diskCacheKey(item.imageUrl)
-                                    .memoryCacheKey(MemoryCache.Key(item.imageUrl))
-                                    .addHeader("Cookie", cookie)
-                                    .addHeader("Referer", "https://bbs.yamibo.com/")
-                                    .crossfade(false)
+                                MangaImagePipeline.newImageRequestBuilder(
+                                    context = context.applicationContext,
+                                    url = item.imageUrl,
+                                    cookie = cookie,
+                                    forceVersion = externalRetry,
+                                    memory = true
+                                )
                                     .listener(
                                         onSuccess = { _, _ -> errorCount = 0 }
                                     )
-
-                                if (externalRetry > 0) {
-                                    builder.memoryCachePolicy(CachePolicy.WRITE_ONLY)
-                                    builder.diskCachePolicy(CachePolicy.WRITE_ONLY)
-                                } else {
-                                    builder.memoryCachePolicy(CachePolicy.ENABLED)
-                                    builder.diskCachePolicy(CachePolicy.ENABLED)
-                                }
-
-                                builder.build()
+                                    .build()
                             }
 
                             SubcomposeAsyncImage(
@@ -873,18 +772,20 @@ fun NativeMangaPage(
                                             val jitter = (0..500).random().toLong()
                                             delay(300L + (errorCount * 1000L) + jitter)
 
-                                            forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
-                                            withContext(Dispatchers.IO) {
-                                                context.imageLoader.diskCache?.remove(item.imageUrl)
-                                                context.imageLoader.memoryCache?.remove(MemoryCache.Key(item.imageUrl))
-                                            }
+                                            MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
+                                            forceReloadTriggers[item.imageUrl] =
+                                                (forceReloadTriggers[item.imageUrl] ?: 0) + 1
 
                                             errorCount++
                                             retryHash++
                                         }
                                     }
+
                                     if (errorCount < 3) {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
                                             CircularProgressIndicator(color = YamiboColors.tertiary)
                                         }
                                     } else {
@@ -893,14 +794,13 @@ fun NativeMangaPage(
                                                 .fillMaxWidth()
                                                 .defaultMinSize(minHeight = 300.dp)
                                                 .clickable {
-                                                    forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
-
-                                                    scope.launch(Dispatchers.IO) {
-                                                        context.imageLoader.diskCache?.remove(item.imageUrl)
-                                                        context.imageLoader.memoryCache?.remove(MemoryCache.Key(item.imageUrl))
+                                                    scope.launch {
+                                                        errorCount = 0
+                                                        MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
+                                                        forceReloadTriggers[item.imageUrl] =
+                                                            (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+                                                        retryHash++
                                                     }
-
-                                                    retryHash++
                                                 },
                                             contentAlignment = Alignment.Center
                                         ) {
@@ -929,57 +829,38 @@ fun NativeMangaPage(
 
                                 if (item != null) {
                                     val externalRetry = forceReloadTriggers[item.imageUrl] ?: 0
-                                    var retryHash by remember(item.imageUrl, externalRetry) { mutableIntStateOf(0) }
-                                    var errorCount by remember(item.imageUrl, externalRetry) { mutableIntStateOf(0) }
+                                    var retryHash by remember(item.imageUrl) { mutableIntStateOf(0) }
+                                    var errorCount by remember(item.imageUrl) { mutableIntStateOf(0) }
                                     var isImageLoading by remember(item.imageUrl, retryHash, externalRetry) { mutableStateOf(true) }
                                     var isImageError by remember(item.imageUrl, retryHash, externalRetry) { mutableStateOf(false) }
 
-                                    LaunchedEffect(isImageError) {
+                                    LaunchedEffect(isImageError, retryHash) {
                                         if (isImageError && errorCount < 3) {
                                             val jitter = (0..500).random().toLong()
-                                            delay(300L + (errorCount * 1000L) + jitter)
-
-                                            forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
-                                            withContext(Dispatchers.IO) {
-                                                context.imageLoader.diskCache?.remove(item.imageUrl)
-                                                context.imageLoader.memoryCache?.remove(MemoryCache.Key(item.imageUrl))
-                                            }
+                                            delay(300L + errorCount * 1000L + jitter)
 
                                             errorCount++
+                                            MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
+                                            forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
                                             retryHash++
                                         }
                                     }
 
                                     val request = remember(item.imageUrl, cookie, retryHash, externalRetry) {
-                                        val cacheBustingUrl = if (externalRetry > 0) {
-                                            if (item.imageUrl.contains("?")) "${item.imageUrl}&_t=$externalRetry" else "${item.imageUrl}?_t=$externalRetry"
-                                        } else {
-                                            item.imageUrl
-                                        }
-
-                                        val builder = ImageRequest.Builder(context.applicationContext)
-                                            .data(cacheBustingUrl)
-                                            .diskCacheKey(item.imageUrl)
-                                            .memoryCacheKey(MemoryCache.Key(item.imageUrl))
-                                            .addHeader("Cookie", cookie)
-                                            .addHeader("Referer", "https://bbs.yamibo.com/")
-                                            .crossfade(false)
+                                        MangaImagePipeline.newImageRequestBuilder(
+                                            context = context.applicationContext,
+                                            url = item.imageUrl,
+                                            cookie = cookie,
+                                            forceVersion = externalRetry,
+                                            memory = true
+                                        )
                                             .listener(
                                                 onStart = { isImageLoading = true; isImageError = false },
                                                 onSuccess = { _, _ -> isImageLoading = false; isImageError = false; errorCount = 0 },
                                                 onError = { _, _ -> isImageLoading = false; isImageError = true },
                                                 onCancel = { isImageLoading = false }
                                             )
-
-                                        if (externalRetry > 0) {
-                                            builder.memoryCachePolicy(CachePolicy.WRITE_ONLY)
-                                            builder.diskCachePolicy(CachePolicy.WRITE_ONLY)
-                                        } else {
-                                            builder.memoryCachePolicy(CachePolicy.ENABLED)
-                                            builder.diskCachePolicy(CachePolicy.ENABLED)
-                                        }
-
-                                        builder.build()
+                                            .build()
                                     }
 
                                     Box(modifier = Modifier.fillMaxSize()) {
@@ -1001,14 +882,13 @@ fun NativeMangaPage(
                                                 modifier = Modifier
                                                     .align(Alignment.Center)
                                                     .clickable {
-                                                        forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
-
-                                                        scope.launch(Dispatchers.IO) {
-                                                            context.imageLoader.diskCache?.remove(item.imageUrl)
-                                                            context.imageLoader.memoryCache?.remove(MemoryCache.Key(item.imageUrl))
+                                                        scope.launch {
+                                                            errorCount = 0
+                                                            MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
+                                                            forceReloadTriggers[item.imageUrl] =
+                                                                (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+                                                            retryHash++
                                                         }
-
-                                                        retryHash++
                                                     }
                                                     .padding(32.dp),
                                                 contentAlignment = Alignment.Center
@@ -1327,10 +1207,9 @@ fun NativeMangaPage(
                     confirmButton = {
                         TextButton(onClick = {
                             showReloadDialog = false
-                            forceReloadTriggers[currentItem.imageUrl] = (forceReloadTriggers[currentItem.imageUrl] ?: 0) + 1
-                            scope.launch(Dispatchers.IO) {
-                                context.imageLoader.diskCache?.remove(currentItem.imageUrl)
-                                context.imageLoader.memoryCache?.remove(MemoryCache.Key(currentItem.imageUrl))
+                            scope.launch {
+                                MangaImagePipeline.evict(context.applicationContext, currentItem.imageUrl)
+                                forceReloadTriggers[currentItem.imageUrl] = (forceReloadTriggers[currentItem.imageUrl] ?: 0) + 1
                             }
                         }) {
                             Text(

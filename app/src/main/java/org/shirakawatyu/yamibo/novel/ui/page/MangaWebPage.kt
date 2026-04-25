@@ -87,6 +87,7 @@ import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
+import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 
 class FullscreenApiManga {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -263,15 +264,31 @@ fun MangaWebPage(
                 htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
             }
 
-            val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+            val urls = urlsJoined
+                .split("|||")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+
+            val targetIndex = if (initialPage > 0 && clickedIndex == 0) {
+                initialPage
+            } else {
+                clickedIndex
+            }
+
+            val safeTargetIndex = targetIndex.coerceIn(0, maxOf(0, urls.size - 1))
+
+            MangaImagePipeline.handoffPrefetch(
+                context = context.applicationContext,
+                urls = urls,
+                clickedIndex = safeTargetIndex
+            )
+
             GlobalData.tempMangaUrls = urls
-
-            val targetIndex = if (initialPage > 0 && clickedIndex == 0) initialPage else clickedIndex
-            GlobalData.tempMangaIndex =
-                targetIndex.coerceIn(0, maxOf(0, urls.size - 1))
-
+            GlobalData.tempMangaIndex = safeTargetIndex
             GlobalData.tempHtml = cleanHtml
             GlobalData.tempTitle = title
+
             mangaWebView.evaluateJavascript(PageJsScripts.FREEZE_BROKEN_IMAGES_JS, null)
             mangaWebView.evaluateJavascript("window.stop();", null)
             mangaWebView.stopLoading()
@@ -281,7 +298,6 @@ fun MangaWebPage(
             isWaitingForNativeReturn = true
 
             val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
-
             val encodedUrl = java.net.URLEncoder.encode(passUrl, "utf-8")
             val encodedOriginal = java.net.URLEncoder.encode(originalFavoriteUrl, "utf-8")
             navController.navigate("NativeMangaPage?url=$encodedUrl&originalUrl=$encodedOriginal")

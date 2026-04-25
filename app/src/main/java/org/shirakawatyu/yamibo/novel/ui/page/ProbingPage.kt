@@ -35,6 +35,7 @@ import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
+import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import java.net.URLDecoder
 import java.net.URLEncoder
 
@@ -114,7 +115,17 @@ fun ProbingPage(url: String, navController: NavController) {
                                 val title = URLDecoder.decode(parts.getOrNull(1) ?: "", "UTF-8")
                                 val urlsJoined = parts.getOrNull(2) ?: ""
                                 val htmlContent = URLDecoder.decode(parts.getOrNull(3) ?: "", "UTF-8")
-                                val urlsList = urlsJoined.split("|||").filter { it.isNotBlank() }
+                                val urlsList = urlsJoined
+                                    .split("|||")
+                                    .map { it.trim() }
+                                    .filter { it.isNotBlank() }
+                                    .distinct()
+
+                                MangaImagePipeline.handoffPrefetch(
+                                    context = context.applicationContext,
+                                    urls = urlsList,
+                                    clickedIndex = 0
+                                )
 
                                 GlobalData.tempMangaUrls = urlsList
                                 GlobalData.tempTitle = title

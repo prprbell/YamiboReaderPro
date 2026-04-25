@@ -4,38 +4,56 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import coil.imageLoader
-import coil.request.CachePolicy
-import coil.request.ImageRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
-import org.shirakawatyu.yamibo.novel.item.MangaPageItem
 import org.shirakawatyu.yamibo.novel.item.LoadedChapter
+import org.shirakawatyu.yamibo.novel.item.MangaPageItem
+import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 
+/**
+ * Native 漫画阅读章节管理器。
+ *
+ * 职责边界：
+ * 1. 维护已加载章节 loadedChapters。
+ * 2. 维护供 UI 直接绑定的 flatPages。
+ * 3. 处理上一话/下一话/章节跳转。
+ * 4. 章节探测成功后，把整章图片交给 MangaImagePipeline 做冷预取。
+ *
+ * 注意：
+ * 本类不再直接接触 Coil / ImageRequest / CachePolicy。
+ * 所有图片下载、缓存、in-flight 去重、预加载策略统一由 MangaImagePipeline 管理。
+ */
 class MangaReaderManager(
     private val context: Context,
     private val mangaDirVM: MangaDirectoryVM,
     private val scope: CoroutineScope,
     private val fallbackNavigate: (String) -> Unit
 ) {
-    // 供UI直接绑定的展平的大列表
     var flatPages by mutableStateOf<List<MangaPageItem>>(emptyList())
         private set
+
     var isLoadingPrev by mutableStateOf(false)
         private set
+
     var isLoadingNext by mutableStateOf(false)
         private set
 
-    // 用于标记是否为用户主动点击导致的强制跳转（需要展示全局遮罩）
+    /**
+     * 用户主动点击章节跳转时展示全局遮罩。
+     */
     var isManualJumping by mutableStateOf(false)
         private set
 
-    // 保留10话
     private val loadedChapters = mutableListOf<LoadedChapter>()
     private val maxLoadedChapters = 10
 
-    fun initFirstChapter(tid: String, url: String, title: String, urls: List<String>) {
+    fun initFirstChapter(
+        tid: String,
+        url: String,
+        title: String,
+        urls: List<String>
+    ) {
         val pages = urls.mapIndexed { index, imgUrl ->
             MangaPageItem(
                 uniqueId = "${tid}_$index",
@@ -48,9 +66,17 @@ class MangaReaderManager(
                 chapterTotalPages = urls.size
             )
         }
+
         loadedChapters.clear()
         loadedChapters.add(LoadedChapter(tid, url, title, pages))
         updateFlatPages()
+
+        // 初始章节也交给统一管线做一次 handoff/cold prefetch。
+        // 如果 BBSPage/MangaProber 已经提交过，Pipeline 会通过 in-flight / cache 去重。
+        MangaImagePipeline.coldPrefetchChapter(
+            context = context.applicationContext,
+            urls = urls
+        )
     }
 
     private fun updateFlatPages() {
@@ -64,161 +90,209 @@ class MangaReaderManager(
         flatPages = newList
     }
 
-    fun loadPrevious(isManualJump: Boolean = false, onLoaded: (() -> Unit)? = null) {
+    fun loadPrevious(
+        isManualJump: Boolean = false,
+        onLoaded: (() -> Unit)? = null
+    ) {
         if (isLoadingPrev || loadedChapters.isEmpty()) return
+
         val firstChapter = loadedChapters.first()
         val dir = mangaDirVM.currentDirectory ?: return
         val chapters = dir.chapters
         val currentIndex = chapters.indexOfFirst { it.tid == firstChapter.tid }
-        if (currentIndex <= 0) return // 已经是第一话了
+        if (currentIndex <= 0) return
 
         val prevChapterInfo = chapters[currentIndex - 1]
 
-        if (isManualJump) isManualJumping = true else isLoadingPrev = true
+        setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = true)
 
         scope.launch {
-            MangaProber().probeUrl(
-                context = context,
-                url = prevChapterInfo.url,
-                onSuccess = { urls, title, _ ->
-                    val newPages = urls.mapIndexed { i, imgUrl ->
-                        MangaPageItem(
-                            uniqueId = "${prevChapterInfo.tid}_$i",
-                            globalIndex = 0,
+            try {
+                MangaProber().probeUrl(
+                    context = context,
+                    url = prevChapterInfo.url,
+                    onSuccess = { urls, title, _ ->
+                        val newPages = urls.mapIndexed { i, imgUrl ->
+                            MangaPageItem(
+                                uniqueId = "${prevChapterInfo.tid}_$i",
+                                globalIndex = 0,
+                                tid = prevChapterInfo.tid,
+                                chapterUrl = prevChapterInfo.url,
+                                chapterTitle = title,
+                                imageUrl = imgUrl,
+                                localIndex = i,
+                                chapterTotalPages = urls.size
+                            )
+                        }
+
+                        val newChapter = LoadedChapter(
                             tid = prevChapterInfo.tid,
-                            chapterUrl = prevChapterInfo.url,
-                            chapterTitle = title,
-                            imageUrl = imgUrl,
-                            localIndex = i,
-                            chapterTotalPages = urls.size
+                            url = prevChapterInfo.url,
+                            title = title,
+                            pages = newPages
                         )
+
+                        loadedChapters.add(0, newChapter)
+                        if (loadedChapters.size > maxLoadedChapters) {
+                            loadedChapters.removeAt(loadedChapters.lastIndex)
+                        }
+                        updateFlatPages()
+
+                        MangaImagePipeline.coldPrefetchChapter(
+                            context = context.applicationContext,
+                            urls = urls
+                        )
+
+                        setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = false)
+                        onLoaded?.invoke()
+                    },
+                    onFallback = {
+                        setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = false)
+                        fallbackNavigate(prevChapterInfo.url)
                     }
-                    val newChapter = LoadedChapter(prevChapterInfo.tid, prevChapterInfo.url, title, newPages)
-
-                    // 头插法
-                    loadedChapters.add(0, newChapter)
-                    // 超过限制，移除尾部章节
-                    if (loadedChapters.size > maxLoadedChapters) {
-                        loadedChapters.removeAt(loadedChapters.lastIndex)
-                    }
-                    updateFlatPages()
-
-                    preloadImagesViaCoil(urls)
-
-                    if (isManualJump) isManualJumping = false else isLoadingPrev = false
-                    onLoaded?.invoke()
-                },
-                onFallback = {
-                    if (isManualJump) isManualJumping = false else isLoadingPrev = false
-                    fallbackNavigate(prevChapterInfo.url) // 解析失败走传统页面跳转
-                }
-            )
+                )
+            } catch (e: CancellationException) {
+                setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = false)
+                throw e
+            } catch (_: Throwable) {
+                setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = false)
+                fallbackNavigate(prevChapterInfo.url)
+            }
         }
     }
 
-    fun loadNext(isManualJump: Boolean = false, onLoaded: (() -> Unit)? = null) {
+    fun loadNext(
+        isManualJump: Boolean = false,
+        onLoaded: (() -> Unit)? = null
+    ) {
         if (isLoadingNext || loadedChapters.isEmpty()) return
+
         val lastChapter = loadedChapters.last()
         val dir = mangaDirVM.currentDirectory ?: return
         val chapters = dir.chapters
         val currentIndex = chapters.indexOfFirst { it.tid == lastChapter.tid }
-        if (currentIndex == -1 || currentIndex == chapters.size - 1) return // 已经是最新话了
+        if (currentIndex == -1 || currentIndex == chapters.size - 1) return
 
         val nextChapterInfo = chapters[currentIndex + 1]
 
-        if (isManualJump) isManualJumping = true else isLoadingNext = true
+        setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = true)
 
         scope.launch {
-            MangaProber().probeUrl(
-                context = context,
-                url = nextChapterInfo.url,
-                onSuccess = { urls, title, _ ->
-                    val newPages = urls.mapIndexed { i, imgUrl ->
-                        MangaPageItem(
-                            uniqueId = "${nextChapterInfo.tid}_$i",
-                            globalIndex = 0,
+            try {
+                MangaProber().probeUrl(
+                    context = context,
+                    url = nextChapterInfo.url,
+                    onSuccess = { urls, title, _ ->
+                        val newPages = urls.mapIndexed { i, imgUrl ->
+                            MangaPageItem(
+                                uniqueId = "${nextChapterInfo.tid}_$i",
+                                globalIndex = 0,
+                                tid = nextChapterInfo.tid,
+                                chapterUrl = nextChapterInfo.url,
+                                chapterTitle = title,
+                                imageUrl = imgUrl,
+                                localIndex = i,
+                                chapterTotalPages = urls.size
+                            )
+                        }
+
+                        val newChapter = LoadedChapter(
                             tid = nextChapterInfo.tid,
-                            chapterUrl = nextChapterInfo.url,
-                            chapterTitle = title,
-                            imageUrl = imgUrl,
-                            localIndex = i,
-                            chapterTotalPages = urls.size
+                            url = nextChapterInfo.url,
+                            title = title,
+                            pages = newPages
                         )
+
+                        loadedChapters.add(newChapter)
+                        if (loadedChapters.size > maxLoadedChapters) {
+                            loadedChapters.removeAt(0)
+                        }
+                        updateFlatPages()
+
+                        MangaImagePipeline.coldPrefetchChapter(
+                            context = context.applicationContext,
+                            urls = urls
+                        )
+
+                        setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = false)
+                        onLoaded?.invoke()
+                    },
+                    onFallback = {
+                        setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = false)
+                        fallbackNavigate(nextChapterInfo.url)
                     }
-                    val newChapter = LoadedChapter(nextChapterInfo.tid, nextChapterInfo.url, title, newPages)
-
-                    // 尾插法
-                    loadedChapters.add(newChapter)
-                    // 超过限制，移除头部章节
-                    if (loadedChapters.size > maxLoadedChapters) {
-                        loadedChapters.removeAt(0)
-                    }
-                    updateFlatPages()
-
-                    preloadImagesViaCoil(urls)
-
-                    if (isManualJump) isManualJumping = false else isLoadingNext = false
-                    onLoaded?.invoke()
-                },
-                onFallback = {
-                    if (isManualJump) isManualJumping = false else isLoadingNext = false
-                    fallbackNavigate(nextChapterInfo.url)
-                }
-            )
+                )
+            } catch (e: CancellationException) {
+                setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = false)
+                throw e
+            } catch (_: Throwable) {
+                setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = false)
+                fallbackNavigate(nextChapterInfo.url)
+            }
         }
     }
 
     /**
-     * 充分利用接管后的全局 Coil 连接池：
-     * 不占用内存缓存，直接将未来的图片静默拉取到磁盘中。
-     * 当原生 UI 滑动到这些页时，读取速度堪比本地加载。
+     * 章节无缝跳转逻辑。
+     *
+     * 目标章节已在 loadedChapters 中：直接滚动。
+     * 目标章节刚好是当前窗口前/后一话：加载相邻章节后滚动。
+     * 其他情况：回退到传统跳转，让页面重新探测。
      */
-    private fun preloadImagesViaCoil(urls: List<String>) {
-        urls.forEach { imgUrl ->
-            val request = ImageRequest.Builder(context)
-                .data(imgUrl)
-                .memoryCachePolicy(CachePolicy.DISABLED) // 拒绝进入内存，防止OOM
-                .diskCachePolicy(CachePolicy.ENABLED)    // 强制塞进磁盘
-                .build()
-            context.imageLoader.enqueue(request)
-        }
-    }
-
-    // 处理无缝跳转逻辑
-    fun jumpToChapter(targetUrl: String, onScrollTo: (Int) -> Unit) {
+    fun jumpToChapter(
+        targetUrl: String,
+        onScrollTo: (Int) -> Unit
+    ) {
         val targetTid = MangaTitleCleaner.extractTidFromUrl(targetUrl) ?: return
         val globalIndex = flatPages.indexOfFirst { it.tid == targetTid }
 
         if (globalIndex != -1) {
             onScrollTo(globalIndex)
-        } else {
-            val dir = mangaDirVM.currentDirectory ?: return fallbackNavigate(targetUrl)
-            val chapters = dir.chapters
+            return
+        }
 
-            val currentFirstTid = loadedChapters.firstOrNull()?.tid
-            val currentLastTid = loadedChapters.lastOrNull()?.tid
+        val dir = mangaDirVM.currentDirectory ?: return fallbackNavigate(targetUrl)
+        val chapters = dir.chapters
 
-            val targetIndex = chapters.indexOfFirst { it.tid == targetTid }
-            val firstIndex = chapters.indexOfFirst { it.tid == currentFirstTid }
-            val lastIndex = chapters.indexOfFirst { it.tid == currentLastTid }
+        val currentFirstTid = loadedChapters.firstOrNull()?.tid
+        val currentLastTid = loadedChapters.lastOrNull()?.tid
 
-            when (targetIndex) {
-                firstIndex - 1 -> {
-                    loadPrevious(isManualJump = true) {
-                        val newGlobalIdx = flatPages.indexOfFirst { it.tid == targetTid }
-                        if (newGlobalIdx != -1) onScrollTo(newGlobalIdx)
-                    }
-                }
-                lastIndex + 1 -> {
-                    loadNext(isManualJump = true) {
-                        val newGlobalIdx = flatPages.indexOfFirst { it.tid == targetTid }
-                        if (newGlobalIdx != -1) onScrollTo(newGlobalIdx)
-                    }
-                }
-                else -> {
-                    fallbackNavigate(targetUrl)
+        val targetIndex = chapters.indexOfFirst { it.tid == targetTid }
+        val firstIndex = chapters.indexOfFirst { it.tid == currentFirstTid }
+        val lastIndex = chapters.indexOfFirst { it.tid == currentLastTid }
+
+        when (targetIndex) {
+            firstIndex - 1 -> {
+                loadPrevious(isManualJump = true) {
+                    val newGlobalIndex = flatPages.indexOfFirst { it.tid == targetTid }
+                    if (newGlobalIndex != -1) onScrollTo(newGlobalIndex)
                 }
             }
+
+            lastIndex + 1 -> {
+                loadNext(isManualJump = true) {
+                    val newGlobalIndex = flatPages.indexOfFirst { it.tid == targetTid }
+                    if (newGlobalIndex != -1) onScrollTo(newGlobalIndex)
+                }
+            }
+
+            else -> {
+                fallbackNavigate(targetUrl)
+            }
+        }
+    }
+
+    private fun setLoadingState(
+        isPrevious: Boolean,
+        isManualJump: Boolean,
+        loading: Boolean
+    ) {
+        if (isManualJump) {
+            isManualJumping = loading
+        } else if (isPrevious) {
+            isLoadingPrev = loading
+        } else {
+            isLoadingNext = loading
         }
     }
 }

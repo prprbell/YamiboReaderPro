@@ -121,6 +121,7 @@ import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
+import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -665,11 +666,29 @@ fun FavoritePage(
                                                 context = context,
                                                 url = targetUrl,
                                                 onSuccess = { urls, title, html ->
-                                                    GlobalData.tempMangaUrls = urls
+                                                    val normalizedUrls = urls
+                                                        .map { it.trim() }
+                                                        .filter { it.isNotBlank() }
+                                                        .distinct()
+
+                                                    val targetIndex = item.lastPage.coerceIn(
+                                                        0,
+                                                        maxOf(0, normalizedUrls.size - 1)
+                                                    )
+
+                                                    MangaImagePipeline.handoffPrefetch(
+                                                        context = context.applicationContext,
+                                                        urls = normalizedUrls,
+                                                        clickedIndex = targetIndex
+                                                    )
+
+                                                    GlobalData.tempMangaUrls = normalizedUrls
                                                     GlobalData.tempHtml = html
                                                     GlobalData.tempTitle = title
-                                                    GlobalData.tempMangaIndex = item.lastPage.coerceIn(0, maxOf(0, urls.size - 1))
+                                                    GlobalData.tempMangaIndex = targetIndex
+
                                                     navController.navigate("NativeMangaPage?url=$encodedTarget&originalUrl=$encodedOriginal")
+
                                                     coroutineScope.launch {
                                                         delay(300)
                                                         probingUrl = null

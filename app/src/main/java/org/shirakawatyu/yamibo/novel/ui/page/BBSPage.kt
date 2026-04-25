@@ -51,6 +51,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
@@ -62,6 +63,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BbsSkeletonScreen
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
+import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
 import java.io.ByteArrayInputStream
@@ -331,20 +333,33 @@ fun BBSPage(
                     htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
                 }
 
-                val urls = urlsJoined.split("|||").filter { it.isNotBlank() }
+                val urls = urlsJoined
+                    .split("|||")
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
 
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                val safeClickedIndex = clickedIndex.coerceIn(0, maxOf(0, urls.size - 1))
+
+                MangaImagePipeline.handoffPrefetch(
+                    context = context.applicationContext,
+                    urls = urls,
+                    clickedIndex = safeClickedIndex
+                )
+
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
                     GlobalData.tempMangaUrls = urls
-                    GlobalData.tempMangaIndex = clickedIndex
+                    GlobalData.tempMangaIndex = safeClickedIndex
                     GlobalData.tempHtml = cleanHtml
                     GlobalData.tempTitle = title
+
                     webView.evaluateJavascript(PageJsScripts.FREEZE_BROKEN_IMAGES_JS, null)
                     webView.evaluateJavascript("window.stop();", null)
                     webView.stopLoading()
                     webView.onPause()
+
                     autoOpenMangaMode = false
                     val passUrl = BBSPageState.currentUrl ?: indexUrl
-
                     val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
                     navController.navigate("NativeMangaPage?url=$encodedUrl")
                 }
