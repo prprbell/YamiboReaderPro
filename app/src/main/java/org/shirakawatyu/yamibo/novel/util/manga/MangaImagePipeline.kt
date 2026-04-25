@@ -80,7 +80,10 @@ object MangaImagePipeline {
 
     private val inFlight = ConcurrentHashMap<String, InFlightLoad>()
     private val ownerUrlKeys = ConcurrentHashMap<String, MutableSet<String>>()
-
+    private val ownerLastIndex = ConcurrentHashMap<String, Int>()
+    private val ownerDirections = ConcurrentHashMap<String, Int>()
+    private val ownerDirectionStreak = ConcurrentHashMap<String, Int>()
+    private val ownerRecentWindows = ConcurrentHashMap<String, ArrayDeque<Set<String>>>()
     /** WebView takeover / handoff 首屏热图 / Native 当前附近热图。 */
     private val highSemaphore = Semaphore(4)
 
@@ -190,15 +193,55 @@ object MangaImagePipeline {
             cancelOwner(ownerKey)
             return
         }
+        val previousIndex = ownerLastIndex.put(ownerKey, currentIndex)
 
+        val rawDirection = when {
+            previousIndex == null -> ownerDirections[ownerKey] ?: 1
+            currentIndex > previousIndex -> 1
+            currentIndex < previousIndex -> -1
+            else -> ownerDirections[ownerKey] ?: 1
+        }
+
+        val oldDirection = ownerDirections[ownerKey] ?: rawDirection
+
+        val streak = if (rawDirection == oldDirection) {
+            0
+        } else {
+            (ownerDirectionStreak[ownerKey] ?: 0) + 1
+        }
+
+        val direction = if (rawDirection != oldDirection && streak >= 2) {
+            ownerDirectionStreak[ownerKey] = 0
+            rawDirection
+        } else {
+            ownerDirectionStreak[ownerKey] = streak
+            oldDirection
+        }
+
+        ownerDirections[ownerKey] = direction
         val specs = buildNativeWindowSpecs(
             urls = urls,
             currentIndex = currentIndex,
+            direction = direction,
             isVerticalMode = isVerticalMode,
             isRtl = isRtl
         )
+        val currentWindowKeys = specs.map { cacheKey(it.url) }.toSet()
 
-        val desiredKeys = specs.map { cacheKey(it.url) }.toMutableSet()
+        val recentWindows = ownerRecentWindows.getOrPut(ownerKey) { ArrayDeque() }
+
+        if (currentWindowKeys.isNotEmpty()) {
+            recentWindows.addFirst(currentWindowKeys)
+            while (recentWindows.size > 2) {
+                recentWindows.removeLast()
+            }
+        }
+
+        val desiredKeys = buildSet {
+            addAll(currentWindowKeys)
+            recentWindows.forEach { addAll(it) }
+        }.toMutableSet()
+
         val previousKeys = ownerUrlKeys[ownerKey].orEmpty().toSet()
 
         previousKeys
@@ -328,6 +371,11 @@ object MangaImagePipeline {
     fun cancelOwner(ownerKey: String) {
         val keys = ownerUrlKeys.remove(ownerKey)?.toSet().orEmpty()
         keys.forEach { key -> releaseOwnerFromUrl(ownerKey, key) }
+
+        ownerLastIndex.remove(ownerKey)
+        ownerDirections.remove(ownerKey)
+        ownerDirectionStreak.remove(ownerKey)
+        ownerRecentWindows.remove(ownerKey)
     }
 
     /**
@@ -476,11 +524,13 @@ object MangaImagePipeline {
     private fun buildNativeWindowSpecs(
         urls: List<String>,
         currentIndex: Int,
+        direction: Int,
         isVerticalMode: Boolean,
         isRtl: Boolean
     ): List<PrefetchSpec> {
-        val aheadOffsets = 1..10
-        val behindOffsets = -1 downTo -2
+
+        val readDirection = if (direction < 0) -1 else 1
+        val oppositeDirection = -readDirection
 
         val specs = mutableListOf<PrefetchSpec>()
         var rank = 0
@@ -496,15 +546,17 @@ object MangaImagePipeline {
             )
         }
 
-        aheadOffsets.forEach { offset ->
-            when (offset) {
+        for (step in 1..10) {
+            val offset = readDirection * step
+            when (step) {
                 1, 2, 3 -> add(offset, Source.NATIVE_HOT_WINDOW, memory = true)
                 in 4..7 -> add(offset, Source.NATIVE_WARM_WINDOW, memory = false)
                 else -> add(offset, Source.NATIVE_COLD_WINDOW, memory = false)
             }
         }
 
-        behindOffsets.forEach { offset ->
+        for (step in 1..2) {
+            val offset = oppositeDirection * step
             add(offset, Source.NATIVE_HOT_WINDOW, memory = true)
         }
 
