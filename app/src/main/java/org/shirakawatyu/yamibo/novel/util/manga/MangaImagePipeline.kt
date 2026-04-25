@@ -82,6 +82,9 @@ object MangaImagePipeline {
         val nonHotKeys: Set<String>
     )
     private val ownerRecentWindows = ConcurrentHashMap<String, ArrayDeque<RecentWindow>>()
+    private val chapterColdOwnerParents = ConcurrentHashMap<String, String>()
+    private val parentChapterColdOwners = ConcurrentHashMap<String, MutableSet<String>>()
+
     /** WebView takeover / handoff 首屏热图 / Native 当前附近热图。 */
     private val highSemaphore = Semaphore(4)
 
@@ -275,19 +278,44 @@ object MangaImagePipeline {
     }
 
     /**
-     * 跨章节整章冷预取。
-     *
-     * 只进磁盘，不污染内存缓存。用于替代 MangaReaderManager 里的直接 imageLoader.enqueue。
+     * 跨章节边缘页预取。
      */
-    fun coldPrefetchChapter(
+    fun prefetchChapterEdge(
         context: Context,
+        ownerKey: String,
         urls: List<String>,
         cookie: String = ""
     ) {
         val normalized = urls.filter { it.isNotBlank() }.distinct()
         if (normalized.isEmpty()) return
 
+        normalized.forEach { imgUrl ->
+            ensureDiskCached(
+                context = context.applicationContext,
+                url = imgUrl,
+                ownerKey = ownerKey,
+                source = Source.NATIVE_HOT_WINDOW,
+                memory = true,
+                explicitCookie = cookie
+            )
+        }
+    }
+
+    /**
+     * 跨章节整章冷预取。
+     */
+    fun coldPrefetchChapter(
+        context: Context,
+        urls: List<String>,
+        parentOwnerKey: String? = null,
+        cookie: String = ""
+    ) {
+        val normalized = urls.filter { it.isNotBlank() }.distinct()
+        if (normalized.isEmpty()) return
+
         val ownerKey = "chapter:${normalized.firstOrNull().orEmpty().hashCode()}:${System.nanoTime()}"
+        registerChapterColdOwner(parentOwnerKey, ownerKey)
+
         normalized.forEach { imgUrl ->
             ensureDiskCached(
                 context = context.applicationContext,
@@ -297,6 +325,12 @@ object MangaImagePipeline {
                 memory = false,
                 explicitCookie = cookie
             )
+        }
+
+        synchronized(lock) {
+            if (ownerUrlKeys[ownerKey].isNullOrEmpty()) {
+                unregisterChapterColdOwner(ownerKey)
+            }
         }
     }
 
@@ -361,22 +395,6 @@ object MangaImagePipeline {
         }
     }
 
-    fun isCached(
-        context: Context,
-        url: String,
-        includeMemory: Boolean = true
-    ): Boolean {
-        val appContext = context.applicationContext
-        val key = cacheKey(url)
-
-        if (includeMemory && appContext.imageLoader.memoryCache?.get(MemoryCache.Key(key)) != null) {
-            return true
-        }
-
-        val diskCache = appContext.imageLoader.diskCache ?: return false
-        return openSnapshot(diskCache, key)?.use { true } == true
-    }
-
     fun cancelOwner(ownerKey: String) {
         val keys = ownerUrlKeys.remove(ownerKey)?.toSet().orEmpty()
         keys.forEach { key -> releaseOwnerFromUrl(ownerKey, key) }
@@ -385,6 +403,7 @@ object MangaImagePipeline {
         ownerDirections.remove(ownerKey)
         ownerDirectionStreak.remove(ownerKey)
         ownerRecentWindows.remove(ownerKey)
+        unregisterChapterColdOwner(ownerKey)
     }
 
     /**
@@ -393,6 +412,34 @@ object MangaImagePipeline {
      */
     fun cancelNativeWindow(ownerKey: String) {
         cancelOwner(ownerKey)
+    }
+
+    /**
+     * 取消某个 Native 阅读页启动的跨章节整章冷预取。
+     * 已经完成并写入磁盘的缓存不受影响，只取消还在排队/下载的冷预取任务。
+     */
+    fun cancelChapterColdPrefetches(parentOwnerKey: String) {
+        val owners = parentChapterColdOwners.remove(parentOwnerKey)?.toSet().orEmpty()
+        owners.forEach { ownerKey ->
+            chapterColdOwnerParents.remove(ownerKey)
+            cancelOwner(ownerKey)
+        }
+    }
+
+    private fun registerChapterColdOwner(parentOwnerKey: String?, ownerKey: String) {
+        val parent = parentOwnerKey?.takeIf { it.isNotBlank() } ?: return
+        chapterColdOwnerParents[ownerKey] = parent
+        parentChapterColdOwners
+            .getOrPut(parent) { ConcurrentHashMap.newKeySet<String>() }
+            .add(ownerKey)
+    }
+
+    private fun unregisterChapterColdOwner(ownerKey: String) {
+        val parent = chapterColdOwnerParents.remove(ownerKey) ?: return
+        parentChapterColdOwners[parent]?.remove(ownerKey)
+        if (parentChapterColdOwners[parent]?.isEmpty() == true) {
+            parentChapterColdOwners.remove(parent)
+        }
     }
 
     private fun ensureDiskCached(
@@ -456,6 +503,7 @@ object MangaImagePipeline {
                                 ownerUrlKeys[owner]?.remove(key)
                                 if (ownerUrlKeys[owner]?.isEmpty() == true) {
                                     ownerUrlKeys.remove(owner)
+                                    unregisterChapterColdOwner(owner)
                                 }
                             }
                         }

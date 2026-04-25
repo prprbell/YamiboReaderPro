@@ -18,6 +18,7 @@ class MangaReaderManager(
     private val context: Context,
     private val mangaDirVM: MangaDirectoryVM,
     private val scope: CoroutineScope,
+    private val pipelineOwnerKey: String,
     private val fallbackNavigate: (String) -> Unit
 ) {
     var flatPages by mutableStateOf<List<MangaPageItem>>(emptyList())
@@ -292,22 +293,42 @@ class MangaReaderManager(
     }
 
     private fun prefetchNextChapterCold(urls: List<String>) {
+        val edgeUrls = urls.take(COLD_PREFETCH_EDGE_SKIP)
+        if (edgeUrls.isNotEmpty()) {
+            MangaImagePipeline.prefetchChapterEdge(
+                context = context.applicationContext,
+                ownerKey = pipelineOwnerKey,
+                urls = edgeUrls
+            )
+        }
+
         val coldUrls = urls.drop(COLD_PREFETCH_EDGE_SKIP)
         if (coldUrls.isEmpty()) return
 
         MangaImagePipeline.coldPrefetchChapter(
             context = context.applicationContext,
-            urls = coldUrls
+            urls = coldUrls,
+            parentOwnerKey = pipelineOwnerKey
         )
     }
 
     private fun prefetchPreviousChapterCold(urls: List<String>) {
-        val coldUrls = urls.dropLast(COLD_PREFETCH_EDGE_SKIP)
+        val edgeUrls = urls.takeLast(COLD_PREFETCH_EDGE_SKIP).asReversed()
+        if (edgeUrls.isNotEmpty()) {
+            MangaImagePipeline.prefetchChapterEdge(
+                context = context.applicationContext,
+                ownerKey = pipelineOwnerKey,
+                urls = edgeUrls
+            )
+        }
+
+        val coldUrls = urls.dropLast(COLD_PREFETCH_EDGE_SKIP).asReversed()
         if (coldUrls.isEmpty()) return
 
         MangaImagePipeline.coldPrefetchChapter(
             context = context.applicationContext,
-            urls = coldUrls
+            urls = coldUrls,
+            parentOwnerKey = pipelineOwnerKey
         )
     }
 

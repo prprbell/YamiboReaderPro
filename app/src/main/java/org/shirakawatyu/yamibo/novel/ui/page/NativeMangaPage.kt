@@ -270,8 +270,8 @@ fun NativeMangaPage(
         }
     }
 
-    val readerManager = remember {
-        MangaReaderManager(context, mangaDirVM, scope) { fallbackUrl -> fallbackNavigate(fallbackUrl) }
+    val readerManager = remember(nativePipelineOwnerKey) {
+        MangaReaderManager(context, mangaDirVM, scope, nativePipelineOwnerKey) { fallbackUrl -> fallbackNavigate(fallbackUrl) }
     }
 
 
@@ -358,6 +358,7 @@ fun NativeMangaPage(
         }
         onDispose {
             MangaImagePipeline.cancelNativeWindow(nativePipelineOwnerKey)
+            MangaImagePipeline.cancelChapterColdPrefetches(nativePipelineOwnerKey)
             if (!isJumpingChapter) {
                 activity?.window?.let { WindowCompat.getInsetsController(it, view).show(WindowInsetsCompat.Type.systemBars()) }
                 bottomNavBarVM.setBottomNavBarVisibility(true)
