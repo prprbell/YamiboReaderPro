@@ -83,7 +83,11 @@ object MangaImagePipeline {
     private val ownerLastIndex = ConcurrentHashMap<String, Int>()
     private val ownerDirections = ConcurrentHashMap<String, Int>()
     private val ownerDirectionStreak = ConcurrentHashMap<String, Int>()
-    private val ownerRecentWindows = ConcurrentHashMap<String, ArrayDeque<Set<String>>>()
+    private data class RecentWindow(
+        val hotKeys: List<String>,
+        val nonHotKeys: Set<String>
+    )
+    private val ownerRecentWindows = ConcurrentHashMap<String, ArrayDeque<RecentWindow>>()
     /** WebView takeover / handoff 首屏热图 / Native 当前附近热图。 */
     private val highSemaphore = Semaphore(4)
 
@@ -228,19 +232,46 @@ object MangaImagePipeline {
         )
         val currentWindowKeys = specs.map { cacheKey(it.url) }.toSet()
 
+        val currentRecentWindow = RecentWindow(
+            hotKeys = specs
+                .filter { it.source == Source.NATIVE_HOT_WINDOW }
+                .sortedBy { it.rank }
+                .map { cacheKey(it.url) }
+                .take(2),
+            nonHotKeys = specs
+                .filterNot { it.source == Source.NATIVE_HOT_WINDOW }
+                .map { cacheKey(it.url) }
+                .toSet()
+        )
+
         val recentWindows = ownerRecentWindows.getOrPut(ownerKey) { ArrayDeque() }
 
-        if (currentWindowKeys.isNotEmpty()) {
-            recentWindows.addFirst(currentWindowKeys)
-            while (recentWindows.size > 2) {
-                recentWindows.removeLast()
+        val retainedHotKeys = buildList {
+            for (window in recentWindows) {
+                for (key in window.hotKeys) {
+                    if (size >= 2) break
+                    add(key)
+                }
+                if (size >= 2) break
             }
+        }.toSet()
+
+        val retainedNonHotKeys = buildSet {
+            recentWindows.forEach { addAll(it.nonHotKeys) }
         }
 
         val desiredKeys = buildSet {
             addAll(currentWindowKeys)
-            recentWindows.forEach { addAll(it) }
+            addAll(retainedHotKeys)
+            addAll(retainedNonHotKeys)
         }.toMutableSet()
+
+        if (currentWindowKeys.isNotEmpty()) {
+            recentWindows.addFirst(currentRecentWindow)
+            while (recentWindows.size > 2) {
+                recentWindows.removeLast()
+            }
+        }
 
         val previousKeys = ownerUrlKeys[ownerKey].orEmpty().toSet()
 
