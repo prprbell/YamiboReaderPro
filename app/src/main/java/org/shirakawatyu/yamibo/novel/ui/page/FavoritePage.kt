@@ -141,7 +141,7 @@ fun FavoritePage(
     val isRefreshing = uiState.isRefreshing
     val isInManageMode = uiState.isInManageMode
     val isFavoriteCollapsed by GlobalData.isFavoriteCollapsed.collectAsState()
-    val isCustomDnsEnabled by GlobalData.isCustomDnsEnabled.collectAsState()
+    val isDnsOptimizationEnabled by GlobalData.isDnsOptimizationEnabled.collectAsState()
     val isClickToTopEnabled by GlobalData.isClickToTopEnabled.collectAsState()
     val selectedItems = uiState.selectedItems
     var cacheInfoMap = uiState.cacheInfoMap
@@ -547,14 +547,23 @@ fun FavoritePage(
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
-                                    text = { Text("网络优化") },
+                                    text = {
+                                        Text(
+                                            text = "网络优化",
+                                            color = if (isDnsOptimizationEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
                                     onClick = {
                                         menuExpanded = false
                                         showCustomDnsDialog = true
                                     },
                                     leadingIcon = {
-                                        Icon(Icons.Default.Build, null, Modifier.size(24.dp),
-                                            tint = if (isCustomDnsEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface)
+                                        Icon(
+                                            Icons.Default.Build,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                            tint = if (isDnsOptimizationEnabled) YamiboColors.primary else MaterialTheme.colorScheme.onSurface
+                                        )
                                     }
                                 )
                                 DropdownMenuItem(
