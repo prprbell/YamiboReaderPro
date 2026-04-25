@@ -16,8 +16,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -74,6 +77,7 @@ object MangaImagePipeline {
 
     private val inFlight = ConcurrentHashMap<String, InFlightLoad>()
     private val ownerUrlKeys = ConcurrentHashMap<String, MutableSet<String>>()
+    private val cancelJobs = ConcurrentHashMap<String, Job>() // 延迟取消任务池
     private val ownerLastIndex = ConcurrentHashMap<String, Int>()
     private val ownerDirections = ConcurrentHashMap<String, Int>()
     private val ownerDirectionStreak = ConcurrentHashMap<String, Int>()
@@ -470,6 +474,8 @@ object MangaImagePipeline {
             val existing = inFlight[key]
             if (existing != null) {
                 existing.owners.add(ownerKey)
+                // 若该请求正处于延迟取消倒计时中，中止取消操作（复活）
+                cancelJobs.remove(key)?.cancel()
                 return existing.deferred
             }
 
@@ -626,8 +632,18 @@ object MangaImagePipeline {
             val load = inFlight[cacheKey] ?: return
             load.owners.remove(ownerKey)
             if (load.owners.isEmpty() && load.source != Source.WEBVIEW_TAKEOVER) {
-                load.deferred.cancel()
-                inFlight.remove(cacheKey)
+                cancelJobs[cacheKey]?.cancel()
+                cancelJobs[cacheKey] = pipelineScope.launch {
+                    delay(1500L)
+                    synchronized(lock) {
+                        val currentLoad = inFlight[cacheKey]
+                        if (currentLoad != null && currentLoad.owners.isEmpty()) {
+                            currentLoad.deferred.cancel()
+                            inFlight.remove(cacheKey)
+                        }
+                        cancelJobs.remove(cacheKey)
+                    }
+                }
             }
         }
     }

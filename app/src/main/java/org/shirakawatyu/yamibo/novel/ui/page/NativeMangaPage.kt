@@ -743,6 +743,23 @@ fun NativeMangaPage(
                             var retryHash by remember(item.imageUrl) { mutableIntStateOf(0) }
                             var errorCount by remember(item.imageUrl) { mutableIntStateOf(0) }
 
+                            // 引入与水平翻页模式完全一致的状态追踪
+                            var isImageLoading by remember(item.imageUrl, retryHash, externalRetry) { mutableStateOf(true) }
+                            var isImageError by remember(item.imageUrl, retryHash, externalRetry) { mutableStateOf(false) }
+
+                            LaunchedEffect(isImageError, retryHash) {
+                                if (isImageError && errorCount < 3) {
+                                    val jitter = (0..500).random().toLong()
+                                    delay(300L + (errorCount * 1000L) + jitter)
+
+                                    MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
+                                    forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+
+                                    errorCount++
+                                    retryHash++
+                                }
+                            }
+
                             val request = remember(item.imageUrl, cookie, retryHash, externalRetry) {
                                 MangaImagePipeline.newImageRequestBuilder(
                                     context = context.applicationContext,
@@ -752,68 +769,54 @@ fun NativeMangaPage(
                                     memory = true
                                 )
                                     .listener(
-                                        onSuccess = { _, _ -> errorCount = 0 }
+                                        onStart = { isImageLoading = true; isImageError = false },
+                                        onSuccess = { _, _ -> isImageLoading = false; isImageError = false; errorCount = 0 },
+                                        onError = { _, _ -> isImageLoading = false; isImageError = true },
+                                        onCancel = { isImageLoading = false } // 仅取消 Loading，保留底层管线静默重试的机会
                                     )
                                     .build()
                             }
 
-                            SubcomposeAsyncImage(
-                                model = request,
-                                contentDescription = null,
-                                contentScale = ContentScale.FillWidth,
-                                modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = defaultMinHeight),
-                                loading = {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator(color = YamiboColors.tertiary)
-                                    }
-                                },
-                                error = {
-                                    LaunchedEffect(retryHash) {
-                                        if (errorCount < 3) {
-                                            val jitter = (0..500).random().toLong()
-                                            delay(300L + (errorCount * 1000L) + jitter)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = defaultMinHeight),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                coil.compose.AsyncImage(
+                                    model = request,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.FillWidth,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
 
-                                            MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
-                                            forceReloadTriggers[item.imageUrl] =
-                                                (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+                                if (isImageLoading || (isImageError && errorCount < 3)) {
+                                    CircularProgressIndicator(color = YamiboColors.tertiary)
+                                }
 
-                                            errorCount++
-                                            retryHash++
-                                        }
-                                    }
-
-                                    if (errorCount < 3) {
-                                        Box(
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            CircularProgressIndicator(color = YamiboColors.tertiary)
-                                        }
-                                    } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .defaultMinSize(minHeight = 300.dp)
-                                                .clickable {
-                                                    scope.launch {
-                                                        errorCount = 0
-                                                        MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
-                                                        forceReloadTriggers[item.imageUrl] =
-                                                            (forceReloadTriggers[item.imageUrl] ?: 0) + 1
-                                                        retryHash++
-                                                    }
-                                                },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray)
-                                                Spacer(Modifier.height(8.dp))
-                                                Text("加载失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
-                                            }
+                                if (isImageError && errorCount >= 3) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clickable {
+                                                scope.launch {
+                                                    errorCount = 0
+                                                    MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
+                                                    forceReloadTriggers[item.imageUrl] =
+                                                        (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+                                                    retryHash++
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray)
+                                            Spacer(Modifier.height(8.dp))
+                                            Text("加载失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
                                         }
                                     }
                                 }
-                            )
+                            }
                         }
                     }
                 } else {

@@ -16,6 +16,7 @@ import okhttp3.HttpUrl
 import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.util.manga.ImageCheckerUtil
+import org.shirakawatyu.yamibo.novel.util.network.RateLimitInterceptor
 import org.shirakawatyu.yamibo.novel.util.network.TtlDnsCache
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -240,6 +241,9 @@ class YamiboRetrofit {
                     .build()
 
                 chain.proceed(request)
+            }
+            if (enableImageChecker) {
+                builder.addNetworkInterceptor(RateLimitInterceptor(100L))
             }
             // 2. 网络拦截器
             builder.addNetworkInterceptor { chain ->
