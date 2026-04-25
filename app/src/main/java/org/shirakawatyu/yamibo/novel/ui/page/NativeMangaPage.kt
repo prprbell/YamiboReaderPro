@@ -1160,10 +1160,11 @@ fun NativeMangaPage(
                     },
                     onChapterClick = { chapter ->
                         if (chapter.url.isNotEmpty()) {
+                            showUi = false
+                            showChapterList = false
+
                             readerManager.jumpToChapter(chapter.url) { globalIdx ->
                                 scope.launch {
-                                    showUi = false
-                                    showChapterList = false
                                     if (isVerticalMode) lazyListState.scrollToItem(globalIdx) else pagerState.scrollToPage(
                                         globalIdx
                                     )

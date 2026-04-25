@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.item.LoadedChapter
 import org.shirakawatyu.yamibo.novel.item.MangaPageItem
@@ -35,6 +36,9 @@ class MangaReaderManager(
 
     private val loadedChapters = mutableListOf<LoadedChapter>()
     private val maxLoadedChapters = 10
+
+    private var activeLoadJob: Job? = null
+    private var loadGeneration = 0
 
     companion object {
         private const val COLD_PREFETCH_EDGE_SKIP = 3
@@ -93,15 +97,18 @@ class MangaReaderManager(
         if (currentIndex <= 0) return
 
         val prevChapterInfo = chapters[currentIndex - 1]
+        val loadId = beginLoad()
 
         setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = true)
 
-        scope.launch {
+        activeLoadJob = scope.launch {
             try {
                 MangaProber().probeUrl(
                     context = context,
                     url = prevChapterInfo.url,
                     onSuccess = onSuccess@{ urls, title, _ ->
+                        if (isStaleLoad(loadId)) return@onSuccess
+
                         val normalizedUrls = normalizeUrls(urls)
 
                         if (normalizedUrls.isEmpty()) {
@@ -143,17 +150,27 @@ class MangaReaderManager(
                         onLoaded?.invoke()
                         setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = false)
                     },
-                    onFallback = {
+                    onFallback = onFallback@{
+                        if (isStaleLoad(loadId)) return@onFallback
+
                         setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = false)
                         fallbackNavigate(prevChapterInfo.url)
                     }
                 )
             } catch (e: CancellationException) {
-                setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = false)
+                if (!isStaleLoad(loadId)) {
+                    setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = false)
+                }
                 throw e
             } catch (_: Throwable) {
-                setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = false)
-                fallbackNavigate(prevChapterInfo.url)
+                if (!isStaleLoad(loadId)) {
+                    setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = false)
+                    fallbackNavigate(prevChapterInfo.url)
+                }
+            } finally {
+                if (!isStaleLoad(loadId)) {
+                    activeLoadJob = null
+                }
             }
         }
     }
@@ -171,15 +188,18 @@ class MangaReaderManager(
         if (currentIndex == -1 || currentIndex == chapters.size - 1) return
 
         val nextChapterInfo = chapters[currentIndex + 1]
+        val loadId = beginLoad()
 
         setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = true)
 
-        scope.launch {
+        activeLoadJob = scope.launch {
             try {
                 MangaProber().probeUrl(
                     context = context,
                     url = nextChapterInfo.url,
                     onSuccess = onSuccess@{ urls, title, _ ->
+                        if (isStaleLoad(loadId)) return@onSuccess
+
                         val normalizedUrls = normalizeUrls(urls)
 
                         if (normalizedUrls.isEmpty()) {
@@ -221,17 +241,27 @@ class MangaReaderManager(
                         onLoaded?.invoke()
                         setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = false)
                     },
-                    onFallback = {
+                    onFallback = onFallback@{
+                        if (isStaleLoad(loadId)) return@onFallback
+
                         setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = false)
                         fallbackNavigate(nextChapterInfo.url)
                     }
                 )
             } catch (e: CancellationException) {
-                setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = false)
+                if (!isStaleLoad(loadId)) {
+                    setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = false)
+                }
                 throw e
             } catch (_: Throwable) {
-                setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = false)
-                fallbackNavigate(nextChapterInfo.url)
+                if (!isStaleLoad(loadId)) {
+                    setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = false)
+                    fallbackNavigate(nextChapterInfo.url)
+                }
+            } finally {
+                if (!isStaleLoad(loadId)) {
+                    activeLoadJob = null
+                }
             }
         }
     }
@@ -240,16 +270,17 @@ class MangaReaderManager(
         targetUrl: String,
         onScrollTo: (Int) -> Unit
     ) {
-        if (isAnyLoading()) return
-
         val targetTid = MangaTitleCleaner.extractTidFromUrl(targetUrl)
             ?: return fallbackNavigate(targetUrl)
 
         val globalIndex = flatPages.indexOfFirst { it.tid == targetTid }
-
         if (globalIndex != -1) {
             onScrollTo(globalIndex)
             return
+        }
+
+        if (isAnyLoading()) {
+            cancelActiveLoadForManualJump()
         }
 
         val dir = mangaDirVM.currentDirectory ?: return fallbackNavigate(targetUrl)
@@ -337,6 +368,27 @@ class MangaReaderManager(
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
+    }
+
+    private fun beginLoad(): Int {
+        loadGeneration += 1
+        return loadGeneration
+    }
+
+    private fun isStaleLoad(loadId: Int): Boolean {
+        return loadId != loadGeneration
+    }
+
+    private fun cancelActiveLoadForManualJump() {
+        if (!isAnyLoading()) return
+
+        loadGeneration += 1
+        activeLoadJob?.cancel()
+        activeLoadJob = null
+
+        isLoadingPrev = false
+        isLoadingNext = false
+        isManualJumping = false
     }
 
     private fun isAnyLoading(): Boolean {
