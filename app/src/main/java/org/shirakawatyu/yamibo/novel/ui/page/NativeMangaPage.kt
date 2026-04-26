@@ -1,3 +1,4 @@
+
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.app.Activity
@@ -115,6 +116,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -374,7 +378,6 @@ fun NativeMangaPage(
 
     val lazyListState = rememberLazyListState(initialFirstVisibleItemIndex = 0)
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { readerManager.flatPages.size })
-    val initialIndex = remember { GlobalData.tempMangaIndex }
 
     val forceReloadTriggers = remember { androidx.compose.runtime.mutableStateMapOf<String, Int>() }
     var showReloadDialog by remember { mutableStateOf(false) }
@@ -430,6 +433,10 @@ fun NativeMangaPage(
             }
     ) {
         if (readerManager.flatPages.isNotEmpty() && cookie != "-1") {
+            val pagesSnapshot = readerManager.flatPages
+            val pageUrls = remember(pagesSnapshot) {
+                pagesSnapshot.map { it.imageUrl }
+            }
 
             val currentIndex by remember(isVerticalMode, lazyListState, pagerState) {
                 derivedStateOf {
@@ -463,7 +470,7 @@ fun NativeMangaPage(
                 }
             }
 
-            val currentItem = readerManager.flatPages.getOrNull(currentIndex)
+            val currentItem = pagesSnapshot.getOrNull(currentIndex)
 
             var showChapterToast by remember { mutableStateOf(false) }
             var toastChapterText by remember { mutableStateOf("") }
@@ -638,28 +645,37 @@ fun NativeMangaPage(
                     }
                 }
             }
-            LaunchedEffect(currentIndex, readerManager.flatPages.size) {
-                if (currentIndex >= readerManager.flatPages.size - 8) {
-                    readerManager.loadNext(isManualJump = false)
-                }
+            LaunchedEffect(pagesSnapshot.size, nativePipelineOwnerKey) {
+                snapshotFlow { currentIndex }
+                    .distinctUntilChanged()
+                    .collectLatest { index ->
+                        if (pagesSnapshot.isNotEmpty() && index >= pagesSnapshot.size - 8) {
+                            readerManager.loadNext(isManualJump = false)
+                        }
+                    }
             }
 
-            LaunchedEffect(cookie, currentIndex, readerManager.flatPages, readMode, nativePipelineOwnerKey) {
-                val pagesSnapshot = readerManager.flatPages
-                if (pagesSnapshot.isEmpty() || currentIndex !in pagesSnapshot.indices) {
-                    MangaImagePipeline.cancelNativeWindow(nativePipelineOwnerKey)
-                    return@LaunchedEffect
-                }
+            LaunchedEffect(cookie, pageUrls, readMode, nativePipelineOwnerKey) {
 
-                MangaImagePipeline.updateNativeWindow(
-                    context = context.applicationContext,
-                    ownerKey = nativePipelineOwnerKey,
-                    urls = pagesSnapshot.map { it.imageUrl },
-                    currentIndex = currentIndex,
-                    cookie = cookie,
-                    isVerticalMode = isVerticalMode,
-                    isRtl = isRtl
-                )
+                snapshotFlow { currentIndex }
+                    .distinctUntilChanged()
+                    .debounce(100L)
+                    .collectLatest { index ->
+                        if (pageUrls.isEmpty() || index !in pageUrls.indices) {
+                            MangaImagePipeline.cancelNativeWindow(nativePipelineOwnerKey)
+                            return@collectLatest
+                        }
+
+                        MangaImagePipeline.updateNativeWindow(
+                            context = context.applicationContext,
+                            ownerKey = nativePipelineOwnerKey,
+                            urls = pageUrls,
+                            currentIndex = index,
+                            cookie = cookie,
+                            isVerticalMode = isVerticalMode,
+                            isRtl = isRtl
+                        )
+                    }
             }
 
             val horizontalPagerClick: (Offset) -> Unit = remember(screenWidthPx, isRtl, pagerState) {
@@ -709,7 +725,7 @@ fun NativeMangaPage(
                                     scope.launch {
                                         if (isVerticalMode) {
                                             val target = if (isVolDown) lazyListState.firstVisibleItemIndex + 1 else lazyListState.firstVisibleItemIndex - 1
-                                            lazyListState.animateScrollToItem(index = target.coerceIn(0, readerManager.flatPages.size - 1))
+                                            lazyListState.animateScrollToItem(index = target.coerceIn(0, pagesSnapshot.size - 1))
                                         } else {
                                             val target = if (isVolDown) pagerState.targetPage + 1 else pagerState.targetPage - 1
                                             pagerState.animateScrollToPage(page = target.coerceIn(0, pagerState.pageCount - 1), animationSpec = tween(durationMillis = 250))
@@ -736,7 +752,7 @@ fun NativeMangaPage(
                     ) {
 
                         itemsIndexed(
-                            items = readerManager.flatPages,
+                            items = pagesSnapshot,
                             key = { _, item -> item.uniqueId }
                         ) { _, item ->
                             val externalRetry = forceReloadTriggers[item.imageUrl] ?: 0
@@ -823,13 +839,13 @@ fun NativeMangaPage(
                     CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
                         HorizontalPager(
                             state = pagerState,
-                            key = { readerManager.flatPages.getOrNull(it)?.uniqueId ?: it },
+                            key = { pagesSnapshot.getOrNull(it)?.uniqueId ?: it },
                             modifier = Modifier.fillMaxSize(),
                             pageSpacing = 16.dp,
                             userScrollEnabled = !isMultiTouch
                         ) { page ->
                             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                                val item = readerManager.flatPages.getOrNull(page)
+                                val item = pagesSnapshot.getOrNull(page)
 
                                 if (item != null) {
                                     val externalRetry = forceReloadTriggers[item.imageUrl] ?: 0
