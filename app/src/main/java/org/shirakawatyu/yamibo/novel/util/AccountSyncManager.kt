@@ -11,7 +11,7 @@ object AccountSyncManager {
     /**
      * 每次调用时，去 CookieManager 查一下有没有换账号。
      * @param context 上下文
-     * @param source 触发来源（仅用于调试日志）
+     * @param source 触发来源
      */
     suspend fun syncCookieAndCheckSign(context: Context, source: String = "") {
         val cookieManager = android.webkit.CookieManager.getInstance()
