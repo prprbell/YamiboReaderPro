@@ -16,7 +16,7 @@ object FavoriteDeleteUtil {
     suspend fun deleteFavoritesBatch(prefetchFormHash: String?, favIds: List<String>): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val api = YamiboRetrofit.Companion.getInstance().create(FavoriteApi::class.java)
+                val api = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
                 var formHash = prefetchFormHash
 
                 if (formHash.isNullOrEmpty()) {

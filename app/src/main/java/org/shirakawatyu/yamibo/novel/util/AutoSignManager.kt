@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.ResponseBody
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import org.shirakawatyu.yamibo.novel.network.FavoriteApi // 引入你已经写好的 API
 import retrofit2.http.GET
 import retrofit2.http.Url
 import java.text.SimpleDateFormat
@@ -28,13 +29,11 @@ private interface SignApi {
 
 /**
  * 后台自动签到
- * 每日严格执行最多8次网络探测。
+ * 每日严格执行最多3次网络探测。
  */
 object AutoSignManager {
     private const val BASE_URL = "https://bbs.yamibo.com/"
-    private const val SIGN_PAGE_URL = "https://bbs.yamibo.com/plugin.php?id=zqlj_sign&mobile=2"
-
-    private const val MAX_DAILY_RETRIES = 8
+    private const val MAX_DAILY_RETRIES = 3
 
     private fun getServerToday(): String {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).apply {
@@ -71,7 +70,6 @@ object AutoSignManager {
 
         if (savedDate != today) return true
 
-        // 只要没到10次，永远放行
         return count < MAX_DAILY_RETRIES
     }
 
@@ -79,9 +77,9 @@ object AutoSignManager {
     suspend fun checkAndSignIfNeeded(context: Context, force: Boolean = false) = withContext(Dispatchers.IO) {
         val accountHash = getCurrentAccountHash() ?: return@withContext
         val today = getServerToday()
-        var (_, currentCount) = getCurrentQuota(accountHash)
+        var (savedDate, currentCount) = getCurrentQuota(accountHash)
 
-        if (today != getCurrentQuota(accountHash).first) {
+        if (today != savedDate) {
             currentCount = 0
         }
 
@@ -93,31 +91,42 @@ object AutoSignManager {
                 updateQuota(accountHash, today, currentCount)
             }
 
-            val api = YamiboRetrofit.getInstance().create(SignApi::class.java)
-            val pageHtml = api.fetchHtml(SIGN_PAGE_URL).string()
+            // 获取formhash
+            val favoriteApi = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
+            val faqResponse = favoriteApi.getFormHash().execute()
+            val faqHtml = faqResponse.body()?.string() ?: ""
 
-            if (pageHtml.contains("""class="btna">今日已打卡</a>""")) {
-                if (force) showToast(context, "今日已打卡")
+            val match1 = Regex("""name="formhash"\s+value="([^"]+)"""").find(faqHtml)
+            val match2 = Regex("""formhash=([a-zA-Z0-9]{8})""").find(faqHtml)
+            val formHash = match1?.groupValues?.get(1) ?: match2?.groupValues?.get(1)
+
+            if (formHash.isNullOrEmpty()) {
+                if (force) showToast(context, "获取鉴权失败，无法打卡")
                 return@withContext
             }
 
-            // 4. 执行签到动作
-            val regex = """href="(plugin\.php\?id=zqlj_sign(?:&amp;|&)sign=[a-zA-Z0-9]+)"""".toRegex()
-            val matchResult = regex.find(pageHtml)
+            // 打卡
+            val signApi = YamiboRetrofit.getInstance().create(SignApi::class.java)
+            val signUrl = "${BASE_URL}plugin.php?id=zqlj_sign&sign=$formHash"
+            val actionResponseHtml = signApi.fetchHtml(signUrl).string()
 
-            if (matchResult != null) {
-                val path = matchResult.groupValues[1].replace("&amp;", "&")
-                val actionResponseHtml = api.fetchHtml(BASE_URL + path).string()
-
-                if (actionResponseHtml.contains("成功") || actionResponseHtml.contains("打卡") || actionResponseHtml.contains("提示信息")) {
-                    showToast(context, "签到成功")
-                } else {
-                    if (force) showToast(context, "打卡请求已发送，请稍后确认")
-                }
-            } else {
-                if (force) showToast(context, "HTML结构不匹配，无法打卡")
+            // 优先拦截重复打卡
+            if (actionResponseHtml.contains("已经打过卡了") ||
+                actionResponseHtml.contains("今日已打卡") ||
+                actionResponseHtml.contains("重复操作")) {
+                if (force) showToast(context, "今日已打卡")
             }
-        } catch (e: Exception) {
+            // 严格匹配成功字眼
+            else if (actionResponseHtml.contains("打卡成功") ||
+                actionResponseHtml.contains("成功") ||
+                actionResponseHtml.contains("获得了")) {
+                showToast(context, "签到成功")
+            }
+            // 兜底提示
+            else {
+                if (force) showToast(context, "打卡请求已发送")
+            }
+        } catch (_: Exception) {
             if (force) showToast(context, "网络异常，稍后重试")
         }
     }
