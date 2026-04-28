@@ -43,7 +43,7 @@ object AccountSyncManager {
             if (currentHash != null) {
                 GlobalData.currentCookie = currentCookie
                 CookieUtil.saveCookie(currentCookie)
-
+                AutoSignManager.resetQuota(currentHash)
                 if (GlobalData.isAutoSignInEnabled.value) {
                     delay(2000L)
                     AutoSignManager.checkAndSignIfNeeded(context, force = false)

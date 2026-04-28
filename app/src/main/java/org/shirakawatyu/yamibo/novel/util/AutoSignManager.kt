@@ -62,7 +62,11 @@ object AutoSignManager {
     private suspend fun updateQuota(hash: Int, date: String, count: Int) {
         GlobalData.dataStore?.edit { it[getQuotaKey(hash)] = "$date:$count" }
     }
-
+    suspend fun resetQuota(hash: Int? = getCurrentAccountHash()) {
+        if (hash == null) return
+        val today = getServerToday()
+        updateQuota(hash, today, 0)
+    }
     suspend fun needsSignIn(): Boolean {
         val accountHash = getCurrentAccountHash() ?: return false
         val today = getServerToday()
@@ -86,12 +90,6 @@ object AutoSignManager {
         if (!force && currentCount >= MAX_DAILY_RETRIES) return@withContext
 
         try {
-            if (!force) {
-                currentCount++
-                updateQuota(accountHash, today, currentCount)
-            }
-
-            // 获取formhash
             val favoriteApi = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
             val faqResponse = favoriteApi.getFormHash().execute()
             val faqHtml = faqResponse.body()?.string() ?: ""
@@ -110,6 +108,11 @@ object AutoSignManager {
             val signUrl = "${BASE_URL}plugin.php?id=zqlj_sign&sign=$formHash"
             val actionResponseHtml = signApi.fetchHtml(signUrl).string()
 
+            if (!force) {
+                currentCount++
+                updateQuota(accountHash, today, currentCount)
+            }
+
             // 优先拦截重复打卡
             if (actionResponseHtml.contains("已经打过卡了") ||
                 actionResponseHtml.contains("今日已打卡") ||
@@ -122,7 +125,6 @@ object AutoSignManager {
                 actionResponseHtml.contains("获得了")) {
                 showToast(context, "签到成功")
             }
-            // 兜底提示
             else {
                 if (force) showToast(context, "打卡请求已发送")
             }
