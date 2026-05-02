@@ -85,9 +85,9 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
-import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
+import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 
 class FullscreenApiManga {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -103,8 +103,10 @@ class FullscreenApiManga {
         Handler(Looper.getMainLooper()).post { onMangaActionDone?.invoke() }
     }
 }
+
 private var cachedFullscreenApiManga: FullscreenApiManga? = null
 private var cachedNativeMangaApiManga: MangaWebNativeJSInterface? = null
+
 class MangaWebNativeJSInterface {
     var onTriggerManga: ((String, Int, String) -> Unit)? = null
     private var lastNavTime = 0L
@@ -207,7 +209,8 @@ fun MangaWebPage(
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
 
     val nativeMangaApi = remember {
-        if (cachedNativeMangaApiManga == null) cachedNativeMangaApiManga = MangaWebNativeJSInterface()
+        if (cachedNativeMangaApiManga == null) cachedNativeMangaApiManga =
+            MangaWebNativeJSInterface()
         cachedNativeMangaApiManga!!
     }
     var initialLoadTriggered by remember { mutableStateOf(false) }
@@ -248,7 +251,8 @@ fun MangaWebPage(
                 mangaWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
                 val window = activity?.window
                 if (window != null) {
-                    WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
+                    WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars =
+                        false
                 }
             }
         }
@@ -415,7 +419,12 @@ fun MangaWebPage(
                 val accept = request?.requestHeaders?.get("Accept") ?: ""
 
                 val isImage = accept.contains("image/", ignoreCase = true) ||
-                        urlStr.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)) ||
+                        urlStr.contains(
+                            Regex(
+                                "\\.(jpg|jpeg|png|webp|gif)",
+                                RegexOption.IGNORE_CASE
+                            )
+                        ) ||
                         urlStr.contains("attachment")
 
                 if (request?.isForMainFrame == false && isImage) {
@@ -427,13 +436,28 @@ fun MangaWebPage(
                             val headers = mutableMapOf<String, String>()
                             request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
 
-                            val coilResponse = org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy.interceptImage(context, urlStr, headers)
+                            val coilResponse =
+                                org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy.interceptImage(
+                                    context,
+                                    urlStr,
+                                    headers
+                                )
                             if (coilResponse != null) return coilResponse
 
-                            val proxyResponse = org.shirakawatyu.yamibo.novel.global.YamiboRetrofit.proxyWebViewResource(request)
+                            val proxyResponse =
+                                org.shirakawatyu.yamibo.novel.global.YamiboRetrofit.proxyWebViewResource(
+                                    request
+                                )
                             if (proxyResponse != null) return proxyResponse
 
-                            return WebResourceResponse("image/jpeg", "utf-8", 404, "Blocked by Interceptor", null, java.io.ByteArrayInputStream(ByteArray(0)))
+                            return WebResourceResponse(
+                                "image/jpeg",
+                                "utf-8",
+                                404,
+                                "Blocked by Interceptor",
+                                null,
+                                java.io.ByteArrayInputStream(ByteArray(0))
+                            )
                         }
                     }
                 }

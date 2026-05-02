@@ -14,7 +14,6 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
  */
 object TombstoneQueueUtil {
     private val pendingDeleteKey = stringSetPreferencesKey("yamibo_pending_delete_queue")
-    
     private var memoryTombstoneQueue: MutableSet<String> = mutableSetOf()
     private val tombstoneMutex = Mutex()
 
@@ -50,9 +49,11 @@ object TombstoneQueueUtil {
             }
         }
     }
+
     fun getPendingFavIds(): List<String> {
         return memoryTombstoneQueue.map { it.substringAfter("|") }
     }
+
     /**
      * 从墓碑队列中移除
      */

@@ -1,13 +1,27 @@
 package org.shirakawatyu.yamibo.novel.ui.widget
 
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.EaseInOutSine
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Divider
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -30,7 +44,6 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
         ),
         label = "skeleton_alpha"
     )
-
     val baseHeaderColor = Color(0xFF551200)
     val headerBg = baseHeaderColor.copy(alpha = alpha + 0.8f)
 
@@ -55,8 +68,20 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
                 .padding(horizontal = 15.dp),
             contentAlignment = Alignment.CenterStart
         ) {
-            Box(Modifier.width(130.dp).height(24.dp).clip(RoundedCornerShape(4.dp)).background(skeletonColor))
-            Box(Modifier.align(Alignment.CenterEnd).size(24.dp).clip(CircleShape).background(skeletonColor))
+            Box(
+                Modifier
+                    .width(130.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(skeletonColor)
+            )
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(skeletonColor)
+            )
         }
         // 轮播图
         Box(
@@ -82,6 +107,7 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
         Spacer(modifier = Modifier.height(100.dp))
     }
 }
+
 @Composable
 private fun BbsSkeletonSectionHeader(title: String, bgColor: Color, fgColor: Color) {
     Box(
@@ -98,10 +124,17 @@ private fun BbsSkeletonSectionHeader(title: String, bgColor: Color, fgColor: Col
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 模拟标题文字占位
-            Box(Modifier.width(60.dp).height(16.dp).clip(RoundedCornerShape(2.dp)).background(fgColor))
+            Box(
+                Modifier
+                    .width(60.dp)
+                    .height(16.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(fgColor)
+            )
         }
     }
 }
+
 @Composable
 private fun BbsSkeletonForumItem(skeletonColor: Color, alpha: Float) {
     Row(
@@ -123,16 +156,34 @@ private fun BbsSkeletonForumItem(skeletonColor: Color, alpha: Float) {
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // 版块名称
-                Box(Modifier.height(18.dp).width(70.dp).clip(RoundedCornerShape(2.dp)).background(skeletonColor))
+                Box(
+                    Modifier
+                        .height(18.dp)
+                        .width(70.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(skeletonColor)
+                )
                 Spacer(Modifier.width(8.dp))
                 // 今日更新数
-                Box(Modifier.height(12.dp).width(35.dp).clip(RoundedCornerShape(2.dp)).background(skeletonColor.copy(alpha = alpha * 0.5f)))
+                Box(
+                    Modifier
+                        .height(12.dp)
+                        .width(35.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(skeletonColor.copy(alpha = alpha * 0.5f))
+                )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
             // 版块介绍
-            Box(Modifier.height(14.dp).fillMaxWidth(0.8f).clip(RoundedCornerShape(2.dp)).background(skeletonColor.copy(alpha = alpha * 0.7f)))
+            Box(
+                Modifier
+                    .height(14.dp)
+                    .fillMaxWidth(0.8f)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(skeletonColor.copy(alpha = alpha * 0.7f))
+            )
         }
     }
     HorizontalDivider(

@@ -8,6 +8,7 @@ object AccountSyncManager {
     private var previousAuthHash: Int? = null
     private var isFirstCheck = true
     val authStateFlow = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
+
     /**
      * 每次调用时，去 CookieManager 查一下有没有换账号。
      * @param context 上下文
@@ -43,7 +44,6 @@ object AccountSyncManager {
             if (currentHash != null) {
                 GlobalData.currentCookie = currentCookie
                 CookieUtil.saveCookie(currentCookie)
-                AutoSignManager.resetQuota(currentHash)
                 if (GlobalData.isAutoSignInEnabled.value) {
                     delay(2000L)
                     AutoSignManager.checkAndSignIfNeeded(context, force = false)

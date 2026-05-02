@@ -72,7 +72,8 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
             isUpdatingDirectory = true
             showSearchShortcut = false
 
-            val result = repo.manuallyUpdateDirectory(dir, forceSearch = isForced, currentTid = currentTid)
+            val result =
+                repo.manuallyUpdateDirectory(dir, forceSearch = isForced, currentTid = currentTid)
 
             result.onSuccess { updateResult ->
                 currentDirectory = updateResult.directory

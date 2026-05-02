@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.module
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import android.webkit.RenderProcessGoneDetail
@@ -7,7 +8,6 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
-import android.content.Context
 import com.alibaba.fastjson2.JSON
 import com.alibaba.fastjson2.JSONException
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
@@ -50,7 +50,8 @@ class PassageWebViewClient(
             fullUrl.contains("hm.js")
         ) {
             val mimeType = if (baseUrl.endsWith(".css")) "text/css" else "text/plain"
-            val response = WebResourceResponse(mimeType, "utf-8", ByteArrayInputStream(ByteArray(0)))
+            val response =
+                WebResourceResponse(mimeType, "utf-8", ByteArrayInputStream(ByteArray(0)))
 
             response.responseHeaders = mapOf(
                 "Cache-Control" to "no-store, no-cache, must-revalidate, max-age=0",
@@ -65,7 +66,12 @@ class PassageWebViewClient(
 
         val isImage = request?.isForMainFrame == false && (
                 accept.contains("image/", ignoreCase = true) ||
-                        fullUrl.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)) ||
+                        fullUrl.contains(
+                            Regex(
+                                "\\.(jpg|jpeg|png|webp|gif)",
+                                RegexOption.IGNORE_CASE
+                            )
+                        ) ||
                         fullUrl.contains("attachment")
                 )
 
@@ -88,7 +94,14 @@ class PassageWebViewClient(
             val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
             if (proxyResponse != null) return proxyResponse
 
-            return WebResourceResponse("image/jpeg", "utf-8", 404, "Blocked by Interceptor", null, ByteArrayInputStream(ByteArray(0)))
+            return WebResourceResponse(
+                "image/jpeg",
+                "utf-8",
+                404,
+                "Blocked by Interceptor",
+                null,
+                ByteArrayInputStream(ByteArray(0))
+            )
         }
 
         return super.shouldInterceptRequest(view, request)

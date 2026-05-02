@@ -37,14 +37,14 @@ import org.shirakawatyu.yamibo.novel.module.PassageWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.page.typefaceFromMode
 import org.shirakawatyu.yamibo.novel.ui.state.ChapterInfo
 import org.shirakawatyu.yamibo.novel.ui.state.ReaderState
+import org.shirakawatyu.yamibo.novel.util.SettingsUtil
+import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.reader.CacheData
 import org.shirakawatyu.yamibo.novel.util.reader.CacheUtil
 import org.shirakawatyu.yamibo.novel.util.reader.ChineseConvertUtil
-import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.reader.FontMetricsUtil
 import org.shirakawatyu.yamibo.novel.util.reader.HTMLUtil
 import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
-import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.reader.TextUtil
 import org.shirakawatyu.yamibo.novel.util.reader.ValueUtil
 
@@ -52,7 +52,6 @@ import org.shirakawatyu.yamibo.novel.util.reader.ValueUtil
 class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private val _uiState = MutableStateFlow(ReaderState())
     val uiState = _uiState.asStateFlow()
-
     private val _currentPercentage = MutableStateFlow(0f)
     val currentPercentage = _currentPercentage.asStateFlow()
 
@@ -197,7 +196,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     webChromeClient = GlobalData.webChromeClient
                 }
                 // 设置专用的Client回调
-                cacheWebViewClient = PassageWebViewClient(applicationContext, ::handleCacheLoadFinished)
+                cacheWebViewClient =
+                    PassageWebViewClient(applicationContext, ::handleCacheLoadFinished)
                 cacheWebView?.webViewClient = cacheWebViewClient!!
             }
             // 启动缓存队列
@@ -1024,7 +1024,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         }
     }
 
-    private fun paginateContent(isFromCache: Boolean = false, targetWebPage: Int? = null): Pair<List<Content>, List<ChapterInfo>> {
+    private fun paginateContent(
+        isFromCache: Boolean = false,
+        targetWebPage: Int? = null
+    ): Pair<List<Content>, List<ChapterInfo>> {
         updateFontRatios()
         val contentSnapshot = rawContentList.toList()
         val state = _uiState.value
@@ -1587,6 +1590,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             }
         }
     }
+
     fun setFontFamily(fontFamily: Int) {
         if (_uiState.value.fontFamily == fontFamily) return
         _uiState.value = _uiState.value.copy(fontFamily = fontFamily)

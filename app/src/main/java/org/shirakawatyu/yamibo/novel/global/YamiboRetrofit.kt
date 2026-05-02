@@ -4,15 +4,18 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import coil.annotation.ExperimentalCoilApi
-import kotlinx.coroutines.*
+import coil.imageLoader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.ConnectionPool
+import okhttp3.Dns
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
-import coil.imageLoader
-import okhttp3.Dns
-import okhttp3.HttpUrl
 import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.util.manga.ImageCheckerUtil
@@ -33,14 +36,24 @@ class DynamicDns(private val bootstrapClient: OkHttpClient) : okhttp3.Dns {
     private val aliDns by lazy {
         DnsOverHttps.Builder().client(bootstrapClient)
             .url("https://dns.alidns.com/dns-query".toHttpUrl())
-            .bootstrapDnsHosts(listOf(InetAddress.getByName("223.5.5.5"), InetAddress.getByName("223.6.6.6")))
+            .bootstrapDnsHosts(
+                listOf(
+                    InetAddress.getByName("223.5.5.5"),
+                    InetAddress.getByName("223.6.6.6")
+                )
+            )
             .includeIPv6(false).build()
     }
 
     private val tencentDns by lazy {
         DnsOverHttps.Builder().client(bootstrapClient)
             .url("https://doh.pub/dns-query".toHttpUrl())
-            .bootstrapDnsHosts(listOf(InetAddress.getByName("1.12.12.12"), InetAddress.getByName("120.53.53.53")))
+            .bootstrapDnsHosts(
+                listOf(
+                    InetAddress.getByName("1.12.12.12"),
+                    InetAddress.getByName("120.53.53.53")
+                )
+            )
             .includeIPv6(false).build()
     }
 
@@ -53,12 +66,16 @@ class DynamicDns(private val bootstrapClient: OkHttpClient) : okhttp3.Dns {
         return when {
             host.contains("alidns") || host.contains("dns.aliyun") ->
                 listOf(InetAddress.getByName("223.5.5.5"), InetAddress.getByName("223.6.6.6"))
+
             host.contains("doh.pub") || host.contains("dnspod") ->
                 listOf(InetAddress.getByName("1.12.12.12"), InetAddress.getByName("120.53.53.53"))
+
             host.contains("cloudflare") || host.contains("1.1.1.1") ->
                 listOf(InetAddress.getByName("1.1.1.1"), InetAddress.getByName("1.0.0.1"))
+
             host.contains("google") || host.contains("dns.google") ->
                 listOf(InetAddress.getByName("8.8.8.8"), InetAddress.getByName("8.8.4.4"))
+
             else -> listOf(InetAddress.getByName("223.5.5.5"))
         }
     }
@@ -156,11 +173,22 @@ class YamiboRetrofit {
 
         // 基础客户端
         val okHttpClient: OkHttpClient by lazy {
-            createOkHttpClient("http_cache_default", 50L * 1024 * 1024, enableCache = true, enableImageChecker = false)
+            createOkHttpClient(
+                "http_cache_default",
+                50L * 1024 * 1024,
+                enableCache = true,
+                enableImageChecker = false
+            )
         }
 
         val threadOkHttpClient: OkHttpClient by lazy {
-            createOkHttpClient("http_cache_thread", 0L, enableCache = false, enableImageChecker = true,maxRequestsPerHost = 6)
+            createOkHttpClient(
+                "http_cache_thread",
+                0L,
+                enableCache = false,
+                enableImageChecker = true,
+                maxRequestsPerHost = 6
+            )
         }
 
         private val YamiboInstance: Retrofit by lazy {
@@ -199,7 +227,8 @@ class YamiboRetrofit {
             // 1. 应用拦截器
             builder.addInterceptor { chain ->
                 // 前置网络状态检查
-                val cm = YamiboApplication.application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                val cm =
+                    YamiboApplication.application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
                 val capabilities = cm.getNetworkCapabilities(cm.activeNetwork)
                 val isInternetReady = capabilities?.let {
                     it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
@@ -263,7 +292,13 @@ class YamiboRetrofit {
 
                 val isForumImage = urlStr.contains("attachment/forum", ignoreCase = true)
 
-                if (checkedResponse.isSuccessful && urlStr.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE))) {
+                if (checkedResponse.isSuccessful && urlStr.contains(
+                        Regex(
+                            "\\.(jpg|jpeg|png|webp|gif)",
+                            RegexOption.IGNORE_CASE
+                        )
+                    )
+                ) {
                     if (isForumImage) {
                         val maxAge = 60 * 60 * 2
                         return@addNetworkInterceptor checkedResponse.newBuilder()
@@ -275,7 +310,10 @@ class YamiboRetrofit {
                         val maxAge = baseMaxAge + kotlin.random.Random.nextInt(-86400, 86400)
                         val swr = 60 * 60 * 24 * 1
                         return@addNetworkInterceptor checkedResponse.newBuilder()
-                            .header("Cache-Control", "public, max-age=$maxAge, stale-while-revalidate=$swr")
+                            .header(
+                                "Cache-Control",
+                                "public, max-age=$maxAge, stale-while-revalidate=$swr"
+                            )
                             .removeHeader("Pragma")
                             .build()
                     }
@@ -307,25 +345,36 @@ class YamiboRetrofit {
                 val response = client.newCall(reqBuilder.build()).execute()
                 if (response.isSuccessful) {
                     val contentType = response.header("Content-Type", "") ?: ""
-                    val mimeType = contentType.substringBefore(";").trim().takeIf { it.isNotEmpty() } ?: "application/octet-stream"
+                    val mimeType =
+                        contentType.substringBefore(";").trim().takeIf { it.isNotEmpty() }
+                            ?: "application/octet-stream"
                     val encoding = if (contentType.contains("charset=")) {
                         contentType.substringAfter("charset=").replace("\"", "").trim()
                     } else null
 
                     val inputStream = response.body?.byteStream()
                     if (inputStream != null) {
-                        val webResourceResponse = android.webkit.WebResourceResponse(mimeType, encoding, inputStream)
-                        webResourceResponse.setStatusCodeAndReasonPhrase(response.code, response.message.ifBlank { "OK" })
+                        val webResourceResponse =
+                            android.webkit.WebResourceResponse(mimeType, encoding, inputStream)
+                        webResourceResponse.setStatusCodeAndReasonPhrase(
+                            response.code,
+                            response.message.ifBlank { "OK" })
                         val responseHeaders = mutableMapOf<String, String>()
                         response.headers.forEach { (name, value) ->
-                            if (name.equals("content-encoding", true) && value.equals("br", true)) return@forEach
+                            if (name.equals("content-encoding", true) && value.equals(
+                                    "br",
+                                    true
+                                )
+                            ) return@forEach
                             responseHeaders[name] = value
                         }
                         webResourceResponse.responseHeaders = responseHeaders
                         return webResourceResponse
                     }
                 }
-            } catch (_: Exception) { return null }
+            } catch (_: Exception) {
+                return null
+            }
             return null
         }
 

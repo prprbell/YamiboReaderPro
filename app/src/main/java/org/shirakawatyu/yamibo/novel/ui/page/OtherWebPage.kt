@@ -79,12 +79,11 @@ import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
-import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
+import org.shirakawatyu.yamibo.novel.util.PageJsScripts
+import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
-import org.shirakawatyu.yamibo.novel.util.WebViewPool
-import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicInteger
 
 class FullscreenApiOther {
@@ -339,7 +338,12 @@ fun OtherWebPage(
                 val accept = request?.requestHeaders?.get("Accept") ?: ""
 
                 val isImage = accept.contains("image/", ignoreCase = true) ||
-                        urlStr.contains(Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)) ||
+                        urlStr.contains(
+                            Regex(
+                                "\\.(jpg|jpeg|png|webp|gif)",
+                                RegexOption.IGNORE_CASE
+                            )
+                        ) ||
                         urlStr.contains("attachment")
 
                 if (request?.isForMainFrame == false && isImage) {
@@ -354,13 +358,25 @@ fun OtherWebPage(
                                 val headers = mutableMapOf<String, String>()
                                 request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
 
-                                val coilResponse = org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy.interceptImage(context, urlStr, headers)
+                                val coilResponse =
+                                    org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy.interceptImage(
+                                        context,
+                                        urlStr,
+                                        headers
+                                    )
                                 if (coilResponse != null) return coilResponse
 
                                 val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
                                 if (proxyResponse != null) return proxyResponse
 
-                                return WebResourceResponse("image/jpeg", "utf-8", 404, "Blocked by Interceptor", null, java.io.ByteArrayInputStream(ByteArray(0)))
+                                return WebResourceResponse(
+                                    "image/jpeg",
+                                    "utf-8",
+                                    404,
+                                    "Blocked by Interceptor",
+                                    null,
+                                    java.io.ByteArrayInputStream(ByteArray(0))
+                                )
                             }
                         }
                     }
@@ -557,15 +573,17 @@ fun OtherWebPage(
 
     val statusBarsPaddingVal = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     var lockedStatusHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
-    if (statusBarsPaddingVal.value > lockedStatusHeightValue) lockedStatusHeightValue = statusBarsPaddingVal.value
+    if (statusBarsPaddingVal.value > lockedStatusHeightValue) lockedStatusHeightValue =
+        statusBarsPaddingVal.value
     val lockedStatusHeight = lockedStatusHeightValue.dp
 
     val isFullscreen = isFullscreenState.value || autoOpenMangaMode
     val topSpacerColor = if (isFullscreen) Color.Black else YamiboColors.primary
 
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .background(if (isFullscreen) Color.Black else MaterialTheme.colorScheme.background)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(if (isFullscreen) Color.Black else MaterialTheme.colorScheme.background)
     ) {
         Spacer(
             modifier = Modifier

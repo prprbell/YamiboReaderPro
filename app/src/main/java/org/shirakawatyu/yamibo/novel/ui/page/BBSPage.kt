@@ -1,6 +1,5 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
-import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
@@ -21,13 +20,42 @@ import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,9 +91,10 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BbsSkeletonScreen
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
+import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
-import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
+import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
@@ -100,6 +129,7 @@ class NativeMangaJSInterface {
             onTriggerManga?.invoke(urlsJoined, clickedIndex, title)
         }
     }
+
     @JavascriptInterface
     fun goBack() {
         Handler(Looper.getMainLooper()).post {
@@ -130,10 +160,12 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         contentImageCount.set(0)
         super.onPageStarted(view, url, favicon)
         val safeUrl = url ?: ""
-        val isHomepage = safeUrl == INDEX_URL || safeUrl == BBS_URL || safeUrl == BASE_BBS_URL || safeUrl == MOBILE_INDEX_URL ||
-                (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains("mod="))
+        val isHomepage =
+            safeUrl == INDEX_URL || safeUrl == BBS_URL || safeUrl == BASE_BBS_URL || safeUrl == MOBILE_INDEX_URL ||
+                    (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains("mod="))
         (context as? ComponentActivity)?.let { activity ->
-            val navBarVM = androidx.lifecycle.ViewModelProvider(activity)[BottomNavBarVM::class.java]
+            val navBarVM =
+                androidx.lifecycle.ViewModelProvider(activity)[BottomNavBarVM::class.java]
             navBarVM.isBbsAtRoot = isHomepage
         }
 
@@ -142,21 +174,32 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         BBSPageState.showLoadError = false
         BBSPageState.isErrorState = false
     }
+
     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
         super.doUpdateVisitedHistory(view, url, isReload)
         val safeUrl = url ?: ""
-        val isHomepage = safeUrl == INDEX_URL || safeUrl == BBS_URL || safeUrl == BASE_BBS_URL || safeUrl == MOBILE_INDEX_URL ||
-                (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains("mod="))
+        val isHomepage =
+            safeUrl == INDEX_URL || safeUrl == BBS_URL || safeUrl == BASE_BBS_URL || safeUrl == MOBILE_INDEX_URL ||
+                    (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains("mod="))
         (context as? ComponentActivity)?.let { activity ->
-            val navBarVM = androidx.lifecycle.ViewModelProvider(activity)[BottomNavBarVM::class.java]
+            val navBarVM =
+                androidx.lifecycle.ViewModelProvider(activity)[BottomNavBarVM::class.java]
             navBarVM.isBbsAtRoot = isHomepage
         }
     }
-    override fun onFormResubmission(view: WebView?, dontResend: android.os.Message?, resend: android.os.Message?) {
+
+    override fun onFormResubmission(
+        view: WebView?,
+        dontResend: android.os.Message?,
+        resend: android.os.Message?
+    ) {
         resend?.sendToTarget()
     }
 
-    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+    override fun shouldInterceptRequest(
+        view: WebView?,
+        request: WebResourceRequest?
+    ): WebResourceResponse? {
         val urlStr = request?.url?.toString() ?: ""
         val accept = request?.requestHeaders?.get("Accept") ?: ""
 
@@ -209,7 +252,8 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
     override fun onPageFinished(view: WebView?, url: String?) {
         super.onPageFinished(view, url)
-        val isHomepage = url == INDEX_URL || url == BBS_URL || url == BASE_BBS_URL || url == MOBILE_INDEX_URL
+        val isHomepage =
+            url == INDEX_URL || url == BBS_URL || url == BASE_BBS_URL || url == MOBILE_INDEX_URL
         if (isHomepage) {
             view?.clearHistory()
         }
@@ -226,6 +270,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         }
         checkAndUpdateLoginState()
     }
+
     private fun checkAndUpdateLoginState() {
         val cookieManager = CookieManager.getInstance()
         val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
@@ -233,12 +278,20 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
         BBSPageState.lastLoginState = currentLoginState
     }
-    override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+
+    override fun onRenderProcessGone(
+        view: WebView?,
+        detail: android.webkit.RenderProcessGoneDetail?
+    ): Boolean {
         handleErrorState()
         return true
     }
 
-    override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+    override fun onReceivedError(
+        view: WebView?,
+        request: WebResourceRequest?,
+        error: WebResourceError?
+    ) {
         super.onReceivedError(view, request, error)
         if (request?.isForMainFrame == true) {
             handleErrorState()
@@ -246,12 +299,21 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
     }
 
     @Deprecated("Deprecated in Java")
-    override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+    override fun onReceivedError(
+        view: WebView?,
+        errorCode: Int,
+        description: String?,
+        failingUrl: String?
+    ) {
         super.onReceivedError(view, errorCode, description, failingUrl)
         handleErrorState()
     }
 
-    override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
+    override fun onReceivedHttpError(
+        view: WebView?,
+        request: WebResourceRequest?,
+        errorResponse: WebResourceResponse?
+    ) {
         super.onReceivedHttpError(view, request, errorResponse)
         if (request?.isForMainFrame == true) {
             handleErrorState()
@@ -547,7 +609,6 @@ fun BBSPage(
             retryCount = 0
             isPullRefreshing = false
         }
-
         onDispose { }
     }
 
@@ -561,7 +622,9 @@ fun BBSPage(
                         safeUrl == BBSGlobalWebViewClient.MOBILE_INDEX_URL ||
                         safeUrl == BBSGlobalWebViewClient.BBS_URL ||
                         safeUrl == BBSGlobalWebViewClient.BASE_BBS_URL ||
-                        (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains("mod="))
+                        (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains(
+                            "mod="
+                        ))
 
                 if (isHomepage) {
                     for (i in 0 until 4) {
@@ -585,11 +648,12 @@ fun BBSPage(
     }
 
     BackHandler(enabled = true) {
-        val isHomepage = BBSPageState.currentUrl == indexUrl || BBSPageState.currentUrl == mobileIndexUrl ||
-                BBSPageState.currentUrl == bbsUrl || BBSPageState.currentUrl == baseBbsUrl ||
-                (BBSPageState.currentUrl?.startsWith("https://bbs.yamibo.com/forum.php") == true && BBSPageState.currentUrl?.contains(
-                    "mod="
-                ) == false)
+        val isHomepage =
+            BBSPageState.currentUrl == indexUrl || BBSPageState.currentUrl == mobileIndexUrl ||
+                    BBSPageState.currentUrl == bbsUrl || BBSPageState.currentUrl == baseBbsUrl ||
+                    (BBSPageState.currentUrl?.startsWith("https://bbs.yamibo.com/forum.php") == true && BBSPageState.currentUrl?.contains(
+                        "mod="
+                    ) == false)
 
         when {
             isHomepage -> {
@@ -599,9 +663,11 @@ fun BBSPage(
                     activity?.finish()
                 }
             }
+
             canGoBack -> {
                 webView.goBack()
             }
+
             else -> {
                 startLoading(mobileIndexUrl)
             }

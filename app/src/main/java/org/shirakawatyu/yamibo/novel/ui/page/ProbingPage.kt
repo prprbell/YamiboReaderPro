@@ -31,10 +31,10 @@ import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
-import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
-import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
+import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
+import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -91,8 +91,14 @@ fun ProbingPage(url: String, navController: NavController) {
                                 }
 
                                 val encodedTitle = parts.getOrNull(2) ?: ""
-                                var rawTitle = if (encodedTitle.isNotBlank()) URLDecoder.decode(encodedTitle, "UTF-8") else ""
-                                rawTitle = rawTitle.replace(Regex("\\s+[-—–_]+\\s+.*?(文学区|小说区|译文区|百合会|论坛).*$"), "").trim()
+                                var rawTitle = if (encodedTitle.isNotBlank()) URLDecoder.decode(
+                                    encodedTitle,
+                                    "UTF-8"
+                                ) else ""
+                                rawTitle = rawTitle.replace(
+                                    Regex("\\s+[-—–_]+\\s+.*?(文学区|小说区|译文区|百合会|论坛).*$"),
+                                    ""
+                                ).trim()
                                 if (rawTitle.isNotBlank() && newFav.title != rawTitle) {
                                     newFav = newFav.copy(title = rawTitle)
                                     changed = true
@@ -114,7 +120,8 @@ fun ProbingPage(url: String, navController: NavController) {
                             if (type == 2) {
                                 val title = URLDecoder.decode(parts.getOrNull(1) ?: "", "UTF-8")
                                 val urlsJoined = parts.getOrNull(2) ?: ""
-                                val htmlContent = URLDecoder.decode(parts.getOrNull(3) ?: "", "UTF-8")
+                                val htmlContent =
+                                    URLDecoder.decode(parts.getOrNull(3) ?: "", "UTF-8")
                                 val urlsList = urlsJoined
                                     .split("|||")
                                     .map { it.trim() }
@@ -186,6 +193,7 @@ fun ProbingPage(url: String, navController: NavController) {
                                 return YamiboRetrofit.proxyWebViewResource(request!!)
                                     ?: super.shouldInterceptRequest(view, request)
                             }
+
                             override fun onRenderProcessGone(
                                 view: WebView?,
                                 detail: android.webkit.RenderProcessGoneDetail?

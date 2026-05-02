@@ -154,6 +154,7 @@ private val backgroundColors = listOf(
     Color(0xFFd9e0e8),
     Color(0xFFdddddd)
 )
+
 fun typefaceFromMode(mode: Int): Typeface = when (mode) {
     1 -> Typeface.create("sans-serif-medium", Typeface.NORMAL) // 黑体
     2 -> Typeface.create("serif", Typeface.NORMAL)             // 宋体
@@ -206,7 +207,8 @@ fun ReaderPage(
             rememberedStatusBarHeightValue = statusBarsPadding.value
         }
     }
-    val statusBarHeight = if (rememberedStatusBarHeightValue > 0f) rememberedStatusBarHeightValue.dp else 28.dp
+    val statusBarHeight =
+        if (rememberedStatusBarHeightValue > 0f) rememberedStatusBarHeightValue.dp else 28.dp
 
 
     var rememberedNavBarHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
@@ -230,7 +232,8 @@ fun ReaderPage(
     val bookTitle by remember(url) {
         derivedStateOf {
             val rawTitle = favoritesState.value.find { it.url == url }?.title ?: ""
-            rawTitle.replace(Regex("(\\[.*?]|【.*?】|\\(.*?\\)|（.*?）)"), "").replace(Regex("\\s+"), " ").trim()
+            rawTitle.replace(Regex("(\\[.*?]|【.*?】|\\(.*?\\)|（.*?）)"), "")
+                .replace(Regex("\\s+"), " ").trim()
         }
     }
 
@@ -241,11 +244,15 @@ fun ReaderPage(
         }
     }
     val onSetViewAction = remember(readerVM) { { viewIndex: Int -> readerVM.onSetView(viewIndex) } }
-    val onSetFontSizeAction = remember(readerVM) { { fontSize: TextUnit -> readerVM.onSetFontSize(fontSize) } }
-    val onSetLineHeightAction = remember(readerVM) { { lineHeight: TextUnit -> readerVM.onSetLineHeight(lineHeight) } }
-    val onSetPaddingAction = remember(readerVM) { { padding: Dp -> readerVM.onSetPadding(padding) } }
+    val onSetFontSizeAction =
+        remember(readerVM) { { fontSize: TextUnit -> readerVM.onSetFontSize(fontSize) } }
+    val onSetLineHeightAction =
+        remember(readerVM) { { lineHeight: TextUnit -> readerVM.onSetLineHeight(lineHeight) } }
+    val onSetPaddingAction =
+        remember(readerVM) { { padding: Dp -> readerVM.onSetPadding(padding) } }
     val onShowChaptersAction = remember(readerVM) { { readerVM.toggleChapterDrawer(true) } }
-    val onSetBackgroundColorAction = remember(readerVM) { { color: Color? -> readerVM.onSetBackgroundColor(color) } }
+    val onSetBackgroundColorAction =
+        remember(readerVM) { { color: Color? -> readerVM.onSetBackgroundColor(color) } }
 
     val pagerState = rememberPagerState(pageCount = { uiState.htmlList.size })
     val lazyListState = rememberLazyListState()
@@ -915,7 +922,9 @@ fun ReaderPage(
                                     DayNightLottieSwitch(
                                         isNightMode = uiState.nightMode,
                                         onToggle = { readerVM.toggleNightMode(it) },
-                                        modifier = Modifier.width(64.dp).height(32.dp)
+                                        modifier = Modifier
+                                            .width(64.dp)
+                                            .height(32.dp)
                                     )
                                 }
                                 Spacer(Modifier.width(16.dp))
@@ -999,12 +1008,21 @@ fun ReaderPage(
                                             modifier = Modifier.padding(vertical = 4.dp),
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
                                         )
-                                        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                                        Box(
+                                            modifier = Modifier.padding(
+                                                horizontal = 12.dp,
+                                                vertical = 6.dp
+                                            )
+                                        ) {
                                             Row(
                                                 modifier = Modifier
                                                     .width(180.dp)
                                                     .clip(RoundedCornerShape(8.dp))
-                                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                                                    .background(
+                                                        MaterialTheme.colorScheme.onSurface.copy(
+                                                            alpha = 0.1f
+                                                        )
+                                                    )
                                                     .padding(4.dp),
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
@@ -1566,7 +1584,10 @@ private fun MainSettingsMenu(
                 ) {
                     val maxDp = this.maxWidth
                     val maxWidthPx = with(density) { maxDp.toPx() }
-                    val textWidthPx = textMeasurer.measure(text = fullText, style = textStyle).size.width.toFloat()
+                    val textWidthPx = textMeasurer.measure(
+                        text = fullText,
+                        style = textStyle
+                    ).size.width.toFloat()
                     val displayText = if (textWidthPx > maxWidthPx) shortText else fullText
 
                     Text(

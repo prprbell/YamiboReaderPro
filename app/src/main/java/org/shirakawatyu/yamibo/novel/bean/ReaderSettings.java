@@ -11,6 +11,7 @@ public class ReaderSettings {
     private Boolean isVerticalMode;
     private Integer translationMode;
     private Integer fontFamily;
+
     public ReaderSettings(Float fontSizePx, Float lineHeightPx, Float padding,
                           Boolean nightMode, String backgroundColor,
                           Boolean loadImages, Boolean isVerticalMode,
@@ -92,6 +93,7 @@ public class ReaderSettings {
     public void setTranslationMode(Integer translationMode) {
         this.translationMode = translationMode;
     }
+
     public Integer getFontFamily() {
         return fontFamily == null ? 0 : fontFamily;
     }

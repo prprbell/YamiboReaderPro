@@ -66,8 +66,10 @@ private val TextPri = Color(0xFFE0DCD6)
 private val TextSec = Color(0xFF6B7280)
 private val TextRead = Color(0xFF3D4454)
 private val Divider = Color(0xFF222630)
-private val SpecialChapterRegex = Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)
+private val SpecialChapterRegex =
+    Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)
 private val ChapterIndexFormat = DecimalFormat("0.###")
+
 data class MangaChapter(
     val index: Float,
     val title: String,
@@ -206,7 +208,12 @@ fun MangaChapterPanel(
                                     .clickable { showSecondKeyword = true },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("+", color = Accent, fontSize = 24.sp, fontWeight = FontWeight.Light)
+                                Text(
+                                    "+",
+                                    color = Accent,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Light
+                                )
                             }
                         }
                     }
@@ -427,14 +434,24 @@ fun MangaChapterPanel(
 
                             val latestText = latestChapter?.let { chap ->
                                 when {
-                                    chap.title.contains(Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)) -> "SP"
+                                    chap.title.contains(
+                                        Regex(
+                                            "番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画",
+                                            RegexOption.IGNORE_CASE
+                                        )
+                                    ) -> "SP"
+
                                     chap.index == 999f -> "终"
                                     chap.index < 1f && !chap.title.contains(Regex("[0零〇]")) -> "Ex"
                                     else -> {
                                         val safeStr = DecimalFormat("0.###").format(chap.index)
                                         if (safeStr.contains(".")) {
                                             val parts = safeStr.split(".")
-                                            if (parts[1].length >= 3) "Ex" else "${parts[0]}-${parts[1].trimStart('0')}"
+                                            if (parts[1].length >= 3) "Ex" else "${parts[0]}-${
+                                                parts[1].trimStart(
+                                                    '0'
+                                                )
+                                            }"
                                         } else safeStr
                                     }
                                 }

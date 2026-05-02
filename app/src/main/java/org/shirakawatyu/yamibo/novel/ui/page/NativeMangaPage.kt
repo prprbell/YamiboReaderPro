@@ -1,4 +1,3 @@
-
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.app.Activity
@@ -110,7 +109,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.annotation.ExperimentalCoilApi
-import coil.compose.SubcomposeAsyncImage
 import coil.imageLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -126,24 +124,25 @@ import kotlinx.coroutines.withTimeoutOrNull
 import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 import org.shirakawatyu.yamibo.novel.bean.MangaSettings
 import org.shirakawatyu.yamibo.novel.global.GlobalData
-import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaChapter
-import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaChapterPanel
-import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaSettingsPanel
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
+import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaChapter
+import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaChapterPanel
+import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaSettingsPanel
 import org.shirakawatyu.yamibo.novel.util.HapticUtil
+import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
+import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
 import org.shirakawatyu.yamibo.novel.util.manga.MangaReaderManager
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import org.shirakawatyu.yamibo.novel.util.manga.ZoomPanGestureHandler
-import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
-import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.verticalMangaZoomGesture
 import java.net.URLEncoder
 
-private val SpecialChapterRegex = Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)
+private val SpecialChapterRegex =
+    Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)
 private val ChapterIndexFormat = java.text.DecimalFormat("0.###")
 
 @OptIn(ExperimentalFoundationApi::class, FlowPreview::class, ExperimentalCoilApi::class)
@@ -153,11 +152,13 @@ fun NativeMangaPage(
     originalUrl: String = url,
     navController: NavController
 ) {
+
     val context = LocalContext.current
     val view = LocalView.current
     val activity = context as? Activity
     val scope = rememberCoroutineScope()
-    val mangaDirVM: MangaDirectoryVM = viewModel(factory = ViewModelFactory(context.applicationContext))
+    val mangaDirVM: MangaDirectoryVM =
+        viewModel(factory = ViewModelFactory(context.applicationContext))
     val favoriteVM: FavoriteVM = viewModel(
         viewModelStoreOwner = context as ComponentActivity,
         factory = ViewModelFactory(context.applicationContext)
@@ -254,7 +255,11 @@ fun NativeMangaPage(
                         if (previousRoute?.startsWith("MangaWebPage") == true) {
                             popUpTo(previousRoute) { inclusive = true }
                         } else {
-                            navController.currentDestination?.id?.let { currentId -> popUpTo(currentId) { inclusive = true } }
+                            navController.currentDestination?.id?.let { currentId ->
+                                popUpTo(
+                                    currentId
+                                ) { inclusive = true }
+                            }
                         }
                     }
                     scope.launch { delay(300); probingUrl = null; probingJob = null }
@@ -265,7 +270,11 @@ fun NativeMangaPage(
                         if (previousRoute?.startsWith("MangaWebPage") == true) {
                             popUpTo(previousRoute) { inclusive = true }
                         } else {
-                            navController.currentDestination?.id?.let { currentId -> popUpTo(currentId) { inclusive = true } }
+                            navController.currentDestination?.id?.let { currentId ->
+                                popUpTo(
+                                    currentId
+                                ) { inclusive = true }
+                            }
                         }
                     }
                     probingUrl = null; probingJob = null
@@ -275,7 +284,12 @@ fun NativeMangaPage(
     }
 
     val readerManager = remember(nativePipelineOwnerKey) {
-        MangaReaderManager(context, mangaDirVM, scope, nativePipelineOwnerKey) { fallbackUrl -> fallbackNavigate(fallbackUrl) }
+        MangaReaderManager(
+            context,
+            mangaDirVM,
+            scope,
+            nativePipelineOwnerKey
+        ) { fallbackUrl -> fallbackNavigate(fallbackUrl) }
     }
 
 
@@ -283,7 +297,8 @@ fun NativeMangaPage(
         isExiting = true
         val window = activity?.window
         if (window != null) {
-            WindowCompat.getInsetsController(window, view).apply { show(WindowInsetsCompat.Type.systemBars()) }
+            WindowCompat.getInsetsController(window, view)
+                .apply { show(WindowInsetsCompat.Type.systemBars()) }
         }
         bottomNavBarVM.setBottomNavBarVisibility(true)
         val prevEntry = navController.previousBackStackEntry
@@ -300,7 +315,8 @@ fun NativeMangaPage(
         favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.SMART
         val window = activity?.window
         if (window != null) {
-            WindowCompat.getInsetsController(window, view).apply { show(WindowInsetsCompat.Type.systemBars()) }
+            WindowCompat.getInsetsController(window, view)
+                .apply { show(WindowInsetsCompat.Type.systemBars()) }
         }
         bottomNavBarVM.setBottomNavBarVisibility(true)
 
@@ -310,7 +326,11 @@ fun NativeMangaPage(
             val encodedChapterUrl = URLEncoder.encode(url, "utf-8")
             val encodedOriginalUrl = URLEncoder.encode(originalUrl, "utf-8")
             navController.navigate("MangaWebPage/$encodedChapterUrl/$encodedOriginalUrl?fastForward=true&initialPage=0") {
-                navController.currentDestination?.id?.let { currentId -> popUpTo(currentId) { inclusive = true } }
+                navController.currentDestination?.id?.let { currentId ->
+                    popUpTo(currentId) {
+                        inclusive = true
+                    }
+                }
             }
         }
         Unit
@@ -335,9 +355,12 @@ fun NativeMangaPage(
                 controller.isAppearanceLightStatusBars = false
                 isFirstEnter = false
             } else {
-                if (isFirstEnter) { delay(150); isFirstEnter = false }
+                if (isFirstEnter) {
+                    delay(150); isFirstEnter = false
+                }
                 window.statusBarColor = android.graphics.Color.TRANSPARENT
-                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 controller.hide(WindowInsetsCompat.Type.systemBars())
                 delay(300)
                 controller.isAppearanceLightStatusBars = false
@@ -346,7 +369,13 @@ fun NativeMangaPage(
     }
 
     val gestureHandler = remember {
-        ZoomPanGestureHandler(scale = globalScale, offsetX = globalOffsetX, offsetY = globalOffsetY, screenWidthPx = screenWidthPx, screenHeightPx = screenHeightPx)
+        ZoomPanGestureHandler(
+            scale = globalScale,
+            offsetX = globalOffsetX,
+            offsetY = globalOffsetY,
+            screenWidthPx = screenWidthPx,
+            screenHeightPx = screenHeightPx
+        )
     }
 
     DisposableEffect(lifecycleOwner, nativePipelineOwnerKey) {
@@ -355,7 +384,10 @@ fun NativeMangaPage(
         if (window != null) {
             WindowCompat.setDecorFitsSystemWindows(window, false)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
             }
             window.statusBarColor = android.graphics.Color.TRANSPARENT
             bottomNavBarVM.setBottomNavBarVisibility(false)
@@ -364,7 +396,10 @@ fun NativeMangaPage(
             MangaImagePipeline.cancelNativeWindow(nativePipelineOwnerKey)
             MangaImagePipeline.cancelChapterColdPrefetches(nativePipelineOwnerKey)
             if (!isJumpingChapter) {
-                activity?.window?.let { WindowCompat.getInsetsController(it, view).show(WindowInsetsCompat.Type.systemBars()) }
+                activity?.window?.let {
+                    WindowCompat.getInsetsController(it, view)
+                        .show(WindowInsetsCompat.Type.systemBars())
+                }
                 bottomNavBarVM.setBottomNavBarVisibility(true)
                 context.imageLoader.memoryCache?.trimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
             }
@@ -372,13 +407,31 @@ fun NativeMangaPage(
     }
 
     val cookieState = produceState(initialValue = "-1") {
-        value = withContext(Dispatchers.IO) { CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: "" }
+        value = withContext(Dispatchers.IO) {
+            CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
+        }
     }
     val cookie = cookieState.value
 
     val lazyListState = rememberLazyListState(initialFirstVisibleItemIndex = 0)
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { readerManager.flatPages.size })
+    val pagerState =
+        rememberPagerState(initialPage = 0, pageCount = { readerManager.flatPages.size })
+    val executeScroll: (Int) -> Unit =
+        remember(isVerticalMode, lazyListState, pagerState, readerManager) {
+            { targetGlobalIndex ->
+                scope.launch {
+                    val expectedSize = readerManager.flatPages.size
+                    withTimeoutOrNull(1500) {
+                        snapshotFlow {
+                            if (isVerticalMode) lazyListState.layoutInfo.totalItemsCount else pagerState.pageCount
+                        }.first { it >= expectedSize }
+                    }
 
+                    if (isVerticalMode) lazyListState.scrollToItem(targetGlobalIndex)
+                    else pagerState.scrollToPage(targetGlobalIndex)
+                }
+            }
+        }
     val forceReloadTriggers = remember { androidx.compose.runtime.mutableStateMapOf<String, Int>() }
     var showReloadDialog by remember { mutableStateOf(false) }
 
@@ -408,10 +461,7 @@ fun NativeMangaPage(
             if (mangaDirVM.currentDirectory == null) mangaDirVM.loadDirectoryByUrl(url)
 
             readerManager.jumpToChapter(url) { globalIdx ->
-                scope.launch {
-                    if (isVerticalMode) lazyListState.scrollToItem(globalIdx)
-                    else pagerState.scrollToPage(globalIdx)
-                }
+                executeScroll(globalIdx)
             }
         }
     }
@@ -449,11 +499,13 @@ fun NativeMangaPage(
                         } else if (!lazyListState.canScrollForward) {
                             visibleItems.last().index
                         } else {
-                            val isAtAbsoluteTop = lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
+                            val isAtAbsoluteTop =
+                                lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
                             if (isAtAbsoluteTop) {
                                 0
                             } else {
-                                val readLine = layoutInfo.viewportStartOffset + (layoutInfo.viewportSize.height * 0.4f).toInt()
+                                val readLine =
+                                    layoutInfo.viewportStartOffset + (layoutInfo.viewportSize.height * 0.4f).toInt()
                                 var activeIndex = lazyListState.firstVisibleItemIndex
                                 for (itemInfo in visibleItems) {
                                     if (readLine >= itemInfo.offset && readLine <= (itemInfo.offset + itemInfo.size)) {
@@ -504,7 +556,12 @@ fun NativeMangaPage(
                 if (chapter != null) {
                     val displayNum = getDisplayChapterNum(chapter.rawTitle, chapter.chapterNum)
                     val shortTitle = "读至第 $displayNum 话 - ${currentItem.localIndex + 1}页"
-                    favoriteVM.updateMangaProgress(originalUrl, currentItem.chapterUrl, shortTitle, currentItem.localIndex)
+                    favoriteVM.updateMangaProgress(
+                        originalUrl,
+                        currentItem.chapterUrl,
+                        shortTitle,
+                        currentItem.localIndex
+                    )
                 }
             }
 
@@ -536,13 +593,24 @@ fun NativeMangaPage(
                 }
             }
 
-            val nestedScrollConnection = remember(isVerticalMode, isRtl, lazyListState, pagerState, density, gestureHandler) {
+            val nestedScrollConnection = remember(
+                isVerticalMode,
+                isRtl,
+                lazyListState,
+                pagerState,
+                density,
+                gestureHandler
+            ) {
                 object : NestedScrollConnection {
 
-                    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    override fun onPreScroll(
+                        available: Offset,
+                        source: NestedScrollSource
+                    ): Offset {
                         if (source == NestedScrollSource.UserInput) {
                             if (isVerticalMode) {
-                                val isAtTop = lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
+                                val isAtTop =
+                                    lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
 
                                 val isZoomedAndCanPan = gestureHandler.isZoomed &&
                                         gestureHandler.offsetY.value < gestureHandler.maxOffsetY() - 0.5f
@@ -551,16 +619,20 @@ fun NativeMangaPage(
                                 val physicalY = available.y * currentScale
 
                                 if (available.y < 0 && pullOverscrollAmount > 0) {
-                                    val consumePhysical = physicalY.coerceAtLeast(-pullOverscrollAmount)
+                                    val consumePhysical =
+                                        physicalY.coerceAtLeast(-pullOverscrollAmount)
                                     pullOverscrollAmount += consumePhysical
                                     return Offset(0f, consumePhysical / currentScale)
-                                }
-                                else if (available.y > 0 && isAtTop) {
+                                } else if (available.y > 0 && isAtTop) {
                                     if (isZoomedAndCanPan) {
                                         return Offset.Zero
                                     }
 
-                                    val dragMultiplier = (1f - (pullOverscrollAmount / (triggerDistancePx * 2.5f))).coerceIn(0.2f, 1f)
+                                    val dragMultiplier =
+                                        (1f - (pullOverscrollAmount / (triggerDistancePx * 2.5f))).coerceIn(
+                                            0.2f,
+                                            1f
+                                        )
                                     pullOverscrollAmount += physicalY * dragMultiplier
 
                                     return Offset(0f, available.y)
@@ -568,7 +640,8 @@ fun NativeMangaPage(
                             } else {
                                 val isAtStart = pagerState.currentPage == 0
 
-                                val isPullingToLoadPrev = if (isRtl) available.x < 0 else available.x > 0
+                                val isPullingToLoadPrev =
+                                    if (isRtl) available.x < 0 else available.x > 0
                                 val isPushingBack = if (isRtl) available.x > 0 else available.x < 0
 
                                 if (isPushingBack && pullOverscrollAmount > 0) {
@@ -578,7 +651,11 @@ fun NativeMangaPage(
                                     return Offset(if (available.x > 0) consume else -consume, 0f)
                                 } else if (isPullingToLoadPrev && isAtStart) {
                                     val absX = kotlin.math.abs(available.x)
-                                    val dragMultiplier = (1f - (pullOverscrollAmount / (triggerDistancePx * 2.5f))).coerceIn(0.15f, 1f)
+                                    val dragMultiplier =
+                                        (1f - (pullOverscrollAmount / (triggerDistancePx * 2.5f))).coerceIn(
+                                            0.15f,
+                                            1f
+                                        )
                                     pullOverscrollAmount += absX * dragMultiplier
                                     return Offset(available.x, 0f)
                                 }
@@ -635,7 +712,10 @@ fun NativeMangaPage(
                         return consumed
                     }
 
-                    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                    override suspend fun onPostFling(
+                        consumed: Velocity,
+                        available: Velocity
+                    ): Velocity {
                         if (isVerticalMode && available.y > 0) {
                             if (lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0) {
                                 return Velocity(0f, available.y)
@@ -678,33 +758,52 @@ fun NativeMangaPage(
                     }
             }
 
-            val horizontalPagerClick: (Offset) -> Unit = remember(screenWidthPx, isRtl, pagerState) {
-                { offset ->
-                    if (showUi) { showUi = false; showSettingsPanel = false }
-                    else {
-                        val isLeftTap = offset.x < screenWidthPx * 0.15f
-                        val isRightTap = offset.x > screenWidthPx * 0.85f
+            val horizontalPagerClick: (Offset) -> Unit =
+                remember(screenWidthPx, isRtl, pagerState) {
+                    { offset ->
+                        if (showUi) {
+                            showUi = false; showSettingsPanel = false
+                        } else {
+                            val isLeftTap = offset.x < screenWidthPx * 0.15f
+                            val isRightTap = offset.x > screenWidthPx * 0.85f
 
-                        if (isLeftTap) {
-                            scope.launch {
-                                val targetPage = if (isRtl) pagerState.targetPage + 1 else pagerState.targetPage - 1
-                                pagerState.animateScrollToPage(page = targetPage.coerceIn(0, pagerState.pageCount - 1), animationSpec = tween(durationMillis = 250))
+                            if (isLeftTap) {
+                                scope.launch {
+                                    val targetPage =
+                                        if (isRtl) pagerState.targetPage + 1 else pagerState.targetPage - 1
+                                    pagerState.animateScrollToPage(
+                                        page = targetPage.coerceIn(
+                                            0,
+                                            pagerState.pageCount - 1
+                                        ), animationSpec = tween(durationMillis = 250)
+                                    )
+                                }
+                            } else if (isRightTap) {
+                                scope.launch {
+                                    val targetPage =
+                                        if (isRtl) pagerState.currentPage - 1 else pagerState.currentPage + 1
+                                    pagerState.animateScrollToPage(
+                                        targetPage.coerceIn(
+                                            0,
+                                            pagerState.pageCount - 1
+                                        )
+                                    )
+                                }
+                            } else {
+                                showUi = true
                             }
-                        } else if (isRightTap) {
-                            scope.launch {
-                                val targetPage = if (isRtl) pagerState.currentPage - 1 else pagerState.currentPage + 1
-                                pagerState.animateScrollToPage(targetPage.coerceIn(0, pagerState.pageCount - 1))
-                            }
-                        } else { showUi = true }
+                        }
                     }
                 }
-            }
 
             val focusRequester = remember { FocusRequester() }
             LaunchedEffect(showUi) {
                 if (!showUi) {
                     view.isFocusableInTouchMode = true; view.requestFocus(); delay(50)
-                    try { focusRequester.requestFocus() } catch (_: Exception) {}
+                    try {
+                        focusRequester.requestFocus()
+                    } catch (_: Exception) {
+                    }
                 }
             }
 
@@ -724,11 +823,23 @@ fun NativeMangaPage(
                                     lastVolKeyTime = currentTime
                                     scope.launch {
                                         if (isVerticalMode) {
-                                            val target = if (isVolDown) lazyListState.firstVisibleItemIndex + 1 else lazyListState.firstVisibleItemIndex - 1
-                                            lazyListState.animateScrollToItem(index = target.coerceIn(0, pagesSnapshot.size - 1))
+                                            val target =
+                                                if (isVolDown) lazyListState.firstVisibleItemIndex + 1 else lazyListState.firstVisibleItemIndex - 1
+                                            lazyListState.animateScrollToItem(
+                                                index = target.coerceIn(
+                                                    0,
+                                                    pagesSnapshot.size - 1
+                                                )
+                                            )
                                         } else {
-                                            val target = if (isVolDown) pagerState.targetPage + 1 else pagerState.targetPage - 1
-                                            pagerState.animateScrollToPage(page = target.coerceIn(0, pagerState.pageCount - 1), animationSpec = tween(durationMillis = 250))
+                                            val target =
+                                                if (isVolDown) pagerState.targetPage + 1 else pagerState.targetPage - 1
+                                            pagerState.animateScrollToPage(
+                                                page = target.coerceIn(
+                                                    0,
+                                                    pagerState.pageCount - 1
+                                                ), animationSpec = tween(durationMillis = 250)
+                                            )
                                         }
                                     }
                                 }
@@ -738,14 +849,21 @@ fun NativeMangaPage(
                         false
                     }
                     .verticalMangaZoomGesture(
-                        handler = gestureHandler, scope = scope, onTap = handleVerticalClick, enabled = isVerticalMode
+                        handler = gestureHandler,
+                        scope = scope,
+                        onTap = handleVerticalClick,
+                        enabled = isVerticalMode
                     )
             ) {
                 if (isVerticalMode) {
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { scaleX = globalScale.value; scaleY = globalScale.value; translationX = globalOffsetX.value; translationY = globalOffsetY.value },
+                            .graphicsLayer {
+                                scaleX = globalScale.value; scaleY =
+                                globalScale.value; translationX =
+                                globalOffsetX.value; translationY = globalOffsetY.value
+                            },
                         state = lazyListState,
                         userScrollEnabled = true,
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -760,38 +878,60 @@ fun NativeMangaPage(
                             var errorCount by remember(item.imageUrl) { mutableIntStateOf(0) }
 
                             // 引入与水平翻页模式完全一致的状态追踪
-                            var isImageLoading by remember(item.imageUrl, retryHash, externalRetry) { mutableStateOf(true) }
-                            var isImageError by remember(item.imageUrl, retryHash, externalRetry) { mutableStateOf(false) }
+                            var isImageLoading by remember(
+                                item.imageUrl,
+                                retryHash,
+                                externalRetry
+                            ) { mutableStateOf(true) }
+                            var isImageError by remember(
+                                item.imageUrl,
+                                retryHash,
+                                externalRetry
+                            ) { mutableStateOf(false) }
 
                             LaunchedEffect(isImageError, retryHash) {
                                 if (isImageError && errorCount < 3) {
                                     val jitter = (0..500).random().toLong()
                                     delay(300L + (errorCount * 1000L) + jitter)
 
-                                    MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
-                                    forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+                                    MangaImagePipeline.evict(
+                                        context.applicationContext,
+                                        item.imageUrl
+                                    )
+                                    forceReloadTriggers[item.imageUrl] =
+                                        (forceReloadTriggers[item.imageUrl] ?: 0) + 1
 
                                     errorCount++
                                     retryHash++
                                 }
                             }
 
-                            val request = remember(item.imageUrl, cookie, retryHash, externalRetry) {
-                                MangaImagePipeline.newImageRequestBuilder(
-                                    context = context.applicationContext,
-                                    url = item.imageUrl,
-                                    cookie = cookie,
-                                    forceVersion = externalRetry,
-                                    memory = true
-                                )
-                                    .listener(
-                                        onStart = { isImageLoading = true; isImageError = false },
-                                        onSuccess = { _, _ -> isImageLoading = false; isImageError = false; errorCount = 0 },
-                                        onError = { _, _ -> isImageLoading = false; isImageError = true },
-                                        onCancel = { isImageLoading = false } // 仅取消 Loading，保留底层管线静默重试的机会
+                            val request =
+                                remember(item.imageUrl, cookie, retryHash, externalRetry) {
+                                    MangaImagePipeline.newImageRequestBuilder(
+                                        context = context.applicationContext,
+                                        url = item.imageUrl,
+                                        cookie = cookie,
+                                        forceVersion = externalRetry,
+                                        memory = true
                                     )
-                                    .build()
-                            }
+                                        .listener(
+                                            onStart = {
+                                                isImageLoading = true; isImageError = false
+                                            },
+                                            onSuccess = { _, _ ->
+                                                isImageLoading = false; isImageError =
+                                                false; errorCount = 0
+                                            },
+                                            onError = { _, _ ->
+                                                isImageLoading = false; isImageError = true
+                                            },
+                                            onCancel = {
+                                                isImageLoading = false
+                                            } // 仅取消 Loading，保留底层管线静默重试的机会
+                                        )
+                                        .build()
+                                }
 
                             Box(
                                 modifier = Modifier
@@ -817,18 +957,30 @@ fun NativeMangaPage(
                                             .clickable {
                                                 scope.launch {
                                                     errorCount = 0
-                                                    MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
+                                                    MangaImagePipeline.evict(
+                                                        context.applicationContext,
+                                                        item.imageUrl
+                                                    )
                                                     forceReloadTriggers[item.imageUrl] =
-                                                        (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+                                                        (forceReloadTriggers[item.imageUrl]
+                                                            ?: 0) + 1
                                                     retryHash++
                                                 }
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray)
+                                            Icon(
+                                                Icons.Default.Refresh,
+                                                contentDescription = "Retry",
+                                                tint = Color.LightGray
+                                            )
                                             Spacer(Modifier.height(8.dp))
-                                            Text("加载失败，点击重试", color = Color.LightGray, fontSize = 14.sp)
+                                            Text(
+                                                "加载失败，点击重试",
+                                                color = Color.LightGray,
+                                                fontSize = 14.sp
+                                            )
                                         }
                                     }
                                 }
@@ -851,8 +1003,16 @@ fun NativeMangaPage(
                                     val externalRetry = forceReloadTriggers[item.imageUrl] ?: 0
                                     var retryHash by remember(item.imageUrl) { mutableIntStateOf(0) }
                                     var errorCount by remember(item.imageUrl) { mutableIntStateOf(0) }
-                                    var isImageLoading by remember(item.imageUrl, retryHash, externalRetry) { mutableStateOf(true) }
-                                    var isImageError by remember(item.imageUrl, retryHash, externalRetry) { mutableStateOf(false) }
+                                    var isImageLoading by remember(
+                                        item.imageUrl,
+                                        retryHash,
+                                        externalRetry
+                                    ) { mutableStateOf(true) }
+                                    var isImageError by remember(
+                                        item.imageUrl,
+                                        retryHash,
+                                        externalRetry
+                                    ) { mutableStateOf(false) }
 
                                     LaunchedEffect(isImageError, retryHash) {
                                         if (isImageError && errorCount < 3) {
@@ -860,28 +1020,40 @@ fun NativeMangaPage(
                                             delay(300L + errorCount * 1000L + jitter)
 
                                             errorCount++
-                                            MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
-                                            forceReloadTriggers[item.imageUrl] = (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+                                            MangaImagePipeline.evict(
+                                                context.applicationContext,
+                                                item.imageUrl
+                                            )
+                                            forceReloadTriggers[item.imageUrl] =
+                                                (forceReloadTriggers[item.imageUrl] ?: 0) + 1
                                             retryHash++
                                         }
                                     }
 
-                                    val request = remember(item.imageUrl, cookie, retryHash, externalRetry) {
-                                        MangaImagePipeline.newImageRequestBuilder(
-                                            context = context.applicationContext,
-                                            url = item.imageUrl,
-                                            cookie = cookie,
-                                            forceVersion = externalRetry,
-                                            memory = true
-                                        )
-                                            .listener(
-                                                onStart = { isImageLoading = true; isImageError = false },
-                                                onSuccess = { _, _ -> isImageLoading = false; isImageError = false; errorCount = 0 },
-                                                onError = { _, _ -> isImageLoading = false; isImageError = true },
-                                                onCancel = { isImageLoading = false }
+                                    val request =
+                                        remember(item.imageUrl, cookie, retryHash, externalRetry) {
+                                            MangaImagePipeline.newImageRequestBuilder(
+                                                context = context.applicationContext,
+                                                url = item.imageUrl,
+                                                cookie = cookie,
+                                                forceVersion = externalRetry,
+                                                memory = true
                                             )
-                                            .build()
-                                    }
+                                                .listener(
+                                                    onStart = {
+                                                        isImageLoading = true; isImageError = false
+                                                    },
+                                                    onSuccess = { _, _ ->
+                                                        isImageLoading = false; isImageError =
+                                                        false; errorCount = 0
+                                                    },
+                                                    onError = { _, _ ->
+                                                        isImageLoading = false; isImageError = true
+                                                    },
+                                                    onCancel = { isImageLoading = false }
+                                                )
+                                                .build()
+                                        }
 
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         ZoomableAsyncImage(
@@ -904,9 +1076,13 @@ fun NativeMangaPage(
                                                     .clickable {
                                                         scope.launch {
                                                             errorCount = 0
-                                                            MangaImagePipeline.evict(context.applicationContext, item.imageUrl)
+                                                            MangaImagePipeline.evict(
+                                                                context.applicationContext,
+                                                                item.imageUrl
+                                                            )
                                                             forceReloadTriggers[item.imageUrl] =
-                                                                (forceReloadTriggers[item.imageUrl] ?: 0) + 1
+                                                                (forceReloadTriggers[item.imageUrl]
+                                                                    ?: 0) + 1
                                                             retryHash++
                                                         }
                                                     }
@@ -914,9 +1090,18 @@ fun NativeMangaPage(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.LightGray, modifier = Modifier.size(36.dp))
+                                                    Icon(
+                                                        Icons.Default.Refresh,
+                                                        contentDescription = "Retry",
+                                                        tint = Color.LightGray,
+                                                        modifier = Modifier.size(36.dp)
+                                                    )
                                                     Spacer(Modifier.height(12.dp))
-                                                    Text("图片加载失败，点击重试", color = Color.LightGray, fontSize = 16.sp)
+                                                    Text(
+                                                        "图片加载失败，点击重试",
+                                                        color = Color.LightGray,
+                                                        fontSize = 16.sp
+                                                    )
                                                 }
                                             }
                                         }
@@ -932,7 +1117,10 @@ fun NativeMangaPage(
                 AnimatedVisibility(
                     visible = showPullUi,
                     enter = fadeIn(), exit = fadeOut(),
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp).zIndex(50f)
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 32.dp)
+                        .zIndex(50f)
                 ) {
                     Box(
                         modifier = Modifier
@@ -985,8 +1173,15 @@ fun NativeMangaPage(
                     exit = fadeOut(tween(150)),
                     modifier = Modifier.zIndex(100f)
                 ) {
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f)).pointerInput(Unit) { detectTapGestures { } }) {
-                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.8f))
+                            .pointerInput(Unit) { detectTapGestures { } }) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.align(Alignment.Center),
+                            color = Color.White
+                        )
                     }
                 }
 
@@ -1016,12 +1211,17 @@ fun NativeMangaPage(
             }
 
             if (imageBrightness < 1f) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 1f - imageBrightness)))
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 1f - imageBrightness))
+                )
             }
 
             AnimatedVisibility(
                 visible = showUi && !showChapterList && !showSettingsPanel,
-                enter = fadeIn() + slideInVertically { -it }, exit = fadeOut() + slideOutVertically { -it },
+                enter = fadeIn() + slideInVertically { -it },
+                exit = fadeOut() + slideOutVertically { -it },
                 modifier = Modifier.align(Alignment.TopCenter)
             ) {
                 Row(
@@ -1033,78 +1233,154 @@ fun NativeMangaPage(
                         .padding(horizontal = 4.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = performExit) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Color.White) }
-                    Column(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                        Text(
-                            text = currentItem?.chapterTitle ?: mangaDirVM.currentDirectory?.cleanBookName ?: "漫画阅读",
-                            color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    IconButton(onClick = performExit) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            "返回",
+                            tint = Color.White
                         )
-                        val chap = mangaDirVM.currentDirectory?.chapters?.find { it.tid == currentItem?.tid }
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp)
+                    ) {
+                        Text(
+                            text = currentItem?.chapterTitle
+                                ?: mangaDirVM.currentDirectory?.cleanBookName ?: "漫画阅读",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val chap =
+                            mangaDirVM.currentDirectory?.chapters?.find { it.tid == currentItem?.tid }
                         if (chap != null) {
                             val displayNum = getDisplayChapterNum(chap.rawTitle, chap.chapterNum)
                             Text("第 $displayNum 话", color = Color.LightGray, fontSize = 12.sp)
                         }
                     }
-                    TextButton(onClick = returnToOriginalPost) { Text("去往原帖", color = YamiboColors.tertiary) }
+                    TextButton(onClick = returnToOriginalPost) {
+                        Text(
+                            "去往原帖",
+                            color = YamiboColors.tertiary
+                        )
+                    }
                 }
             }
 
             AnimatedVisibility(
                 visible = showUi && !showChapterList && !showSettingsPanel,
-                enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 }, exit = fadeOut(tween(300)) + slideOutVertically(tween(300)) { it / 2 },
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 12.dp).padding(bottom = 6.dp)
+                enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 },
+                exit = fadeOut(tween(300)) + slideOutVertically(tween(300)) { it / 2 },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp)
+                    .padding(bottom = 6.dp)
             ) {
-                Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color(0xFF1E1E22).copy(alpha = 0.90f)).pointerInput(Unit) { detectTapGestures {} }) {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color(0xFF1E1E22).copy(alpha = 0.90f))
+                        .pointerInput(Unit) { detectTapGestures {} }) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
 
                         if (currentItem != null) {
                             val sortedChapters = mangaDirVM.currentDirectory?.chapters
-                            val currentChapIndex = sortedChapters?.indexOfFirst { it.tid == currentItem.tid } ?: -1
-                            val prevChapter = if (currentChapIndex > 0) sortedChapters?.get(currentChapIndex - 1) else null
-                            val nextChapter = if (currentChapIndex != -1 && sortedChapters != null && currentChapIndex < sortedChapters.size - 1) sortedChapters[currentChapIndex + 1] else null
+                            val currentChapIndex =
+                                sortedChapters?.indexOfFirst { it.tid == currentItem.tid } ?: -1
+                            val prevChapter =
+                                if (currentChapIndex > 0) sortedChapters?.get(currentChapIndex - 1) else null
+                            val nextChapter =
+                                if (currentChapIndex != -1 && sortedChapters != null && currentChapIndex < sortedChapters.size - 1) sortedChapters[currentChapIndex + 1] else null
 
-                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 IconButton(
                                     onClick = {
                                         prevChapter?.url?.let { targetUrl ->
                                             readerManager.jumpToChapter(targetUrl) { globalIdx ->
-                                                scope.launch { if (isVerticalMode) lazyListState.scrollToItem(globalIdx) else pagerState.scrollToPage(globalIdx) }
+                                                executeScroll(globalIdx)
                                             }
                                         }
                                     },
                                     enabled = prevChapter != null
-                                ) { Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一话", tint = if (prevChapter != null) Color.White else Color.DarkGray) }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                        contentDescription = "上一话",
+                                        tint = if (prevChapter != null) Color.White else Color.DarkGray
+                                    )
+                                }
 
                                 Slider(
                                     value = currentItem.localIndex.toFloat(),
-                                    valueRange = 0f..maxOf(0f, (currentItem.chapterTotalPages - 1).toFloat()),
+                                    valueRange = 0f..maxOf(
+                                        0f,
+                                        (currentItem.chapterTotalPages - 1).toFloat()
+                                    ),
                                     onValueChange = { targetLocal ->
-                                        val targetGlobal = currentItem.globalIndex - currentItem.localIndex + targetLocal.toInt()
+                                        val targetGlobal =
+                                            currentItem.globalIndex - currentItem.localIndex + targetLocal.toInt()
                                         scope.launch {
-                                            if (isVerticalMode) lazyListState.scrollToItem(targetGlobal) else pagerState.scrollToPage(targetGlobal)
+                                            if (isVerticalMode) lazyListState.scrollToItem(
+                                                targetGlobal
+                                            ) else pagerState.scrollToPage(targetGlobal)
                                         }
                                     },
-                                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp).height(24.dp),
-                                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color(0xFF4A4A52))
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 4.dp)
+                                        .height(24.dp),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color.White,
+                                        activeTrackColor = Color.White,
+                                        inactiveTrackColor = Color(0xFF4A4A52)
+                                    )
                                 )
 
                                 IconButton(
                                     onClick = {
                                         nextChapter?.url?.let { targetUrl ->
                                             readerManager.jumpToChapter(targetUrl) { globalIdx ->
-                                                scope.launch { if (isVerticalMode) lazyListState.scrollToItem(globalIdx) else pagerState.scrollToPage(globalIdx) }
+                                                executeScroll(globalIdx)
                                             }
                                         }
                                     },
                                     enabled = nextChapter != null
-                                ) { Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一话", tint = if (nextChapter != null) Color.White else Color.DarkGray) }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "下一话",
+                                        tint = if (nextChapter != null) Color.White else Color.DarkGray
+                                    )
+                                }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                         }
 
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { showSettingsPanel = true }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
-                                Text("设置", color = Color.LightGray, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(
+                                onClick = { showSettingsPanel = true },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    "设置",
+                                    color = Color.LightGray,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
                             Spacer(modifier = Modifier.width(50.dp))
                             Box(
@@ -1121,11 +1397,24 @@ fun NativeMangaPage(
                             ) {
                                 val displayLocal = (currentItem?.localIndex ?: 0) + 1
                                 val displayTotal = currentItem?.chapterTotalPages ?: 1
-                                Text(text = "$displayLocal / $displayTotal", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "$displayLocal / $displayTotal",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                             Spacer(modifier = Modifier.width(50.dp))
-                            TextButton(onClick = { showChapterList = true }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
-                                Text("目录", color = Color.LightGray, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            TextButton(
+                                onClick = { showChapterList = true },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    "目录",
+                                    color = Color.LightGray,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
                         }
                     }
@@ -1151,7 +1440,8 @@ fun NativeMangaPage(
                     } else {
                         val chap = dir?.chapters?.find { it.tid == currentTid }
                         if (chap != null) MangaTitleCleaner.extractAuthorPrefix(chap.rawTitle)
-                        else dir?.chapters?.lastOrNull()?.let { MangaTitleCleaner.extractAuthorPrefix(it.rawTitle) } ?: ""
+                        else dir?.chapters?.lastOrNull()
+                            ?.let { MangaTitleCleaner.extractAuthorPrefix(it.rawTitle) } ?: ""
                     }
                 }
 
@@ -1180,11 +1470,7 @@ fun NativeMangaPage(
                             showChapterList = false
 
                             readerManager.jumpToChapter(chapter.url) { globalIdx ->
-                                scope.launch {
-                                    if (isVerticalMode) lazyListState.scrollToItem(globalIdx) else pagerState.scrollToPage(
-                                        globalIdx
-                                    )
-                                }
+                                executeScroll(globalIdx)
                             }
                         }
                     }
@@ -1229,8 +1515,12 @@ fun NativeMangaPage(
                         TextButton(onClick = {
                             showReloadDialog = false
                             scope.launch {
-                                MangaImagePipeline.evict(context.applicationContext, currentItem.imageUrl)
-                                forceReloadTriggers[currentItem.imageUrl] = (forceReloadTriggers[currentItem.imageUrl] ?: 0) + 1
+                                MangaImagePipeline.evict(
+                                    context.applicationContext,
+                                    currentItem.imageUrl
+                                )
+                                forceReloadTriggers[currentItem.imageUrl] =
+                                    (forceReloadTriggers[currentItem.imageUrl] ?: 0) + 1
                             }
                         }) {
                             Text(
@@ -1253,7 +1543,10 @@ fun NativeMangaPage(
                 )
             }
         } else {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = YamiboColors.primary)
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color = YamiboColors.primary
+            )
         }
     }
 }

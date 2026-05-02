@@ -94,7 +94,14 @@ fun JustifiedText(
                             finalMultiplier = baseLetterSpacingMultiplier + justificationMultiplier
                         }
 
-                        linesToDraw.add(LineRenderInfo(textToDraw, drawX, baselineY, finalMultiplier))
+                        linesToDraw.add(
+                            LineRenderInfo(
+                                textToDraw,
+                                drawX,
+                                baselineY,
+                                finalMultiplier
+                            )
+                        )
 
                     } else {
                         // --- 横屏模式计算 ---
@@ -102,7 +109,8 @@ fun JustifiedText(
                         val validLineCount = lines.count { it.isNotEmpty() }
                         val totalStandardHeight = validLineCount * lineHeightPx
                         val safeAvailableHeight = availableHeight - (fontSizePx * 0.2f)
-                        val emptySpace = (safeAvailableHeight - totalStandardHeight).coerceAtLeast(0f)
+                        val emptySpace =
+                            (safeAvailableHeight - totalStandardHeight).coerceAtLeast(0f)
 
                         val extraSpacingPerLine =
                             if (validLineCount > 1 && emptySpace < lineHeightPx * 3) {
@@ -128,7 +136,8 @@ fun JustifiedText(
                             val originalWidth = measurePaint.measureText(textToDraw)
                             val remainingSpace = availableWidth - drawX - originalWidth
 
-                            val isEndOfParagraph = index < lines.lastIndex && lines[index + 1].isEmpty()
+                            val isEndOfParagraph =
+                                index < lines.lastIndex && lines[index + 1].isEmpty()
                             val isShortLine = remainingSpace > fontSizePx * 3f
                             val skipJustification = isEndOfParagraph || isShortLine
 
@@ -136,10 +145,19 @@ fun JustifiedText(
                             if (!skipJustification && remainingSpace != 0f && textToDraw.length > 1) {
                                 val gaps = textToDraw.length - 1
                                 val justificationSpacingPx = remainingSpace / gaps
-                                val justificationMultiplier = if (fontSizePx > 0) justificationSpacingPx / fontSizePx else 0f
-                                finalMultiplier = baseLetterSpacingMultiplier + justificationMultiplier
+                                val justificationMultiplier =
+                                    if (fontSizePx > 0) justificationSpacingPx / fontSizePx else 0f
+                                finalMultiplier =
+                                    baseLetterSpacingMultiplier + justificationMultiplier
                             }
-                            linesToDraw.add(LineRenderInfo(textToDraw, drawX, currentY, finalMultiplier))
+                            linesToDraw.add(
+                                LineRenderInfo(
+                                    textToDraw,
+                                    drawX,
+                                    currentY,
+                                    finalMultiplier
+                                )
+                            )
                             currentY += (lineHeightPx + extraSpacingPerLine)
                         }
                     }

@@ -1,7 +1,5 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
-import org.shirakawatyu.yamibo.novel.util.PageJsScripts
-
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.os.Handler
@@ -89,14 +87,17 @@ import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
-import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
+import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
+import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
+
 private var mineWebViewPauseRunnable: Runnable? = null
 private val mineWebViewHandler = Handler(Looper.getMainLooper())
+
 class FullscreenApiMine {
     var onStateChange: ((Boolean) -> Unit)? = null
     var onMangaActionDone: (() -> Unit)? = null
@@ -127,6 +128,7 @@ class NativeMangaMineJSInterface {
             onTriggerManga?.invoke(urlsJoined, clickedIndex, title)
         }
     }
+
     @JavascriptInterface
     fun goBack() {
         Handler(Looper.getMainLooper()).post {
@@ -134,8 +136,10 @@ class NativeMangaMineJSInterface {
         }
     }
 }
+
 private var cachedFullscreenApiMine: FullscreenApiMine? = null
 private var cachedNativeMangaApiMine: NativeMangaMineJSInterface? = null
+
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun MinePage(
@@ -223,7 +227,8 @@ fun MinePage(
     val activity = context as? ComponentActivity
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
-    val bottomNavBarVM: BottomNavBarVM = viewModel(viewModelStoreOwner = context as ComponentActivity)
+    val bottomNavBarVM: BottomNavBarVM =
+        viewModel(viewModelStoreOwner = context as ComponentActivity)
     val minePageVM: MinePageVM = viewModel(viewModelStoreOwner = context as ComponentActivity)
     DisposableEffect(Unit) {
         onDispose {
@@ -452,9 +457,11 @@ fun MinePage(
                     "https://bbs.yamibo.com/forum.php",
                     "https://bbs.yamibo.com/forum.php?mobile=2",
                     "https://bbs.yamibo.com/forum.php?mobile=no" -> true
+
                     else -> false
                 }
             }
+
             override fun onFormResubmission(
                 view: WebView?,
                 dontResend: android.os.Message?,
@@ -462,13 +469,20 @@ fun MinePage(
             ) {
                 resend?.sendToTarget()
             }
-            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): Boolean {
                 val urlStr = request?.url?.toString() ?: ""
 
                 if (isSelected && isHomepageUrl(urlStr) && view != null) {
                     scope.launch(Dispatchers.IO) {
                         delay(500L)
-                        AccountSyncManager.syncCookieAndCheckSign(context, "LOGIN_REDIRECT_INTERCEPT")
+                        AccountSyncManager.syncCookieAndCheckSign(
+                            context,
+                            "LOGIN_REDIRECT_INTERCEPT"
+                        )
                     }
                     startLoading(view, mineUrl)
                     return true
@@ -476,19 +490,27 @@ fun MinePage(
 
                 return super.shouldOverrideUrlLoading(view, request)
             }
+
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                if (url == "about:blank" || url?.contains("warmup=true") == true || url?.startsWith("data:") == true) return
+                if (url == "about:blank" || url?.contains("warmup=true") == true || url?.startsWith(
+                        "data:"
+                    ) == true
+                ) return
 
                 val checkUrl = url ?: ""
 
-                val isHomePage = isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("do=profile")
+                val isHomePage =
+                    isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("do=profile")
                 bottomNavBarVM.isMineAtRoot = isHomePage
 
                 if (isSelected && isHomepageUrl(checkUrl) && view != null) {
                     view.stopLoading()
                     scope.launch(Dispatchers.IO) {
                         delay(500L)
-                        AccountSyncManager.syncCookieAndCheckSign(context, "LOGIN_REDIRECT_INTERCEPT")
+                        AccountSyncManager.syncCookieAndCheckSign(
+                            context,
+                            "LOGIN_REDIRECT_INTERCEPT"
+                        )
                     }
                     startLoading(view, mineUrl)
                     return
@@ -532,7 +554,8 @@ fun MinePage(
                             val headers = mutableMapOf<String, String>()
                             request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
 
-                            val coilResponse = CoilWebViewProxy.interceptImage(context, urlStr, headers)
+                            val coilResponse =
+                                CoilWebViewProxy.interceptImage(context, urlStr, headers)
                             if (coilResponse != null) return coilResponse
 
                             val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
@@ -560,7 +583,8 @@ fun MinePage(
                 canGoBack = evaluateCanGoBack(view)
 
                 val checkUrl = url ?: ""
-                val isHomePage = isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("do=profile")
+                val isHomePage =
+                    isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("do=profile")
                 bottomNavBarVM.isMineAtRoot = isHomePage
             }
 
@@ -727,14 +751,17 @@ fun MinePage(
                 timeoutJob?.cancel()
                 startLoading(mineWebView, mineUrl)
             }
+
             evaluateCanGoBack(mineWebView) -> {
                 timeoutJob?.cancel()
                 mineWebView.goBack()
             }
+
             !isAtMineHome -> {
                 timeoutJob?.cancel()
                 startLoading(mineWebView, mineUrl)
             }
+
             else -> {
                 if (navController.previousBackStackEntry != null) {
                     navController.popBackStack()

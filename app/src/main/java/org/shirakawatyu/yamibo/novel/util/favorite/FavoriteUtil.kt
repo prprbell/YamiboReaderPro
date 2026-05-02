@@ -17,8 +17,6 @@ import kotlinx.coroutines.sync.withLock
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.util.DataStoreUtil
-import kotlin.collections.forEach
-import kotlin.collections.iterator
 import kotlin.coroutines.resume
 
 /**
@@ -28,14 +26,14 @@ import kotlin.coroutines.resume
 class FavoriteUtil {
     companion object {
         private val key = stringPreferencesKey("yamibo_favorite")
-
         private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private var saveJob: Job? = null
         private val writeMutex = Mutex()
         private var pendingFavMap: LinkedHashMap<String, Favorite>? = null
 
         fun getFavoriteFlow(): Flow<List<Favorite>> {
-            val dataStore = GlobalData.Companion.dataStore ?: throw IllegalStateException("DataStore not initialized")
+            val dataStore = GlobalData.Companion.dataStore
+                ?: throw IllegalStateException("DataStore not initialized")
             return dataStore.data.map { preferences ->
                 writeMutex.withLock {
                     pendingFavMap?.let {
@@ -167,6 +165,7 @@ class FavoriteUtil {
                 }
             }
         }
+
         suspend fun updateFavoriteSuspend(favorite: Favorite) {
             writeMutex.withLock {
                 val map = getFavoriteMapSuspend()

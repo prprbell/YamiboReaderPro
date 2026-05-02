@@ -168,10 +168,14 @@ class DirectoryRepository private constructor(private val context: Context) {
                 val currItem = processed[i]
 
                 var prevValidNum = 0f
-                for (j in i - 1 downTo 0) if (!isBad[j] && processed[j].chapterNum > 0f && processed[j].chapterNum < 999f) { prevValidNum = processed[j].chapterNum; break }
+                for (j in i - 1 downTo 0) if (!isBad[j] && processed[j].chapterNum > 0f && processed[j].chapterNum < 999f) {
+                    prevValidNum = processed[j].chapterNum; break
+                }
 
                 var nextValidNum = 9999f
-                for (j in i + 1 until processed.size) if (!isBad[j] && processed[j].chapterNum > 0f && processed[j].chapterNum < 999f) { nextValidNum = processed[j].chapterNum; break }
+                for (j in i + 1 until processed.size) if (!isBad[j] && processed[j].chapterNum > 0f && processed[j].chapterNum < 999f) {
+                    nextValidNum = processed[j].chapterNum; break
+                }
 
                 val candidates = MangaTitleCleaner.extractAllPossibleNumbers(currItem.rawTitle)
                 var bestFit = -1f
@@ -202,7 +206,8 @@ class DirectoryRepository private constructor(private val context: Context) {
                             val existsGlobally = processed.any { it.chapterNum == expectedInt }
                             val someoneElseClaimsIt = items.any {
                                 it.tid != currItem.tid &&
-                                        MangaTitleCleaner.extractAllPossibleNumbers(it.rawTitle).contains(expectedInt)
+                                        MangaTitleCleaner.extractAllPossibleNumbers(it.rawTitle)
+                                            .contains(expectedInt)
                             }
 
                             if (!existsGlobally && !someoneElseClaimsIt) {
@@ -224,11 +229,12 @@ class DirectoryRepository private constructor(private val context: Context) {
                     processed[i] = currItem.copy(chapterNum = formattedNum)
                     isBad[i] = false
                 } else {
-                    val safeBase = if (i > 0 && processed[i - 1].chapterNum > 0f && processed[i - 1].chapterNum < 999f) {
-                        processed[i - 1].chapterNum
-                    } else {
-                        prevValidNum
-                    }
+                    val safeBase =
+                        if (i > 0 && processed[i - 1].chapterNum > 0f && processed[i - 1].chapterNum < 999f) {
+                            processed[i - 1].chapterNum
+                        } else {
+                            prevValidNum
+                        }
                     val fallbackNum = Math.round((safeBase + 0.001f) * 1000) / 1000f
                     processed[i] = currItem.copy(chapterNum = fallbackNum)
                     isBad[i] = false

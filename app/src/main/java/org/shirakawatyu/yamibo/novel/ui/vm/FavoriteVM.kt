@@ -38,6 +38,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private val _uiState = MutableStateFlow(FavoriteState())
     val uiState = _uiState.asStateFlow()
     private val stateMutex = Mutex()
+
     // 记录当前的刷新状态，默认为空闲
     private val currentFetchState = AtomicReference(FetchState.IDLE)
 
@@ -60,8 +61,10 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private var fetchJob: Job? = null
     private var lastNavigateTime = 0L
     private val SMART_SYNC_TIMEOUT = 60 * 60 * 1000L
+
     // 记录正在删除过程中的URL
     private val pendingDeleteUrls = mutableSetOf<String>()
+
     enum class RefreshStrategy {
         FULL,   // 全量刷新
         SMART,  // 增量刷新
@@ -73,6 +76,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         private set
     var lastPauseTime = 0L
     var isFavoritePageVisible = false
+
     // 本地缓存工具
     private val localCache by lazy { LocalCacheUtil.getInstance(applicationContext) }
 
@@ -90,7 +94,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                     }
                     refreshCacheInfo(localCache.index.value)
                     val titleMap = fullList.associate {
-                        val cleanTitle = it.title.replace(Regex("^(?:【.*?】|\\[.*?\\]|\\s)+"), "").ifBlank { it.title }
+                        val cleanTitle = it.title.replace(Regex("^(?:【.*?】|\\[.*?\\]|\\s)+"), "")
+                            .ifBlank { it.title }
                         it.url to cleanTitle
                     }
                     localCache.updateCacheTitles(titleMap)
@@ -258,7 +263,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                         val nextPageLink = parse.select(".page a, .pg a").find {
                             it.text().contains("下一页") || it.hasClass("nxt")
                         }
-                        val hasNextPage = nextPageLink != null && nextPageLink.attr("href").isNotBlank()
+                        val hasNextPage =
+                            nextPageLink != null && nextPageLink.attr("href").isNotBlank()
 
                         currentTotalPages = MangaHtmlParser.extractTotalPages(respHTML)
                         val maxPossibleRemoteItems = currentTotalPages * 20
@@ -312,7 +318,11 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                             if (!isLoggedIn) {
                                 if (isFavoritePageVisible) {
                                     withContext(Dispatchers.Main) {
-                                        val toast = Toast.makeText(applicationContext, "登录状态异常", Toast.LENGTH_SHORT)
+                                        val toast = Toast.makeText(
+                                            applicationContext,
+                                            "登录状态异常",
+                                            Toast.LENGTH_SHORT
+                                        )
                                         toast.show()
                                         launch { delay(1500L); toast.cancel() }
                                     }
@@ -327,7 +337,11 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                             } else {
                                 if (isFavoritePageVisible) {
                                     withContext(Dispatchers.Main) {
-                                        val toast = Toast.makeText(applicationContext, "网络状态异常", Toast.LENGTH_SHORT)
+                                        val toast = Toast.makeText(
+                                            applicationContext,
+                                            "网络状态异常",
+                                            Toast.LENGTH_SHORT
+                                        )
                                         toast.show()
                                         launch { delay(1500L); toast.cancel() }
                                     }
@@ -357,6 +371,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         }
         return nextResumeStrategy
     }
+
     fun updateStrategyBeforeNavigation(type: Int) {
         lastNavigateTime = System.currentTimeMillis()
 
@@ -366,12 +381,22 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             else -> RefreshStrategy.SMART
         }
     }
-    fun updateMangaProgress(favoriteUrl: String, chapterUrl: String, chapterTitle: String, pageIndex: Int = 0) {
+
+    fun updateMangaProgress(
+        favoriteUrl: String,
+        chapterUrl: String,
+        chapterTitle: String,
+        pageIndex: Int = 0
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             stateMutex.withLock {
                 val updated = allFavorites.map { fav ->
                     if (fav.url == favoriteUrl) {
-                        val updatedFav = fav.copy(lastMangaUrl = chapterUrl, lastChapter = chapterTitle, lastPage = pageIndex)
+                        val updatedFav = fav.copy(
+                            lastMangaUrl = chapterUrl,
+                            lastChapter = chapterTitle,
+                            lastPage = pageIndex
+                        )
                         launch { FavoriteUtil.updateFavoriteSuspend(updatedFav) }
                         updatedFav
                     } else fav
@@ -381,6 +406,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             withContext(Dispatchers.Main) { updateUiList() }
         }
     }
+
     fun moveFavorite(from: Int, to: Int) {
         if (_uiState.value.isInManageMode) return
 
@@ -407,7 +433,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     }
 
     fun toggleManageMode() {
-        val realCookie = android.webkit.CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
+        val realCookie =
+            android.webkit.CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
         val isLoggedIn = realCookie.contains("EeqY_2132_auth=")
 
         if (!isLoggedIn) return
@@ -499,7 +526,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
         // 后台请求删除 + 自动清理本地缓存
         viewModelScope.launch(Dispatchers.IO) {
-            val isSuccess = FavoriteDeleteUtil.deleteFavoritesBatch(prefetchFormHash, favIdsToDelete)
+            val isSuccess =
+                FavoriteDeleteUtil.deleteFavoritesBatch(prefetchFormHash, favIdsToDelete)
             stateMutex.withLock {
                 // 无论成功还是失败，网络请求结束，移除黑名单
                 pendingDeleteUrls.removeAll(itemsToDeleteUrls)
@@ -513,7 +541,10 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             if (isSuccess) {
                 TombstoneQueueUtil.removeUrls(itemsToDeleteUrls)
                 itemsToDeleteUrls.forEach { url ->
-                    try { localCache.deleteNovel(url) } catch (e: Exception) {}
+                    try {
+                        localCache.deleteNovel(url)
+                    } catch (e: Exception) {
+                    }
                 }
                 refreshCacheInfo()
             } else {
@@ -641,11 +672,13 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             viewModelScope.launch(Dispatchers.Main) { callback() }
         }
     }
+
     fun moveToTop(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
             FavoriteUtil.moveUrlToTopSuspend(url)
         }
     }
+
     /**
      * 后台重试离线删除任务
      */

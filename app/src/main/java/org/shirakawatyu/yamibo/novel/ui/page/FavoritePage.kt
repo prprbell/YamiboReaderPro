@@ -44,7 +44,6 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -58,6 +57,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -77,7 +77,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -119,9 +118,9 @@ import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.NetworkOptimizationDialog
 import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
-import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
+import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -152,7 +151,10 @@ fun FavoritePage(
     var showClickToTopDialog by remember { mutableStateOf(false) }
     var pendingScrollToTop by remember { mutableStateOf(false) }
     var isLoggedIn by remember {
-        mutableStateOf(CookieManager.getInstance().getCookie("https://bbs.yamibo.com")?.contains("EeqY_2132_auth=") == true)
+        mutableStateOf(
+            CookieManager.getInstance().getCookie("https://bbs.yamibo.com")
+                ?.contains("EeqY_2132_auth=") == true
+        )
     }
 
     LaunchedEffect(Unit) { favoriteVM.refreshCacheInfo() }
@@ -191,7 +193,8 @@ fun FavoritePage(
             } else if (event == Lifecycle.Event.ON_RESUME) {
                 coroutineScope.launch(Dispatchers.IO) {
                     for (i in 0 until 5) {
-                        val realCookie = CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
+                        val realCookie =
+                            CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
                         val auth = realCookie.contains("EeqY_2132_auth=")
                         if (isLoggedIn != auth) {
                             withContext(Dispatchers.Main) { isLoggedIn = auth }
@@ -210,13 +213,15 @@ fun FavoritePage(
 
                     delay(350)
 
-                    if (!isQuickReturn){
+                    if (!isQuickReturn) {
                         when (favoriteVM.getEffectiveResumeStrategy()) {
                             FavoriteVM.RefreshStrategy.SKIP -> {
                             }
+
                             FavoriteVM.RefreshStrategy.SMART -> {
                                 favoriteVM.refreshList(showLoading = false, isSmartSync = true)
                             }
+
                             FavoriteVM.RefreshStrategy.FULL -> {
                                 favoriteVM.refreshList(showLoading = false, isSmartSync = false)
                             }
@@ -467,13 +472,21 @@ fun FavoritePage(
                                     modifier = Modifier.weight(1f),
                                     text = { Text("设置首页") },
                                     onClick = { showHomePageDialog = true; menuExpanded = false },
-                                    leadingIcon = { Icon(Icons.Default.Home, null, Modifier.size(24.dp)) }
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Home,
+                                            null,
+                                            Modifier.size(24.dp)
+                                        )
+                                    }
                                 )
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
                                     text = { Text("管理收藏") },
                                     enabled = isLoggedIn,
-                                    onClick = { favoriteVM.toggleManageMode(); menuExpanded = false },
+                                    onClick = {
+                                        favoriteVM.toggleManageMode(); menuExpanded = false
+                                    },
                                     leadingIcon = {
                                         Icon(
                                             painterResource(R.drawable.ic_visibility),
@@ -482,7 +495,7 @@ fun FavoritePage(
                                             tint = if (isLoggedIn) MaterialTheme.colorScheme.onSurface
                                             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                         )
-                                    }                                )
+                                    })
                             }
 
                             // 第二排：折叠 管理书签
@@ -500,14 +513,24 @@ fun FavoritePage(
                                         }
                                     },
                                     leadingIcon = {
-                                        Icon(painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less), null, Modifier.size(24.dp))
+                                        Icon(
+                                            painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
+                                            null,
+                                            Modifier.size(24.dp)
+                                        )
                                     }
                                 )
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
                                     text = { Text("管理缓存") },
                                     onClick = { showCacheManagement = true; menuExpanded = false },
-                                    leadingIcon = { Icon(painterResource(R.drawable.ic_download), null, Modifier.size(24.dp)) }
+                                    leadingIcon = {
+                                        Icon(
+                                            painterResource(R.drawable.ic_download),
+                                            null,
+                                            Modifier.size(24.dp)
+                                        )
+                                    }
                                 )
                             }
 
@@ -538,8 +561,16 @@ fun FavoritePage(
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
                                     text = { Text("管理书签") },
-                                    onClick = { showBookmarkManagement = true; menuExpanded = false },
-                                    leadingIcon = { Icon(Icons.Default.DateRange, null, Modifier.size(24.dp)) }
+                                    onClick = {
+                                        showBookmarkManagement = true; menuExpanded = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.DateRange,
+                                            null,
+                                            Modifier.size(24.dp)
+                                        )
+                                    }
                                 )
                             }
 
@@ -570,10 +601,18 @@ fun FavoritePage(
                                     modifier = Modifier.weight(1f),
                                     text = { Text("管理目录") },
                                     onClick = {
-                                        favoriteVM.getDirectoryList { dirs -> directoryList = dirs; showDirectoryManagement = true }
+                                        favoriteVM.getDirectoryList { dirs ->
+                                            directoryList = dirs; showDirectoryManagement = true
+                                        }
                                         menuExpanded = false
                                     },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, null, Modifier.size(24.dp)) }
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.List,
+                                            null,
+                                            Modifier.size(24.dp)
+                                        )
+                                    }
                                 )
                             }
 
@@ -592,8 +631,10 @@ fun FavoritePage(
                                             SettingsUtil.saveAutoSignInMode(newState)
 
                                             if (newState) {
-                                                AutoSignManager.resetQuota()
-                                                AutoSignManager.checkAndSignIfNeeded(context, force = true)
+                                                AutoSignManager.checkAndSignIfNeeded(
+                                                    context,
+                                                    force = true
+                                                )
                                             }
                                         }
                                     },
@@ -611,12 +652,19 @@ fun FavoritePage(
                                     modifier = Modifier.weight(1f),
                                     text = { Text("刷新列表") },
                                     onClick = {
-                                        favoriteVM.refreshList(showLoading = true, isSmartSync = false)
+                                        favoriteVM.refreshList(
+                                            showLoading = true,
+                                            isSmartSync = false
+                                        )
                                         menuExpanded = false
                                     },
                                     enabled = !isRefreshing,
                                     leadingIcon = {
-                                        if (isRefreshing) CircularProgressIndicator(Modifier.size(24.dp)) else Icon(androidx.compose.material.icons.Icons.Default.Refresh, null, Modifier.size(24.dp))
+                                        if (isRefreshing) CircularProgressIndicator(Modifier.size(24.dp)) else Icon(
+                                            androidx.compose.material.icons.Icons.Default.Refresh,
+                                            null,
+                                            Modifier.size(24.dp)
+                                        )
                                     }
                                 )
                             }
@@ -668,8 +716,10 @@ fun FavoritePage(
                                     3 -> navController.navigate("OtherWebPage/$encodedUrl")
                                     else -> {
                                         val targetUrl = item.lastMangaUrl ?: item.url
-                                        val encodedTarget = java.net.URLEncoder.encode(targetUrl, "utf-8")
-                                        val encodedOriginal = java.net.URLEncoder.encode(item.url, "utf-8")
+                                        val encodedTarget =
+                                            java.net.URLEncoder.encode(targetUrl, "utf-8")
+                                        val encodedOriginal =
+                                            java.net.URLEncoder.encode(item.url, "utf-8")
                                         probingUrl = targetUrl
                                         probingJob = coroutineScope.launch {
                                             MangaProber().probeUrl(
@@ -792,7 +842,11 @@ fun FavoritePage(
                                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         ) {
-                            Icon(painterResource(R.drawable.ic_visibility_off), "隐藏", modifier = Modifier.size(20.dp))
+                            Icon(
+                                painterResource(R.drawable.ic_visibility_off),
+                                "隐藏",
+                                modifier = Modifier.size(20.dp)
+                            )
                             Spacer(Modifier.width(6.dp))
                             Text("隐藏")
                         }
@@ -803,7 +857,11 @@ fun FavoritePage(
                                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         ) {
-                            Icon(painterResource(R.drawable.ic_visibility), "显示", modifier = Modifier.size(20.dp))
+                            Icon(
+                                painterResource(R.drawable.ic_visibility),
+                                "显示",
+                                modifier = Modifier.size(20.dp)
+                            )
                             Spacer(Modifier.width(6.dp))
                             Text("显示")
                         }
@@ -1154,7 +1212,9 @@ fun CacheManagementDialog(
                                 Text(
                                     "占用空间: ${formatFileSize(imageCacheSize)}",
                                     fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(
+                                        alpha = 0.8f
+                                    )
                                 )
                             }
                             IconButton(
@@ -1227,11 +1287,13 @@ fun CacheManagementDialog(
                         Column(
                             modifier = Modifier.padding(16.dp)
                         ) {
-                            Text("文本缓存: ${cacheInfoMap.size} 部，占用空间: ${
-                                formatFileSize(
-                                    totalSize
-                                )
-                            }", fontSize = 12.sp)
+                            Text(
+                                "文本缓存: ${cacheInfoMap.size} 部，占用空间: ${
+                                    formatFileSize(
+                                        totalSize
+                                    )
+                                }", fontSize = 12.sp
+                            )
                         }
                     }
 
@@ -1255,7 +1317,10 @@ fun CacheManagementDialog(
                             key = { "favorite_${it.url}" }
                         ) { favorite ->
                             val info = cacheInfoMap[favorite.url]!!
-                            val cleanTitle = favorite.title.replace(Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"), "").ifBlank { favorite.title }
+                            val cleanTitle = favorite.title.replace(
+                                Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"),
+                                ""
+                            ).ifBlank { favorite.title }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1299,7 +1364,10 @@ fun CacheManagementDialog(
                                 items = orphanedCaches,
                                 key = { "orphan_${it.url}" }
                             ) { info ->
-                                val displayTitle = info.title?.replace(Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"), "")?.ifBlank { info.title } ?: info.url
+                                val displayTitle = info.title?.replace(
+                                    Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"),
+                                    ""
+                                )?.ifBlank { info.title } ?: info.url
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1458,7 +1526,10 @@ fun BookmarkManagementDialog(
                             items = bookmarkedList,
                             key = { it.url }
                         ) { favorite ->
-                            val cleanTitle = favorite.title.replace(Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"), "").ifBlank { favorite.title }
+                            val cleanTitle = favorite.title.replace(
+                                Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"),
+                                ""
+                            ).ifBlank { favorite.title }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
