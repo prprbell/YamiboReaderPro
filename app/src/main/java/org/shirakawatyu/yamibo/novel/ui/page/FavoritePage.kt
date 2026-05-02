@@ -631,6 +631,7 @@ fun FavoritePage(
                                             SettingsUtil.saveAutoSignInMode(newState)
 
                                             if (newState) {
+                                                AutoSignManager.resetQuota()
                                                 AutoSignManager.checkAndSignIfNeeded(
                                                     context,
                                                     force = true

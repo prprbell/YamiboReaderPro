@@ -105,8 +105,9 @@ import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
 import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
-import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
+import org.shirakawatyu.yamibo.novel.util.SignTrigger
+import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
 import java.net.URLDecoder
 import kotlin.coroutines.resume
 
@@ -185,7 +186,8 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val layoutParams = window.attributes
-            layoutParams.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            layoutParams.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             window.attributes = layoutParams
         }
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -198,7 +200,11 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            App(bbsWebView = bbsWebViewState, webChromeClient = customWebChromeClient, isRestoring = isRestoring)
+            App(
+                bbsWebView = bbsWebViewState,
+                webChromeClient = customWebChromeClient,
+                isRestoring = isRestoring
+            )
         }
     }
 
@@ -307,7 +313,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                 SettingsUtil.getCustomDnsMode { GlobalData.isCustomDnsEnabled.value = it }
                 SettingsUtil.getClickToTopMode { GlobalData.isClickToTopEnabled.value = it }
                 SettingsUtil.getAutoSignInMode { GlobalData.isAutoSignInEnabled.value = it }
-                SettingsUtil.getDnsOptimizationEnabled { GlobalData.isDnsOptimizationEnabled.value = it }
+                SettingsUtil.getDnsOptimizationEnabled {
+                    GlobalData.isDnsOptimizationEnabled.value = it
+                }
                 SettingsUtil.getDnsOptimizationMode { GlobalData.dnsOptimizationMode.value = it }
                 SettingsUtil.getCustomDnsUrl { GlobalData.customDnsUrl.value = it }
                 GlobalData.isAppInitialized = true
@@ -318,23 +326,38 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
     LaunchedEffect(isAppInitialized, isNetworkAvailable) {
         if (isAppInitialized && isNetworkAvailable && GlobalData.isAutoSignInEnabled.value) {
             launch(Dispatchers.IO) {
-                if (AutoSignManager.needsSignIn()) {
-                    delay(2000L)
-                    AutoSignManager.checkAndSignIfNeeded(context)
+                if (AutoSignManager.needsSignIn(SignTrigger.LAUNCH)) {
+                    delay(5000L)
+                    AutoSignManager.checkAndSignIfNeeded(context, SignTrigger.LAUNCH)
                 }
             }
         }
     }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
 
     DisposableEffect(lifecycleOwner, isAppInitialized, isNetworkAvailable) {
         if (!isAppInitialized || !isNetworkAvailable) return@DisposableEffect onDispose {}
 
+        var isFirstResume = true
+
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 coroutineScope.launch(Dispatchers.IO) {
                     AccountSyncManager.syncCookieAndCheckSign(context, "APP_RESUME")
+
+                    if (isFirstResume) {
+                        isFirstResume = false
+                    } else {
+                        if (GlobalData.isAutoSignInEnabled.value && AutoSignManager.needsSignIn(
+                                SignTrigger.RESUME
+                            )
+                        ) {
+                            delay(5000L)
+                            AutoSignManager.checkAndSignIfNeeded(context, SignTrigger.RESUME)
+                        }
+                    }
                 }
             }
         }
@@ -366,15 +389,18 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                     val bottomNavBarVM: BottomNavBarVM = viewModel(stateOwner!!)
                     val context = LocalContext.current
                     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
-                    val selectedItemIndex = pageList.indexOf(currentRoute ?: homeRoute).coerceAtLeast(0)
+                    val selectedItemIndex =
+                        pageList.indexOf(currentRoute ?: homeRoute).coerceAtLeast(0)
 
                     LaunchedEffect(bbsWebView, isNetworkAvailable, homeRoute) {
                         if (bbsWebView != null && isNetworkAvailable && !BBSPageState.hasSuccessfullyLoaded) {
                             try {
-                                CookieManager.getInstance().setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
+                                CookieManager.getInstance()
+                                    .setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
                                 CookieManager.getInstance().flush()
-                                val targetUrl = BBSPageState.currentUrl?.takeIf { it.isNotBlank() && it != "about:blank" }
-                                    ?: "https://bbs.yamibo.com/forum.php?mobile=2"
+                                val targetUrl =
+                                    BBSPageState.currentUrl?.takeIf { it.isNotBlank() && it != "about:blank" }
+                                        ?: "https://bbs.yamibo.com/forum.php?mobile=2"
                                 bbsWebView.loadUrl(targetUrl)
                                 BBSPageState.isLoading = true
                                 launch {
@@ -397,20 +423,27 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
 
                     val initialNavHeight = remember(context, density) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                            val insets = wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
-                                android.view.WindowInsets.Type.navigationBars() or android.view.WindowInsets.Type.displayCutout()
-                            )
+                            val wm =
+                                context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                            val insets =
+                                wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
+                                    android.view.WindowInsets.Type.navigationBars() or android.view.WindowInsets.Type.displayCutout()
+                                )
                             insets.bottom / density
                         } else {
                             0f
                         }
                     }
 
-                    val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    val navBarsPadding =
+                        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     val currentPaddingValue = navBarsPadding.value
 
-                    var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(initialNavHeight) }
+                    var lockedNavHeightValue by rememberSaveable {
+                        mutableFloatStateOf(
+                            initialNavHeight
+                        )
+                    }
 
                     SideEffect {
                         if (currentPaddingValue > lockedNavHeightValue) {
@@ -445,14 +478,23 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 },
                                 exitTransition = {
                                     if (targetState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = tween(enterDuration, easing = enterEasing))
+                                        slideOutHorizontally(
+                                            targetOffsetX = { -it / 3 },
+                                            animationSpec = tween(
+                                                enterDuration,
+                                                easing = enterEasing
+                                            )
+                                        )
                                     } else if (targetState.destination.route?.startsWith("NativeMangaPage") == true || targetState.destination.route in topLevelRoutes) {
                                         ExitTransition.None
                                     } else fadeOut(tween(150))
                                 },
                                 popEnterTransition = {
                                     if (initialState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(exitDuration, easing = exitEasing))
+                                        slideInHorizontally(
+                                            initialOffsetX = { -it / 3 },
+                                            animationSpec = tween(exitDuration, easing = exitEasing)
+                                        )
                                     } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
                                         EnterTransition.None
                                     } else fadeIn(tween(150))
@@ -464,21 +506,43 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                             ) {
                                 Box(modifier = Modifier.fillMaxSize()) {
                                     FavoritePage(
-                                        viewModel(stateOwner, factory = ViewModelFactory(context.applicationContext)),
+                                        viewModel(
+                                            stateOwner,
+                                            factory = ViewModelFactory(context.applicationContext)
+                                        ),
                                         navController
                                     )
-                                    Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = lockedNavHeight)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .padding(bottom = lockedNavHeight)
+                                    ) {
                                         BottomNavBar(navController, "FavoritePage", bottomNavBarVM)
                                     }
 
-                                    val isContentPage = currentRoute?.run { startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith("MangaWebPage") || startsWith("OtherWebPage") } == true
+                                    val isContentPage = currentRoute?.run {
+                                        startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith(
+                                            "MangaWebPage"
+                                        ) || startsWith("OtherWebPage")
+                                    } == true
                                     val maskAlpha by animateFloatAsState(
                                         targetValue = if (isContentPage) 0.5f else 0f,
-                                        animationSpec = tween(if (isContentPage) enterDuration else exitDuration, easing = if (isContentPage) enterEasing else exitEasing),
+                                        animationSpec = tween(
+                                            if (isContentPage) enterDuration else exitDuration,
+                                            easing = if (isContentPage) enterEasing else exitEasing
+                                        ),
                                         label = "FavoriteMask"
                                     )
                                     if (maskAlpha > 0f) {
-                                        Box(modifier = Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = maskAlpha)))
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(
+                                                    androidx.compose.ui.graphics.Color.Black.copy(
+                                                        alpha = maskAlpha
+                                                    )
+                                                )
+                                        )
                                     }
                                 }
                             }
@@ -490,14 +554,23 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 },
                                 exitTransition = {
                                     if (targetState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = tween(enterDuration, easing = enterEasing))
+                                        slideOutHorizontally(
+                                            targetOffsetX = { -it / 3 },
+                                            animationSpec = tween(
+                                                enterDuration,
+                                                easing = enterEasing
+                                            )
+                                        )
                                     } else if (targetState.destination.route in topLevelRoutes) {
                                         ExitTransition.None
                                     } else fadeOut(tween(150))
                                 },
                                 popEnterTransition = {
                                     if (initialState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(exitDuration, easing = exitEasing))
+                                        slideInHorizontally(
+                                            initialOffsetX = { -it / 3 },
+                                            animationSpec = tween(exitDuration, easing = exitEasing)
+                                        )
                                     } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
                                         EnterTransition.None
                                     } else if (initialState.destination.route in topLevelRoutes) {
@@ -517,22 +590,44 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                             isSelected = selectedItemIndex == 1,
                                             navController = navController
                                         )
-                                        Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = lockedNavHeight)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
                                             BottomNavBar(navController, "BBSPage", bottomNavBarVM)
                                         }
 
-                                        val isContentPage = currentRoute?.run { startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith("MangaWebPage") || startsWith("OtherWebPage") } == true
+                                        val isContentPage = currentRoute?.run {
+                                            startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith(
+                                                "MangaWebPage"
+                                            ) || startsWith("OtherWebPage")
+                                        } == true
                                         val maskAlpha by animateFloatAsState(
                                             targetValue = if (isContentPage) 0.5f else 0f,
-                                            animationSpec = tween(if (isContentPage) enterDuration else exitDuration, easing = if (isContentPage) enterEasing else exitEasing),
+                                            animationSpec = tween(
+                                                if (isContentPage) enterDuration else exitDuration,
+                                                easing = if (isContentPage) enterEasing else exitEasing
+                                            ),
                                             label = "BBSMask"
                                         )
                                         if (maskAlpha > 0f) {
-                                            Box(modifier = Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = maskAlpha)))
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(
+                                                        androidx.compose.ui.graphics.Color.Black.copy(
+                                                            alpha = maskAlpha
+                                                        )
+                                                    )
+                                            )
                                         }
                                     }
                                 } else {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
                                         CircularProgressIndicator(color = YamiboColors.secondary)
                                     }
                                 }
@@ -545,14 +640,23 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 },
                                 exitTransition = {
                                     if (targetState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = tween(enterDuration, easing = enterEasing))
+                                        slideOutHorizontally(
+                                            targetOffsetX = { -it / 3 },
+                                            animationSpec = tween(
+                                                enterDuration,
+                                                easing = enterEasing
+                                            )
+                                        )
                                     } else if (targetState.destination.route in topLevelRoutes) {
                                         ExitTransition.None
                                     } else fadeOut(tween(150))
                                 },
                                 popEnterTransition = {
                                     if (initialState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(exitDuration, easing = exitEasing))
+                                        slideInHorizontally(
+                                            initialOffsetX = { -it / 3 },
+                                            animationSpec = tween(exitDuration, easing = exitEasing)
+                                        )
                                     } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
                                         EnterTransition.None
                                     } else fadeIn(tween(150))
@@ -568,34 +672,64 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                         navController = navController,
                                         webChromeClient = webChromeClient
                                     )
-                                    Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = lockedNavHeight)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .padding(bottom = lockedNavHeight)
+                                    ) {
                                         BottomNavBar(navController, "MinePage", bottomNavBarVM)
                                     }
 
-                                    val isContentPage = currentRoute?.run { startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith("MangaWebPage") || startsWith("OtherWebPage") } == true
+                                    val isContentPage = currentRoute?.run {
+                                        startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith(
+                                            "MangaWebPage"
+                                        ) || startsWith("OtherWebPage")
+                                    } == true
                                     val maskAlpha by animateFloatAsState(
                                         targetValue = if (isContentPage) 0.5f else 0f,
-                                        animationSpec = tween(if (isContentPage) enterDuration else exitDuration, easing = if (isContentPage) enterEasing else exitEasing),
+                                        animationSpec = tween(
+                                            if (isContentPage) enterDuration else exitDuration,
+                                            easing = if (isContentPage) enterEasing else exitEasing
+                                        ),
                                         label = "MineMask"
                                     )
                                     if (maskAlpha > 0f) {
-                                        Box(modifier = Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = maskAlpha)))
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(
+                                                    androidx.compose.ui.graphics.Color.Black.copy(
+                                                        alpha = maskAlpha
+                                                    )
+                                                )
+                                        )
                                     }
                                 }
                             }
                             composable(
                                 "ReaderPage/{passageUrl}",
-                                arguments = listOf(navArgument("passageUrl") { type = NavType.StringType }),
+                                arguments = listOf(navArgument("passageUrl") {
+                                    type = NavType.StringType
+                                }),
                                 enterTransition = {
-                                    slideIntoContainer(towards = AnimatedContentTransitionScope.SlideDirection.Left, animationSpec = tween(enterDuration, easing = enterEasing))
+                                    slideIntoContainer(
+                                        towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                                        animationSpec = tween(enterDuration, easing = enterEasing)
+                                    )
                                 },
                                 popExitTransition = {
-                                    slideOutOfContainer(towards = AnimatedContentTransitionScope.SlideDirection.Right, animationSpec = tween(exitDuration, easing = exitEasing))
+                                    slideOutOfContainer(
+                                        towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                                        animationSpec = tween(exitDuration, easing = exitEasing)
+                                    )
                                 }
                             ) {
                                 it.arguments?.getString("passageUrl")?.let { url ->
                                     Box(modifier = Modifier.fillMaxSize()) {
-                                        ReaderPage(url = URLDecoder.decode(url, "utf-8"), navController = navController)
+                                        ReaderPage(
+                                            url = URLDecoder.decode(url, "utf-8"),
+                                            navController = navController
+                                        )
                                     }
                                 }
                             }
@@ -604,11 +738,18 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 arguments = listOf(
                                     navArgument("url") { type = NavType.StringType },
                                     navArgument("originalUrl") { type = NavType.StringType },
-                                    navArgument("fastForward") { type = NavType.BoolType; defaultValue = false },
-                                    navArgument("initialPage") { type = NavType.IntType; defaultValue = 0 }
+                                    navArgument("fastForward") {
+                                        type = NavType.BoolType; defaultValue = false
+                                    },
+                                    navArgument("initialPage") {
+                                        type = NavType.IntType; defaultValue = 0
+                                    }
                                 ),
                                 enterTransition = {
-                                    if (initialState.destination.route?.startsWith("ProbingPage") == true || initialState.destination.route?.startsWith("FavoritePage") == true) EnterTransition.None
+                                    if (initialState.destination.route?.startsWith("ProbingPage") == true || initialState.destination.route?.startsWith(
+                                            "FavoritePage"
+                                        ) == true
+                                    ) EnterTransition.None
                                     else fadeIn(tween(150))
                                 },
                                 exitTransition = {
@@ -620,8 +761,12 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                     else fadeIn(tween(150))
                                 }
                             ) {
-                                val loadUrl = URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
-                                val originalUrl = URLDecoder.decode(it.arguments?.getString("originalUrl") ?: "", "utf-8")
+                                val loadUrl =
+                                    URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
+                                val originalUrl = URLDecoder.decode(
+                                    it.arguments?.getString("originalUrl") ?: "",
+                                    "utf-8"
+                                )
                                 val fastForward = it.arguments?.getBoolean("fastForward") ?: false
                                 val initialPage = it.arguments?.getInt("initialPage") ?: 0
 
@@ -639,14 +784,19 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 arguments = listOf(navArgument("url") { type = NavType.StringType })
                             ) {
                                 it.arguments?.getString("url")?.let { url ->
-                                    OtherWebPage(url = URLDecoder.decode(url, "utf-8"), navController = navController, webChromeClient = webChromeClient)
+                                    OtherWebPage(
+                                        url = URLDecoder.decode(url, "utf-8"),
+                                        navController = navController,
+                                        webChromeClient = webChromeClient
+                                    )
                                 }
                             }
                             composable(
                                 "ProbingPage/{url}",
                                 arguments = listOf(navArgument("url") { type = NavType.StringType })
                             ) {
-                                val url = URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
+                                val url =
+                                    URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
                                 ProbingPage(url, navController)
                             }
                             composable(
@@ -656,18 +806,37 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                     navArgument("originalUrl") { defaultValue = "" }
                                 ),
                                 enterTransition = {
-                                    scaleIn(initialScale = 0.50f, animationSpec = tween(300, easing = FastOutSlowInEasing)) + fadeIn(animationSpec = tween(300, easing = FastOutSlowInEasing))
+                                    scaleIn(
+                                        initialScale = 0.50f,
+                                        animationSpec = tween(300, easing = FastOutSlowInEasing)
+                                    ) + fadeIn(
+                                        animationSpec = tween(
+                                            300,
+                                            easing = FastOutSlowInEasing
+                                        )
+                                    )
                                 },
                                 exitTransition = { ExitTransition.None },
                                 popEnterTransition = { EnterTransition.None },
                                 popExitTransition = {
-                                    scaleOut(targetScale = 0.8f, animationSpec = tween(250, easing = FastOutSlowInEasing)) + fadeOut(targetAlpha = 0.01f, animationSpec = tween(250, easing = FastOutSlowInEasing))
+                                    scaleOut(
+                                        targetScale = 0.8f,
+                                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(
+                                        targetAlpha = 0.01f,
+                                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                                    )
                                 }
                             ) { backStackEntry ->
                                 val url = backStackEntry.arguments?.getString("url") ?: ""
-                                val originalUrl = backStackEntry.arguments?.getString("originalUrl")?.takeIf { it.isNotBlank() } ?: url
+                                val originalUrl = backStackEntry.arguments?.getString("originalUrl")
+                                    ?.takeIf { it.isNotBlank() } ?: url
 
-                                NativeMangaPage(url = url, originalUrl = originalUrl, navController = navController)
+                                NativeMangaPage(
+                                    url = url,
+                                    originalUrl = originalUrl,
+                                    navController = navController
+                                )
                             }
                         }
                     }
@@ -677,16 +846,18 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                 val initStatusHeight = remember(context, density) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                        val insets = wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
-                            android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
-                        )
+                        val insets =
+                            wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
+                                android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
+                            )
                         insets.top / density
                     } else {
                         24f
                     }
                 }
 
-                val currentTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
+                val currentTopPadding =
+                    WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
                 val lockedTopPadding = maxOf(initStatusHeight, currentTopPadding).dp
 
                 if (homeRoute == "BBSPage" && !isRestoring) {
@@ -709,7 +880,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                     }
                 } else {
                     Box(
-                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background),
                         contentAlignment = Alignment.Center
                     ) {
                         if (!isRestoring) {

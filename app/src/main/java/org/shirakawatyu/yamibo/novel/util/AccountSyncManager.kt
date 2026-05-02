@@ -44,8 +44,9 @@ object AccountSyncManager {
             if (currentHash != null) {
                 GlobalData.currentCookie = currentCookie
                 CookieUtil.saveCookie(currentCookie)
+                AutoSignManager.resetQuota()
                 if (GlobalData.isAutoSignInEnabled.value) {
-                    delay(2000L)
+                    delay(5000L)
                     AutoSignManager.checkAndSignIfNeeded(context, force = false)
                 }
             } else {
