@@ -323,6 +323,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
         }
     }
 
+    var isFirstResume by remember { mutableStateOf(true) }
+
     LaunchedEffect(isAppInitialized, isNetworkAvailable) {
         if (isAppInitialized && isNetworkAvailable && GlobalData.isAutoSignInEnabled.value) {
             launch(Dispatchers.IO) {
@@ -337,10 +339,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
 
+    // 2. 后台切回 (Resume) 触发逻辑
     DisposableEffect(lifecycleOwner, isAppInitialized, isNetworkAvailable) {
         if (!isAppInitialized || !isNetworkAvailable) return@DisposableEffect onDispose {}
-
-        var isFirstResume = true
 
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {

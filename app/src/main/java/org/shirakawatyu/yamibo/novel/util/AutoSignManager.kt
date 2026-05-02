@@ -73,7 +73,7 @@ object AutoSignManager {
         updateQuota(hash, today, 0, 0)
     }
 
-    suspend fun needsSignIn(trigger: SignTrigger): Boolean {
+    suspend fun needsSignIn(trigger: SignTrigger = SignTrigger.LAUNCH): Boolean {
         val accountHash = getCurrentAccountHash() ?: return false
         val today = getServerToday()
         val (savedDate, launchCount, resumeCount) = getCurrentQuota(accountHash)
