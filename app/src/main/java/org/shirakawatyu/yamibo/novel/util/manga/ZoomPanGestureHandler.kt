@@ -3,7 +3,7 @@ package org.shirakawatyu.yamibo.novel.util.manga
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.splineBasedDecay // 修改点：导入原生样条曲线衰减
+import androidx.compose.animation.splineBasedDecay
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -19,8 +19,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
-import androidx.compose.ui.platform.LocalDensity // 修改点：导入 LocalDensity
-import androidx.compose.ui.unit.Density // 修改点：导入 Density
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.coroutineScope

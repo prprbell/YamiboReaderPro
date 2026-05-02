@@ -9,7 +9,7 @@ import okio.buffer
 import java.io.IOException
 
 /**
- * 垃圾图/错误图拦截工具类 (深度日志排查版)
+ * 垃圾图/错误图拦截工具类
  */
 object ImageCheckerUtil {
     private const val TAG = "ImageCheckerUtil"

@@ -28,12 +28,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 漫画探测工具。
- *
- * 重构后的职责：
- * 1. 使用隐藏 WebView 加载帖子页，执行站点脚本/懒加载逻辑。
- * 2. 保留 WebView 图片请求，由 CoilWebViewProxy -> MangaImagePipeline 接管。
- * 3. 通过 JS 提取整章图片 URL / title / html。
- * 4. 成功提取 URL 后，主动 handoff 整章 URL 给 MangaImagePipeline，补齐 WebView 尚未发起的图片请求。
  */
 class MangaProber {
 

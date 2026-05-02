@@ -36,7 +36,7 @@ enum class SignTrigger {
  */
 object AutoSignManager {
     private const val BASE_URL = "https://bbs.yamibo.com/"
-    private const val MAX_DAILY_RETRIES = 3
+    private const val MAX_DAILY_RETRIES = 2
 
     private fun getServerToday(): String {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).apply {

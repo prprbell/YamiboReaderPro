@@ -21,7 +21,6 @@ import kotlin.coroutines.resume
 
 /**
  * 收藏管理工具
- * 采用内存防抖(Debounce)策略，化解高频 JSON 序列化带来的 I/O 抖动
  */
 class FavoriteUtil {
     companion object {
