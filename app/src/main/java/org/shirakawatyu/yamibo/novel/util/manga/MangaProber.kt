@@ -18,6 +18,8 @@ import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
@@ -26,23 +28,59 @@ import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.network.MangaApi
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.ByteArrayInputStream
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 漫画探测工具 (极速重构版)
- * 采用 API 正则扫描 + WebView 降级兜底双轨机制。
+ * 漫画探测工具 (双轨终极版)
+ *
+ * 核心极客优化：
+ * 1. 【API极速轨】优先走 Discuz Mobile API 进行纯内存 O(N) 正则扫描。
+ * 2. 【防击穿内存缓存】引入 LRU Cache (带 TTL) + Mutex 细粒度协程锁，完美防止并发请求穿透（Cache Stampede）。
+ * 3. 【无损降级轨】API 异常或无法提取时，平滑降级回原有的 WebView 无头探针。
  */
 class MangaProber {
 
     companion object {
         private const val TAG = "MangaProber"
         private val IMAGE_EXT_REGEX = Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)
-        private val IMG_TAG_REGEX = Regex("""<img\s+[^>]*?(?:zsrc|data-src|file|src)=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+        // 启发式正则：榨取所有带 src 的 img 标签
+        private val IMG_TAG_REGEX = Regex(
+            """<img\s+[^>]*?(?:zsrc|data-src|file|src)=["']([^"']+)["'][^>]*>""",
+            RegexOption.IGNORE_CASE
+        )
 
-        /**
-         * 全局缓存单例，避免频繁创建 JS bridge。
-         */
+        // ─── 内存缓存 (TID -> 解析结果) ──────────────────────
+        private data class CacheEntry(
+            val urls: List<String>,
+            val title: String,
+            val messageHtml: String,
+            val timestamp: Long = System.currentTimeMillis()
+        )
+
+        private const val CACHE_MAX_SIZE = 40
+        private val CACHE_TTL_MS = TimeUnit.MINUTES.toMillis(20)
+
+        private val probeCache = object : LinkedHashMap<String, CacheEntry>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>?): Boolean {
+                return size > CACHE_MAX_SIZE
+            }
+        }
+
+        // 防击穿细粒度锁 (按 TID 隔离协程锁)
+        private val tidLocks = ConcurrentHashMap<String, Mutex>()
+
+        // ─── JS 桥 ──────────────────────────────────────────
         private var cachedProberJSInterface: ProberJSInterface? = null
+
+        // 规范化 URL 拼接工具
+        private fun safeConcatUrl(base: String, path: String): String {
+            if (path.startsWith("http")) return path
+            val baseUrl = base.trimEnd('/')
+            val relative = path.trimStart('/')
+            return "$baseUrl/$relative"
+        }
     }
 
     @Keep
@@ -77,24 +115,72 @@ class MangaProber {
         val appContext = context.applicationContext
 
         if (tid != null) {
+            // 第 1 层：快速游离态读取缓存
+            val cachedEntry = getValidCache(tid)
+            if (cachedEntry != null) {
+                Log.i(TAG, "Fast Cache hit for TID: $tid")
+                MangaImagePipeline.handoffPrefetch(appContext, cachedEntry.urls, 0)
+                onSuccess(cachedEntry.urls, cachedEntry.title, cachedEntry.messageHtml)
+                return
+            }
+
             try {
-                val success = fastApiProbe(appContext, tid, onSuccess)
+                // 获取属于当前 TID 的独占锁
+                val mutex = tidLocks.getOrPut(tid) { Mutex() }
+
+                // 加锁后，执行防并发双重检查 (Double-Checked Locking)
+                val success = mutex.withLock {
+                    // 第 2 层：拿到锁后再查一次缓存，如果已经被前面排队的协程请求到了，直接复用
+                    val doubleCheckCache = getValidCache(tid)
+                    if (doubleCheckCache != null) {
+                        Log.i(TAG, "DCL Cache hit for TID: $tid")
+                        withContext(Dispatchers.Main) {
+                            MangaImagePipeline.handoffPrefetch(appContext, doubleCheckCache.urls, 0)
+                            onSuccess(doubleCheckCache.urls, doubleCheckCache.title, doubleCheckCache.messageHtml)
+                        }
+                        return@withLock true
+                    }
+
+                    // 确实没缓存，才去真实发 API 请求
+                    fastApiProbe(appContext, tid, onSuccess)
+                }
+
                 if (success) {
-                    Log.i(TAG, "Fast API Probe Success for TID: $tid")
-                    return
+                    Log.i(TAG, "Fast API probe success for TID: $tid")
+                    return // 极速解析成功，直接返回，绝不启动 WebView
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "API Probe failed for $tid, falling back to WebView", e)
+                Log.w(TAG, "API probe failed for $tid, falling back to WebView", e)
+                // 异常静默，流转到 WebView 兜底
+            } finally {
+                // 协程安全：只有当不再有任何协程挂起在这把锁上时才清理，这里为简便直接留存也可（几十个 Mutex 内存占用忽略不计）
             }
         }
 
+        // 降级轨：兜底走原有 WebView 探针
         fallbackWebViewProbe(context, url, onSuccess, onFallback)
     }
 
     /**
-     * API嗅探
+     * 线程安全获取有效缓存
+     */
+    private fun getValidCache(tid: String): CacheEntry? {
+        synchronized(probeCache) {
+            val cached = probeCache[tid]
+            if (cached != null && (System.currentTimeMillis() - cached.timestamp) < CACHE_TTL_MS) {
+                return cached
+            }
+            if (cached != null) {
+                probeCache.remove(tid) // 淘汰过期缓存
+            }
+            return null
+        }
+    }
+
+    /**
+     * 高速 API 嗅探逻辑：直接请求 JSON 并正则提取图片链接，且写入缓存
      */
     private suspend fun fastApiProbe(
         context: Context,
@@ -107,8 +193,27 @@ class MangaProber {
         val root = JSON.parseObject(jsonStr)
         val variables = root.getJSONObject("Variables") ?: return@withContext false
 
-        // 校验板块等合法性
         val title = variables.getJSONObject("thread")?.getString("subject") ?: return@withContext false
+
+        // --- 新增：深度还原 WebView 的业务过滤逻辑 ---
+        // 1. 过滤非漫画板块 (完美映射 JS 中的 sectionHeader 校验)
+        val forumName = variables.getJSONObject("forum")?.getString("name") ?: ""
+        if (forumName.isNotEmpty()) {
+            val allowedSections = listOf("中文百合漫画区", "貼圖區", "贴图区", "原创图作区", "百合漫画图源区")
+            if (allowedSections.none { forumName.contains(it) }) {
+                Log.i(TAG, "Fast API intercept: Invalid section -> $forumName")
+                return@withContext false
+            }
+        }
+
+        // 2. 过滤“公告”贴 (完美映射 JS 中的 typeLabel 校验)
+        val typeName = variables.getJSONObject("thread")?.getString("typename") ?: ""
+        if (typeName.contains("公告") || title.contains("公告")) {
+            Log.i(TAG, "Fast API intercept: Thread is an announcement.")
+            return@withContext false
+        }
+        // --- 结束业务过滤 ---
+
         val postList = variables.getJSONArray("postlist") ?: return@withContext false
 
         if (postList.isEmpty()) return@withContext false
@@ -116,44 +221,58 @@ class MangaProber {
         val message = firstPost.getString("message") ?: return@withContext false
 
         val urls = mutableListOf<String>()
+        val seenFromMessage = mutableSetOf<String>()
 
         // 1. 从正文中提取 img 标签
         val matches = IMG_TAG_REGEX.findAll(message)
         for (match in matches) {
             val rawUrl = match.groupValues[1]
             if (!isIgnoredImageUrl(rawUrl)) {
-                urls.add(if (rawUrl.startsWith("http")) rawUrl else "${RequestConfig.BASE_URL}/$rawUrl")
+                val fullUrl = safeConcatUrl(RequestConfig.BASE_URL, rawUrl)
+                if (seenFromMessage.add(fullUrl)) {
+                    urls.add(fullUrl)
+                }
             }
         }
 
-        // 2. 补全未插入正文的纯附件
+        // 2. 补全未插入正文的纯附件 (Discuz 经典坑点)
         val attachments = firstPost.getJSONObject("attachments")
         if (attachments != null) {
             for (key in attachments.keys) {
-                val attachObj = attachments.getJSONObject(key)
-                if (attachObj != null) {
-                    val urlPrefix = attachObj.getString("url") ?: ""
-                    val attachmentPath = attachObj.getString("attachment") ?: ""
-                    if (urlPrefix.isNotEmpty() && attachmentPath.isNotEmpty()) {
-                        val fullUrl = if (urlPrefix.startsWith("http")) "$urlPrefix$attachmentPath" else "${RequestConfig.BASE_URL}/$urlPrefix$attachmentPath"
-                        if (!urls.contains(fullUrl) && !isIgnoredImageUrl(fullUrl)) {
-                            urls.add(fullUrl)
-                        }
+                val attachObj = attachments.getJSONObject(key) ?: continue
+                val urlPrefix = attachObj.getString("url") ?: ""
+                val attachmentPath = attachObj.getString("attachment") ?: ""
+
+                if (urlPrefix.isNotEmpty() && attachmentPath.isNotEmpty()) {
+                    val fullUrl = safeConcatUrl(
+                        if (urlPrefix.startsWith("http")) urlPrefix else "${RequestConfig.BASE_URL}/$urlPrefix",
+                        attachmentPath
+                    )
+                    if (!seenFromMessage.contains(fullUrl) && !isIgnoredImageUrl(fullUrl)) {
+                        urls.add(fullUrl)
                     }
                 }
             }
         }
 
         if (urls.isNotEmpty()) {
+            val urlList = urls.toList()
+
+            // 极客小妙招：将纯正文套一层 <div class="message">，完美欺骗原有的 MangaHtmlParser 让它能正常解析超链接提取同页目录
+            val compatibleHtml = "<div class=\"message\">$message</div>"
+
+            // 安全写入缓存
+            synchronized(probeCache) {
+                probeCache[tid] = CacheEntry(urlList, title, compatibleHtml)
+            }
+
             withContext(Dispatchers.Main) {
-                // 将提取到的 URLs 送入统一图片预加载管线
                 MangaImagePipeline.handoffPrefetch(
                     context = context,
-                    urls = urls,
+                    urls = urlList,
                     clickedIndex = 0
                 )
-                // 传递 message 充当临时 HTML 以供上层兼容目录生成逻辑
-                onSuccess(urls, title, message)
+                onSuccess(urlList, title, compatibleHtml)
             }
             return@withContext true
         }
@@ -161,7 +280,8 @@ class MangaProber {
     }
 
     /**
-     * WebView兜底方案
+     * 传统的无头 WebView 降级兜底方案
+     * (底层兼容逻辑未受重构影响，保证 100% 可用性兜底)
      */
     private suspend fun fallbackWebViewProbe(
         context: Context,
@@ -190,7 +310,7 @@ class MangaProber {
         }
 
         val isFinished = AtomicBoolean(false)
-        val finalUrl = if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
+        val finalUrl = safeConcatUrl(RequestConfig.BASE_URL, url)
 
         val cleanupAndFinish = {
             if (isFinished.compareAndSet(false, true)) {
