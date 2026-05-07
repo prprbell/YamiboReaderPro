@@ -174,7 +174,8 @@ fun MinePage(
     fun evaluateCanGoBack(view: WebView?): Boolean {
         if (view == null || !view.canGoBack()) return false
         val currUrl = view.url ?: ""
-        if (currUrl.contains("mod=space") && currUrl.contains("do=profile")) return false
+        // 只将真正的"我的主页" (含mycenter=1) 当做根页面，其它用户的个人资料页可以GoBack
+        if (currUrl == mineUrl || currUrl.contains("mycenter=1")) return false
 
         val list = view.copyBackForwardList()
         if (list.currentIndex <= 0) return false
@@ -499,8 +500,9 @@ fun MinePage(
 
                 val checkUrl = url ?: ""
 
+                // 区分自己的主页(含mycenter=1)才算是 Root
                 val isHomePage =
-                    isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("do=profile")
+                    isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("mycenter=1")
                 bottomNavBarVM.isMineAtRoot = isHomePage
 
                 if (isSelected && isHomepageUrl(checkUrl) && view != null) {
@@ -577,14 +579,15 @@ fun MinePage(
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
-                if (url != null && url.startsWith("https://bbs.yamibo.com/home.php?mod=space&do=profile")) {
+                // 只有进入自己的主页时才清空历史，别人的主页不要清空
+                if (url != null && (url == mineUrl || url.contains("mycenter=1"))) {
                     view?.clearHistory()
                 }
                 canGoBack = evaluateCanGoBack(view)
 
                 val checkUrl = url ?: ""
                 val isHomePage =
-                    isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("do=profile")
+                    isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("mycenter=1")
                 bottomNavBarVM.isMineAtRoot = isHomePage
             }
 
@@ -602,6 +605,24 @@ fun MinePage(
                 }
                 // 使用外部提取的特定于 MinePage 的脚本常量
                 view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
+
+                val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1"))
+                val toggleHeaderJs = """
+                    javascript:(function() {
+                        var style = document.getElementById('mine-dynamic-header');
+                        if (!style) {
+                            style = document.createElement('style');
+                            style.id = 'mine-dynamic-header';
+                            document.head.appendChild(style);
+                        }
+                        if ($isMineRoot) {
+                            style.innerHTML = '.header .z, .header .y { display: none !important; }';
+                        } else {
+                            style.innerHTML = '.header, .header .z, .header .y { display: block !important; visibility: visible !important; opacity: 1 !important; }';
+                        }
+                    })();
+                """.trimIndent()
+                view?.evaluateJavascript(toggleHeaderJs, null)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -614,13 +635,33 @@ fun MinePage(
                 }
                 super.onPageFinished(view, url)
                 currentUrl = url
-                if (url != null && url.startsWith("https://bbs.yamibo.com/home.php?mod=space&do=profile")) {
+
+                // 只有进入自己的主页时才清空历史
+                if (url != null && (url == mineUrl || url.contains("mycenter=1"))) {
                     view?.clearHistory()
                 }
 
                 canGoBack = evaluateCanGoBack(view)
                 // 使用外部提取的特定于 MinePage 的脚本常量
                 view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
+
+                val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1"))
+                val toggleHeaderJs = """
+                    javascript:(function() {
+                        var style = document.getElementById('mine-dynamic-header');
+                        if (!style) {
+                            style = document.createElement('style');
+                            style.id = 'mine-dynamic-header';
+                            document.head.appendChild(style);
+                        }
+                        if ($isMineRoot) {
+                            style.innerHTML = '.header .z, .header .y { display: none !important; }';
+                        } else {
+                            style.innerHTML = '.header, .header .z, .header .y { display: block !important; visibility: visible !important; opacity: 1 !important; }';
+                        }
+                    })();
+                """.trimIndent()
+                view?.evaluateJavascript(toggleHeaderJs, null)
             }
 
             override fun onReceivedError(
@@ -744,7 +785,8 @@ fun MinePage(
 
     BackHandler(enabled = true) {
         val checkUrl = currentUrl ?: mineWebView.url ?: ""
-        val isAtMineHome = checkUrl.contains("mod=space") && checkUrl.contains("do=profile")
+        // 只检查 mycenter=1
+        val isAtMineHome = checkUrl == mineUrl || checkUrl.contains("mycenter=1")
         when {
             needFallbackToHome -> {
                 needFallbackToHome = false

@@ -363,6 +363,25 @@ object PageJsScripts {
                 }, true);
             }
             
+            var toggleHeader = function() {
+                var currentUrl = window.location.href;
+                var isMineRoot = currentUrl.indexOf('mycenter=1') !== -1;
+                
+                var style = document.getElementById('mine-dynamic-header');
+                if (!style) {
+                    style = document.createElement('style');
+                    style.id = 'mine-dynamic-header';
+                    if (document.head) document.head.appendChild(style);
+                    else document.documentElement.appendChild(style);
+                }
+                if (isMineRoot) {
+                    style.innerHTML = '.header .z, .header .y { display: none !important; }';
+                } else {
+                    style.innerHTML = ''; 
+                }
+            };
+            toggleHeader();
+
             var a = document.querySelector('.header h2 a');
             var isManga = false;
             if (a) {
