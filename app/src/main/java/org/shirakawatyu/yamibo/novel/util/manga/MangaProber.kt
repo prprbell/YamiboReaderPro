@@ -28,17 +28,19 @@ import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.network.MangaApi
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.ByteArrayInputStream
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 
 /**
  * 漫画探测工具 (双轨终极版)
  *
  * 核心极客优化：
  * 1. 【API极速轨】优先走 Discuz Mobile API 进行纯内存 O(N) 正则扫描。
- * 2. 【防击穿内存缓存】引入 LRU Cache (带 TTL) + Mutex 细粒度协程锁，完美防止并发请求穿透（Cache Stampede）。
- * 3. 【无损降级轨】API 异常或无法提取时，平滑降级回原有的 WebView 无头探针。
+ * 2. 【分段锁防击穿】引入 LRU Cache + Striped Mutex(分段锁)，完美防止并发穿透且 0 内存泄漏。
+ * 3. 【API脏数据清洗】弥补 Discuz API 绕过页面渲染 Hook 的缺陷，手动修复数据库中 http://data/ 的残缺图片域。
+ * 4. 【全楼层楼主追踪】不仅扫描1楼，还能自动追踪楼主占楼连载的后续楼层内容。
+ * 5. 【无损降级轨】API 异常或无法提取时，平滑降级回原有的 WebView 无头探针。
  */
 class MangaProber {
 
@@ -68,18 +70,33 @@ class MangaProber {
             }
         }
 
-        // 防击穿细粒度锁 (按 TID 隔离协程锁)
-        private val tidLocks = ConcurrentHashMap<String, Mutex>()
+        // ─── 极客优化：分段锁 (Lock Striping) ────────────────
+        // 彻底杜绝使用 ConcurrentHashMap 无限增长带来的 Mutex 内存泄漏。
+        // 固定 32 个锁，按 TID 的哈希值路由，O(1) 且完全 0 内存增长。
+        private const val STRIPE_COUNT = 32
+        private val stripedLocks = Array(STRIPE_COUNT) { Mutex() }
 
         // ─── JS 桥 ──────────────────────────────────────────
         private var cachedProberJSInterface: ProberJSInterface? = null
 
-        // 规范化 URL 拼接工具
+        // 规范化 URL 拼接工具 + API脏数据自愈
         private fun safeConcatUrl(base: String, path: String): String {
-            if (path.startsWith("http")) return path
-            val baseUrl = base.trimEnd('/')
-            val relative = path.trimStart('/')
-            return "$baseUrl/$relative"
+            val rawUrl = if (path.startsWith("http")) {
+                path
+            } else {
+                val baseUrl = base.trimEnd('/')
+                val relative = path.trimStart('/')
+                "$baseUrl/$relative"
+            }
+
+            // 【极客自愈机制】专为 API 返回的裸数据擦屁股。
+            // 修复 Discuz 数据库直出的残缺域 (形如 http://data/attachment/...)
+            return if (rawUrl.startsWith("http://data/") || rawUrl.startsWith("https://data/")) {
+                val safeBaseUrl = RequestConfig.BASE_URL.trimEnd('/')
+                rawUrl.replaceFirst(Regex("^https?://data/"), "$safeBaseUrl/data/")
+            } else {
+                rawUrl
+            }
         }
     }
 
@@ -125,8 +142,9 @@ class MangaProber {
             }
 
             try {
-                // 获取属于当前 TID 的独占锁
-                val mutex = tidLocks.getOrPut(tid) { Mutex() }
+                // 根据 TID 的哈希值路由到固定的分段锁
+                val lockIndex = abs(tid.hashCode()) % STRIPE_COUNT
+                val mutex = stripedLocks[lockIndex]
 
                 // 加锁后，执行防并发双重检查 (Double-Checked Locking)
                 val success = mutex.withLock {
@@ -154,8 +172,6 @@ class MangaProber {
             } catch (e: Exception) {
                 Log.w(TAG, "API probe failed for $tid, falling back to WebView", e)
                 // 异常静默，流转到 WebView 兜底
-            } finally {
-                // 协程安全：只有当不再有任何协程挂起在这把锁上时才清理，这里为简便直接留存也可（几十个 Mutex 内存占用忽略不计）
             }
         }
 
@@ -193,10 +209,11 @@ class MangaProber {
         val root = JSON.parseObject(jsonStr)
         val variables = root.getJSONObject("Variables") ?: return@withContext false
 
-        val title = variables.getJSONObject("thread")?.getString("subject") ?: return@withContext false
+        val threadObj = variables.getJSONObject("thread") ?: return@withContext false
+        val title = threadObj.getString("subject") ?: return@withContext false
+        val threadAuthorId = threadObj.getString("authorid") ?: ""
 
-        // --- 新增：深度还原 WebView 的业务过滤逻辑 ---
-        // 1. 过滤非漫画板块 (完美映射 JS 中的 sectionHeader 校验)
+        // --- 深度还原 WebView 的业务过滤逻辑 ---
         val forumName = variables.getJSONObject("forum")?.getString("name") ?: ""
         if (forumName.isNotEmpty()) {
             val allowedSections = listOf("中文百合漫画区", "貼圖區", "贴图区", "原创图作区", "百合漫画图源区")
@@ -206,8 +223,7 @@ class MangaProber {
             }
         }
 
-        // 2. 过滤“公告”贴 (完美映射 JS 中的 typeLabel 校验)
-        val typeName = variables.getJSONObject("thread")?.getString("typename") ?: ""
+        val typeName = threadObj.getString("typename") ?: ""
         if (typeName.contains("公告") || title.contains("公告")) {
             Log.i(TAG, "Fast API intercept: Thread is an announcement.")
             return@withContext false
@@ -215,41 +231,52 @@ class MangaProber {
         // --- 结束业务过滤 ---
 
         val postList = variables.getJSONArray("postlist") ?: return@withContext false
-
         if (postList.isEmpty()) return@withContext false
-        val firstPost = postList.getJSONObject(0)
-        val message = firstPost.getString("message") ?: return@withContext false
 
         val urls = mutableListOf<String>()
         val seenFromMessage = mutableSetOf<String>()
+        val combinedMessage = StringBuilder()
 
-        // 1. 从正文中提取 img 标签
-        val matches = IMG_TAG_REGEX.findAll(message)
-        for (match in matches) {
-            val rawUrl = match.groupValues[1]
-            if (!isIgnoredImageUrl(rawUrl)) {
-                val fullUrl = safeConcatUrl(RequestConfig.BASE_URL, rawUrl)
-                if (seenFromMessage.add(fullUrl)) {
-                    urls.add(fullUrl)
+        // 极客优化：不仅看 1 楼，还要遍历整个首页。
+        // 但严格校验 `authorid` 必须是楼主，解决楼主跨多层楼连载漫画的漏图问题，同时过滤水友回复。
+        for (i in 0 until postList.size) {
+            val post = postList.getJSONObject(i) ?: continue
+            val postAuthorId = post.getString("authorid") ?: ""
+
+            // 跳过非楼主的楼层（允许一楼楼主匿名或 ID 异常的极罕见情况，所以 i==0 默认放行）
+            if (i != 0 && postAuthorId != threadAuthorId) continue
+
+            val message = post.getString("message") ?: ""
+            combinedMessage.append(message).append("<br/>")
+
+            // 1. 从正文中提取 img 标签
+            val matches = IMG_TAG_REGEX.findAll(message)
+            for (match in matches) {
+                val rawUrl = match.groupValues[1]
+                if (!isIgnoredImageUrl(rawUrl)) {
+                    val fullUrl = safeConcatUrl(RequestConfig.BASE_URL, rawUrl)
+                    if (seenFromMessage.add(fullUrl)) {
+                        urls.add(fullUrl)
+                    }
                 }
             }
-        }
 
-        // 2. 补全未插入正文的纯附件 (Discuz 经典坑点)
-        val attachments = firstPost.getJSONObject("attachments")
-        if (attachments != null) {
-            for (key in attachments.keys) {
-                val attachObj = attachments.getJSONObject(key) ?: continue
-                val urlPrefix = attachObj.getString("url") ?: ""
-                val attachmentPath = attachObj.getString("attachment") ?: ""
+            // 2. 补全未插入正文的纯附件 (Discuz 经典坑点)
+            val attachments = post.getJSONObject("attachments")
+            if (attachments != null) {
+                for (key in attachments.keys) {
+                    val attachObj = attachments.getJSONObject(key) ?: continue
+                    val urlPrefix = attachObj.getString("url") ?: ""
+                    val attachmentPath = attachObj.getString("attachment") ?: ""
 
-                if (urlPrefix.isNotEmpty() && attachmentPath.isNotEmpty()) {
-                    val fullUrl = safeConcatUrl(
-                        if (urlPrefix.startsWith("http")) urlPrefix else "${RequestConfig.BASE_URL}/$urlPrefix",
-                        attachmentPath
-                    )
-                    if (!seenFromMessage.contains(fullUrl) && !isIgnoredImageUrl(fullUrl)) {
-                        urls.add(fullUrl)
+                    if (urlPrefix.isNotEmpty() && attachmentPath.isNotEmpty()) {
+                        val fullUrl = safeConcatUrl(
+                            if (urlPrefix.startsWith("http")) urlPrefix else "${RequestConfig.BASE_URL}/$urlPrefix",
+                            attachmentPath
+                        )
+                        if (!seenFromMessage.contains(fullUrl) && !isIgnoredImageUrl(fullUrl)) {
+                            urls.add(fullUrl)
+                        }
                     }
                 }
             }
@@ -258,8 +285,8 @@ class MangaProber {
         if (urls.isNotEmpty()) {
             val urlList = urls.toList()
 
-            // 极客小妙招：将纯正文套一层 <div class="message">，完美欺骗原有的 MangaHtmlParser 让它能正常解析超链接提取同页目录
-            val compatibleHtml = "<div class=\"message\">$message</div>"
+            // 将纯正文拼接并套一层 <div class="message">，欺骗 MangaHtmlParser 提取全楼层的同页目录
+            val compatibleHtml = "<div class=\"message\">$combinedMessage</div>"
 
             // 安全写入缓存
             synchronized(probeCache) {
