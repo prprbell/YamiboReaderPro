@@ -28,4 +28,10 @@ interface MangaApi {
         @Query("searchid") searchid: String,
         @Query("page") page: Int
     ): ResponseBody
+    // 获取帖子详情
+    @GET("/api/mobile/index.php?module=viewthread&version=4")
+    suspend fun getThreadDetailApi(
+        @Query("tid") tid: String,
+        @Query("page") page: Int = 1
+    ): ResponseBody
 }

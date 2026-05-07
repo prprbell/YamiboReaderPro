@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
@@ -22,17 +23,21 @@ import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
+import org.shirakawatyu.yamibo.novel.network.MangaApi
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 漫画探测工具。
+ * 漫画探测工具 (极速重构版)
+ * 采用 API 正则扫描 + WebView 降级兜底双轨机制。
  */
 class MangaProber {
 
     companion object {
+        private const val TAG = "MangaProber"
         private val IMAGE_EXT_REGEX = Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)
+        private val IMG_TAG_REGEX = Regex("""<img\s+[^>]*?(?:zsrc|data-src|file|src)=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
 
         /**
          * 全局缓存单例，避免频繁创建 JS bridge。
@@ -63,6 +68,102 @@ class MangaProber {
     }
 
     suspend fun probeUrl(
+        context: Context,
+        url: String,
+        onSuccess: (List<String>, String, String) -> Unit,
+        onFallback: () -> Unit
+    ) {
+        val tid = MangaTitleCleaner.extractTidFromUrl(url)
+        val appContext = context.applicationContext
+
+        if (tid != null) {
+            try {
+                val success = fastApiProbe(appContext, tid, onSuccess)
+                if (success) {
+                    Log.i(TAG, "Fast API Probe Success for TID: $tid")
+                    return
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "API Probe failed for $tid, falling back to WebView", e)
+            }
+        }
+
+        fallbackWebViewProbe(context, url, onSuccess, onFallback)
+    }
+
+    /**
+     * API嗅探
+     */
+    private suspend fun fastApiProbe(
+        context: Context,
+        tid: String,
+        onSuccess: (List<String>, String, String) -> Unit
+    ): Boolean = withContext(Dispatchers.IO) {
+        val mangaApi = YamiboRetrofit.getInstance().create(MangaApi::class.java)
+        val jsonStr = mangaApi.getThreadDetailApi(tid).string()
+
+        val root = JSON.parseObject(jsonStr)
+        val variables = root.getJSONObject("Variables") ?: return@withContext false
+
+        // 校验板块等合法性
+        val title = variables.getJSONObject("thread")?.getString("subject") ?: return@withContext false
+        val postList = variables.getJSONArray("postlist") ?: return@withContext false
+
+        if (postList.isEmpty()) return@withContext false
+        val firstPost = postList.getJSONObject(0)
+        val message = firstPost.getString("message") ?: return@withContext false
+
+        val urls = mutableListOf<String>()
+
+        // 1. 从正文中提取 img 标签
+        val matches = IMG_TAG_REGEX.findAll(message)
+        for (match in matches) {
+            val rawUrl = match.groupValues[1]
+            if (!isIgnoredImageUrl(rawUrl)) {
+                urls.add(if (rawUrl.startsWith("http")) rawUrl else "${RequestConfig.BASE_URL}/$rawUrl")
+            }
+        }
+
+        // 2. 补全未插入正文的纯附件
+        val attachments = firstPost.getJSONObject("attachments")
+        if (attachments != null) {
+            for (key in attachments.keys) {
+                val attachObj = attachments.getJSONObject(key)
+                if (attachObj != null) {
+                    val urlPrefix = attachObj.getString("url") ?: ""
+                    val attachmentPath = attachObj.getString("attachment") ?: ""
+                    if (urlPrefix.isNotEmpty() && attachmentPath.isNotEmpty()) {
+                        val fullUrl = if (urlPrefix.startsWith("http")) "$urlPrefix$attachmentPath" else "${RequestConfig.BASE_URL}/$urlPrefix$attachmentPath"
+                        if (!urls.contains(fullUrl) && !isIgnoredImageUrl(fullUrl)) {
+                            urls.add(fullUrl)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (urls.isNotEmpty()) {
+            withContext(Dispatchers.Main) {
+                // 将提取到的 URLs 送入统一图片预加载管线
+                MangaImagePipeline.handoffPrefetch(
+                    context = context,
+                    urls = urls,
+                    clickedIndex = 0
+                )
+                // 传递 message 充当临时 HTML 以供上层兼容目录生成逻辑
+                onSuccess(urls, title, message)
+            }
+            return@withContext true
+        }
+        return@withContext false
+    }
+
+    /**
+     * WebView兜底方案
+     */
+    private suspend fun fallbackWebViewProbe(
         context: Context,
         url: String,
         onSuccess: (List<String>, String, String) -> Unit,
@@ -192,9 +293,6 @@ class MangaProber {
                             .filter { it.isNotBlank() }
                             .distinct()
 
-                        // 关键补齐：
-                        // WebView 图片请求已经触发的部分会通过 CoilWebViewProxy 接续；
-                        // 还没来得及被 WebView 请求的部分，在这里主动提交给统一管线。
                         MangaImagePipeline.handoffPrefetch(
                             context = appContext,
                             urls = urls,
