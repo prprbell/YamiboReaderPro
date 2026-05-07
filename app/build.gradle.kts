@@ -11,7 +11,7 @@ android {
         applicationId = "org.shirakawatyu.yamibo.novel"
         minSdk = 24
         targetSdk = 34
-        versionCode = 91
+        versionCode = 90
         versionName = "1.9.17"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
