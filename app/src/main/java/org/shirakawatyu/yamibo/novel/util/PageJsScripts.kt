@@ -362,26 +362,6 @@ object PageJsScripts {
                     }
                 }, true);
             }
-            
-            var toggleHeader = function() {
-                var currentUrl = window.location.href;
-                var isMineRoot = currentUrl.indexOf('mycenter=1') !== -1;
-                
-                var style = document.getElementById('mine-dynamic-header');
-                if (!style) {
-                    style = document.createElement('style');
-                    style.id = 'mine-dynamic-header';
-                    if (document.head) document.head.appendChild(style);
-                    else document.documentElement.appendChild(style);
-                }
-                if (isMineRoot) {
-                    style.innerHTML = '.header .mz, .header .my { display: none !important; visibility: hidden !important; pointer-events: none !important; }';
-                } else {
-                    style.innerHTML = '.header .mz, .header .my { display: block !important; visibility: visible !important; pointer-events: auto !important; opacity: 1 !important; }';
-                }
-            };
-            toggleHeader();
-
             var a = document.querySelector('.header h2 a');
             var isManga = false;
             if (a) {
