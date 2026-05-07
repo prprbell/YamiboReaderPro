@@ -375,9 +375,9 @@ object PageJsScripts {
                     else document.documentElement.appendChild(style);
                 }
                 if (isMineRoot) {
-                    style.innerHTML = '.header .z, .header .y { display: none !important; }';
+                    style.innerHTML = '.header .mz, .header .my { display: none !important; visibility: hidden !important; pointer-events: none !important; }';
                 } else {
-                    style.innerHTML = ''; 
+                    style.innerHTML = '.header .mz, .header .my { display: block !important; visibility: visible !important; pointer-events: auto !important; opacity: 1 !important; }';
                 }
             };
             toggleHeader();
