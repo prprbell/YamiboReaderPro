@@ -8,15 +8,12 @@ import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -110,7 +107,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -125,7 +121,6 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -246,7 +241,6 @@ fun ReaderPage(
         remember(readerVM) { { color: Color? -> readerVM.onSetBackgroundColor(color) } }
     val pagerState = rememberPagerState(pageCount = { uiState.htmlList.size })
     val lazyListState = rememberLazyListState()
-
     val scope = rememberCoroutineScope()
     val currentPageIndex by remember(uiState.isVerticalMode, uiState.htmlList.size) {
         derivedStateOf {
@@ -276,63 +270,6 @@ fun ReaderPage(
     val onShowCacheDialogAction = remember(readerVM) {
         {
             if (isDiskCaching) readerVM.showCacheProgress() else showCacheDialog = true
-        }
-    }
-    val nestedScrollConnection = remember(lazyListState, pagerState, readerVM, scope) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput) return Offset.Zero
-                val isVertical = uiState.isVerticalMode
-
-                if (isVertical) {
-                    val isAtTop = lazyListState.firstVisibleItemIndex == 0 &&
-                            lazyListState.firstVisibleItemScrollOffset == 0
-                    if (isAtTop && available.y > 0) {
-                        // 已到顶部且下拉，累积 overscroll
-                        val dragMultiplier = (1f - (pullOverscrollAmount / (triggerDistancePx * 2.5f)))
-                            .coerceIn(0.15f, 1f)
-                        pullOverscrollAmount += (available.y * density) * dragMultiplier
-                        return Offset(0f, available.y) // 消费事件，阻止列表滚动
-                    }
-                    if (available.y < 0 && pullOverscrollAmount > 0) {
-                        // 回弹
-                        val consumePhysical = (available.y * density).coerceAtLeast(-pullOverscrollAmount)
-                        pullOverscrollAmount += consumePhysical
-                        return Offset(0f, consumePhysical / density)
-                    }
-                } else {
-                    // 水平模式：pager 在第一页且向右滑动时触发
-                    val isAtStart = pagerState.currentPage == 0
-                    if (isAtStart && available.x > 0) {
-                        val dragMultiplier = (1f - (pullOverscrollAmount / (triggerDistancePx * 2.5f)))
-                            .coerceIn(0.15f, 1f)
-                        pullOverscrollAmount += (available.x * density) * dragMultiplier
-                        return Offset(available.x, 0f)
-                    }
-                    if (available.x < 0 && pullOverscrollAmount > 0) {
-                        val consumePhysical = (-available.x * density).coerceAtMost(pullOverscrollAmount)
-                        pullOverscrollAmount -= consumePhysical
-                        return Offset(-consumePhysical / density, 0f)
-                    }
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                if (pullOverscrollAmount >= triggerDistancePx) {
-                    if (readerVM.uiState.value.currentView > 1) {
-                        readerVM.applyPrevContent()
-                    }
-                    pullOverscrollAmount = 0f
-                    // 返回速度消耗惯性，防止列表继续滚动
-                    return Velocity(
-                        x = if (uiState.isVerticalMode) 0f else -1f,
-                        y = if (uiState.isVerticalMode) -1f else 0f
-                    )
-                }
-                pullOverscrollAmount = 0f
-                return Velocity.Zero
-            }
         }
     }
     DisposableEffect(window, view) {
@@ -652,7 +589,6 @@ fun ReaderPage(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(top = statusBarHeight)
-                            .nestedScroll(nestedScrollConnection)
                     ) {
                         // --- 内部状态渲染 ---
                         if (uiState.isError) {
@@ -680,41 +616,6 @@ fun ReaderPage(
                             }
                         } else if (hasTriggeredLoad) {
                             if (hasRealContent) {
-                                val showPullUi by remember { derivedStateOf { pullOverscrollAmount > showUiDistancePx } }
-                                AnimatedVisibility(
-                                    visible = showPullUi,
-                                    enter = fadeIn(),
-                                    exit = fadeOut(),
-                                    modifier = Modifier
-                                        .align(Alignment.TopCenter)
-                                        .padding(top = 16.dp)
-                                        .zIndex(50f)
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(20.dp),
-                                        color = Color.Black.copy(alpha = 0.7f),
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                    ) {
-                                        if (readerVM.isPreloadingPrev) {
-                                            // 正在加载时显示旋转进度
-                                            Box(modifier = Modifier.padding(4.dp)) {
-                                                CircularProgressIndicator(
-                                                    modifier = Modifier.size(20.dp),
-                                                    strokeWidth = 2.dp,
-                                                    color = Color.White
-                                                )
-                                            }
-                                        } else {
-                                            Text(
-                                                text = if (pullOverscrollAmount >= triggerDistancePx) "松开加载上一页"
-                                                else "下拉加载上一页",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp
-                                            )
-                                        }
-                                    }
-                                }
                                 val dataKey =
                                     "${uiState.htmlList.hashCode()}_${uiState.initPage}_${uiState.isVerticalMode}"
                                 var isInitialScrollDone by remember(uiState.currentView) {

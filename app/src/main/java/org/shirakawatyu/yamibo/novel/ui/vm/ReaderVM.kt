@@ -68,10 +68,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private var pageEnterTime = 0L
     private var loadJob: Job? = null
     private var loadRequestId = 0
-    private var prevHtmlList: List<Content>? = null
-    private var prevChapterList: List<ChapterInfo>? = null
-    var isPreloadingPrev by mutableStateOf(false)
-        private set
+
     var url by mutableStateOf("")
         private set
     var isTransitioning by mutableStateOf(false)
@@ -678,58 +675,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             }
         }
     }
-    private fun triggerPreloadPrev(targetView: Int) {
-        if (isPreloadingPrev || isPreloading || targetView < 1 || _isDiskCaching.value) return
-        isPreloadingPrev = true
-        viewModelScope.launch {
-            try {
-                val authorId = currentAuthorId ?: return@launch
-                val api = YamiboRetrofit.getInstance().create(NovelApi::class.java)
-                val resp = api.getThreadPageByAuthor(tid = extractTid(), page = targetView, authorid = authorId)
-                val json = com.alibaba.fastjson2.JSON.parseObject(resp.string())
-                val postlist = json.getJSONObject("Variables").getJSONArray("postlist")
-                val messages = (0 until postlist.size).map { i -> postlist.getJSONObject(i).getString("message") }
-                val combinedHtml = messages.joinToString("") { msg -> "<div class=\"message\">$msg</div>" }
 
-                CacheUtil.saveCache(url, CacheData(cachedPageNum = targetView, htmlContent = combinedHtml, maxPageNum = maxPageCalculated, authorId = authorId))
-
-                parseHtmlToContent(combinedHtml)
-                val (passages, chapters) = paginateContent(isFromCache = false, targetWebPage = targetView)
-
-                if (_isDiskCaching.value) return@launch // 缓存任务优先级更高，丢弃这次预加载
-                prevHtmlList = passages
-                prevChapterList = chapters
-            } catch (_: Exception) {
-                // 预加载失败不影响阅读
-            } finally {
-                isPreloadingPrev = false
-            }
-        }
-    }
-    fun applyPrevContent() {
-        val state = _uiState.value
-        val prevPages = prevHtmlList
-        val prevChapters = prevChapterList
-        if (prevPages == null || prevChapters == null) return
-        if (state.currentView <= 1) return
-        val oldList = state.htmlList
-        val combinedList = prevPages + oldList
-        val overallOffset = prevPages.size
-        val combinedChapters = prevChapters.map { it.copy(startIndex = it.startIndex) } +
-                state.chapterList.map { it.copy(startIndex = it.startIndex + overallOffset) }
-        val newView = state.currentView - 1
-        _uiState.value = state.copy(
-            htmlList = combinedList,
-            chapterList = combinedChapters,
-            currentView = newView,
-            initPage = overallOffset,
-            maxWebView = state.maxWebView
-        )
-        prevHtmlList = null
-        prevChapterList = null
-        isPreloadingPrev = false
-        saveHistory(overallOffset)
-    }
     private fun triggerPreload(targetView: Int, maxView: Int) {
         if (isPreloading || targetView > maxView || _isDiskCaching.value) return
         isPreloading = true
@@ -907,12 +853,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         val oldPage = latestPage
         val state = _uiState.value
         val list = state.htmlList
-        val preloadPrevThreshold = if (state.isVerticalMode) 5 else 1
-        val isNearTop = newPage <= preloadPrevThreshold
-        if (isNearTop && !isPreloadingPrev && prevHtmlList == null &&
-            state.currentView > 1 && !isTransitioning && !_isDiskCaching.value) {
-            triggerPreloadPrev(state.currentView - 1)
-        }
+
         if (list.isNotEmpty() && newPage < list.size && oldPage >= 0 && oldPage < list.size) {
             val oldChapter = list[oldPage].chapterTitle
             val newChapter = list[newPage].chapterTitle
@@ -922,6 +863,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 if (!isTransitioning) saveHistory(newPage)
             }
         }
+
         val listSize = list.size
         if (listSize > 0 && newPage == listSize - 1 && nextHtmlList != null && !isTransitioning) {
             isTransitioning = true
@@ -938,13 +880,16 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             latestPage = 0
             return
         }
+
         val lastContentPageIndex = (listSize - 2).coerceAtLeast(0)
         val threshold = if (state.isVerticalMode) PRELOAD_THRESHOLD_VERTICAL else PRELOAD_THRESHOLD_HORIZONTAL
         val triggerPageIndex = (lastContentPageIndex - threshold).coerceAtLeast(0)
+
         if (listSize > 0 && !isPreloading && nextHtmlList == null &&
             state.currentView < state.maxWebView && !isTransitioning && newPage >= triggerPageIndex) {
             triggerPreload(state.currentView + 1, state.maxWebView)
         }
+
         latestPage = newPage
     }
 
