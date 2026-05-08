@@ -389,5 +389,6 @@ class YamiboRetrofit {
                 false
             }
         }
+        fun getPcUserAgent(): String = pcUaList.random()
     }
 }

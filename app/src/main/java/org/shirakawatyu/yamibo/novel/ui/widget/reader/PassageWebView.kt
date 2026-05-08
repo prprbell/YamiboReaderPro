@@ -8,7 +8,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.PassageWebViewClient
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 
@@ -43,7 +45,7 @@ fun PassageWebView(
             WebViewPool.acquire(context).apply {
                 onResume()
                 resumeTimers()
-
+                settings.userAgentString = YamiboRetrofit.getPcUserAgent()
                 // 根据当前页面需求动态配置图片拦截逻辑
                 settings.loadsImagesAutomatically = loadImages
                 settings.blockNetworkImage = !loadImages
@@ -64,6 +66,7 @@ fun PassageWebView(
         },
         onRelease = { webView ->
             // 离开页面时，归还给对象池进行清洗和保留
+            webView.settings.userAgentString = null
             WebViewPool.release(webView)
         }
     )
