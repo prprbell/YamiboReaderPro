@@ -5,6 +5,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -450,13 +451,13 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     val api = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
-                    val faqResponse = api.getFormHash().execute()
-                    val html = faqResponse.body()?.string() ?: return@launch
-                    val match = Regex("""formhash=([a-zA-Z0-9]{8})""").find(html)
-                    prefetchFormHash = match?.groupValues?.get(1)
-                } catch (_: Exception) {
-                    // 静默失败
-                }
+                    val profileResponse = api.getFormHash().execute()
+                    val json = profileResponse.body()?.string() ?: return@launch
+                    try {
+                        val jsonObject = JSON.parseObject(json)
+                        prefetchFormHash = jsonObject?.getJSONObject("Variables")?.getString("formhash")
+                    } catch (_: Exception) { }
+                } catch (_: Exception) { }
             }
         }
     }

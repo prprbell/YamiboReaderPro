@@ -4,6 +4,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -108,13 +109,13 @@ object AutoSignManager {
 
         try {
             val favoriteApi = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
-            val faqResponse = favoriteApi.getFormHash().execute()
-            val faqHtml = faqResponse.body()?.string() ?: ""
-
-            val match1 = Regex("""name="formhash"\s+value="([^"]+)"""").find(faqHtml)
-            val match2 = Regex("""formhash=([a-zA-Z0-9]{8})""").find(faqHtml)
-            val formHash = match1?.groupValues?.get(1) ?: match2?.groupValues?.get(1)
-
+            val profileResponse = favoriteApi.getFormHash().execute()
+            val json = profileResponse.body()?.string() ?: ""
+            var formHash: String? = null
+            try {
+                val jsonObject = JSON.parseObject(json)
+                formHash = jsonObject?.getJSONObject("Variables")?.getString("formhash")
+            } catch (_: Exception) { }
             if (formHash.isNullOrEmpty()) {
                 if (force) showToast(context, "获取鉴权失败，无法打卡")
                 return@withContext

@@ -14,7 +14,7 @@ interface FavoriteApi {
     fun getFavoritePage(@Query("page") page: Int): Call<ResponseBody>
 
     @Headers("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-    @GET("/misc.php?mod=faq")
+    @GET("/api/mobile/index.php?module=profile&version=4")
     fun getFormHash(): Call<ResponseBody>
 
     @Headers("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")

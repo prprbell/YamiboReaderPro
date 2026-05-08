@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.util.favorite
 
+import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
@@ -18,16 +19,14 @@ object FavoriteDeleteUtil {
             try {
                 val api = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
                 var formHash = prefetchFormHash
-
                 if (formHash.isNullOrEmpty()) {
-                    val faqResponse = api.getFormHash().execute()
-                    val html = faqResponse.body()?.string() ?: ""
-
-                    val match1 = Regex("""name="formhash"\s+value="([^"]+)"""").find(html)
-                    val match2 = Regex("""formhash=([a-zA-Z0-9]+)""").find(html)
-                    formHash = match1?.groupValues?.get(1) ?: match2?.groupValues?.get(1)
+                    val profileResponse = api.getFormHash().execute()
+                    val json = profileResponse.body()?.string() ?: ""
+                    try {
+                        val jsonObject = JSON.parseObject(json)
+                        formHash = jsonObject?.getJSONObject("Variables")?.getString("formhash")
+                    } catch (_: Exception) { }
                 }
-
                 if (formHash.isNullOrEmpty()) return@withContext false
 
                 val response = api.deleteFavorites(
