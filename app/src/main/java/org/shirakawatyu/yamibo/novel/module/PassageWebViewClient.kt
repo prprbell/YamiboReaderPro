@@ -149,69 +149,17 @@ class PassageWebViewClient(
             super.onPageFinished(view, url)
             return
         }
-        val isAjax = url?.contains("inajax=1") == true
-        if (isAjax) {
-            val ajaxJs = """
-            (function() {
-                var root = document.querySelector('root');
-                if (!root) return JSON.stringify({html:'',maxPage:'1',title:null});
-                var html = root.textContent || '';
-                
-                // 创建临时容器解析 HTML 片段
-                var tempDiv = document.createElement('div');
-                tempDiv.style.display = 'none';
-                tempDiv.innerHTML = html;
-                document.body.appendChild(tempDiv);
-                
-                // 提取最大页码
-                var maxPage = '1';
-                var select = tempDiv.querySelector('#dumppage');
-                if (select && select.tagName === 'SELECT' && select.options.length > 0) {
-                    maxPage = select.options[select.options.length - 1].value;
-                }
-                
-                // 提取标题
-                var titleEl = tempDiv.querySelector('#thread_subject');
-                var title = titleEl ? titleEl.innerText : null;
-                
-                // 清理
-                document.body.removeChild(tempDiv);
-                
-                return JSON.stringify({html: html, maxPage: maxPage, title: title});
-            })()
-        """.trimIndent()
-            view?.evaluateJavascript(ajaxJs) { result ->
-                try {
-                    val json = JSON.parseObject(unescapeJsResult(result))
-                    val contentHtml = "<html>${json.getString("html")}</html>"
-                    val maxPage = json.getIntValue("maxPage")
-                    val title = json.getString("title")
-                    if (!hasErrorOccurred) {
-                        onFinished.invoke(true, contentHtml, url, maxPage, title)
-                    }
-                } catch (_: Exception) {
-                    // 解析失败则按错误处理
-                    onFinished.invoke(
-                        false,
-                        "<html><body>[Error] AJAX parse failed</body></html>",
-                        url,
-                        1,
-                        null
-                    )
-                }
-                super.onPageFinished(view, url)
-            }
-        } else {
-            // 已进入“只看楼主”页面，提取正文
-            val contentJs = """
+
+        // 已进入“只看楼主”页面，提取正文
+        val contentJs = """
             (function() {
                 var el = document.getElementsByClassName('viewthread')[0];
                 return el ? el.innerHTML : '<html><body>[Error] Content element not found</body></html>';
             })()
         """.trimIndent()
 
-            // 提取最大页码
-            val maxPageJs = """
+        // 提取最大页码
+        val maxPageJs = """
             (function() {        
                 var selectElements = document.querySelectorAll('select#dumppage');
                 var selectElement = null;
@@ -232,8 +180,8 @@ class PassageWebViewClient(
                 return "1";
             })()
         """.trimIndent()
-            // 获取标题
-            val titleJs = """
+        // 获取标题
+        val titleJs = """
             (function() {
                 var mobileT = document.getElementsByClassName('view_tit')[0];
                 if(mobileT && mobileT.innerText) return mobileT.innerText;
@@ -244,22 +192,21 @@ class PassageWebViewClient(
                 return null;
             })()
         """.trimIndent()
-            // 执行JavaScript获取页面内容
-            view?.evaluateJavascript(contentJs) { contentResult ->
-                val contentHtml = "<html>${unescapeJsResult(contentResult)}</html>"
-                // 执行JavaScript获取最大页数
-                view.evaluateJavascript(maxPageJs) { maxPageResult ->
+        // 执行JavaScript获取页面内容
+        view?.evaluateJavascript(contentJs) { contentResult ->
+            val contentHtml = "<html>${unescapeJsResult(contentResult)}</html>"
+            // 执行JavaScript获取最大页数
+            view.evaluateJavascript(maxPageJs) { maxPageResult ->
 
-                    val maxPageString = unescapeJsResult(maxPageResult)
-                    val maxPage = maxPageString.toIntOrNull() ?: 1
-                    view.evaluateJavascript(titleJs) { titleResult ->
-                        val title = unescapeJsResult(titleResult)
+                val maxPageString = unescapeJsResult(maxPageResult)
+                val maxPage = maxPageString.toIntOrNull() ?: 1
+                view.evaluateJavascript(titleJs) { titleResult ->
+                    val title = unescapeJsResult(titleResult)
 
-                        if (!hasErrorOccurred) {
-                            onFinished.invoke(true, contentHtml, url, maxPage, title)
-                        }
-                        super.onPageFinished(view, url)
+                    if (!hasErrorOccurred) {
+                        onFinished.invoke(true, contentHtml, url, maxPage, title)
                     }
+                    super.onPageFinished(view, url)
                 }
             }
         }

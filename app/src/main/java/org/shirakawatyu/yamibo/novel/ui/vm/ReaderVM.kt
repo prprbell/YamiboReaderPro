@@ -387,8 +387,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 if (currentAuthorId != null) {
                     urlToLoad += "&authorid=$currentAuthorId"
                 }
-                urlToLoad += "&inajax=1"
-
                 // 命令后台WebView加载
                 viewModelScope.launch(Dispatchers.Main) {
                     cacheWebView?.loadUrl(urlToLoad)
@@ -486,7 +484,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
             var cleanUrl = initUrl.replace(Regex("(?<=[?&])page=\\d+&?"), "")
             cleanUrl = cleanUrl.replace(Regex("(?<=[?&])authorid=\\d+&?"), "")
-            cleanUrl = cleanUrl.replace(Regex("(?<=[?&])inajax=\\d+&?"), "")
             cleanUrl = cleanUrl.removeSuffix("&").removeSuffix("?")
 
             url = cleanUrl
@@ -724,12 +721,12 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         return (pageContentHeightPx / lineHeightPx).toInt().coerceAtLeast(1)
     }
 
+    // loadFromNetwork
     private fun loadFromNetwork(view: Int) {
         var urlToLoad = "${RequestConfig.BASE_URL}/${this.url}&page=${view}"
         if (currentAuthorId != null) {
             urlToLoad += "&authorid=$currentAuthorId"
         }
-        urlToLoad += "&inajax=1"
 
         _uiState.value = _uiState.value.copy(
             currentView = view,
@@ -745,7 +742,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         isTransitioning = true
     }
 
-    // 用于UI预加载
+    // triggerPreload (只用于UI预加载)
     private fun triggerPreload(targetView: Int, maxView: Int) {
         if (isPreloading) return
         if (targetView > maxView) return
@@ -760,7 +757,6 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         if (currentAuthorId != null) {
             urlToLoad += "&authorid=$currentAuthorId"
         }
-        urlToLoad += "&inajax=1"
 
         _uiState.value = _uiState.value.copy(
             urlToLoad = "about:blank"
