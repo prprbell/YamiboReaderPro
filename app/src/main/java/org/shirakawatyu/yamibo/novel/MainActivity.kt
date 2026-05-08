@@ -329,7 +329,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
         if (isAppInitialized && isNetworkAvailable && GlobalData.isAutoSignInEnabled.value) {
             launch(Dispatchers.IO) {
                 if (AutoSignManager.needsSignIn(SignTrigger.LAUNCH)) {
-                    delay(5000L)
+                    delay(3000L)
                     AutoSignManager.checkAndSignIfNeeded(context, SignTrigger.LAUNCH)
                 }
             }
@@ -355,7 +355,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 SignTrigger.RESUME
                             )
                         ) {
-                            delay(5000L)
+                            delay(3000L)
                             AutoSignManager.checkAndSignIfNeeded(context, SignTrigger.RESUME)
                         }
                     }
