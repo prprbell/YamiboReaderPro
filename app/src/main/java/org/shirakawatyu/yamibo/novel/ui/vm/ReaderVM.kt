@@ -447,6 +447,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             nextHtmlList = null
             nextChapterList = null
             latestPage = 0
+            showLoadingScrim = false
             return
         }
 
@@ -878,6 +879,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             nextHtmlList = null
             nextChapterList = null
             latestPage = 0
+            showLoadingScrim = false
             return
         }
 
