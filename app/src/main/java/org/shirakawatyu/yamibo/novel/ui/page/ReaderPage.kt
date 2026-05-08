@@ -1,5 +1,4 @@
 package org.shirakawatyu.yamibo.novel.ui.page
-
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
@@ -9,12 +8,15 @@ import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -97,6 +99,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -105,6 +108,9 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -116,8 +122,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -142,11 +150,9 @@ import org.shirakawatyu.yamibo.novel.ui.widget.reader.CacheProgressDialog
 import org.shirakawatyu.yamibo.novel.ui.widget.reader.ContentViewer
 import org.shirakawatyu.yamibo.novel.ui.widget.reader.CustomStatusBar
 import org.shirakawatyu.yamibo.novel.ui.widget.reader.DayNightLottieSwitch
-import org.shirakawatyu.yamibo.novel.ui.widget.reader.PassageWebView
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.reader.rememberScreenCorner
 import kotlin.math.roundToInt
-
 private val backgroundColors = listOf(
     null, // 代表 "原背景"
     Color(0xFFf5f1e8),
@@ -154,13 +160,11 @@ private val backgroundColors = listOf(
     Color(0xFFd9e0e8),
     Color(0xFFdddddd)
 )
-
 fun typefaceFromMode(mode: Int): Typeface = when (mode) {
     1 -> Typeface.create("sans-serif-medium", Typeface.NORMAL) // 黑体
     2 -> Typeface.create("serif", Typeface.NORMAL)             // 宋体
     else -> Typeface.DEFAULT                                    // 系统
 }
-
 /**
  * 阅读器页面，用于格式化显示原论坛内容
  *
@@ -191,17 +195,13 @@ fun ReaderPage(
     val cachedPages by readerVM.cachedPages.collectAsState()
     val cacheProgress by readerVM.cacheProgress.collectAsState()
     val isDiskCaching by readerVM.isDiskCaching.collectAsState()
-
     // 全屏与状态栏高度处理
     val context = LocalContext.current
-
     val window = remember(context) { context.findActivity()?.window }
     val view = remember(window) { window?.decorView }
     val statusBarsPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-
     var rememberedStatusBarHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
-
     SideEffect {
         if (statusBarsPadding.value > rememberedStatusBarHeightValue) {
             rememberedStatusBarHeightValue = statusBarsPadding.value
@@ -209,25 +209,22 @@ fun ReaderPage(
     }
     val statusBarHeight =
         if (rememberedStatusBarHeightValue > 0f) rememberedStatusBarHeightValue.dp else 28.dp
-
-
     var rememberedNavBarHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
-
     SideEffect {
         if (navBarsPadding.value > rememberedNavBarHeightValue) {
             rememberedNavBarHeightValue = navBarsPadding.value
         }
     }
-
-    var isFullScreen by remember { mutableStateOf(true) }
-
+    var pullOverscrollAmount by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current.density
+    val triggerDistancePx = 150f * density   // 触发加载的阈值
+    val showUiDistancePx = 40f * density    // 显示提示的阈值
     // 记录进入阅读器前的系统栏状态，退出时恢复，避免上一页上下栏抖动
     val originalBehavior = remember { mutableIntStateOf(0) }
     var hasCapturedOriginal by remember { mutableStateOf(false) }
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
     var isExiting by remember { mutableStateOf(false) }
     var isFirstEnter by remember { mutableStateOf(true) }
-
     val favoritesState = FavoriteUtil.getFavoriteFlow().collectAsState(initial = emptyList())
     val bookTitle by remember(url) {
         derivedStateOf {
@@ -236,13 +233,7 @@ fun ReaderPage(
                 .replace(Regex("\\s+"), " ").trim()
         }
     }
-
     val onRefreshAction = remember(readerVM) { { readerVM.forceRefreshCurrentPage() } }
-    val onWebViewFinished = remember(readerVM) {
-        { success: Boolean, html: String, loadedUrl: String?, maxPage: Int, title: String? ->
-            readerVM.loadFinished(success, html, loadedUrl, maxPage, title)
-        }
-    }
     val onSetViewAction = remember(readerVM) { { viewIndex: Int -> readerVM.onSetView(viewIndex) } }
     val onSetFontSizeAction =
         remember(readerVM) { { fontSize: TextUnit -> readerVM.onSetFontSize(fontSize) } }
@@ -253,11 +244,10 @@ fun ReaderPage(
     val onShowChaptersAction = remember(readerVM) { { readerVM.toggleChapterDrawer(true) } }
     val onSetBackgroundColorAction =
         remember(readerVM) { { color: Color? -> readerVM.onSetBackgroundColor(color) } }
-
     val pagerState = rememberPagerState(pageCount = { uiState.htmlList.size })
     val lazyListState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
 
+    val scope = rememberCoroutineScope()
     val currentPageIndex by remember(uiState.isVerticalMode, uiState.htmlList.size) {
         derivedStateOf {
             val maxIndex = (uiState.htmlList.size - 1).coerceAtLeast(0)
@@ -268,7 +258,6 @@ fun ReaderPage(
             }
         }
     }
-
     val onSetPageAction = remember(lazyListState, pagerState, scope, readerVM) {
         { pageIndex: Int ->
             scope.launch {
@@ -278,44 +267,92 @@ fun ReaderPage(
             Unit
         }
     }
-
     val onSetReadingModeAction = remember(readerVM) {
         { isVertical: Boolean ->
             readerVM.setReadingMode(isVertical, currentPageIndex)
         }
     }
-
     var showCacheDialog by remember { mutableStateOf(false) }
     val onShowCacheDialogAction = remember(readerVM) {
         {
             if (isDiskCaching) readerVM.showCacheProgress() else showCacheDialog = true
         }
     }
+    val nestedScrollConnection = remember(lazyListState, pagerState, readerVM, scope) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                val isVertical = uiState.isVerticalMode
 
+                if (isVertical) {
+                    val isAtTop = lazyListState.firstVisibleItemIndex == 0 &&
+                            lazyListState.firstVisibleItemScrollOffset == 0
+                    if (isAtTop && available.y > 0) {
+                        // 已到顶部且下拉，累积 overscroll
+                        val dragMultiplier = (1f - (pullOverscrollAmount / (triggerDistancePx * 2.5f)))
+                            .coerceIn(0.15f, 1f)
+                        pullOverscrollAmount += (available.y * density) * dragMultiplier
+                        return Offset(0f, available.y) // 消费事件，阻止列表滚动
+                    }
+                    if (available.y < 0 && pullOverscrollAmount > 0) {
+                        // 回弹
+                        val consumePhysical = (available.y * density).coerceAtLeast(-pullOverscrollAmount)
+                        pullOverscrollAmount += consumePhysical
+                        return Offset(0f, consumePhysical / density)
+                    }
+                } else {
+                    // 水平模式：pager 在第一页且向右滑动时触发
+                    val isAtStart = pagerState.currentPage == 0
+                    if (isAtStart && available.x > 0) {
+                        val dragMultiplier = (1f - (pullOverscrollAmount / (triggerDistancePx * 2.5f)))
+                            .coerceIn(0.15f, 1f)
+                        pullOverscrollAmount += (available.x * density) * dragMultiplier
+                        return Offset(available.x, 0f)
+                    }
+                    if (available.x < 0 && pullOverscrollAmount > 0) {
+                        val consumePhysical = (-available.x * density).coerceAtMost(pullOverscrollAmount)
+                        pullOverscrollAmount -= consumePhysical
+                        return Offset(-consumePhysical / density, 0f)
+                    }
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (pullOverscrollAmount >= triggerDistancePx) {
+                    if (readerVM.uiState.value.currentView > 1) {
+                        readerVM.applyPrevContent()
+                    }
+                    pullOverscrollAmount = 0f
+                    // 返回速度消耗惯性，防止列表继续滚动
+                    return Velocity(
+                        x = if (uiState.isVerticalMode) 0f else -1f,
+                        y = if (uiState.isVerticalMode) -1f else 0f
+                    )
+                }
+                pullOverscrollAmount = 0f
+                return Velocity.Zero
+            }
+        }
+    }
     DisposableEffect(window, view) {
         if (window == null || view == null) {
             onDispose { }
         } else {
             val windowController = WindowCompat.getInsetsController(window, view)
-
             if (!hasCapturedOriginal) {
                 originalBehavior.value = windowController.systemBarsBehavior
                 hasCapturedOriginal = true
             }
-
             window.statusBarColor = android.graphics.Color.TRANSPARENT
             windowController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-
             onDispose {
                 windowController.systemBarsBehavior = originalBehavior.intValue
                 windowController.show(WindowInsetsCompat.Type.systemBars())
-
             }
         }
     }
-
-
     ReaderTheme(nightMode = uiState.nightMode) {
         val themeBackground = MaterialTheme.colorScheme.background
         val finalBackground = if (uiState.nightMode) {
@@ -326,10 +363,8 @@ fun ReaderPage(
         val targetStatusBarColor = if (uiState.nightMode) Color.Gray else Color.DarkGray
         val statusBarContentColor =
             remember { androidx.compose.animation.Animatable(Color.Transparent) }
-
         LaunchedEffect(targetStatusBarColor) {
             delay(400)
-
             statusBarContentColor.animateTo(
                 targetValue = targetStatusBarColor,
                 animationSpec = tween(durationMillis = 500, easing = LinearOutSlowInEasing)
@@ -341,7 +376,6 @@ fun ReaderPage(
             remember { tween<Float>(durationMillis = 432, easing = EaseOut) }
         val focusRequester = remember { FocusRequester() }
         val screenCorner = rememberScreenCorner()
-
         LaunchedEffect(uiState.showChapterDrawer) {
             if (uiState.showChapterDrawer) drawerState.open() else drawerState.close()
         }
@@ -351,28 +385,22 @@ fun ReaderPage(
                 showSettings = false
             }
         }
-
         val lifecycleOwner = LocalLifecycleOwner.current
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
         val isAnimationFinished = lifecycleState == Lifecycle.State.RESUMED
         val hasRealContent = remember(uiState.htmlList) {
             uiState.htmlList.size > 1 || uiState.htmlList.any { it.chapterTitle != "footer" }
         }
-
         LaunchedEffect(showSettings, uiState.nightMode) {
             if (isExiting) return@LaunchedEffect
-
             val windowController = window?.let { WindowCompat.getInsetsController(it, view!!) }
             if (windowController != null) {
                 if (showSettings) {
-                    isFullScreen = false
                     windowController.show(WindowInsetsCompat.Type.systemBars())
                     window.statusBarColor = android.graphics.Color.BLACK
                     windowController.isAppearanceLightStatusBars = false
                     isFirstEnter = false
                 } else {
-                    isFullScreen = true
-
                     if (isFirstEnter) {
                         delay(100)
                         isFirstEnter = false
@@ -384,22 +412,17 @@ fun ReaderPage(
                 }
             }
         }
-
         val currentChapterTitle =
             if (uiState.htmlList.isNotEmpty() && currentPageIndex < uiState.htmlList.size) {
                 uiState.htmlList[currentPageIndex].chapterTitle
             } else {
                 null
             }
-
         var settingsOnOpen by remember {
-            mutableStateOf<Pair<Triple<TextUnit, TextUnit, Dp>, Color?>?>(
-                null
-            )
+            mutableStateOf<Pair<Triple<TextUnit, TextUnit, Dp>, Color?>?>(null)
         }
         val isLoading = readerVM.showLoadingScrim
         var showImageWarning by remember { mutableStateOf(false) }
-
         val exitReader: () -> Unit = remember(window, view, navController) {
             {
                 if (window != null && view != null) {
@@ -411,7 +434,6 @@ fun ReaderPage(
                 }
             }
         }
-
         val returnToOriginalPost: () -> Unit =
             remember(window, view, navController, favoriteVM, readerVM) {
                 {
@@ -421,7 +443,6 @@ fun ReaderPage(
                     }
                     favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.SMART
                     val previousRoute = navController.previousBackStackEntry?.destination?.route
-
                     val navigateAction = {
                         if (previousRoute == "BBSPage" || previousRoute == "MinePage" || previousRoute?.startsWith(
                                 "OtherWebPage"
@@ -433,21 +454,15 @@ fun ReaderPage(
                             val currentState = readerVM.uiState.value
                             val baseUrl =
                                 if (currentUrl.startsWith("http")) currentUrl else "https://bbs.yamibo.com/$currentUrl"
-
                             var targetUrl = baseUrl.replace(Regex("(?<=[?&])page=\\d+&?"), "")
-
                             targetUrl = targetUrl.removeSuffix("&").removeSuffix("?")
-
                             if (currentState.authorId != null && !targetUrl.contains("authorid=")) {
                                 val sep = if (targetUrl.contains("?")) "&" else "?"
                                 targetUrl = "$targetUrl${sep}authorid=${currentState.authorId}"
                             }
-
                             val separator = if (targetUrl.contains("?")) "&" else "?"
                             targetUrl = "$targetUrl${separator}page=${currentState.currentView}"
-
                             val encodedTargetUrl = java.net.URLEncoder.encode(targetUrl, "utf-8")
-
                             navController.navigate("OtherWebPage/$encodedTargetUrl") {
                                 navController.currentDestination?.id?.let { currentId ->
                                     popUpTo(currentId) { inclusive = true }
@@ -455,7 +470,6 @@ fun ReaderPage(
                             }
                         }
                     }
-
                     if (view != null) {
                         view.post { navigateAction() }
                     } else {
@@ -463,7 +477,6 @@ fun ReaderPage(
                     }
                 }
             }
-
         BackHandler(enabled = drawerState.isOpen || showSettings) {
             if (drawerState.isOpen) {
                 scope.launch {
@@ -474,7 +487,6 @@ fun ReaderPage(
                 showSettings = false
             }
         }
-
         if (showImageWarning) {
             AlertDialog(
                 onDismissRequest = { showImageWarning = false },
@@ -492,7 +504,6 @@ fun ReaderPage(
                 }
             )
         }
-
         LaunchedEffect(showSettings) {
             if (showSettings) {
                 settingsOnOpen = Pair(
@@ -509,7 +520,6 @@ fun ReaderPage(
                 }
             }
         }
-
         LaunchedEffect(uiState.isVerticalMode, lazyListState) {
             if (uiState.isVerticalMode) {
                 snapshotFlow {
@@ -526,7 +536,6 @@ fun ReaderPage(
                     }
             }
         }
-
         val onSettingsMaskClick = remember(readerVM) {
             {
                 val currentState = readerVM.uiState.value
@@ -538,7 +547,6 @@ fun ReaderPage(
                 showSettings = false
             }
         }
-
         val onVerticalBackgroundClick = remember {
             {
                 if (!isExiting) {
@@ -546,7 +554,6 @@ fun ReaderPage(
                 }
             }
         }
-
         // --- 根布局Box ---
         ModalNavigationDrawer(
             modifier = Modifier.clip(RectangleShape),
@@ -582,7 +589,6 @@ fun ReaderPage(
                     .onPreviewKeyEvent { event ->
                         val isVolDown = event.key == Key.VolumeDown
                         val isVolUp = event.key == Key.VolumeUp
-
                         if (isVolDown || isVolUp) {
                             if (!showSettings && !isLoading) {
                                 if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
@@ -593,25 +599,20 @@ fun ReaderPage(
                                             if (uiState.isVerticalMode) {
                                                 val layoutInfo = lazyListState.layoutInfo
                                                 val visibleItems = layoutInfo.visibleItemsInfo
-
                                                 if (visibleItems.isNotEmpty()) {
                                                     val bufferLines = 3
                                                     val visibleCount = visibleItems.size
-
                                                     val scrollStep =
                                                         (visibleCount - bufferLines).coerceAtLeast(1)
-
                                                     if (isVolDown) {
                                                         val targetIndex =
                                                             (lazyListState.firstVisibleItemIndex + scrollStep)
                                                                 .coerceAtMost(uiState.htmlList.size - 1)
-
                                                         lazyListState.animateScrollToItem(index = targetIndex)
                                                     } else {
                                                         val targetIndex =
                                                             (lazyListState.firstVisibleItemIndex - scrollStep)
                                                                 .coerceAtLeast(0)
-
                                                         lazyListState.animateScrollToItem(index = targetIndex)
                                                     }
                                                 }
@@ -636,56 +637,22 @@ fun ReaderPage(
                     }
             ) {
                 // 内容层
-                Box(
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    var allowRender by remember { mutableStateOf(false) }
-
-                    LaunchedEffect(isAnimationFinished) {
-                        if (isAnimationFinished) {
-                            allowRender = true
-                            awaitFrame()
-                            awaitFrame()
-                        }
-                    }
-
-                    if (isAnimationFinished) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .offset(x = (-10000).dp)
-                                .graphicsLayer {
-                                    alpha = 0.01f
-                                }
-                        ) {
-                            PassageWebView(
-                                url = uiState.urlToLoad,
-                                loadImages = uiState.loadImages,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .offset(x = (-10000).dp)
-                                    .graphicsLayer { alpha = 0.01f },
-                                onFinished = onWebViewFinished
-                            )
-                        }
-                    }
-
+                Box(modifier = Modifier.fillMaxSize()) {
                     var hasTriggeredLoad by remember(url) { mutableStateOf(false) }
                     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
                     val screenWidthDp = configuration.screenWidthDp.dp
                     val availableHeightDp = configuration.screenHeightDp.dp - statusBarHeight
-
                     LaunchedEffect(url, screenWidthDp, availableHeightDp) {
                         if (!hasTriggeredLoad && screenWidthDp > 0.dp && availableHeightDp > 0.dp) {
                             readerVM.firstLoad(url, availableHeightDp, screenWidthDp)
                             hasTriggeredLoad = true
                         }
                     }
-
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(top = statusBarHeight)
+                            .nestedScroll(nestedScrollConnection)
                     ) {
                         // --- 内部状态渲染 ---
                         if (uiState.isError) {
@@ -712,15 +679,47 @@ fun ReaderPage(
                                 Button(onClick = { readerVM.retryLoad() }) { Text("重试") }
                             }
                         } else if (hasTriggeredLoad) {
-                            if (allowRender && hasRealContent) {
+                            if (hasRealContent) {
+                                val showPullUi by remember { derivedStateOf { pullOverscrollAmount > showUiDistancePx } }
+                                AnimatedVisibility(
+                                    visible = showPullUi,
+                                    enter = fadeIn(),
+                                    exit = fadeOut(),
+                                    modifier = Modifier
+                                        .align(Alignment.TopCenter)
+                                        .padding(top = 16.dp)
+                                        .zIndex(50f)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = Color.Black.copy(alpha = 0.7f),
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    ) {
+                                        if (readerVM.isPreloadingPrev) {
+                                            // 正在加载时显示旋转进度
+                                            Box(modifier = Modifier.padding(4.dp)) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(20.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = Color.White
+                                                )
+                                            }
+                                        } else {
+                                            Text(
+                                                text = if (pullOverscrollAmount >= triggerDistancePx) "松开加载上一页"
+                                                else "下拉加载上一页",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp
+                                            )
+                                        }
+                                    }
+                                }
                                 val dataKey =
                                     "${uiState.htmlList.hashCode()}_${uiState.initPage}_${uiState.isVerticalMode}"
                                 var isInitialScrollDone by remember(uiState.currentView) {
-                                    mutableStateOf(
-                                        false
-                                    )
+                                    mutableStateOf(false)
                                 }
-
                                 LaunchedEffect(dataKey) {
                                     if (!isInitialScrollDone) {
                                         if (uiState.isVerticalMode) {
@@ -735,13 +734,11 @@ fun ReaderPage(
                                         isInitialScrollDone = true
                                     }
                                 }
-
                                 val contentAlpha by animateFloatAsState(
                                     targetValue = if (isInitialScrollDone) 1f else 0f,
                                     animationSpec = tween(durationMillis = 150),
                                     label = "contentAlphaFadeIn"
                                 )
-
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -842,7 +839,6 @@ fun ReaderPage(
                                         }
                                     }
                                 }
-
                                 if (uiState.isVerticalMode) {
                                     VerticalModeHeader(
                                         chapterTitle = currentChapterTitle,
@@ -856,7 +852,6 @@ fun ReaderPage(
                         }
                     }
                 } // 正文Box End
-
                 // --- 自定义状态栏层 ---
                 if (!showSettings) {
                     CustomStatusBar(
@@ -870,7 +865,6 @@ fun ReaderPage(
                         title = ""
                     )
                 }
-
                 // --- 设置菜单层---
                 if (showSettings) {
                     Box(
@@ -943,7 +937,6 @@ fun ReaderPage(
                                             contentDescription = "更多选项"
                                         )
                                     }
-
                                     DropdownMenu(
                                         expanded = moreMenuExpanded,
                                         onDismissRequest = { moreMenuExpanded = false },
@@ -1115,7 +1108,6 @@ fun ReaderPage(
                                                 }
                                             }
                                         }
-
                                         HorizontalDivider(
                                             modifier = Modifier.padding(vertical = 4.dp),
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
@@ -1167,7 +1159,6 @@ fun ReaderPage(
                                                         fontWeight = FontWeight.Medium
                                                     )
                                                 }
-
                                                 // 刷新按钮
                                                 Row(
                                                     modifier = Modifier
@@ -1212,7 +1203,6 @@ fun ReaderPage(
                             }
                         }
                     }
-
                     ReaderSettingsBar(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1234,7 +1224,6 @@ fun ReaderPage(
                 }
             }
         }
-
         // 加载遮罩
         if (isLoading) {
             Box(
@@ -1250,7 +1239,6 @@ fun ReaderPage(
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
-
         if (showCacheDialog) {
             CacheDialog(
                 maxWebView = uiState.maxWebView,
@@ -1282,7 +1270,6 @@ fun ReaderPage(
         }
     }
 }
-
 @Composable
 fun ReaderSettingsBar(
     modifier: Modifier = Modifier,
@@ -1303,7 +1290,6 @@ fun ReaderSettingsBar(
     var showSpacingMenu by remember { mutableStateOf(false) }
     var chapterPillVisible by remember { mutableStateOf(false) }
     var dynamicChapterTitle by remember { mutableStateOf("") }
-
     Box(modifier = modifier) {
         // 章节气泡
         androidx.compose.animation.AnimatedVisibility(
@@ -1379,7 +1365,6 @@ fun ReaderSettingsBar(
         }
     }
 }
-
 @Composable
 fun ChapterDrawerContent(
     drawerState: DrawerState,
@@ -1391,14 +1376,10 @@ fun ChapterDrawerContent(
 ) {
     val lazyListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-
-    // pageCount (总行/页数)
     val totalItems = pageCount.coerceAtLeast(1)
-
     val currentChapterIndex = remember(currentChapterTitle, chapterList) {
         chapterList.indexOfFirst { it.title == currentChapterTitle }.coerceAtLeast(0)
     }
-    // 抽屉打开
     LaunchedEffect(drawerState.targetValue) {
         if (drawerState.targetValue == DrawerValue.Open) {
             val scrollOffsetItems = 4
@@ -1413,7 +1394,6 @@ fun ChapterDrawerContent(
             "章节目录",
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(16.dp)
-
         )
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -1424,15 +1404,12 @@ fun ChapterDrawerContent(
                 key = { _, chapter -> "${chapter.title}_${chapter.startIndex}" }
             ) { index, chapter ->
                 val isSelected = index == currentChapterIndex
-
-                // 计算百分比或页码
                 val percent = (chapter.startIndex.toFloat() / totalItems) * 100f
                 val pageLabel = if (isVerticalMode) {
                     "${percent.roundToInt()}%"
                 } else {
                     "第 ${chapter.startIndex + 1} 页"
                 }
-
                 NavigationDrawerItem(
                     label = {
                         Column {
