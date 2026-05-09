@@ -31,7 +31,7 @@ object WebViewPool {
     private val pool = ArrayDeque<WebViewHolder>()
     private val activeHolders = IdentityHashMap<WebView, WebViewHolder>()
 
-    private const val MAX_POOL_SIZE = 3
+    private const val MAX_POOL_SIZE = 2
     private const val MAX_USES_PER_WEBVIEW = 8
     private const val CLEANUP_DELAY_MS = 10 * 60 * 1000L
 
