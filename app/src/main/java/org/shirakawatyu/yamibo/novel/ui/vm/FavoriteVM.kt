@@ -18,12 +18,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.jsoup.Jsoup
 import org.shirakawatyu.yamibo.novel.bean.Favorite
-import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.FavoriteApi
-import org.shirakawatyu.yamibo.novel.parser.MangaHtmlParser
 import org.shirakawatyu.yamibo.novel.ui.state.FavoriteState
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteDeleteUtil
@@ -203,44 +200,28 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         var currentTotalPages = 1
         var currentIsSmartSync = isSmartSync
         val accumulatedList = ArrayList<Favorite>()
-        var isRetry = false
 
         while (currentCoroutineContext().isActive && generation == fetchGeneration.get()) {
             try {
-                val response = favoriteApi.getFavoritePage(currentPage).execute()
-
+                val resp = favoriteApi.getMyFavThread(currentPage).string()
                 if (generation != fetchGeneration.get()) break
 
-                if (!response.isSuccessful) {
-                    throw Exception("Network Failed")
-                }
-
-                val respHTML = response.body()?.string()
+                val json = JSON.parseObject(resp)
+                val variables = json.getJSONObject("Variables")
+                    ?: throw Exception("Missing Variables")
+                val list = variables.getJSONArray("list")
                 val pageList = mutableListOf<Favorite>()
 
-                if (respHTML != null) {
-                    val parse = Jsoup.parse(respHTML)
-                    val favList = parse.getElementsByClass("sclist")
+                if (list != null && list.isNotEmpty()) {
+                    for (i in 0 until list.size) {
+                        val item = list.getJSONObject(i) ?: continue
+                        val favId = item.getString("favid") ?: ""
+                        val title = item.getString("title") ?: ""
+                        val url = item.getString("url") ?: ""
 
-                    favList.forEach { li ->
-                        val aTag = li.select("a").last()
-
-                        // 提取包含 favid 的删除标签
-                        val delTag = li.selectFirst("a.mdel")
-                        var extractedFavId: String? = null
-                        if (delTag != null) {
-                            val delHref = delTag.attr("href")
-                            val matchResult = Regex("favid=(\\d+)").find(delHref)
-                            if (matchResult != null) {
-                                extractedFavId = matchResult.groupValues[1]
-                            }
-                        }
-
-                        if (aTag != null) {
-                            val favorite = Favorite(aTag.text(), aTag.attr("href"))
-                            favorite.favId = extractedFavId // 注入获取到的ID
-                            pageList.add(favorite)
-                        }
+                        val favorite = Favorite(title, url)
+                        favorite.favId = favId
+                        pageList.add(favorite)
                     }
                 }
 
@@ -260,15 +241,13 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                             _uiState.value = _uiState.value.copy(isRefreshing = false)
                         }
 
-                        val parse = Jsoup.parse(respHTML!!)
-                        val nextPageLink = parse.select(".page a, .pg a").find {
-                            it.text().contains("下一页") || it.hasClass("nxt")
-                        }
-                        val hasNextPage =
-                            nextPageLink != null && nextPageLink.attr("href").isNotBlank()
-
-                        currentTotalPages = MangaHtmlParser.extractTotalPages(respHTML)
-                        val maxPossibleRemoteItems = currentTotalPages * 20
+                        val count = variables.getString("count")?.toIntOrNull() ?: 0
+                        val perpage = variables.getString("perpage")?.toIntOrNull() ?: 20
+                        currentTotalPages = if (count > 0) {
+                            (count + perpage - 1) / perpage
+                        } else 1
+                        val hasNextPage = currentPage < currentTotalPages
+                        val maxPossibleRemoteItems = count
 
                         stateMutex.withLock {
                             if (allFavorites.size > maxPossibleRemoteItems) {
@@ -279,11 +258,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                         }
                     }
 
-                    val parse = Jsoup.parse(respHTML!!)
-                    val nextPageLink = parse.select(".page a, .pg a").find {
-                        it.text().contains("下一页") || it.hasClass("nxt")
-                    }
-                    val hasNextPage = nextPageLink != null && nextPageLink.attr("href").isNotBlank()
+                    val hasNextPage = currentPage < currentTotalPages
 
                     val shouldContinue = if (currentIsSmartSync) {
                         hasNewItems && hasNextPage
@@ -297,59 +272,33 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                         } else 300L
                         delay(dynamicDelay)
                         currentPage++
-                        isRetry = false
                     } else {
                         if (!currentIsSmartSync) {
                             FavoriteUtil.cleanupDeletedFavoritesSuspend(accumulatedList)
                         }
                         break
                     }
-
                 } else {
                     if (currentPage == 1) {
-                        val htmlStr = respHTML ?: ""
-                        val isRealEmptyPage = htmlStr.contains("您还没有添加任何收藏")
+                        val isLoggedIn = !variables.getString("auth").isNullOrBlank()
 
-                        if (isRealEmptyPage) {
-                            FavoriteUtil.cleanupDeletedFavoritesSuspend(emptyList())
+                        if (!isLoggedIn) {
+                            if (isFavoritePageVisible) {
+                                withContext(Dispatchers.Main) {
+                                    val toast = Toast.makeText(
+                                        applicationContext,
+                                        "登录状态异常",
+                                        Toast.LENGTH_SHORT
+                                    )
+                                    toast.show()
+                                    launch { delay(1500L); toast.cancel() }
+                                }
+                            }
                             break
-                        } else {
-                            val isLoggedIn = GlobalData.currentCookie.contains("EeqY_2132_auth=")
-
-                            if (!isLoggedIn) {
-                                if (isFavoritePageVisible) {
-                                    withContext(Dispatchers.Main) {
-                                        val toast = Toast.makeText(
-                                            applicationContext,
-                                            "登录状态异常",
-                                            Toast.LENGTH_SHORT
-                                        )
-                                        toast.show()
-                                        launch { delay(1500L); toast.cancel() }
-                                    }
-                                }
-                                break
-                            }
-
-                            if (!isRetry) {
-                                delay(500L)
-                                isRetry = true
-                                continue
-                            } else {
-                                if (isFavoritePageVisible) {
-                                    withContext(Dispatchers.Main) {
-                                        val toast = Toast.makeText(
-                                            applicationContext,
-                                            "网络状态异常",
-                                            Toast.LENGTH_SHORT
-                                        )
-                                        toast.show()
-                                        launch { delay(1500L); toast.cancel() }
-                                    }
-                                }
-                                break
-                            }
                         }
+
+                        FavoriteUtil.cleanupDeletedFavoritesSuspend(emptyList())
+                        break
                     } else {
                         break
                     }

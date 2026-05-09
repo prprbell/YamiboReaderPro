@@ -10,8 +10,11 @@ import retrofit2.http.POST
 import retrofit2.http.Query
 
 interface FavoriteApi {
-    @GET("/home.php?mod=space&do=favorite&view=me&type=thread&mobile=2")
-    fun getFavoritePage(@Query("page") page: Int): Call<ResponseBody>
+    @Headers("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    @GET("/api/mobile/index.php?module=myfavthread&version=1")
+    suspend fun getMyFavThread(
+        @Query("page") page: Int
+    ): ResponseBody
 
     @Headers("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     @GET("/api/mobile/index.php?module=profile&version=4")
