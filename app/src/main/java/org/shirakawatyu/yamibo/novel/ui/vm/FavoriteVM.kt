@@ -120,10 +120,16 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             allFavorites.filter { !it.isHidden }
         }
 
-        val filteredList = if (currentCategory == -1) {
-            baseList
+        val pendingFiltered = if (pendingDeleteUrls.isNotEmpty()) {
+            baseList.filter { it.url !in pendingDeleteUrls }
         } else {
-            baseList.filter { it.type == currentCategory }
+            baseList
+        }
+
+        val filteredList = if (currentCategory == -1) {
+            pendingFiltered
+        } else {
+            pendingFiltered.filter { it.type == currentCategory }
         }
 
         _uiState.value = currentState.copy(favoriteList = filteredList)
@@ -217,7 +223,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                         val item = list.getJSONObject(i) ?: continue
                         val favId = item.getString("favid") ?: ""
                         val title = item.getString("title") ?: ""
-                        val url = item.getString("url") ?: ""
+                        val url = FavoriteUtil.normalizeUrl(item.getString("url") ?: "")
 
                         val favorite = Favorite(title, url)
                         favorite.favId = favId
@@ -297,7 +303,21 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                             break
                         }
 
-                        FavoriteUtil.cleanupDeletedFavoritesSuspend(emptyList())
+                        // 只有服务端明确返回 count=0 才确认是空收藏，否则拒绝清理
+                        val count = variables.getString("count")?.toIntOrNull() ?: -1
+                        if (count == 0) {
+                            FavoriteUtil.cleanupDeletedFavoritesSuspend(emptyList())
+                        } else if (isFavoritePageVisible) {
+                            withContext(Dispatchers.Main) {
+                                val toast = Toast.makeText(
+                                    applicationContext,
+                                    "网络状态异常",
+                                    Toast.LENGTH_SHORT
+                                )
+                                toast.show()
+                                launch { delay(1500L); toast.cancel() }
+                            }
+                        }
                         break
                     } else {
                         break

@@ -207,9 +207,11 @@ class FavoriteUtil {
                 val jsonObject: JSONObject = JSON.parseObject(text)
                 jsonObject.values.forEach {
                     val obj = it as JSONObject
+                    val rawUrl = obj.getString("url") ?: ""
+                    val normalizedUrl = normalizeUrl(rawUrl)
                     val fav = Favorite(
                         title = obj.getString("title") ?: "",
-                        url = obj.getString("url") ?: "",
+                        url = normalizedUrl,
                         lastPage = obj.getIntValue("lastPage"),
                         lastView = obj.getIntValue("lastView"),
                         lastChapter = obj.getString("lastChapter"),
@@ -225,6 +227,12 @@ class FavoriteUtil {
                 e.printStackTrace()
             }
             return map
+        }
+
+        fun normalizeUrl(url: String): String {
+            val tid = Regex("tid=(\\d+)").find(url)?.groupValues?.get(1)
+                ?: Regex("thread-(\\d+)-").find(url)?.groupValues?.get(1)
+            return if (tid != null) "forum.php?mod=viewthread&tid=$tid" else url
         }
 
         suspend fun getFavoriteMapSuspend(): LinkedHashMap<String, Favorite> =
