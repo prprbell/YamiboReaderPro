@@ -667,11 +667,6 @@ fun MinePage(
                 }
 
                 canGoBack = evaluateCanGoBack(view)
-                // 使用外部提取的特定于 MinePage 的脚本常量
-                view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
-                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
-                view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
-
                 val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1"))
                 val toggleHeaderJs = """
                     javascript:(function() {

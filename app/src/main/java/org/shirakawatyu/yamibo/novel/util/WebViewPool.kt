@@ -255,6 +255,7 @@ object WebViewPool {
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             setBackgroundColor(Color.TRANSPARENT)
+            setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
             settings.apply {
                 javaScriptEnabled = true
                 useWideViewPort = true

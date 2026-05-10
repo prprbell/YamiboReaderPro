@@ -460,9 +460,6 @@ fun OtherWebPage(
 
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 super.onPageFinished(view, finishedUrl)
-                view?.evaluateJavascript(PageJsScripts.OTHER_WEB_INIT_PSWP_JS, null)
-                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
-                view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
                 if (!isHistoryCleared) {
                     view?.clearHistory()
                     isHistoryCleared = true

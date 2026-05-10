@@ -5,11 +5,6 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import okhttp3.ConnectionPool
 import okhttp3.Dns
 import okhttp3.HttpUrl
@@ -28,8 +23,9 @@ import java.io.IOException
 import java.net.InetAddress
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorCompletionService
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 
 class DynamicDns(private val bootstrapClient: OkHttpClient) : okhttp3.Dns {
 
@@ -60,6 +56,10 @@ class DynamicDns(private val bootstrapClient: OkHttpClient) : okhttp3.Dns {
     private val systemDns = Dns.SYSTEM
 
     private val manualDnsCache = ConcurrentHashMap<String, Dns>()
+
+    private val raceExecutor = Executors.newFixedThreadPool(2) { r ->
+        Thread(r, "DnsRace").apply { isDaemon = true }
+    }
 
     private fun getBootstrapHostsForDoHUrl(url: HttpUrl): List<InetAddress> {
         val host = url.host.lowercase()
@@ -103,37 +103,16 @@ class DynamicDns(private val bootstrapClient: OkHttpClient) : okhttp3.Dns {
             }
         }
 
-        return runBlocking {
-            val channel = Channel<List<InetAddress>>(1)
-            val errorCount = AtomicInteger(0)
-            val racers = listOf(aliDns, tencentDns)
-
-            val raceJob = launch(Dispatchers.IO) {
-                racers.forEach { dns ->
-                    launch {
-                        try {
-                            val result = dns.lookup(hostname)
-                            if (result.isNotEmpty()) {
-                                channel.trySend(result)
-                            }
-                        } catch (e: Exception) {
-                            if (errorCount.incrementAndGet() == racers.size) {
-                                channel.close(e)
-                            }
-                        }
-                    }
-                }
-            }
-
-            try {
-                withTimeout(1500) {
-                    channel.receive()
-                }
-            } catch (_: Exception) {
-                systemDns.lookup(hostname)
-            } finally {
-                raceJob.cancel()
-            }
+        val ecs = ExecutorCompletionService<List<InetAddress>>(raceExecutor)
+        val futures = listOf(
+            ecs.submit { aliDns.lookup(hostname) },
+            ecs.submit { tencentDns.lookup(hostname) }
+        )
+        return try {
+            ecs.poll(1500, TimeUnit.MILLISECONDS)?.get()
+                ?: systemDns.lookup(hostname)
+        } catch (_: Exception) {
+            systemDns.lookup(hostname)
         }
     }
 }
@@ -333,10 +312,6 @@ class YamiboRetrofit {
             try {
                 val reqBuilder = okhttp3.Request.Builder().url(url)
                 request.requestHeaders?.forEach { (key, value) -> reqBuilder.header(key, value) }
-                val cookie = android.webkit.CookieManager.getInstance().getCookie(url)
-                if (!cookie.isNullOrEmpty()) {
-                    reqBuilder.header("Cookie", cookie)
-                }
 
                 if (url.contains("yamibo.com", ignoreCase = true)) {
                     reqBuilder.header("Referer", "https://bbs.yamibo.com/")

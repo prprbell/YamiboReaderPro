@@ -570,10 +570,6 @@ fun MangaWebPage(
                     mangaWebView.loadUrl(finalUrl)
                 }
 
-                view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
-                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
-                view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
-
             }
 
             override fun onReceivedError(
