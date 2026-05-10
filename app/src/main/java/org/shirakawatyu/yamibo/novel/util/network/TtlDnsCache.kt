@@ -79,6 +79,10 @@ class TtlDnsCache(
         }
     }
 
+    fun invalidate(hostname: String) {
+        cache.remove(hostname)
+    }
+
     fun clearCache() {
         cache.clear()
     }

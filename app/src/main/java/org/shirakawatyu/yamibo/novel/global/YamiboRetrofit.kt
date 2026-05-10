@@ -347,6 +347,9 @@ class YamiboRetrofit {
                         return webResourceResponse
                     }
                 }
+            } catch (e: IOException) {
+                sharedDns.invalidate(request.url.host)
+                return null
             } catch (_: Exception) {
                 return null
             }
