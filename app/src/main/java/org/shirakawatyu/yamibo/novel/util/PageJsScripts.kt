@@ -219,6 +219,28 @@ object PageJsScripts {
         })()
     """.trimIndent()
 
+    val THREAD_LIST_CLICK_FIX_JS = """
+        (function() {
+            if (window.__threadListClickFixInjected) return;
+            window.__threadListClickFixInjected = true;
+
+            var style = document.createElement('style');
+            style.textContent = 'li.list { cursor: pointer; }';
+            document.head.appendChild(style);
+
+            document.addEventListener('click', function(e) {
+                var li = e.target.closest('li.list');
+                if (!li) return;
+                if (e.target.closest('a')) return;
+
+                var threadLink = li.querySelector('a[href*="mod=viewthread"]');
+                if (threadLink) {
+                    threadLink.click();
+                }
+            });
+        })();
+    """.trimIndent()
+
     val REMOVE_TRANSITION_STYLE_JS = """
         var style = document.getElementById('manga-transition-style');
         if (style) style.remove();

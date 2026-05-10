@@ -163,6 +163,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         webView.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
         webView.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
         webView.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
+        webView.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
     }
 
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -256,6 +257,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
         view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
         view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
+        view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
 
         BBSPageState.pageTitle = view?.title ?: ""
         if (!BBSPageState.isErrorState) {
@@ -274,6 +276,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
         view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
         view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
+        view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
 
         BBSPageState.isLoading = false
 
