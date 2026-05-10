@@ -55,13 +55,13 @@ Custom `DynamicDns` races AliDNS and TencentDNS DoH resolvers (1.5s timeout), fa
 - ViewModels use `viewModelScope` (main-thread default) with `Dispatchers.IO` for network/disk.
 - `ReaderVM.loadRequestId` (atomic counter) prevents stale callbacks from outdated loads.
 
-### Release 上传
+### Release Upload
 
-当用户要求上传 release 时，先执行 `git log <lastTag>..HEAD` 和 `git diff <lastTag>..HEAD` 分析改动，生成中文 release notes。然后回复上传命令，让用户自行执行（Claude 无法代为执行）：
+When the user requests a release upload, first run `git log <lastTag>..HEAD` and `git diff <lastTag>..HEAD` to analyze changes and generate Chinese release notes. Then reply with the upload command for the user to execute themselves (Claude cannot run it directly):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\upload_release.ps1 -Notes "生成的 release notes"
+powershell -ExecutionPolicy Bypass -File .\upload_release.ps1 -Notes "generated release notes"
 ```
 
-脚本自动：读取版本号 → 推送 git tag → 上传 APK 到 GitHub Release
-前置条件：`gh` CLI 已安装并登录
+The script automatically: reads version code → pushes git tag → uploads APK to GitHub Release.
+Prerequisite: `gh` CLI installed and authenticated.
