@@ -1,0 +1,67 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+**IMPORTANT**: Do NOT attempt to build, compile, or run tests locally. The development machine does not have Java/Android SDK installed. Rely on code review and static analysis to verify correctness.
+
+Project uses Gradle 8.2.1 with Kotlin 1.9.0 and AGP 8.2.1. Java 17 target. Configuration cache is enabled.
+
+## Architecture
+
+This is an Android reader app for the yamibo.com (百合会) forum, supporting novel and manga reading. Single-activity Compose app (`MainActivity`) using Navigation Compose for routing.
+
+### Navigation & Pages
+
+Three bottom-tab top-level routes: `FavoritePage`, `BBSPage`, `MinePage`.
+
+Content routes:
+- **`ProbingPage`** — Smart router. Loads a URL in a hidden `WebView` (from `WebViewPool`), runs JS to detect content type (novel=1, manga=2, forum=3), then navigates to the appropriate reader. Uses `MangaImagePipeline.handoffPrefetch()` for manga image pre-warming.
+- **`ReaderPage`** — Novel reader. Horizontal pager (swipe left/right) or vertical scroll mode. Toolbar with night mode, font settings, translation (simplified/traditional Chinese), chapter drawer, and caching controls.
+- **`NativeMangaPage`** — Native manga reader with zoom/pan gestures via Telephoto library.
+- **`MangaWebPage`** — WebView-based manga reader (fallback / fast-forward mode).
+- **`OtherWebPage`** — Generic WebView page for forum browsing.
+
+### Core ViewModels
+
+- **`ReaderVM`** — Novel reading engine. Fetches forum posts via `NovelApi` (filtered by `authorid`), parses HTML with Jsoup, paginates text content (horizontal or vertical mode) using `TextUtil`, preloads next web-page when nearing end, maintains reading progress in `FavoriteUtil`. Multi-level caching: memory (`CacheUtil`/LruCache) then disk (`LocalCacheUtil`). Supports chapter extraction from first-line-of-post heuristics.
+- **`FavoriteVM`** — Favorites management. Fetches favorites by scraping HTML (`FavoriteApi`), supports smart/incremental refresh (stops when no new items found), drag-to-reorder via `Reorderable`, hide/unhide, batch delete with tombstone queue for offline retry.
+
+### Networking (`global/YamiboRetrofit.kt`)
+
+Two OkHttp clients:
+- `okHttpClient` — General use, 50MB disk cache, default connection pool.
+- `threadOkHttpClient` — For forum image loading, no cache, 6 max requests per host, with `RateLimitInterceptor` (100ms) and `ImageCheckerUtil`.
+
+Custom `DynamicDns` races AliDNS and TencentDNS DoH resolvers (1.5s timeout), falls back to system DNS. Supports manual custom DNS URL. All requests get cookie, User-Agent, Accept-Language headers injected via application interceptor. `proxyWebViewResource()` allows OkHttp to proxy WebView resource requests (bypassing WebView's own networking).
+
+### Data Flow
+
+- **Preferences**: `DataStore` (Preferences) for settings. `SettingsUtil` wraps read/write with callbacks.
+- **Cookies**: `CookieUtil` reads Android WebView `CookieManager`, exposes via `cookieFlow`. Saved to `DataStore` for persistence.
+- **Favorites**: `FavoriteUtil` manages an in-memory list with JSON persistence. Exposes via `getFavoriteFlow()` which `FavoriteVM` collects.
+- **Global state**: `GlobalData` object holds app-wide mutable state (cookie, feature flags, settings) as `MutableStateFlow`/`mutableStateOf`.
+- **`WebViewPool`**: Object pool (max 3) for WebView instances. Acquire/release pattern. Washes dirty WebViews by loading blank HTML. Auto-replenishes on idle.
+
+### Key Utilities
+
+- `util/reader/` — `TextUtil` (text pagination), `HTMLUtil` (HTML-to-text), `ChineseConvertUtil` (OpenCC), `CacheUtil` (memory LruCache), `LocalCacheUtil` (disk persistence).
+- `util/manga/` — `MangaReaderManager`, `MangaImagePipeline` (prefetch), `ZoomPanGestureHandler`, `MangaProber`.
+- `util/network/` — `NetworkMonitor`, `NetworkPreWarmer`, `RateLimitInterceptor`, `TtlDnsCache`.
+- `util/favorite/` — `FavoriteUtil`, `FavoriteDeleteUtil`, `TombstoneQueueUtil` (offline delete retry).
+
+### Threading Rules
+
+- `WebViewPool` and all WebView operations **must** be on the main thread (enforced with `checkMainThread`).
+- ViewModels use `viewModelScope` (main-thread default) with `Dispatchers.IO` for network/disk.
+- `ReaderVM.loadRequestId` (atomic counter) prevents stale callbacks from outdated loads.
+
+### Release 上传
+
+当用户要求上传 release 时，先执行 `git log <lastTag>..HEAD` 和 `git diff <lastTag>..HEAD` 分析改动，生成中文 release notes。然后回复上传命令，让用户自行执行（Claude 无法代为执行）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\upload_release.ps1 -Notes "生成的 release notes"
+```
+
+脚本自动：读取版本号 → 推送 git tag → 上传 APK 到 GitHub Release
+前置条件：`gh` CLI 已安装并登录
