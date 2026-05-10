@@ -310,6 +310,7 @@ class TextUtil {
             var startIndex = 0
 
             while (startIndex < lineLength) {
+                val chunkStartIndex = startIndex
                 var endIndex = startIndex + 1
 
                 while (endIndex <= lineLength) {
@@ -346,17 +347,19 @@ class TextUtil {
                     endIndex = lineLength
                 }
 
-                output.add(
-                    Content(
-                        line.substring(startIndex, endIndex),
-                        ContentType.TEXT,
-                        chapterTitle
-                    )
-                )
                 startIndex = endIndex
                 while (startIndex < lineLength && line[startIndex] == ' ') {
                     startIndex++
                 }
+
+                output.add(
+                    Content(
+                        line.substring(chunkStartIndex, endIndex),
+                        ContentType.TEXT,
+                        chapterTitle,
+                        isParagraphEnd = startIndex >= lineLength
+                    )
+                )
             }
         }
     }

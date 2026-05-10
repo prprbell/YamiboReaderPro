@@ -33,7 +33,8 @@ fun JustifiedText(
     letterSpacing: TextUnit = 0.sp,
     color: Color = Color.Black,
     isVerticalMode: Boolean = false,
-    typeface: Typeface = Typeface.DEFAULT
+    typeface: Typeface = Typeface.DEFAULT,
+    isParagraphEnd: Boolean = false
 ) {
     val textPaint = remember {
         Paint().apply {
@@ -85,8 +86,10 @@ fun JustifiedText(
                         val remainingSpace = availableWidth - drawX - originalWidth
                         val isShortLine = remainingSpace > fontSizePx * 3f
 
+                        val skipJustification = isParagraphEnd || isShortLine
+
                         var finalMultiplier = baseLetterSpacingMultiplier
-                        if (!isShortLine && remainingSpace > 0 && textToDraw.length > 1) {
+                        if (!skipJustification && remainingSpace > 0 && textToDraw.length > 1) {
                             val gaps = textToDraw.length - 1
                             val justificationSpacingPx = remainingSpace / gaps
                             val justificationMultiplier =

@@ -138,7 +138,8 @@ fun ContentViewer(
                     letterSpacing = letterSpacing,
                     color = MaterialTheme.colorScheme.onBackground,
                     isVerticalMode = true,
-                    typeface = typeface
+                    typeface = typeface,
+                    isParagraphEnd = data.isParagraphEnd
                 )
             }
         }

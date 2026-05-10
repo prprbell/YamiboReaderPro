@@ -13,6 +13,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -241,6 +242,7 @@ fun ReaderPage(
         remember(readerVM) { { color: Color? -> readerVM.onSetBackgroundColor(color) } }
     val pagerState = rememberPagerState(pageCount = { uiState.htmlList.size })
     val lazyListState = rememberLazyListState()
+    val headerAlpha = remember { Animatable(1f) }
     val scope = rememberCoroutineScope()
     val currentPageIndex by remember(uiState.isVerticalMode, uiState.htmlList.size) {
         derivedStateOf {
@@ -471,6 +473,14 @@ fun ReaderPage(
                             readerVM.onVerticalPageSettled(visibleIndex)
                         }
                     }
+            }
+        }
+        LaunchedEffect(lazyListState.isScrollInProgress) {
+            if (lazyListState.isScrollInProgress) {
+                headerAlpha.animateTo(0f, animationSpec = tween(300))
+            } else {
+                delay(1000)
+                headerAlpha.animateTo(1f, animationSpec = tween(300))
             }
         }
         val onSettingsMaskClick = remember(readerVM) {
@@ -741,12 +751,14 @@ fun ReaderPage(
                                     }
                                 }
                                 if (uiState.isVerticalMode) {
+                                    val effectiveAlpha = if (showSettings) 1f else headerAlpha.value
                                     VerticalModeHeader(
                                         chapterTitle = currentChapterTitle,
                                         currentPage = currentPageIndex + 1,
                                         pageCount = uiState.htmlList.size,
                                         backgroundColor = finalBackground,
-                                        padding = uiState.padding
+                                        padding = uiState.padding,
+                                        alpha = effectiveAlpha
                                     )
                                 }
                             }
@@ -1917,21 +1929,22 @@ private fun VerticalModeHeader(
     currentPage: Int,
     pageCount: Int,
     backgroundColor: Color,
-    padding: Dp
+    padding: Dp,
+    alpha: Float = 1f
 ) {
     val chapterTitleHeight = 24.dp
 
     val totalItems = pageCount.coerceAtLeast(1)
     val percent = ((currentPage.toFloat() - 1) / totalItems) * 100f
 
-    // 使用Surface来实现背景遮挡和阴影
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .height(chapterTitleHeight)
-            .clip(RectangleShape),
+            .clip(RectangleShape)
+            .graphicsLayer { this.alpha = alpha },
         color = backgroundColor.copy(alpha = 0.9f),
-        shadowElevation = 2.dp // 添加一点阴影
+        shadowElevation = 2.dp
     ) {
         Row(
             modifier = Modifier

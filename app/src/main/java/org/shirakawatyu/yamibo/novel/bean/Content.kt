@@ -10,7 +10,8 @@ package org.shirakawatyu.yamibo.novel.bean
 data class Content(
     val data: String,
     val type: ContentType,
-    val chapterTitle: String? = null
+    val chapterTitle: String? = null,
+    val isParagraphEnd: Boolean = false
 )
 
 enum class ContentType {
