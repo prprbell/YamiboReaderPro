@@ -92,6 +92,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BbsSkeletonScreen
 import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
+import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
@@ -161,6 +162,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
     fun forceInjectMangaJs(webView: WebView) {
         webView.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
         webView.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
+        webView.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
     }
 
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -215,14 +217,14 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
                 urlStr.contains(IMAGE_EXT_REGEX) ||
                 urlStr.contains("attachment")
 
-        if (request?.isForMainFrame == false && isImage) {
-            if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
-                !urlStr.contains("common") && !urlStr.contains("static/image") &&
-                !urlStr.contains("template") && !urlStr.contains("block")
-            ) {
-                val count = contentImageCount.getAndIncrement()
+        if (request?.isForMainFrame == false && request.method == "GET" && urlStr.contains("yamibo.com")) {
+            if (isImage) {
+                if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
+                    !urlStr.contains("common") && !urlStr.contains("static/image") &&
+                    !urlStr.contains("template") && !urlStr.contains("block")
+                ) {
+                    contentImageCount.getAndIncrement()
 
-                if (request.method == "GET" && urlStr.contains("yamibo.com")) {
                     val headers = mutableMapOf<String, String>()
                     request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
 
@@ -241,6 +243,9 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
                         ByteArrayInputStream(ByteArray(0))
                     )
                 }
+            } else {
+                val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+                if (proxyResponse != null) return proxyResponse
             }
         }
         return super.shouldInterceptRequest(view, request)
@@ -250,6 +255,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         super.onPageCommitVisible(view, url)
         view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
         view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
+        view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
 
         BBSPageState.pageTitle = view?.title ?: ""
         if (!BBSPageState.isErrorState) {
@@ -267,6 +273,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         }
         view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
         view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
+        view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
 
         BBSPageState.isLoading = false
 
@@ -367,13 +374,13 @@ fun BBSPage(
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                webView.onResume()
                 webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    ActivityWebViewLifecycleObserver(webView)
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
     val fullscreenApi = remember {

@@ -447,12 +447,12 @@ fun MangaWebPage(
                         ) ||
                         urlStr.contains("attachment")
 
-                if (request?.isForMainFrame == false && isImage) {
-                    if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
-                        !urlStr.contains("common") && !urlStr.contains("static/image") &&
-                        !urlStr.contains("template") && !urlStr.contains("block")
-                    ) {
-                        if (request.method == "GET" && urlStr.contains("yamibo.com")) {
+                if (request?.isForMainFrame == false && request.method == "GET" && urlStr.contains("yamibo.com")) {
+                    if (isImage) {
+                        if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
+                            !urlStr.contains("common") && !urlStr.contains("static/image") &&
+                            !urlStr.contains("template") && !urlStr.contains("block")
+                        ) {
                             val headers = mutableMapOf<String, String>()
                             request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
 
@@ -479,6 +479,12 @@ fun MangaWebPage(
                                 java.io.ByteArrayInputStream(ByteArray(0))
                             )
                         }
+                    } else {
+                        val proxyResponse =
+                            org.shirakawatyu.yamibo.novel.global.YamiboRetrofit.proxyWebViewResource(
+                                request
+                            )
+                        if (proxyResponse != null) return proxyResponse
                     }
                 }
 
@@ -526,6 +532,7 @@ fun MangaWebPage(
                 super.onPageCommitVisible(view, commitUrl)
 
                 view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
+                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
 
                 if (isLoading) {
                     timeoutJob?.cancel()
@@ -563,6 +570,7 @@ fun MangaWebPage(
                 }
 
                 view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
+                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
 
             }
 

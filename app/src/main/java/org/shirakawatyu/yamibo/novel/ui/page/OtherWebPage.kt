@@ -111,7 +111,7 @@ class FullscreenApiOther {
 
 private var cachedFullscreenApiOther: FullscreenApiOther? = null
 
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun OtherWebPage(
     url: String,
@@ -366,39 +366,40 @@ fun OtherWebPage(
                         ) ||
                         urlStr.contains("attachment")
 
-                if (request?.isForMainFrame == false && isImage) {
-                    if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
-                        !urlStr.contains("common") && !urlStr.contains("static/image") &&
-                        !urlStr.contains("template") && !urlStr.contains("block")
-                    ) {
-                        val count = contentImageCount.getAndIncrement()
+                if (request?.isForMainFrame == false && request.method == "GET" && urlStr.contains("yamibo.com")) {
+                    if (isImage) {
+                        if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
+                            !urlStr.contains("common") && !urlStr.contains("static/image") &&
+                            !urlStr.contains("template") && !urlStr.contains("block")
+                        ) {
+                            contentImageCount.getAndIncrement()
 
-                        if (request.method == "GET") {
-                            if (urlStr.contains("yamibo.com")) {
-                                val headers = mutableMapOf<String, String>()
-                                request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
+                            val headers = mutableMapOf<String, String>()
+                            request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
 
-                                val coilResponse =
-                                    org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy.interceptImage(
-                                        context,
-                                        urlStr,
-                                        headers
-                                    )
-                                if (coilResponse != null) return coilResponse
-
-                                val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
-                                if (proxyResponse != null) return proxyResponse
-
-                                return WebResourceResponse(
-                                    "image/jpeg",
-                                    "utf-8",
-                                    404,
-                                    "Blocked by Interceptor",
-                                    null,
-                                    java.io.ByteArrayInputStream(ByteArray(0))
+                            val coilResponse =
+                                org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy.interceptImage(
+                                    context,
+                                    urlStr,
+                                    headers
                                 )
-                            }
+                            if (coilResponse != null) return coilResponse
+
+                            val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+                            if (proxyResponse != null) return proxyResponse
+
+                            return WebResourceResponse(
+                                "image/jpeg",
+                                "utf-8",
+                                404,
+                                "Blocked by Interceptor",
+                                null,
+                                java.io.ByteArrayInputStream(ByteArray(0))
+                            )
                         }
+                    } else {
+                        val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+                        if (proxyResponse != null) return proxyResponse
                     }
                 }
 
@@ -446,6 +447,7 @@ fun OtherWebPage(
                 super.onPageCommitVisible(view, commitUrl)
 
                 view?.evaluateJavascript(PageJsScripts.OTHER_WEB_INIT_PSWP_JS, null)
+                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
 
                 if (isLoading) {
                     timeoutJob?.cancel()
@@ -458,6 +460,7 @@ fun OtherWebPage(
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 super.onPageFinished(view, finishedUrl)
                 view?.evaluateJavascript(PageJsScripts.OTHER_WEB_INIT_PSWP_JS, null)
+                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
                 if (!isHistoryCleared) {
                     view?.clearHistory()
                     isHistoryCleared = true

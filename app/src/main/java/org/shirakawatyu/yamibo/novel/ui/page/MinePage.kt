@@ -565,14 +565,14 @@ fun MinePage(
                         ) ||
                         urlStr.contains("attachment")
 
-                if (request?.isForMainFrame == false && isImage) {
-                    if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
-                        !urlStr.contains("common") && !urlStr.contains("static/image") &&
-                        !urlStr.contains("template") && !urlStr.contains("block")
-                    ) {
-                        val count = contentImageCount.getAndIncrement()
+                if (request?.isForMainFrame == false && request.method == "GET" && urlStr.contains("yamibo.com")) {
+                    if (isImage) {
+                        if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
+                            !urlStr.contains("common") && !urlStr.contains("static/image") &&
+                            !urlStr.contains("template") && !urlStr.contains("block")
+                        ) {
+                            contentImageCount.getAndIncrement()
 
-                        if (request.method == "GET" && urlStr.contains("yamibo.com")) {
                             val headers = mutableMapOf<String, String>()
                             request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
 
@@ -592,6 +592,9 @@ fun MinePage(
                                 ByteArrayInputStream(ByteArray(0))
                             )
                         }
+                    } else {
+                        val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
+                        if (proxyResponse != null) return proxyResponse
                     }
                 }
                 return super.shouldInterceptRequest(view, request)
@@ -625,6 +628,7 @@ fun MinePage(
                 }
                 // 使用外部提取的特定于 MinePage 的脚本常量
                 view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
+                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
 
                 val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1"))
                 val toggleHeaderJs = """
@@ -664,6 +668,7 @@ fun MinePage(
                 canGoBack = evaluateCanGoBack(view)
                 // 使用外部提取的特定于 MinePage 的脚本常量
                 view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
+                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
 
                 val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1"))
                 val toggleHeaderJs = """

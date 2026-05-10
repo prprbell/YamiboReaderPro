@@ -4,6 +4,46 @@ object PageJsScripts {
 
     // 基础脚本
 
+    val PJAX_FALLBACK_JS = """
+        (function() {
+            if (window.__pjaxFallbackInjected) return;
+            window.__pjaxFallbackInjected = true;
+
+            var pendingTimer = null;
+            var urlBefore = null;
+
+            function isValidNavHref(rawHref) {
+                if (!rawHref) return false;
+                if (/^javascript:/i.test(rawHref)) return false;
+                if (rawHref === '#' || /^#/.test(rawHref)) return false;
+                if (/^(mailto|tel|sms):/i.test(rawHref)) return false;
+                return true;
+            }
+
+            document.addEventListener('click', function(e) {
+                var a = e.target.closest ? e.target.closest('a') : null;
+                if (!a) return;
+
+                var rawHref = a.getAttribute('href');
+                if (!isValidNavHref(rawHref)) return;
+
+                if (a.getAttribute('target') === '_blank') return;
+
+                var targetUrl = a.href;
+                if (targetUrl === window.location.href) return;
+
+                if (pendingTimer) clearTimeout(pendingTimer);
+
+                urlBefore = window.location.href;
+                pendingTimer = setTimeout(function() {
+                    pendingTimer = null;
+                    if (window.location.href !== urlBefore) return;
+                    window.location.href = targetUrl;
+                }, 500);
+            }, true);
+        })();
+    """.trimIndent()
+
     val FIX_CAROUSEL_LAYOUT_JS = """
         (function() {
             if (document.getElementById('carousel-fix-style')) return;
