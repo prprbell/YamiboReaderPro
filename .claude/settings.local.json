@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew compileDebugKotlin)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Program Files/Android/Android Studio/**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Bash(where java *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git *)"
+    ]
+  }
+}

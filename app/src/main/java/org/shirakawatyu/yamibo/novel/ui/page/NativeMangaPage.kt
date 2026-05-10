@@ -131,6 +131,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaChapter
 import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaChapterPanel
+import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
 import org.shirakawatyu.yamibo.novel.ui.widget.manga.MangaSettingsPanel
 import org.shirakawatyu.yamibo.novel.util.HapticUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
@@ -1503,13 +1504,13 @@ fun NativeMangaPage(
                     textContentColor = Color(0xE5E0DCD6).copy(alpha = 0.8f),
                     title = {
                         Text(
-                            text = "重新加载",
+                            text = "图片操作",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                     },
                     text = {
-                        Text("是否重载第 ${(currentItem.localIndex) + 1} 页图片？")
+                        Text("第 ${(currentItem.localIndex) + 1} 页")
                     },
                     confirmButton = {
                         TextButton(onClick = {
@@ -1524,7 +1525,7 @@ fun NativeMangaPage(
                             }
                         }) {
                             Text(
-                                text = "确认重载",
+                                text = "重新加载",
                                 color = Color(0xE5DB562A),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
@@ -1532,12 +1533,26 @@ fun NativeMangaPage(
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = { showReloadDialog = false }) {
-                            Text(
-                                text = "取消",
-                                color = Color(0xFF8A8F9B),
-                                fontSize = 15.sp
-                            )
+                        Row {
+                            TextButton(onClick = {
+                                showReloadDialog = false
+                                scope.launch {
+                                    ImageSaveUtil.saveImage(context, currentItem.imageUrl)
+                                }
+                            }) {
+                                Text(
+                                    text = "保存图片",
+                                    color = Color(0xFF8A8F9B),
+                                    fontSize = 15.sp
+                                )
+                            }
+                            TextButton(onClick = { showReloadDialog = false }) {
+                                Text(
+                                    text = "取消",
+                                    color = Color(0xFF8A8F9B),
+                                    fontSize = 15.sp
+                                )
+                            }
                         }
                     }
                 )

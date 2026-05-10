@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
@@ -80,6 +81,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
+import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
@@ -89,6 +91,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class FullscreenApiOther {
     var onStateChange: ((Boolean) -> Unit)? = null
     var onMangaActionDone: (() -> Unit)? = null
+    var onSaveImage: ((String) -> Unit)? = null
 
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
@@ -98,6 +101,11 @@ class FullscreenApiOther {
     @JavascriptInterface
     fun notifyMangaActionDone() {
         Handler(Looper.getMainLooper()).post { onMangaActionDone?.invoke() }
+    }
+
+    @JavascriptInterface
+    fun saveImage(url: String) {
+        Handler(Looper.getMainLooper()).post { onSaveImage?.invoke(url) }
     }
 }
 
@@ -209,6 +217,18 @@ fun OtherWebPage(
     }
     fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
+    fullscreenApi.onSaveImage = { url ->
+        AlertDialog.Builder(context)
+            .setTitle("保存图片")
+            .setMessage("是否保存当前图片到手机？")
+            .setPositiveButton("保存") { _, _ ->
+                scope.launch {
+                    ImageSaveUtil.saveImage(context, url)
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
     val otherWebView = remember {
         WebViewPool.acquire(context).apply {
             settings.apply {

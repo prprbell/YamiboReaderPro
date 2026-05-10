@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
@@ -85,6 +86,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
+import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
@@ -92,6 +94,7 @@ import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 class FullscreenApiManga {
     var onStateChange: ((Boolean) -> Unit)? = null
     var onMangaActionDone: (() -> Unit)? = null
+    var onSaveImage: ((String) -> Unit)? = null
 
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
@@ -101,6 +104,11 @@ class FullscreenApiManga {
     @JavascriptInterface
     fun notifyMangaActionDone() {
         Handler(Looper.getMainLooper()).post { onMangaActionDone?.invoke() }
+    }
+
+    @JavascriptInterface
+    fun saveImage(url: String) {
+        Handler(Looper.getMainLooper()).post { onSaveImage?.invoke(url) }
     }
 }
 
@@ -207,6 +215,18 @@ fun MangaWebPage(
     }
     fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
+    fullscreenApi.onSaveImage = { url ->
+        AlertDialog.Builder(context)
+            .setTitle("保存图片")
+            .setMessage("是否保存当前图片到手机？")
+            .setPositiveButton("保存") { _, _ ->
+                scope.launch {
+                    ImageSaveUtil.saveImage(context, url)
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
 
     val nativeMangaApi = remember {
         if (cachedNativeMangaApiManga == null) cachedNativeMangaApiManga =
