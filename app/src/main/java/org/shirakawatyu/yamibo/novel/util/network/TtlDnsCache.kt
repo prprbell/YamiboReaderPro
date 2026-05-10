@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
 
 class TtlDnsCache(
     private val delegate: Dns,
-    private val ttlMillis: Long = TimeUnit.MINUTES.toMillis(30)
+    private val ttlMillis: Long = TimeUnit.HOURS.toMillis(24)
 ) : Dns {
 
     private val cache = ConcurrentHashMap<String, CachedRecord>()
