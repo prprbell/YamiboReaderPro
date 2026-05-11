@@ -15,16 +15,17 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.util.darkModeColor
 
 @Preview
 @Composable
 fun TopBar(title: String = "收藏", content: @Composable () -> Unit = {}) {
-    Surface(color = YamiboColors.onSurface) {
+    Surface(color = darkModeColor(YamiboColors.onSurface, YamiboColors.onSurfaceDark)) {
         Row(modifier = Modifier.padding(15.dp, 10.dp).fillMaxWidth().height(36.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(color = Color.Black, fontSize = 20.sp, text = title)
+            Text(color = darkModeColor(Color.Black, Color(0xFFE0E0E0)), fontSize = 20.sp, text = title)
             content()
         }
     }

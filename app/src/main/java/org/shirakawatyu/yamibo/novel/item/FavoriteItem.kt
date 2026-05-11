@@ -32,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +57,8 @@ import androidx.compose.ui.unit.sp
 import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
+import org.shirakawatyu.yamibo.novel.util.darkModeColor
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 
 private val PREFIX_REGEX = Regex("^(?:[【\\[].*?[】\\]]|[\\s\\u00A0\\u3000])+")
 private val TAG_REGEX = Regex("[【\\[].*?[】\\]]")
@@ -101,7 +104,10 @@ fun FavoriteItem(
 
     val isEffectivelyCollapsed = isGlobalCollapsed && !isExpandedLocally
 
-    val displayTitle = remember(title) {
+    val isDark by GlobalData.isDarkMode.collectAsState()
+    val tagColor = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+
+    val displayTitle = remember(title, isDark) {
         buildAnnotatedString {
             append(title)
             val prefixMatch = PREFIX_REGEX.find(title)
@@ -112,7 +118,7 @@ fun FavoriteItem(
                     addStyle(
                         style = SpanStyle(
                             fontSize = 14.sp,
-                            color = Color.Black.copy(alpha = 0.6f)
+                            color = tagColor
                         ),
                         start = tag.range.first,
                         end = tag.range.last + 1
@@ -133,19 +139,19 @@ fun FavoriteItem(
     )
     val color by animateColorAsState(
         targetValue = when {
-            isDragging -> YamiboColors.onSurface // 拖拽时
-            isManageMode && isSelected -> YamiboColors.secondary // 管理模式 + 选中
-            isManageMode && isHidden -> Color.LightGray // 管理模式+已隐藏(未选中)
-            else -> YamiboColors.tertiary // 默认
+            isDragging -> darkModeColor(YamiboColors.onSurface, YamiboColors.onSurfaceDark) // 拖拽时
+            isManageMode && isSelected -> darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark) // 管理模式 + 选中
+            isManageMode && isHidden -> darkModeColor(Color.LightGray, Color(0xFF3a3a3a)) // 管理模式+已隐藏(未选中)
+            else -> darkModeColor(YamiboColors.tertiary, YamiboColors.tertiaryDark) // 默认
         },
         label = "color_animation"
     )
 
     val typeColor = when (type) {
-        1 -> Color(0xFFE8F5E9) to Color(0xFF4CAF50) // 绿：明亮的鲜绿色
-        2 -> Color(0xFFE3F2FD) to Color(0xFF2196F3) // 蓝：明亮的亮蓝色
-        3 -> Color(0xFFFFF3E0) to Color(0xFFFF9800) // 橙：明亮的活力橙
-        else -> Color(0xFFF5F5F5) to Color(0xFF9E9E9E) // 灰：明亮的中性灰
+        1 -> darkModeColor(Color(0xFFE8F5E9), Color(0xFF1B3A1B)) to darkModeColor(Color(0xFF4CAF50), Color(0xFF66BB6A))
+        2 -> darkModeColor(Color(0xFFE3F2FD), Color(0xFF1A2A3A)) to darkModeColor(Color(0xFF2196F3), Color(0xFF64B5F6))
+        3 -> darkModeColor(Color(0xFFFFF3E0), Color(0xFF3A2A1A)) to darkModeColor(Color(0xFFFF9800), Color(0xFFFFB74D))
+        else -> darkModeColor(Color(0xFFF5F5F5), Color(0xFF2A2A2A)) to darkModeColor(Color(0xFF9E9E9E), Color(0xFFAAAAAA))
     }
 
     val middleColor = lerp(typeColor.first, typeColor.second, 0.75f)
@@ -190,7 +196,7 @@ fun FavoriteItem(
                     Text(
                         modifier = Modifier.fillMaxWidth(),
                         fontSize = 16.sp,
-                        color = Color.Black,
+                        color = darkModeColor(Color.Black, Color(0xFFE0E0E0)),
                         maxLines = if (collapsed) {
                             2
                         } else {
@@ -222,7 +228,7 @@ fun FavoriteItem(
                         if (!lastChapter.isNullOrBlank()) {
                             Text(
                                 modifier = Modifier.padding(0.dp, 2.dp),
-                                color = Color.Black.copy(alpha = 0.7f),
+                                color = darkModeColor(Color.Black.copy(alpha = 0.7f), Color.White.copy(alpha = 0.7f)),
                                 fontSize = 12.sp,
                                 text = lastChapter,
                                 maxLines = 1,
@@ -231,7 +237,7 @@ fun FavoriteItem(
                         }
                         if (type == 1) {
                             Text(
-                                color = Color.Black.copy(alpha = 0.8f),
+                                color = darkModeColor(Color.Black.copy(alpha = 0.8f), Color.White.copy(alpha = 0.8f)),
                                 fontSize = 12.sp,
                                 text = "上次读到第${lastPage + 1}页, 对应网页第${lastView}页"
                             )
