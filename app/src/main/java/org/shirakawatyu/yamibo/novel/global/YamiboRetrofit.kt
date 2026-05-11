@@ -348,7 +348,7 @@ class YamiboRetrofit {
                     }
                 }
             } catch (e: IOException) {
-                sharedDns.invalidate(request.url.host)
+                request.url.host?.let { sharedDns.invalidate(it) }
                 return null
             } catch (_: Exception) {
                 return null
