@@ -336,11 +336,6 @@ class YamiboRetrofit {
                             response.message.ifBlank { "OK" })
                         val responseHeaders = mutableMapOf<String, String>()
                         response.headers.forEach { (name, value) ->
-                            if (name.equals("content-encoding", true) && value.equals(
-                                    "br",
-                                    true
-                                )
-                            ) return@forEach
                             responseHeaders[name] = value
                         }
                         webResourceResponse.responseHeaders = responseHeaders

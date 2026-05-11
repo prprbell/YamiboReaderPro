@@ -24,6 +24,8 @@ object PageJsScripts {
                 var a = e.target.closest ? e.target.closest('a') : null;
                 if (!a) return;
 
+                if (a.hasAttribute('data-pswp-width')) return;
+
                 var rawHref = a.getAttribute('href');
                 if (!isValidNavHref(rawHref)) return;
 
@@ -38,6 +40,7 @@ object PageJsScripts {
                 pendingTimer = setTimeout(function() {
                     pendingTimer = null;
                     if (window.location.href !== urlBefore) return;
+                    if (e.defaultPrevented) return;
                     window.location.href = targetUrl;
                 }, 500);
             }, true);
