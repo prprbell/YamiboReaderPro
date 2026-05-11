@@ -68,6 +68,7 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.util.HapticUtil
+import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -276,13 +277,19 @@ fun BottomNavBar(
                             .shadow(
                                 elevation = if (isHighlighted) 12.dp else 3.dp,
                                 shape = CircleShape,
-                                ambientColor = YamiboColors.primary,
-                                spotColor = YamiboColors.primary
+                                ambientColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark),
+                                spotColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark)
                             )
-                            .background(YamiboColors.onSurface.copy(alpha = 0.92f), CircleShape)
+                            .background(darkModeColor(
+                                YamiboColors.onSurface.copy(alpha = 0.92f),
+                                YamiboColors.onSurfaceDark.copy(alpha = 0.92f)
+                            ), CircleShape)
                             .border(
                                 width = 1.dp,
-                                color = YamiboColors.primary.copy(alpha = if (isHighlighted) 0.8f else 0.12f),
+                                color = darkModeColor(
+                                    YamiboColors.primary.copy(alpha = if (isHighlighted) 0.8f else 0.12f),
+                                    YamiboColors.primaryDark.copy(alpha = if (isHighlighted) 0.8f else 0.12f)
+                                ),
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
@@ -290,7 +297,10 @@ fun BottomNavBar(
                         Icon(
                             imageVector = action.icon,
                             contentDescription = action.description,
-                            tint = YamiboColors.primary.copy(alpha = btnAlpha),
+                            tint = darkModeColor(
+                                YamiboColors.primary.copy(alpha = btnAlpha),
+                                YamiboColors.primaryDark.copy(alpha = btnAlpha)
+                            ),
                             modifier = Modifier
                                 .size(24.dp)
                                 .rotate(
@@ -321,7 +331,10 @@ fun BottomNavBar(
                                 .background(
                                     Brush.radialGradient(
                                         colors = listOf(
-                                            YamiboColors.primary.copy(alpha = 0.4f),
+                                            darkModeColor(
+                                                YamiboColors.primary.copy(alpha = 0.4f),
+                                                YamiboColors.primaryDark.copy(alpha = 0.4f)
+                                            ),
                                             Color.Transparent
                                         )
                                     ),
@@ -331,8 +344,8 @@ fun BottomNavBar(
                         Box(
                             modifier = Modifier
                                 .size(12.dp)
-                                .shadow(6.dp, CircleShape, spotColor = YamiboColors.primary)
-                                .background(YamiboColors.primary, CircleShape)
+                                .shadow(6.dp, CircleShape, spotColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark))
+                                .background(darkModeColor(YamiboColors.primary, YamiboColors.primaryDark), CircleShape)
                         )
                     }
                 }
@@ -346,7 +359,7 @@ fun BottomNavBar(
                 .height(50.dp)
                 .align(Alignment.BottomCenter),
             windowInsets = WindowInsets(0, 0, 0, 0),
-            containerColor = YamiboColors.onSurface
+            containerColor = darkModeColor(YamiboColors.onSurface, YamiboColors.onSurfaceDark)
         ) {
             uiState.icons.forEachIndexed { index, item ->
                 val targetRoute = pageList[index]
@@ -354,7 +367,7 @@ fun BottomNavBar(
                 NavigationBarItem(
                     icon = { Icon(item, contentDescription = "") },
                     selected = isSelected,
-                    colors = NavigationBarItemDefaults.colors(indicatorColor = YamiboColors.tertiary),
+                    colors = NavigationBarItemDefaults.colors(indicatorColor = darkModeColor(YamiboColors.tertiary, YamiboColors.tertiaryDark)),
                     onClick = {
                         if (currentRoute == targetRoute) return@NavigationBarItem
                         navBarVM.changeSelection(index, navController)
@@ -515,8 +528,11 @@ fun BottomNavBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp),
-                color = YamiboColors.primary,
-                trackColor = YamiboColors.primary.copy(alpha = 0.1f),
+                color = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark),
+                trackColor = darkModeColor(
+                    YamiboColors.primary.copy(alpha = 0.1f),
+                    YamiboColors.primaryDark.copy(alpha = 0.1f)
+                ),
                 strokeCap = StrokeCap.Round
             )
         }

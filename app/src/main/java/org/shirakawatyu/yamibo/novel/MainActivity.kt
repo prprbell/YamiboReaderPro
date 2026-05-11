@@ -456,11 +456,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                     val lockedNavHeight = maxOf(currentPaddingValue, lockedNavHeightValue).dp
 
                     Box(modifier = Modifier.fillMaxSize()) {
+                        val isDark = GlobalData.isDarkMode.collectAsState().value
+                        val darkStatusColor = androidx.compose.ui.graphics.Color(0xFF1a1a1a)
                         val statusBarColor = when {
-                            currentRoute == "FavoritePage" -> YamiboColors.onSurface
-                            currentRoute == "BBSPage" -> YamiboColors.primary
-                            currentRoute == "MinePage" -> YamiboColors.primary
-                            currentRoute?.startsWith("OtherWebPage") == true -> YamiboColors.primary
+                            currentRoute == "FavoritePage" -> if (isDark) darkStatusColor else YamiboColors.onSurface
+                            currentRoute == "BBSPage" -> if (isDark) darkStatusColor else YamiboColors.primary
+                            currentRoute == "MinePage" -> if (isDark) darkStatusColor else YamiboColors.primary
+                            currentRoute?.startsWith("OtherWebPage") == true -> if (isDark) darkStatusColor else YamiboColors.primary
                             else -> null
                         }
                         if (statusBarColor != null) {

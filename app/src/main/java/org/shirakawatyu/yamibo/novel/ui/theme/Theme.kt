@@ -9,15 +9,33 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 
-private val DarkColorScheme = darkColorScheme(
+private val DefaultDarkColorScheme = darkColorScheme(
     primary = Purple80,
     secondary = PurpleGrey80,
     tertiary = Pink80
+)
+
+private val ForumDarkColorScheme = darkColorScheme(
+    primary = Color(0xFFcc7755),
+    secondary = Color(0xFF2a2a2a),
+    tertiary = Color(0xFF2a2a2a),
+    background = Color(0xFF121212),
+    surface = Color(0xFF1e1e1e),
+    onPrimary = Color(0xFFffffff),
+    onSecondary = Color(0xFFcccccc),
+    onTertiary = Color(0xFFcccccc),
+    onBackground = Color(0xFFcccccc),
+    onSurface = Color(0xFFcccccc),
+    onSurfaceVariant = Color(0xFF999999),
+    outline = Color(0xFF444444)
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -34,20 +52,24 @@ fun _300文学Theme(
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val isForumDark by GlobalData.isDarkMode.collectAsState()
+    val effectiveDark = darkTheme || isForumDark
+
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            if (effectiveDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
 
-        darkTheme -> DarkColorScheme
+        isForumDark -> ForumDarkColorScheme
+        effectiveDark -> DefaultDarkColorScheme
         else -> LightColorScheme
     }
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = effectiveDark
         }
     }
 

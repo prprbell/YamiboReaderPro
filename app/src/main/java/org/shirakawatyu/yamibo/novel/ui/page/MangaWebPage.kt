@@ -77,7 +77,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
+import kotlin.text.Charsets
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -333,6 +335,14 @@ fun MangaWebPage(
         }
     }
 
+    LaunchedEffect(Unit) {
+        bottomNavBarVM.darkModeEvent.collect {
+            val enable = GlobalData.isDarkMode.value
+            val js = PageJsScripts.DARK_MODE_SET_JS.replace("%s", if (enable) "true" else "false")
+            mangaWebView.evaluateJavascript(js, null)
+        }
+    }
+
     ActivityWebViewLifecycleObserver(mangaWebView)
     LaunchedEffect(isFullscreenState.value) {
         val window = activity?.window ?: return@LaunchedEffect
@@ -438,6 +448,22 @@ fun MangaWebPage(
                 val urlStr = request?.url?.toString() ?: ""
                 val accept = request?.requestHeaders?.get("Accept") ?: ""
 
+                if (request?.isForMainFrame == true &&
+                    request.method == "GET" &&
+                    GlobalData.isDarkMode.value &&
+                    urlStr.contains("bbs.yamibo.com")
+                ) {
+                    val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
+                    if (html != null) {
+                        val modified = PageJsScripts.injectDarkModeCssIntoHtml(html)
+                        return WebResourceResponse(
+                            "text/html",
+                            "utf-8",
+                            modified.byteInputStream(Charsets.UTF_8)
+                        )
+                    }
+                }
+
                 val isImage = accept.contains("image/", ignoreCase = true) ||
                         urlStr.contains(
                             Regex(
@@ -534,6 +560,12 @@ fun MangaWebPage(
                 view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
                 view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
                 view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+
+                if (GlobalData.isDarkMode.value) {
+                    view?.evaluateJavascript(
+                        PageJsScripts.DARK_MODE_SET_JS.replace("%s", "true"), null
+                    )
+                }
 
                 if (isLoading) {
                     timeoutJob?.cancel()

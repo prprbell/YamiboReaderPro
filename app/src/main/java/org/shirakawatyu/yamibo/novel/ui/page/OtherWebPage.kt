@@ -82,6 +82,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
+import kotlin.text.Charsets
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
@@ -118,7 +119,8 @@ fun OtherWebPage(
     navController: NavController,
     webChromeClient: WebChromeClient
 ) {
-    SetStatusBarColor(YamiboColors.primary)
+    val statusColor = if (GlobalData.isDarkMode.value) androidx.compose.ui.graphics.Color(0xFF1a1a1a) else YamiboColors.primary
+    SetStatusBarColor(statusColor)
     val finalUrl = remember(url) {
         if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
     }
@@ -256,6 +258,14 @@ fun OtherWebPage(
         }
     }
 
+    LaunchedEffect(Unit) {
+        bottomNavBarVM.darkModeEvent.collect {
+            val enable = GlobalData.isDarkMode.value
+            val js = PageJsScripts.DARK_MODE_SET_JS.replace("%s", if (enable) "true" else "false")
+            otherWebView.evaluateJavascript(js, null)
+        }
+    }
+
     ActivityWebViewLifecycleObserver(otherWebView)
 
     LaunchedEffect(isFullscreenState.value, autoOpenMangaMode) {
@@ -357,6 +367,22 @@ fun OtherWebPage(
                 val urlStr = request?.url?.toString() ?: ""
                 val accept = request?.requestHeaders?.get("Accept") ?: ""
 
+                if (request?.isForMainFrame == true &&
+                    request.method == "GET" &&
+                    GlobalData.isDarkMode.value &&
+                    urlStr.contains("bbs.yamibo.com")
+                ) {
+                    val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
+                    if (html != null) {
+                        val modified = PageJsScripts.injectDarkModeCssIntoHtml(html)
+                        return WebResourceResponse(
+                            "text/html",
+                            "utf-8",
+                            modified.byteInputStream(Charsets.UTF_8)
+                        )
+                    }
+                }
+
                 val isImage = accept.contains("image/", ignoreCase = true) ||
                         urlStr.contains(
                             Regex(
@@ -449,6 +475,12 @@ fun OtherWebPage(
                 view?.evaluateJavascript(PageJsScripts.OTHER_WEB_INIT_PSWP_JS, null)
                 view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
                 view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+
+                if (GlobalData.isDarkMode.value) {
+                    view?.evaluateJavascript(
+                        PageJsScripts.DARK_MODE_SET_JS.replace("%s", "true"), null
+                    )
+                }
 
                 if (isLoading) {
                     timeoutJob?.cancel()
