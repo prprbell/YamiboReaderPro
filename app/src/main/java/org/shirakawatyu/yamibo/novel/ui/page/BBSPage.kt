@@ -214,6 +214,23 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         val urlStr = request?.url?.toString() ?: ""
         val accept = request?.requestHeaders?.get("Accept") ?: ""
 
+        // 夜间模式：拦截主框架 HTML，在渲染前注入暗色 CSS，消除白闪
+        if (request?.isForMainFrame == true &&
+            request.method == "GET" &&
+            GlobalData.isDarkMode.value &&
+            urlStr.contains("bbs.yamibo.com")
+        ) {
+            val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
+            if (html != null) {
+                val modified = PageJsScripts.injectDarkModeCssIntoHtml(html)
+                return WebResourceResponse(
+                    "text/html",
+                    "utf-8",
+                    modified.byteInputStream(Charsets.UTF_8)
+                )
+            }
+        }
+
         val isImage = accept.contains("image/", ignoreCase = true) ||
                 urlStr.contains(IMAGE_EXT_REGEX) ||
                 urlStr.contains("attachment")
@@ -258,6 +275,12 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
         view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
         view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+
+        if (GlobalData.isDarkMode.value) {
+            view?.evaluateJavascript(
+                PageJsScripts.DARK_MODE_SET_JS.replace("%s", "true"), null
+            )
+        }
 
         BBSPageState.pageTitle = view?.title ?: ""
         if (!BBSPageState.isErrorState) {
@@ -617,6 +640,26 @@ fun BBSPage(
                 } else {
                     startLoading(mobileIndexUrl)
                 }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        bottomNavBarVM.goHomeEvent.collect { route ->
+            if (route == "BBSPage") {
+                startLoading(mobileIndexUrl)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        bottomNavBarVM.darkModeEvent.collect { route ->
+            val enable = GlobalData.isDarkMode.value
+            val js = PageJsScripts.DARK_MODE_SET_JS.replace("%s", if (enable) "true" else "false")
+            if (route == "BBSPage") {
+                webView.evaluateJavascript(js, null)
+            } else if (route == "MinePage") {
+                webView.evaluateJavascript(js, null)
             }
         }
     }

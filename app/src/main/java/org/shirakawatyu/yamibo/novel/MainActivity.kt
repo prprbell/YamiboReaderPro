@@ -318,6 +318,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                 }
                 SettingsUtil.getDnsOptimizationMode { GlobalData.dnsOptimizationMode.value = it }
                 SettingsUtil.getCustomDnsUrl { GlobalData.customDnsUrl.value = it }
+                SettingsUtil.getDarkMode { GlobalData.isDarkMode.value = it }
                 GlobalData.isAppInitialized = true
             }
         }

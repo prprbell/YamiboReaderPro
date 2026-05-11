@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.state.BottomNavBarState
+import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 
 class BottomNavBarVM : ViewModel() {
     private val _uiState = MutableStateFlow(BottomNavBarState())
@@ -28,10 +30,29 @@ class BottomNavBarVM : ViewModel() {
         private set
     private val _refreshEvent = MutableSharedFlow<String>()
     val refreshEvent = _refreshEvent.asSharedFlow()
+    private val _goHomeEvent = MutableSharedFlow<String>()
+    val goHomeEvent = _goHomeEvent.asSharedFlow()
+    private val _darkModeEvent = MutableSharedFlow<String>()
+    val darkModeEvent = _darkModeEvent.asSharedFlow()
 
     fun triggerRefresh(route: String) {
         viewModelScope.launch {
             _refreshEvent.emit(route)
+        }
+    }
+
+    fun triggerGoHome(route: String) {
+        viewModelScope.launch {
+            _goHomeEvent.emit(route)
+        }
+    }
+
+    fun triggerDarkMode(route: String) {
+        viewModelScope.launch {
+            val newValue = !GlobalData.isDarkMode.value
+            GlobalData.isDarkMode.value = newValue
+            SettingsUtil.saveDarkMode(newValue)
+            _darkModeEvent.emit(route)
         }
     }
 

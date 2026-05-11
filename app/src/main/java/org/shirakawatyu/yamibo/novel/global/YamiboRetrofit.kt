@@ -362,6 +362,26 @@ class YamiboRetrofit {
                 false
             }
         }
+        fun proxyHtmlForDarkMode(request: android.webkit.WebResourceRequest): String? {
+            val urlStr = request.url.toString()
+            if (request.method != "GET" || !urlStr.startsWith("https://bbs.yamibo.com")) return null
+            return try {
+                val reqBuilder = okhttp3.Request.Builder().url(urlStr)
+                request.requestHeaders?.forEach { (k, v) -> reqBuilder.header(k, v) }
+                reqBuilder.header("Referer", "https://bbs.yamibo.com/")
+                val response = okHttpClient.newCall(reqBuilder.build()).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    response.body?.close()
+                    body
+                } else {
+                    null
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
         fun getPcUserAgent(): String = pcUaList.random()
     }
 }

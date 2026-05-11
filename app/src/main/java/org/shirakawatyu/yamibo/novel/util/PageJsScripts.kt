@@ -916,6 +916,203 @@ object PageJsScripts {
             window.stop();
         })();
     """.trimIndent()
+    private val DARK_MODE_CSS_RULES = listOf(
+        "/* === CSS 变量覆盖 === */",
+        "body {",
+        "--dz-BG-body: #121212 !important;",
+        "--dz-BG-0: #1e1e1e !important;",
+        "--dz-BG-5: #252525 !important;",
+        "--dz-BG-6: #444444 !important;",
+        "--dz-FC-fff: #dddddd !important;",
+        "--dz-FC-333: #cccccc !important;",
+        "--dz-FC-666: #aaaaaa !important;",
+        "--dz-FC-999: #888888 !important;",
+        "--dz-FC-aaa: #777777 !important;",
+        "--dz-BOR-ed: #333333 !important;",
+        "}",
+        "/* === 页面根背景 === */",
+        "html, body { background: #121212 !important; }",
+        "/* === 主容器 === */",
+        ".wp, #wp, .content, .main, .wrapper { background: #121212 !important; }",
+        "/* === 顶部导航栏 === */",
+        ".header { background: #1a1a1a !important; border-color: #333 !important; }",
+        ".header, .header h2, .header h2 a, .header a { color: #dddddd !important; }",
+        "/* === 导航标签 (只看他/倒序/阅读模式等) === */",
+        ".sq_nav, .thread_nav, .sq_nav ul, .thread_nav ul { background: #1a1a1a !important; }",
+        ".sq_nav a, .thread_nav a { color: #aaaaaa !important; }",
+        ".sq_nav .a a, .thread_nav .a a, .sq_nav a.active, .thread_nav a.active { color: #fff !important; background: #333 !important; }",
+        "/* === 版块导航 .z (分区/标签) === */",
+        ".z, .vertical_tab { background: #1a1a1a !important; }",
+        ".z a, .vertical_tab a { color: #aaaaaa !important; }",
+        ".z .a, .vertical_tab .a, .z a.active, .vertical_tab a.active { color: #ffffff !important; background: #333 !important; }",
+        "/* === 论坛列表容器 === */",
+        ".forumlist, .forumlist > div, .forumlist .subforumshow, .forumlist .mlist1 { background: #121212 !important; }",
+        "/* === 分区标题栏 === */",
+        ".subforumshow { background: #1a1a1a !important; border-color: #333 !important; }",
+        ".subforumshow h2 a { color: #cccccc !important; }",
+        ".subforumshow i { color: #888888 !important; }",
+        "/* === 版块列表项 (含内部 a 标签背景覆盖) === */",
+        ".mlist1, .mlist1 ul, .mlist1 li, .mlist1 li a, .mlist1 li span { background: #1e1e1e !important; }",
+        ".mlist1 li { border-color: #2a2a2a !important; }",
+        ".mlist1 .mtit { color: #dddddd !important; }",
+        ".mlist1 .mtxt { color: #999999 !important; }",
+        ".mlist1 .mnum { color: #777777 !important; }",
+        "/* === 通用板块容器 (Discuz 模板) === */",
+        ".bm, .bm_c, .bm_h { background: #1e1e1e !important; border-color: #333 !important; }",
+        ".bm_h, .bm_h h2, .bm_h a { color: #cccccc !important; }",
+        "/* === 帖子列表 === */",
+        ".tl_bm, .tl_bm ul, .tl_bm li, .tl_bm li a, .threadlist, .threadlist li, .threadlist li a { background: #1e1e1e !important; }",
+        ".tl_bm li, .threadlist li { border-color: #2a2a2a !important; }",
+        ".tl_bm a, .threadlist a { color: #cccccc !important; }",
+        "/* === 帖子详情 - 标题 === */",
+        ".view_tit, .view_tit h1, .view_tit a, .view_tit em { background: #1e1e1e !important; color: #dddddd !important; }",
+        "/* === 帖子详情 - 楼主信息栏 === */",
+        ".pls, .pls div, .pls a { background: #1a1a1a !important; }",
+        ".pls, .pls a, .pls em, .pls span { color: #cccccc !important; }",
+        "/* === 帖子详情 - 帖子内容容器 === */",
+        ".plc, .plm, .plc div, .plm div { background: #1e1e1e !important; }",
+        "/* === 帖子详情 - 作者行 === */",
+        ".authi, .authi em, .authi a, .authi span { color: #aaaaaa !important; }",
+        "/* === 帖子详情 - 文本颜色 === */",
+        ".message, .postmessage, .t_f, .t_msgfont, .message div, .t_f div { color: #cccccc !important; }",
+        "/* === 帖子中的链接 === */",
+        ".message a, .postmessage a, .t_f a, .t_msgfont a { color: #7eb8da !important; }",
+        "/* === 分页导航 === */",
+        ".pgs, .pgs a, .pg, .pg a { background: #252525 !important; color: #cccccc !important; border-color: #444 !important; }",
+        ".pgs .pg strong, .pg strong { background: #444 !important; color: #fff !important; }",
+        "/* === Discuz 颜色工具类 === */",
+        ".xi1 { color: #dddddd !important; }",
+        ".xi2 { color: #cccccc !important; }",
+        ".xg1, .xg1 a { color: #aaaaaa !important; }",
+        ".xg2, .xg2 a { color: #999999 !important; }",
+        "/* === 帖子元信息 === */",
+        ".num, .views, .replies { color: #888888 !important; }",
+        ".ts, .time { color: #777777 !important; }",
+        ".pipe { color: #444 !important; }",
+        "/* === 锁/图章/图标 === */",
+        ".lock, .closed, .icn, .attach, .tattl { color: #888888 !important; }",
+        "/* === 弹窗/对话框 === */",
+        ".dialog, .ui-dialog, .bootstrap-dialog, .pop, .p_pop, .p_pop div { background: #1e1e1e !important; color: #cccccc !important; }",
+        ".dialog a, .ui-dialog a, .p_pop a { color: #cccccc !important; }",
+        "/* === 底部回复栏 === */",
+        ".foot_reply, .f_c, .foot, #f_c { background: #1e1e1e !important; border-color: #333 !important; }",
+        ".foot_reply a, .f_c a, .foot a { color: #cccccc !important; }",
+        ".viewt-reply, .viewt-reply a { background: #333 !important; color: #fff !important; }",
+        ".fico-launch, .dm-star, .fico-reply, .fico-favorite, .fico-share, .fico { color: #cccccc !important; }",
+        "/* === 个人中心导航 === */",
+        ".my, .my a, .my i, .my span { color: #cccccc !important; }",
+        ".mz, .mz a, .mz i, .mz span { color: #aaaaaa !important; }",
+        "/* === 个人中心功能列表 (含内部 a 标签背景覆盖) === */",
+        ".myinfo_list_ico, .myinfo_list_ico ul { background: #1e1e1e !important; }",
+        ".myinfo_list_ico li, .myinfo_list_ico li a { background: #1a1a1a !important; }",
+        ".myinfo_list_ico li { border-color: #2a2a2a !important; }",
+        ".myinfo_list_ico li a { color: #cccccc !important; }",
+        ".myinfo_list_ico li i { color: #888888 !important; }",
+        "/* === 个人中心其他区块 === */",
+        ".myinfo, .myinfo_menu, .profile_section, .profile_section a { background: #1e1e1e !important; }",
+        ".myinfo a, .myinfo_menu a { color: #cccccc !important; }",
+        ".myinfo_list, .myinfo_list li { border-color: #2a2a2a !important; }",
+        ".myinfo_list li span { color: #aaaaaa !important; }",
+        ".myinfo_list b { color: #cccccc !important; }",
+        ".mtag, .profile_tag { color: #888888 !important; }",
+        "/* === 表格 === */",
+        "table, tbody, td, th, .t_table, .t_table td, .t_table th { background: #1e1e1e !important; color: #cccccc !important; border-color: #2a2a2a !important; }",
+        "/* === 页脚 === */",
+        ".footer, .footer a, #footer, #footer a { color: #888888 !important; }",
+        "/* === input/select 控件 === */",
+        "input, select, textarea { background: #2a2a2a !important; color: #cccccc !important; border-color: #444 !important; }",
+        "/* === 引用/代码块 === */",
+        "blockquote, .quote, .blockcode { background: #252525 !important; border-color: #444 !important; color: #aaaaaa !important; }",
+        "/* === 分割线 === */",
+        "hr, .line, .partition { border-color: #333 !important; }",
+        "/* === 通知/提示条 === */",
+        ".notice, .tip, .alert, .warning, .tips { background: #252525 !important; color: #cccccc !important; border-color: #444 !important; }",
+        "/* === 头像边框适配 === */",
+        ".avatar img, .avatar, .my_avatar img { border-color: #333 !important; }",
+        "/* === 按钮通用 === */",
+        ".btn, .button, button, .pn, .pnc { background: #333 !important; color: #cccccc !important; border-color: #555 !important; }",
+        "/* === 快速回复框 === */",
+        "#postform, #fastpostform, .area textarea { background: #1e1e1e !important; color: #cccccc !important; border-color: #444 !important; }",
+        "/* === 点评/评分标题 === */",
+        ".psth { background: #1a1a1a !important; color: #cccccc !important; border-color: #333 !important; }",
+        ".psth .icon_ring { color: #888888 !important; }",
+        "/* === 目录/章节折叠列表 === */",
+        ".showcollapse_box { background: #1e1e1e !important; border-color: #2a2a2a !important; }",
+        ".showcollapse_title { background: #252525 !important; color: #cccccc !important; border-color: #333 !important; }",
+        ".showcollapse_content { background: #1e1e1e !important; color: #cccccc !important; }",
+        ".showcollapse_content a { color: #7eb8da !important; }",
+        ".showcollapse_gather { color: #888888 !important; }",
+        "/* === 帖子内联高亮 (覆盖 inline style) === */",
+        "font[style*=\"background-color\"] { background-color: #3a3620 !important; }",
+        "font[color] { color: #cccccc !important; }",
+        "font[color=\"#ff0000\"], font[color=\"red\"] { color: #ff6666 !important; }",
+        "/* === 帖子底部操作栏 (评分/点评)  & 列表项底部信息 === */",
+        ".threadlist_foot { background: #1a1a1a !important; border-color: #333 !important; }",
+        ".threadlist_foot a, .threadlist_foot i, .threadlist_foot em { color: #888888 !important; }",
+        ".threadlist_foot .dm-heart, .threadlist_foot .dm-chat-s, .dm-heart, .dm-chat-s, .dm-eye-fill, .dm-chat-s-fill { color: #888888 !important; }",
+        "/* === 帖子列表项 - 顶部 (头像+用户名) === */",
+        ".threadlist_top, .threadlist_top a, .threadlist_top .mimg, .threadlist_top .muser { background: #1a1a1a !important; }",
+        ".threadlist_top .mmc { color: #cccccc !important; }",
+        ".threadlist_top .mtime { color: #777777 !important; }",
+        "/* === 帖子列表项 - 标题&摘要 === */",
+        ".threadlist_tit, .threadlist_tit em, .threadlist_tit a { background: #1a1a1a !important; color: #dddddd !important; }",
+        ".threadlist_mes, .threadlist_mes a { background: #1a1a1a !important; color: #999999 !important; }",
+        "/* === 帖子间分隔 === */",
+        ".discuz_x { background: #1a1a1a !important; border-color: #333 !important; }",
+        "/* === 倒序/只看楼主 栏 === */",
+        ".txtlist, .txtlist .mtit { background: #1a1a1a !important; color: #cccccc !important; border-color: #333 !important; }",
+        ".txtlist .ytxt, .txtlist a { color: #aaaaaa !important; }",
+        "/* === 帖子元信息行 === */",
+        ".mtime, .mtime span, .mtime em, .mtime i { color: #888888 !important; }",
+        ".y, .y span, .y em, .y i { color: #888888 !important; }",
+        ".pstatus, .pstatus font { color: #888888 !important; }",
+        "/* === 浮动菜单 (回到顶部) === */",
+        ".float-menu, .float-menu-item { background: #333 !important; color: #cccccc !important; }",
+        ".float-menu-item svg { fill: #cccccc !important; color: #cccccc !important; }",
+        ".scrolltop { background: #333 !important; }",
+        "#mask { background: rgba(0,0,0,0.7) !important; }",
+        "/* === 通用文本覆盖 === */",
+        "strong, b, .strong { color: #dddddd !important; }",
+        "sup, sub { color: #aaaaaa !important; }",
+        "em { color: #cccccc !important; }",
+        ".display, .pi { background: #1e1e1e !important; }",
+        "/* === 发帖时间/楼层号 === */",
+        ".authi .mtit, .authi .mtime { color: #888888 !important; }"
+    ).joinToString("\n")
+
+    val DARK_MODE_SET_JS = """
+        (function() {
+            var styleId = 'yamibo-dark-mode';
+            var existing = document.getElementById(styleId);
+            var enable = %s;
+            if (!enable) {
+                if (existing) existing.remove();
+                return;
+            }
+            // 始终先移除再重建，确保它是 DOM 中最后加载的样式，不会被 PJAX 新 CSS 覆盖
+            if (existing) existing.remove();
+            var style = document.createElement('style');
+            style.id = styleId;
+            style.innerHTML = [
+%STYLE%
+            ].join('\n');
+            (document.body || document.documentElement).appendChild(style);
+        })();
+    """.trimIndent().replace("%STYLE%",
+        DARK_MODE_CSS_RULES.lines().joinToString(",\n") { "                '$it'" }
+    )
+
+    fun injectDarkModeCssIntoHtml(html: String): String {
+        val styleTag = "<style id=\"yamibo-dark-mode\">\n$DARK_MODE_CSS_RULES\n</style>"
+        return when {
+            html.contains("</head>") -> html.replace("</head>", "$styleTag</head>")
+            html.contains("<head>") -> html.replace("<head>", "<head>$styleTag")
+            html.contains("<html>") -> html.replace("<html>", "<html><head>$styleTag</head>")
+            html.contains("<body") -> html.replace("<body", "$styleTag<body")
+            else -> "$styleTag$html"
+        }
+    }
+
     val RELOAD_BROKEN_IMAGES_JS = """
         (function(){
             var imgs = document.querySelectorAll('img');

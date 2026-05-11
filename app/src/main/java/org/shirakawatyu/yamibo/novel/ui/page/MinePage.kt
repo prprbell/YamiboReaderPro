@@ -332,6 +332,26 @@ fun MinePage(
         }
     }
 
+    LaunchedEffect(Unit) {
+        bottomNavBarVM.goHomeEvent.collect { route ->
+            if (route == "MinePage") {
+                startLoading(mineWebView, mineUrl)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        bottomNavBarVM.darkModeEvent.collect { route ->
+            val enable = GlobalData.isDarkMode.value
+            val js = PageJsScripts.DARK_MODE_SET_JS.replace("%s", if (enable) "true" else "false")
+            if (route == "MinePage") {
+                mineWebView.evaluateJavascript(js, null)
+            } else if (route == "BBSPage") {
+                mineWebView.evaluateJavascript(js, null)
+            }
+        }
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -556,6 +576,23 @@ fun MinePage(
                 val urlStr = request?.url?.toString() ?: ""
                 val accept = request?.requestHeaders?.get("Accept") ?: ""
 
+                // 夜间模式：拦截主框架 HTML，在渲染前注入暗色 CSS，消除白闪
+                if (request?.isForMainFrame == true &&
+                    request.method == "GET" &&
+                    GlobalData.isDarkMode.value &&
+                    urlStr.contains("bbs.yamibo.com")
+                ) {
+                    val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
+                    if (html != null) {
+                        val modified = PageJsScripts.injectDarkModeCssIntoHtml(html)
+                        return WebResourceResponse(
+                            "text/html",
+                            "utf-8",
+                            modified.byteInputStream(Charsets.UTF_8)
+                        )
+                    }
+                }
+
                 val isImage = accept.contains("image/", ignoreCase = true) ||
                         urlStr.contains(
                             Regex(
@@ -630,6 +667,12 @@ fun MinePage(
                 view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
                 view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
                 view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+
+                if (GlobalData.isDarkMode.value) {
+                    view?.evaluateJavascript(
+                        PageJsScripts.DARK_MODE_SET_JS.replace("%s", "true"), null
+                    )
+                }
 
                 val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1"))
                 val toggleHeaderJs = """
