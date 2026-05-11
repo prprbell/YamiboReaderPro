@@ -81,6 +81,7 @@ import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MinePageVM
@@ -899,7 +900,7 @@ fun MinePage(
     }
     val lockedStatusHeight = lockedStatusHeightValue.dp
     val isFullscreen = isFullscreenState.value || autoOpenMangaMode
-    val topSpacerColor = if (isFullscreen) Color.Black else YamiboColors.primary
+    val topSpacerColor = if (isFullscreen) Color.Black else darkModeColor(YamiboColors.primary, YamiboColors.onSurfaceDark)
     val bottomPad = if (isFullscreen) lockedNavHeight else (lockedNavHeight + 50.dp)
 
     Box(
