@@ -10,7 +10,8 @@
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
       "Bash(git *)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(gh release *)"
     ]
   }
 }
