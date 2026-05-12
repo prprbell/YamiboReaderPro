@@ -1034,7 +1034,7 @@ fun MinePage(
             if (isLoading && !isPullRefreshing) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
-                    color = YamiboColors.secondary
+                    color = darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark)
                 )
             }
 

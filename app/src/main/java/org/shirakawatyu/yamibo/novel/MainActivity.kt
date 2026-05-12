@@ -107,6 +107,7 @@ import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.SignTrigger
+import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
 import java.net.URLDecoder
 import kotlin.coroutines.resume
@@ -646,7 +647,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        CircularProgressIndicator(color = YamiboColors.secondary)
+                                        CircularProgressIndicator(color = darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark))
                                     }
                                 }
                             }
@@ -904,7 +905,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                         contentAlignment = Alignment.Center
                     ) {
                         if (!isRestoring) {
-                            CircularProgressIndicator(color = YamiboColors.secondary)
+                            CircularProgressIndicator(color = darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark))
                         }
                     }
                 }

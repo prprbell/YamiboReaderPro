@@ -714,7 +714,7 @@ fun OtherWebPage(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = YamiboColors.secondary)
+                    CircularProgressIndicator(color = darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark))
                 }
             }
             if (autoOpenMangaMode) {

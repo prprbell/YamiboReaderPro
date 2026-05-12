@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel.ui.widget
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -46,18 +47,17 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.navigation.NavController
@@ -71,13 +71,13 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.util.HapticUtil
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
+import kotlin.math.abs
 import kotlin.math.hypot
-import kotlin.math.roundToInt
 
 /** 操作槽位 — 决定按钮在导航栏上方的水平位置与垂直偏移 */
 enum class ActionSlot(val labelX: Float, val labelYOffset: Float) {
     Left(-70f, 30f),
-    Center(0f, -20f),   // 明显高于左右，形成弧形
+    Center(0f, -20f),
     Right(70f, 30f)
 }
 
@@ -90,7 +90,7 @@ data class QuickAction(
     val icon: ImageVector,
     val description: String,
     val kind: ActionKind,
-    val iconResId: Int? = null   // 非 null 时优先使用此资源，支持夜间模式动态切换图标
+    val iconResId: Int? = null
 )
 
 /** 根据当前路由和夜间模式状态返回该页面允许的快捷操作列表 */
@@ -127,12 +127,9 @@ fun BottomNavBar(
     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
 
     val animatedProgress = remember { Animatable(0f) }
-
-    // ==== 当前路由的快捷操作配置 ====
     val isDarkMode by GlobalData.isDarkMode.collectAsState()
     val quickActions = remember(currentRoute, isDarkMode) { getQuickActions(currentRoute, isDarkMode) }
 
-    // ==== 手势 / 动画状态 ====
     var showActionSheet by remember { mutableStateOf(false) }
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
@@ -150,12 +147,8 @@ fun BottomNavBar(
     val configuration = LocalConfiguration.current
     val view = LocalView.current
 
-    // 目标位置
     val baseTargetYPx = with(density) { (-100).dp.toPx() }
-    val minDragYPx = with(density) { -30.dp.toPx() }
-    val snapRadiusPx = with(density) { 60.dp.toPx() }
 
-    // 每个 slot 的目标坐标 (px)
     val slotTargetX = remember(density) {
         ActionSlot.entries.associateWith { with(density) { it.labelX.dp.toPx() } }
     }
@@ -163,7 +156,6 @@ fun BottomNavBar(
         ActionSlot.entries.associateWith { baseTargetYPx + with(density) { it.labelYOffset.dp.toPx() } }
     }
 
-    // overlay 原点偏移
     val screenWidthDp = configuration.screenWidthDp.dp
     val tabWidthDp = screenWidthDp / 3
     val originXDp = when (pressedItemIndex) {
@@ -172,7 +164,6 @@ fun BottomNavBar(
         else -> 0.dp
     }
 
-    // 进入时弹簧展开，退出时不参与 (由 AnimatedVisibility 统一处理收回)
     LaunchedEffect(showActionSheet) {
         if (showActionSheet) {
             expansionAnim.snapTo(0f)
@@ -181,10 +172,8 @@ fun BottomNavBar(
                 spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow)
             )
         }
-        // 退出时 expansionAnim 保持在 1f，不做回缩动画，避免残像
     }
 
-    // 方向切换时触发震动反馈
     LaunchedEffect(activeSlot) {
         if (activeSlot != null && activeSlot != lastVibratedSlot && !isExecuting) {
             HapticUtil.performTick(view)
@@ -199,10 +188,7 @@ fun BottomNavBar(
         if (target < animatedProgress.value || target == 0f) {
             animatedProgress.snapTo(target)
         } else {
-            animatedProgress.animateTo(
-                targetValue = target,
-                animationSpec = tween(durationMillis = 250, easing = LinearEasing)
-            )
+            animatedProgress.animateTo(target, tween(250, easing = LinearEasing))
         }
     }
 
@@ -215,9 +201,9 @@ fun BottomNavBar(
                 initialScale = 0.6f,
                 animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow)
             ),
-            exit = fadeOut(spring(dampingRatio = 1f, stiffness = Spring.StiffnessHigh)) + scaleOut(
-                targetScale = 0.6f,
-                animationSpec = spring(dampingRatio = 1f, stiffness = Spring.StiffnessHigh)
+            exit = fadeOut(tween(250, easing = FastOutSlowInEasing)) + scaleOut(
+                targetScale = 0.8f,
+                animationSpec = tween(250, easing = FastOutSlowInEasing)
             ),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -226,31 +212,52 @@ fun BottomNavBar(
         ) {
             val expansionProgress = expansionAnim.value
 
-            // 手指光球的流体追踪 (带磁吸效果)
             val activeTargetX = activeSlot?.let { slotTargetX[it] }
             val activeTargetY = activeSlot?.let { slotTargetY[it] }
+
+            // 算法 1：80% 绝对跟手，最后 20% 平滑延迟吸附
+            var ballTargetX = dragOffsetX
+            var ballTargetY = dragOffsetY
+
+            if (activeTargetX != null && activeTargetY != null) {
+                val dist = hypot(dragOffsetX - activeTargetX, dragOffsetY - activeTargetY)
+                val snapRadius = with(density) { 60.dp.toPx() } // 只有进入圆心 60dp 范围内才开始吸附
+
+                if (dist < snapRadius) {
+                    // 二次缓动函数：越靠近中心，吸附感指数级增强
+                    val w = 1f - (dist / snapRadius)
+                    val snapWeight = w * w
+                    ballTargetX = dragOffsetX + (activeTargetX - dragOffsetX) * snapWeight
+                    ballTargetY = dragOffsetY + (activeTargetY - dragOffsetY) * snapWeight
+                }
+            }
+
             val animFingerX by animateFloatAsState(
-                targetValue = when {
-                    !showActionSheet -> 0f
-                    activeTargetX != null -> activeTargetX
-                    else -> dragOffsetX
-                },
+                targetValue = ballTargetX,
                 animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMedium),
                 label = "fingerX"
             )
             val animFingerY by animateFloatAsState(
-                targetValue = when {
-                    !showActionSheet -> 0f
-                    activeTargetY != null -> activeTargetY
-                    else -> dragOffsetY
-                },
+                targetValue = ballTargetY,
                 animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMedium),
                 label = "fingerY"
             )
 
+            // 视觉判定：检查手指是否在光球应该显示的合理视觉边界内
+            val maxDisplayY = with(density) { -240.dp.toPx() }
+            val sideDisplayBounds = with(density) { 160.dp.toPx() }
+            val isFingerInDisplayBounds = dragOffsetY > maxDisplayY && abs(dragOffsetX) < sideDisplayBounds
+
+            // 控制光球透明度：仅在匹配到有效 Slot 且手指未越出视觉边界时显现
+            val ballAlpha by animateFloatAsState(
+                targetValue = if (showActionSheet && activeSlot != null && !isExecuting && isFingerInDisplayBounds) 1f else 0f,
+                animationSpec = tween(150),
+                label = "ballAlpha"
+            )
+
             Box(modifier = Modifier.fillMaxWidth()) {
 
-                // --------- 为每个配置的 Action 渲染按钮 ---------
+                // --------- 渲染按钮 ---------
                 for (action in quickActions) {
                     val slot = action.slot
                     val targetX = slotTargetX[slot]!!
@@ -276,13 +283,12 @@ fun BottomNavBar(
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .offset {
-                                IntOffset(
-                                    (targetX * expansionProgress).roundToInt(),
-                                    (targetY * expansionProgress).roundToInt()
-                                )
+                            .graphicsLayer {
+                                translationX = targetX * expansionProgress
+                                translationY = targetY * expansionProgress
+                                scaleX = btnScale
+                                scaleY = btnScale
                             }
-                            .scale(btnScale)
                             .size(48.dp)
                             .shadow(
                                 elevation = if (isHighlighted) 12.dp else 3.dp,
@@ -322,47 +328,44 @@ fun BottomNavBar(
                 }
 
                 // --------- 灵动追随光球 ---------
-                if (!isExecuting) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .graphicsLayer {
+                            translationX = animFingerX
+                            translationY = animFingerY
+                            alpha = ballAlpha
+                        }
+                        .size(40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .offset {
-                                IntOffset(
-                                    animFingerX.roundToInt(),
-                                    animFingerY.roundToInt()
-                                )
-                            }
-                            .size(40.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .background(
-                                    Brush.radialGradient(
-                                        colors = listOf(
-                                            darkModeColor(
-                                                YamiboColors.primary.copy(alpha = 0.4f),
-                                                YamiboColors.primaryDark.copy(alpha = 0.4f)
-                                            ),
-                                            Color.Transparent
-                                        )
-                                    ),
-                                    CircleShape
-                                )
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .shadow(6.dp, CircleShape, spotColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark))
-                                .background(darkModeColor(YamiboColors.primary, YamiboColors.primaryDark), CircleShape)
-                        )
-                    }
+                            .size(40.dp)
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        darkModeColor(
+                                            YamiboColors.primary.copy(alpha = 0.4f),
+                                            YamiboColors.primaryDark.copy(alpha = 0.4f)
+                                        ),
+                                        Color.Transparent
+                                    )
+                                ),
+                                CircleShape
+                            )
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .shadow(6.dp, CircleShape, spotColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark))
+                            .background(darkModeColor(YamiboColors.primary, YamiboColors.primaryDark), CircleShape)
+                    )
                 }
             }
         }
 
-        // ================= 底部导航栏 (始终贴底) =================
+        // ================= 底部导航栏 =================
         NavigationBar(
             Modifier
                 .fillMaxWidth()
@@ -393,7 +396,7 @@ fun BottomNavBar(
                                 showActionSheet = true
                                 dragOffsetX = 0f
                                 dragOffsetY = 0f
-                                activeSlot = null
+                                activeSlot = null // 长按初始在导航栏上，属于取消区，光球隐藏
                                 coroutineScope.launch { rotationAnim.snapTo(0f) }
                             },
                             onDrag = { change, dragAmount ->
@@ -402,33 +405,26 @@ fun BottomNavBar(
                                 dragOffsetX += dragAmount.x
                                 dragOffsetY += dragAmount.y
 
-                                if (dragOffsetY > minDragYPx) {
+                                val cancelYThreshold = with(density) { -30.dp.toPx() } // 至少上拉 30dp 才激活
+
+                                // 取消判定：只要手指向下拉回到接近底部导航栏的区域，就立刻取消选中
+                                if (dragOffsetY > cancelYThreshold) {
                                     activeSlot = null
                                     return@detectDragGesturesAfterLongPress
                                 }
 
-                                val sortedSlots = quickActions.map { it.slot }
-                                    .sortedBy { slotTargetX[it]!! }
+                                // 算法 3：非对称人体工学判定区 (超出视觉区域依然保持选中)
+                                // 赋予 Center 一个宽达 90dp (±45dp) 的判定通道，包容拇指圆弧
+                                val centerBoundary = with(density) { 45.dp.toPx() }
 
-                                activeSlot = null
-                                for ((i, slot) in sortedSlots.withIndex()) {
-                                    val tx = slotTargetX[slot]!!
-                                    val ty = slotTargetY[slot]!!
-                                    val leftBound = if (i > 0) {
-                                        (tx + slotTargetX[sortedSlots[i - 1]]!!) / 2f
-                                    } else Float.NEGATIVE_INFINITY
-                                    val rightBound = if (i < sortedSlots.size - 1) {
-                                        (tx + slotTargetX[sortedSlots[i + 1]]!!) / 2f
-                                    } else Float.POSITIVE_INFINITY
-
-                                    if (dragOffsetX in leftBound..rightBound) {
-                                        val dist = hypot(dragOffsetX - tx, dragOffsetY - ty)
-                                        if (dist < snapRadiusPx) {
-                                            activeSlot = slot
-                                        }
-                                        break
-                                    }
+                                val matchedSlot = when {
+                                    dragOffsetX < -centerBoundary -> ActionSlot.Left
+                                    dragOffsetX > centerBoundary -> ActionSlot.Right
+                                    else -> ActionSlot.Center
                                 }
+
+                                // 验证当前页面是否配置了该槽位的快捷操作
+                                activeSlot = if (quickActions.any { it.slot == matchedSlot }) matchedSlot else null
                             },
                             onDragEnd = {
                                 if (isExecuting) return@detectDragGesturesAfterLongPress
@@ -467,8 +463,7 @@ fun BottomNavBar(
 
                                                 delay(300)
                                                 withTimeoutOrNull(8000) {
-                                                    snapshotFlow { webProgress }
-                                                        .first { it >= 100 }
+                                                    snapshotFlow { webProgress }.first { it >= 100 }
                                                 }
 
                                                 isExecuting = false

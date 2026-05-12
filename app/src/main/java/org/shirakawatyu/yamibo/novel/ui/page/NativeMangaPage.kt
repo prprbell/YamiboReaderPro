@@ -125,6 +125,7 @@ import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 import org.shirakawatyu.yamibo.novel.bean.MangaSettings
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
@@ -948,7 +949,7 @@ fun NativeMangaPage(
                                 )
 
                                 if (isImageLoading || (isImageError && errorCount < 3)) {
-                                    CircularProgressIndicator(color = YamiboColors.tertiary)
+                                    CircularProgressIndicator(color = darkModeColor(YamiboColors.tertiary, YamiboColors.tertiaryDark))
                                 }
 
                                 if (isImageError && errorCount >= 3) {

@@ -26,6 +26,7 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.MangaApi
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
+import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
@@ -181,7 +182,7 @@ fun ProbingPage(url: String, navController: NavController) {
         color = MaterialTheme.colorScheme.background
     ) {
         Box(contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = YamiboColors.primary)
+            CircularProgressIndicator(color = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark))
         }
     }
 }

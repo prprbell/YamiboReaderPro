@@ -291,7 +291,7 @@ fun FavoriteItem(
                         Icon(
                             imageVector = if (isExpandedLocally) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                             contentDescription = if (isExpandedLocally) "收起" else "展开",
-                            tint = YamiboColors.primary
+                            tint = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark)
                         )
                     }
                 } else {
