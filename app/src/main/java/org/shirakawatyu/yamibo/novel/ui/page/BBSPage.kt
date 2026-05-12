@@ -292,6 +292,11 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
     override fun onPageFinished(view: WebView?, url: String?) {
         super.onPageFinished(view, url)
+
+        view?.let {
+            forceInjectMangaJs(it)
+        }
+
         val isHomepage =
             url == INDEX_URL || url == BBS_URL || url == BASE_BBS_URL || url == MOBILE_INDEX_URL
         if (isHomepage) {

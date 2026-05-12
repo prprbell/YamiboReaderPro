@@ -11,6 +11,7 @@ import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -319,6 +320,7 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
         setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
         settings.apply {
             javaScriptEnabled = true
+            javaScriptCanOpenWindowsAutomatically = true
             useWideViewPort = true
             loadWithOverviewMode = true
             setSupportZoom(false)
@@ -326,6 +328,9 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
             displayZoomControls = false
             textZoom = 100
             domStorageEnabled = true
+            databaseEnabled = true
+            loadsImagesAutomatically = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         }
         webViewClient = BBSGlobalWebViewClient(context)
         webChromeClient = chromeClient ?: GlobalData.webChromeClient

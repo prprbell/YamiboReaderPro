@@ -6,44 +6,224 @@ object PageJsScripts {
 
     val PJAX_FALLBACK_JS = """
         (function() {
-            if (window.__pjaxFallbackInjected) return;
-            window.__pjaxFallbackInjected = true;
-
+            if (window.__yamiboNavGuardV2) return;
+            window.__yamiboNavGuardV2 = true;
+    
             var pendingTimer = null;
-            var urlBefore = null;
-
-            function isValidNavHref(rawHref) {
-                if (!rawHref) return false;
-                if (/^javascript:/i.test(rawHref)) return false;
-                if (rawHref === '#' || /^#/.test(rawHref)) return false;
-                if (/^(mailto|tel|sms):/i.test(rawHref)) return false;
-                return true;
+            var downPoint = null;
+    
+            function clearPendingTimer() {
+                if (pendingTimer) {
+                    clearTimeout(pendingTimer);
+                    pendingTimer = null;
+                }
             }
-
-            document.addEventListener('click', function(e) {
-                var a = e.target.closest ? e.target.closest('a') : null;
-                if (!a) return;
-
-                if (a.hasAttribute('data-pswp-width')) return;
-
-                var rawHref = a.getAttribute('href');
-                if (!isValidNavHref(rawHref)) return;
-
-                if (a.getAttribute('target') === '_blank') return;
-
-                var targetUrl = a.href;
-                if (targetUrl === window.location.href) return;
-
-                if (pendingTimer) clearTimeout(pendingTimer);
-
-                urlBefore = window.location.href;
+    
+            function closest(el, selector) {
+                while (el && el !== document && el.nodeType === 1) {
+                    if (el.matches && el.matches(selector)) return el;
+                    el = el.parentElement;
+                }
+                return null;
+            }
+    
+            function getPoint(e) {
+                if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0];
+                if (e.touches && e.touches.length > 0) return e.touches[0];
+                return e;
+            }
+    
+            function normalizeUrl(rawUrl) {
+                try {
+                    return new URL(rawUrl, document.baseURI);
+                } catch (err) {
+                    return null;
+                }
+            }
+    
+            function isBadRawHref(rawHref) {
+                if (!rawHref) return true;
+    
+                rawHref = String(rawHref).trim();
+                if (!rawHref) return true;
+    
+                if (/^javascript:/i.test(rawHref)) return true;
+                if (/^(mailto|tel|sms):/i.test(rawHref)) return true;
+                if (rawHref === '#' || rawHref.indexOf('#') === 0) return true;
+    
+                return false;
+            }
+    
+            function isSafeBbsNavigation(a, url) {
+                if (!a || !url) return false;
+    
+                var rawHref = a.getAttribute('href') || '';
+                if (isBadRawHref(rawHref)) return false;
+    
+                var protocol = String(url.protocol || '').toLowerCase();
+                if (protocol !== 'http:' && protocol !== 'https:') return false;
+    
+                // 只兜底百合会论坛内部链接，避免误伤外链。
+                if (url.hostname !== 'bbs.yamibo.com') return false;
+    
+                var target = String(a.getAttribute('target') || '').toLowerCase();
+                if (target && target !== '_self') return false;
+    
+                if (a.hasAttribute('download')) return false;
+    
+                // PhotoSwipe / 图片预览不要兜底。
+                if (a.hasAttribute('data-pswp-width')) return false;
+                if (closest(a, '.pswp')) return false;
+    
+                var hasImg = !!a.querySelector('img');
+    
+                // 带图片的链接很可能是头像、表情、预览图、附件图。
+                // 只有明确是帖子/版块导航时才允许兜底。
+                if (hasImg && !/mod=viewthread|thread-\d+|forum-\d+/i.test(url.href)) {
+                    return false;
+                }
+    
+                var path = String(url.pathname || '').replace(/^\/+/, '');
+                var query = String(url.search || '');
+    
+                // 排除 ajax / 弹层 / 表单动作 / 敏感动作。
+                if (/(\?|&)inajax=1\b/i.test(query)) return false;
+                if (/(\?|&)handlekey=/i.test(query)) return false;
+                if (/(\?|&)formhash=/i.test(query)) return false;
+    
+                if (/(\?|&)action=(reply|edit|newthread|delete|recommend|rate|favorite|logout)/i.test(query)) {
+                    return false;
+                }
+    
+                if (/(\?|&)mod=(post|logging|register|ajax|misc)/i.test(query)) {
+                    return false;
+                }
+    
+                // 纯楼层锚点变化不处理。
+                var currentNoHash = location.href.split('#')[0];
+                var targetNoHash = url.href.split('#')[0];
+                if (currentNoHash === targetNoHash) return false;
+    
+                // Discuz 常见普通导航白名单。
+                if (/^forum\.php/i.test(path)) return true;
+                if (/^home\.php/i.test(path)) return true;
+                if (/^search\.php/i.test(path)) return true;
+                if (/^portal\.php/i.test(path)) return true;
+    
+                if (/^thread-\d+/i.test(path)) return true;
+                if (/^forum-\d+/i.test(path)) return true;
+                if (/^space-\d+/i.test(path)) return true;
+    
+                return false;
+            }
+    
+            function scheduleFallback(a, reason) {
+                var url = normalizeUrl(a && a.href);
+                if (!isSafeBbsNavigation(a, url)) return;
+    
+                var before = location.href;
+                var targetUrl = url.href;
+    
+                if (!targetUrl || targetUrl === before) return;
+    
+                clearPendingTimer();
+    
                 pendingTimer = setTimeout(function() {
                     pendingTimer = null;
-                    if (window.location.href !== urlBefore) return;
-                    if (e.defaultPrevented) return;
-                    window.location.href = targetUrl;
-                }, 500);
+    
+                    // 正常跳转、PJAX pushState、hash 变化都不再兜底。
+                    if (location.href !== before) return;
+    
+                    // 页面没动，认为点击被论坛脚本/PJAX 吃掉了，执行硬跳转。
+                    try {
+                        console.log('[YamiboNavGuard] fallback navigate by ' + reason + ': ' + targetUrl);
+                    } catch (_) {}
+    
+                    try {
+                        location.assign(targetUrl);
+                    } catch (err) {
+                        location.href = targetUrl;
+                    }
+                }, 800);
+            }
+    
+            document.addEventListener('click', function(e) {
+                if (e.button && e.button !== 0) return;
+    
+                var a = closest(e.target, 'a[href]');
+                if (!a) return;
+    
+                scheduleFallback(a, 'click');
             }, true);
+    
+            document.addEventListener('pointerdown', function(e) {
+                var p = getPoint(e);
+                if (!p) return;
+    
+                downPoint = {
+                    x: p.clientX,
+                    y: p.clientY,
+                    t: Date.now()
+                };
+            }, true);
+    
+            document.addEventListener('pointerup', function(e) {
+                if (!downPoint) return;
+    
+                var p = getPoint(e);
+                if (!p) return;
+    
+                var dx = Math.abs(p.clientX - downPoint.x);
+                var dy = Math.abs(p.clientY - downPoint.y);
+                var dt = Date.now() - downPoint.t;
+    
+                downPoint = null;
+    
+                // 排除滚动和长按。
+                if (dx > 16 || dy > 16 || dt > 1000) return;
+    
+                var el = document.elementFromPoint(p.clientX, p.clientY) || e.target;
+                var a = closest(el, 'a[href]');
+                if (!a) return;
+    
+                scheduleFallback(a, 'pointerup');
+            }, true);
+    
+            // 部分老 WebView / 页面脚本可能 pointer 事件不稳定，再补 touch。
+            document.addEventListener('touchstart', function(e) {
+                var p = getPoint(e);
+                if (!p) return;
+    
+                downPoint = {
+                    x: p.clientX,
+                    y: p.clientY,
+                    t: Date.now()
+                };
+            }, true);
+    
+            document.addEventListener('touchend', function(e) {
+                if (!downPoint) return;
+    
+                var p = getPoint(e);
+                if (!p) return;
+    
+                var dx = Math.abs(p.clientX - downPoint.x);
+                var dy = Math.abs(p.clientY - downPoint.y);
+                var dt = Date.now() - downPoint.t;
+    
+                downPoint = null;
+    
+                if (dx > 16 || dy > 16 || dt > 1000) return;
+    
+                var el = document.elementFromPoint(p.clientX, p.clientY) || e.target;
+                var a = closest(el, 'a[href]');
+                if (!a) return;
+    
+                scheduleFallback(a, 'touchend');
+            }, true);
+    
+            window.addEventListener('pagehide', clearPendingTimer, true);
+            window.addEventListener('beforeunload', clearPendingTimer, true);
         })();
     """.trimIndent()
 
@@ -229,23 +409,61 @@ object PageJsScripts {
 
     val THREAD_LIST_CLICK_FIX_JS = """
         (function() {
-            if (window.__threadListClickFixInjected) return;
-            window.__threadListClickFixInjected = true;
-
-            var style = document.createElement('style');
-            style.textContent = 'li.list { cursor: pointer; }';
-            document.head.appendChild(style);
-
+            if (window.__threadListClickFixV2) return;
+            window.__threadListClickFixV2 = true;
+    
+            function closest(el, selector) {
+                while (el && el !== document && el.nodeType === 1) {
+                    if (el.matches && el.matches(selector)) return el;
+                    el = el.parentElement;
+                }
+                return null;
+            }
+    
+            if (!document.getElementById('yamibo-thread-list-click-style')) {
+                var style = document.createElement('style');
+                style.id = 'yamibo-thread-list-click-style';
+                style.textContent = 'li.list { cursor: pointer; -webkit-tap-highlight-color: rgba(0,0,0,0.08); }';
+                document.head.appendChild(style);
+            }
+    
             document.addEventListener('click', function(e) {
-                var li = e.target.closest('li.list');
+                var li = closest(e.target, 'li.list');
                 if (!li) return;
-                if (e.target.closest('a')) return;
-
-                var threadLink = li.querySelector('a[href*="mod=viewthread"]');
-                if (threadLink) {
+    
+                // 点到真实链接时不干预
+                if (closest(e.target, 'a[href]')) return;
+    
+                var threadLink =
+                    li.querySelector('a[href*="mod=viewthread"]') ||
+                    li.querySelector('a[href^="thread-"]');
+    
+                if (!threadLink || !threadLink.href) return;
+    
+                e.preventDefault();
+                e.stopPropagation();
+    
+                var before = location.href;
+    
+                try {
+                    threadLink.dispatchEvent(new MouseEvent('click', {
+                        view: window,
+                        bubbles: true,
+                        cancelable: true
+                    }));
+                } catch (err) {
                     threadLink.click();
                 }
-            });
+    
+                setTimeout(function() {
+                    if (location.href !== before) return;
+                    try {
+                        location.assign(threadLink.href);
+                    } catch (err) {
+                        location.href = threadLink.href;
+                    }
+                }, 220);
+            }, false);
         })();
     """.trimIndent()
 
