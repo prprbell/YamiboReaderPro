@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -76,9 +77,9 @@ import kotlin.math.roundToInt
 
 /** 操作槽位 — 决定按钮在导航栏上方的水平位置与垂直偏移 */
 enum class ActionSlot(val labelX: Float, val labelYOffset: Float) {
-    Left(-70f, 30f),
-    Center(0f, -20f),   // 明显高于左右，形成弧形
-    Right(70f, 30f)
+    Left(-85f, 0f),
+    Center(0f, -20f),
+    Right(85f, 0f)
 }
 
 /** 操作类型 — 决定松手后的执行逻辑 */
@@ -172,7 +173,7 @@ fun BottomNavBar(
         else -> 0.dp
     }
 
-    // 进入时弹簧展开，退出时不参与 (由 AnimatedVisibility 统一处理收回)
+    // 展开和收回动作
     LaunchedEffect(showActionSheet) {
         if (showActionSheet) {
             expansionAnim.snapTo(0f)
@@ -180,8 +181,13 @@ fun BottomNavBar(
                 1f,
                 spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow)
             )
+        } else {
+            val stiffness = if (isExecuting) 100f else 280f
+            expansionAnim.animateTo(
+                0f,
+                spring(dampingRatio = 1f, stiffness = stiffness)
+            )
         }
-        // 退出时 expansionAnim 保持在 1f，不做回缩动画，避免残像
     }
 
     // 方向切换时触发震动反馈
@@ -210,15 +216,14 @@ fun BottomNavBar(
 
         // ================= 快捷操作浮层 =================
         AnimatedVisibility(
-            visible = showActionSheet || isExecuting,
+            visible = showActionSheet,
             enter = fadeIn(tween(150)) + scaleIn(
                 initialScale = 0.6f,
                 animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow)
             ),
-            exit = fadeOut(spring(dampingRatio = 1f, stiffness = Spring.StiffnessHigh)) + scaleOut(
-                targetScale = 0.6f,
-                animationSpec = spring(dampingRatio = 1f, stiffness = Spring.StiffnessHigh)
-            ),
+            // 【核心修复2】强制延迟外层容器的消失时间 (delayMillis = 450)
+            // 这给了内部图标充足的 450ms 时间，让它们不受外层影响、纯粹地靠物理弹簧往中间聚拢并缩放消失。解决了“原地消失”问题。
+            exit = fadeOut(tween(durationMillis = 150, delayMillis = 450)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .offset(x = originXDp, y = (-25).dp)
@@ -259,6 +264,8 @@ fun BottomNavBar(
                     val isThisExecuting = isExecuting && executedSlot == slot
                     val isHighlighted = isThisActive || isThisExecuting
 
+                    val executeExitProgress = expansionProgress.coerceIn(0f, 1f)
+
                     val btnScale by animateFloatAsState(
                         targetValue = if (isHighlighted) 1.2f else 1f,
                         animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium),
@@ -282,7 +289,9 @@ fun BottomNavBar(
                                     (targetY * expansionProgress).roundToInt()
                                 )
                             }
-                            .scale(btnScale)
+                            // 叠加绑定进度，让它们跟随路程同步绝对消散
+                            .scale(btnScale * executeExitProgress)
+                            .alpha(executeExitProgress)
                             .size(48.dp)
                             .shadow(
                                 elevation = if (isHighlighted) 12.dp else 3.dp,
@@ -323,6 +332,7 @@ fun BottomNavBar(
 
                 // --------- 灵动追随光球 ---------
                 if (!isExecuting) {
+                    val executeExitProgress = expansionProgress.coerceIn(0f, 1f)
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -332,6 +342,9 @@ fun BottomNavBar(
                                     animFingerY.roundToInt()
                                 )
                             }
+                            // 【核心修复3】让未选中状态下的中心光球也能跟随退回动画同步缩小消失，对齐逻辑
+                            .scale(executeExitProgress)
+                            .alpha(executeExitProgress)
                             .size(40.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -444,12 +457,14 @@ fun BottomNavBar(
                                         ActionKind.Home -> {
                                             currentRoute?.let { navBarVM.triggerGoHome(it) }
                                             coroutineScope.launch {
-                                                delay(400)
-                                                showActionSheet = false
-                                                delay(250)
+                                                delay(150) // 黄金停顿：让球体完成放大弹簧动画
+                                                showActionSheet = false // 触发回缩和柔和退场
+                                                delay(450) // 等待回缩动画完全播完
                                                 isExecuting = false
                                                 executedSlot = null
                                                 activeSlot = null
+                                                dragOffsetX = 0f
+                                                dragOffsetY = 0f
                                             }
                                         }
 
@@ -457,54 +472,59 @@ fun BottomNavBar(
                                             currentRoute?.let { navBarVM.triggerRefresh(it) }
                                             coroutineScope.launch {
                                                 val spinJob = launch {
-                                                    while (isExecuting) {
-                                                        rotationAnim.animateTo(
-                                                            targetValue = rotationAnim.value + 360f,
-                                                            animationSpec = tween(800, easing = LinearEasing)
-                                                        )
-                                                    }
+                                                    rotationAnim.animateTo(
+                                                        targetValue = rotationAnim.value + 360f,
+                                                        animationSpec = tween(600, easing = LinearEasing)
+                                                    )
                                                 }
+                                                delay(150) // 转动一小段圆弧，作为视觉确认
+                                                showActionSheet = false
 
-                                                delay(300)
-                                                withTimeoutOrNull(8000) {
-                                                    snapshotFlow { webProgress }
-                                                        .first { it >= 100 }
-                                                }
-
+                                                delay(450)
                                                 isExecuting = false
                                                 executedSlot = null
                                                 spinJob.cancel()
-                                                showActionSheet = false
-                                                delay(250)
                                                 rotationAnim.snapTo(0f)
                                                 activeSlot = null
+                                                dragOffsetX = 0f
+                                                dragOffsetY = 0f
                                             }
                                         }
 
                                         ActionKind.DarkMode -> {
                                             currentRoute?.let { navBarVM.triggerDarkMode(it) }
                                             coroutineScope.launch {
-                                                delay(400)
+                                                delay(150)
                                                 showActionSheet = false
-                                                delay(250)
+                                                delay(450)
                                                 isExecuting = false
                                                 executedSlot = null
                                                 activeSlot = null
+                                                dragOffsetX = 0f
+                                                dragOffsetY = 0f
                                             }
                                         }
                                     }
                                 } else {
+                                    // 未选任何功能时的取消逻辑
                                     showActionSheet = false
+                                    coroutineScope.launch {
+                                        delay(400) // 等待图标优雅且同步地收缩完再归零状态
+                                        activeSlot = null
+                                        dragOffsetX = 0f
+                                        dragOffsetY = 0f
+                                    }
                                 }
-                                dragOffsetX = 0f
-                                dragOffsetY = 0f
                             },
                             onDragCancel = {
                                 if (isExecuting) return@detectDragGesturesAfterLongPress
                                 showActionSheet = false
-                                activeSlot = null
-                                dragOffsetX = 0f
-                                dragOffsetY = 0f
+                                coroutineScope.launch {
+                                    delay(400) // 同样等待退场播完再重置光球状态，防割裂
+                                    activeSlot = null
+                                    dragOffsetX = 0f
+                                    dragOffsetY = 0f
+                                }
                             }
                         )
                     }
