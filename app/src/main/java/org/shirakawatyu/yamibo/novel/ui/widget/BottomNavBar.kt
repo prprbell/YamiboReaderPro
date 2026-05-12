@@ -56,6 +56,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -64,6 +65,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -87,15 +89,22 @@ data class QuickAction(
     val slot: ActionSlot,
     val icon: ImageVector,
     val description: String,
-    val kind: ActionKind
+    val kind: ActionKind,
+    val iconResId: Int? = null   // 非 null 时优先使用此资源，支持夜间模式动态切换图标
 )
 
-/** 根据当前路由返回该页面允许的快捷操作列表 */
-private fun getQuickActions(route: String?): List<QuickAction> {
+/** 根据当前路由和夜间模式状态返回该页面允许的快捷操作列表 */
+private fun getQuickActions(route: String?, isDarkMode: Boolean): List<QuickAction> {
     return when (route) {
         "BBSPage" -> listOf(
             QuickAction(ActionSlot.Left, Icons.Default.Home, "返回首页", ActionKind.Home),
-            QuickAction(ActionSlot.Center, Icons.Default.Settings, "夜间模式", ActionKind.DarkMode),
+            QuickAction(
+                ActionSlot.Center,
+                Icons.Default.Settings,
+                "夜间模式",
+                ActionKind.DarkMode,
+                iconResId = if (isDarkMode) R.drawable.ic_sun else R.drawable.ic_moon
+            ),
             QuickAction(ActionSlot.Right, Icons.Default.Refresh, "刷新", ActionKind.Refresh)
         )
         "MinePage" -> listOf(
@@ -120,7 +129,8 @@ fun BottomNavBar(
     val animatedProgress = remember { Animatable(0f) }
 
     // ==== 当前路由的快捷操作配置 ====
-    val quickActions = remember(currentRoute) { getQuickActions(currentRoute) }
+    val isDarkMode by GlobalData.isDarkMode.collectAsState()
+    val quickActions = remember(currentRoute, isDarkMode) { getQuickActions(currentRoute, isDarkMode) }
 
     // ==== 手势 / 动画状态 ====
     var showActionSheet by remember { mutableStateOf(false) }
@@ -295,7 +305,7 @@ fun BottomNavBar(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = action.icon,
+                            imageVector = action.iconResId?.let { ImageVector.vectorResource(id = it) } ?: action.icon,
                             contentDescription = action.description,
                             tint = darkModeColor(
                                 YamiboColors.primary.copy(alpha = btnAlpha),

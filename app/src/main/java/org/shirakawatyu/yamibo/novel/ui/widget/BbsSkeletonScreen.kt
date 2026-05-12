@@ -29,8 +29,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import org.shirakawatyu.yamibo.novel.global.GlobalData
 
 @Composable
 fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
@@ -44,14 +47,15 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
         ),
         label = "skeleton_alpha"
     )
-    val baseHeaderColor = Color(0xFF551200)
-    val headerBg = baseHeaderColor.copy(alpha = alpha + 0.8f)
+    val isDarkMode by GlobalData.isDarkMode.collectAsState()
+    val baseHeaderColor = if (isDarkMode) Color(0xFF1A1A1A) else Color(0xFF551200)
+    val headerBg = baseHeaderColor.copy(alpha = if (isDarkMode) 0.9f else alpha + 0.8f)
 
-    val baseYellowishColor = Color(0xFFD4C8B0)
-    val skeletonColor = baseYellowishColor.copy(alpha = alpha)
+    val baseYellowishColor = if (isDarkMode) Color(0xFF3a3a3a) else Color(0xFFD4C8B0)
+    val skeletonColor = baseYellowishColor.copy(alpha = if (isDarkMode) alpha * 0.7f else alpha)
 
-    val baseDarkRedColor = Color(0xFF9E6565)
-    val sectionHeaderBg = baseDarkRedColor.copy(alpha = alpha * 0.8f)
+    val baseDarkRedColor = if (isDarkMode) Color(0xFF3a2a2a) else Color(0xFF9E6565)
+    val sectionHeaderBg = baseDarkRedColor.copy(alpha = if (isDarkMode) alpha * 0.5f else alpha * 0.8f)
 
     Column(
         modifier = modifier

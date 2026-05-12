@@ -223,7 +223,9 @@ class YamiboRetrofit {
                     return@addInterceptor chain.proceed(original)
                 }
 
-                val cookie = GlobalData.currentCookie
+                // 若请求已携带 Cookie，
+                // 优先使用它而非 GlobalData 中的缓存值，确保登录/登出后 cookie 及时生效
+                val cookie = original.header("Cookie") ?: GlobalData.currentCookie
                 val existingUa = original.header("User-Agent")
                 val isPcPseudoRequest =
                     existingUa?.contains("Windows NT") == true || existingUa?.contains("Macintosh") == true
@@ -368,9 +370,15 @@ class YamiboRetrofit {
             return try {
                 val reqBuilder = okhttp3.Request.Builder().url(urlStr)
                 request.requestHeaders?.forEach { (k, v) -> reqBuilder.header(k, v) }
+                // 确保使用 WebView CookieManager 中的最新 cookie（优于可能过时的缓存值）
+                if (reqBuilder.build().header("Cookie") == null) {
+                    val cmCookie = android.webkit.CookieManager.getInstance().getCookie(urlStr)
+                    if (!cmCookie.isNullOrEmpty()) reqBuilder.header("Cookie", cmCookie)
+                }
                 reqBuilder.header("Referer", "https://bbs.yamibo.com/")
                 val response = okHttpClient.newCall(reqBuilder.build()).execute()
                 if (response.isSuccessful) {
+                    syncSetCookieToWebView(response)
                     val body = response.body?.string()
                     response.body?.close()
                     body
@@ -380,6 +388,22 @@ class YamiboRetrofit {
             } catch (_: Exception) {
                 null
             }
+        }
+
+        /** 将 OkHttp 响应链中的 Set-Cookie 同步到 WebView 的 CookieManager */
+        private fun syncSetCookieToWebView(response: okhttp3.Response) {
+            try {
+                val cm = android.webkit.CookieManager.getInstance()
+                var resp: okhttp3.Response? = response
+                while (resp != null) {
+                    val url = resp.request.url.toString()
+                    for (header in resp.headers("Set-Cookie")) {
+                        cm.setCookie(url, header)
+                    }
+                    resp = resp.priorResponse
+                }
+                cm.flush()
+            } catch (_: Exception) {}
         }
 
         fun getPcUserAgent(): String = pcUaList.random()

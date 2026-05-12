@@ -32,7 +32,7 @@ class BottomNavBarVM : ViewModel() {
     val refreshEvent = _refreshEvent.asSharedFlow()
     private val _goHomeEvent = MutableSharedFlow<String>()
     val goHomeEvent = _goHomeEvent.asSharedFlow()
-    private val _darkModeEvent = MutableSharedFlow<String>()
+    private val _darkModeEvent = MutableSharedFlow<String>(replay = 1)
     val darkModeEvent = _darkModeEvent.asSharedFlow()
 
     fun triggerRefresh(route: String) {

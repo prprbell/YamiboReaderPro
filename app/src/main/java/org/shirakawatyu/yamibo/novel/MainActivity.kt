@@ -179,6 +179,16 @@ class MainActivity : ComponentActivity() {
             }
         }
         GlobalData.homePageRoute.value = initialRoute
+        // 预加载夜间模式设置，避免首帧骨架屏闪现日间样式
+        val darkMode = runBlocking {
+            try {
+                val prefs = applicationContext.dataStore.data.first()
+                prefs[stringPreferencesKey("dark_mode")]?.toBooleanStrictOrNull() ?: false
+            } catch (_: Exception) {
+                false
+            }
+        }
+        GlobalData.isDarkMode.value = darkMode
         super.onCreate(savedInstanceState)
 
         val isRestoring = savedInstanceState != null
@@ -193,7 +203,11 @@ class MainActivity : ComponentActivity() {
         WindowInsetsControllerCompat(window, window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-        window.statusBarColor = Color.TRANSPARENT
+        window.statusBarColor = if (darkMode)
+            android.graphics.Color.parseColor("#1A1A1A")
+        else
+            android.graphics.Color.parseColor("#551200")
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = !darkMode
 
         if (bbsWebViewState == null) {
             bbsWebViewState = createBbsWebView(this, customWebChromeClient)

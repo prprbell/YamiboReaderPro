@@ -4,7 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **IMPORTANT**: Do NOT attempt to build, compile, or run tests locally. The development machine does not have Java/Android SDK installed. Rely on code review and static analysis to verify correctness.
 
-Project uses Gradle 8.2.1 with Kotlin 1.9.0 and AGP 8.2.1. Java 17 target. Configuration cache is enabled.
+## 技术栈
+
+**构建**: Gradle 8.2.1, AGP 8.2.1, Kotlin 1.9.0, Compose Compiler 1.5.1, Java 17 target, configuration cache enabled.
+
+**平台**: minSdk 24, targetSdk/compileSdk 34, arm64-v8a + armeabi-v7a.
+
+**UI**: Jetpack Compose (Material 3 + Material 2), Navigation Compose 2.8.3, Activity Compose 1.9.3, Lottie Compose 6.7.1, Telephoto 0.6.2 (zoom/pan).
+
+**网络**: OkHttp 4.12.0 (Brotli + DoH), Retrofit 2.11.0 (Gson), Coil 2.6.0 (image loading + WebView proxy).
+
+**数据**: DataStore Preferences 1.1.1, Fastjson2 2.0.51, Jsoup 1.17.2 (HTML parsing).
+
+**其他**: OpenCC 1.2.0 (简繁转换), Reorderable 3.0.0 (拖拽排序), Lifecycle ViewModel Compose 2.8.7.
 
 ## Architecture
 
