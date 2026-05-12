@@ -77,9 +77,9 @@ import kotlin.math.roundToInt
 
 /** 操作槽位 — 决定按钮在导航栏上方的水平位置与垂直偏移 */
 enum class ActionSlot(val labelX: Float, val labelYOffset: Float) {
-    Left(-85f, 0f),
+    Left(-85f, 15f),
     Center(0f, -20f),
-    Right(85f, 0f)
+    Right(85f, 15f)
 }
 
 /** 操作类型 — 决定松手后的执行逻辑 */

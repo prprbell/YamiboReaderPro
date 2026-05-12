@@ -31,13 +31,9 @@ open class YamiboWebViewClient : WebViewClient() {
         var css =
             ".foot.flex-box:not(.foot_reply) { display: none !important; } .foot_height { display: none !important; }"
 
-        // 隐藏顶部栏
-        if (url.contains("home.php") || url.contains("mod=space")) {
-            val keepTopBarList = listOf("do=pm", "do=blog", "do=thread", "do=favorite", "do=friend")
-
-            if (keepTopBarList.none { url.contains(it) }) {
-                css += " .my, .mz { visibility: hidden !important; pointer-events: none !important; }"
-            }
+        // 隐藏顶部栏（仅在自己的主页 mycenter=1 时生效）
+        if (url.contains("mycenter=1")) {
+            css += " .my, .mz { visibility: hidden !important; pointer-events: none !important; }"
         }
 
         val injectJs = """
