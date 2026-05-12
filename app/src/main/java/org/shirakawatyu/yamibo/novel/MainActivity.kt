@@ -228,6 +228,11 @@ class MainActivity : ComponentActivity() {
         backgroundStopJob?.cancel()
         backgroundStopJob = null
 
+        BBSPageState.markAppStarted()
+        if (BBSPageState.isErrorState || BBSPageState.showLoadError) {
+            BBSPageState.requestResumeRecovery()
+        }
+
         if (bbsWebViewState == null) {
             bbsWebViewState = createBbsWebView(this, customWebChromeClient)
         } else {
@@ -238,17 +243,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        BBSPageState.markAppStopped()
         bbsWebViewState?.onPause()
 
         backgroundStopJob?.cancel()
         backgroundStopJob = mainScope.launch {
             delay(600_000L) // 10分钟
-            bbsWebViewState?.apply {
-                (parent as? ViewGroup)?.removeView(this)
-                removeAllViews()
-                destroy()
-            }
-            bbsWebViewState = null
+            destroyBbsWebView(bbsWebViewState)
             BBSPageState.hasSuccessfullyLoaded = false
             BBSPageState.isLoading = false
             BBSPageState.isErrorState = false
@@ -256,15 +257,47 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * WebView renderer gone 后原 WebView 不能继续复用。
+     * 这里统一 detach/destroy，再创建一个新的 bbsWebViewState 触发 Compose 重组。
+     */
+    fun recreateBbsWebViewAfterRendererGone(deadView: WebView?) {
+        if (deadView != null && bbsWebViewState !== deadView) {
+            destroyDetachedWebView(deadView)
+            return
+        }
+
+        destroyBbsWebView(bbsWebViewState)
+        bbsWebViewState = createBbsWebView(this, customWebChromeClient)
+        BBSPageState.hasSuccessfullyLoaded = false
+        BBSPageState.isLoading = false
+        BBSPageState.requestResumeRecovery()
+    }
+
+    private fun destroyBbsWebView(target: WebView?) {
+        destroyDetachedWebView(target)
+        if (target == null || bbsWebViewState === target) {
+            bbsWebViewState = null
+        }
+    }
+
+    private fun destroyDetachedWebView(target: WebView?) {
+        target?.apply {
+            try {
+                stopLoading()
+                (parent as? ViewGroup)?.removeView(this)
+                removeAllViews()
+                destroy()
+            } catch (_: Throwable) {
+                // WebView renderer 已经死亡时，清理失败也不能影响 Activity 恢复。
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         mainScope.cancel()
-        bbsWebViewState?.apply {
-            (parent as? ViewGroup)?.removeView(this)
-            removeAllViews()
-            destroy()
-        }
-        bbsWebViewState = null
+        destroyBbsWebView(bbsWebViewState)
 
         BBSPageState.hasSuccessfullyLoaded = false
         GlobalData.isAppInitialized = false
@@ -274,6 +307,8 @@ class MainActivity : ComponentActivity() {
 @SuppressLint("SetJavaScriptEnabled")
 fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): WebView {
     BBSPageState.hasSuccessfullyLoaded = false
+    BBSPageState.isErrorState = false
+    BBSPageState.showLoadError = false
 
     return WebView(context).apply {
         layoutParams = ViewGroup.LayoutParams(
@@ -409,14 +444,23 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                     val selectedItemIndex =
                         pageList.indexOf(currentRoute ?: homeRoute).coerceAtLeast(0)
 
-                    LaunchedEffect(bbsWebView, isNetworkAvailable, homeRoute) {
-                        if (bbsWebView != null && isNetworkAvailable && !BBSPageState.hasSuccessfullyLoaded) {
+                    LaunchedEffect(
+                        bbsWebView,
+                        isNetworkAvailable,
+                        homeRoute,
+                        BBSPageState.needsResumeRecovery
+                    ) {
+                        if (bbsWebView != null &&
+                            isNetworkAvailable &&
+                            !BBSPageState.hasSuccessfullyLoaded &&
+                            !BBSPageState.needsResumeRecovery
+                        ) {
                             try {
                                 CookieManager.getInstance()
                                     .setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
                                 CookieManager.getInstance().flush()
                                 val targetUrl =
-                                    BBSPageState.currentUrl?.takeIf { it.isNotBlank() && it != "about:blank" }
+                                    BBSPageState.currentUrl?.takeIf { BBSPageState.isUsableBbsUrl(it) }
                                         ?: "https://bbs.yamibo.com/forum.php?mobile=2"
                                 bbsWebView.loadUrl(targetUrl)
                                 BBSPageState.isLoading = true

@@ -322,6 +322,8 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         detail: android.webkit.RenderProcessGoneDetail?
     ): Boolean {
         handleErrorState()
+        (context as? org.shirakawatyu.yamibo.novel.MainActivity)
+            ?.recreateBbsWebViewAfterRendererGone(view)
         return true
     }
 
@@ -363,6 +365,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         BBSPageState.isErrorState = true
         BBSPageState.isLoading = false
         BBSPageState.showLoadError = true
+        BBSPageState.requestResumeRecovery()
     }
 }
 
@@ -394,15 +397,6 @@ fun BBSPage(
         ReaderModeDetector.canConvertToReaderMode(BBSPageState.currentUrl, BBSPageState.pageTitle)
     }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
     ActivityWebViewLifecycleObserver(webView)
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
@@ -530,6 +524,21 @@ fun BBSPage(
 
     lateinit var startLoading: (url: String) -> Unit
 
+    fun startLoadTimeout() {
+        timeoutJob?.cancel()
+        timeoutJob = scope.launch {
+            delay(10_000L)
+            if (BBSPageState.isLoading) {
+                webView.stopLoading()
+                BBSPageState.isErrorState = true
+                BBSPageState.isLoading = false
+                BBSPageState.showLoadError = true
+                BBSPageState.requestResumeRecovery()
+                isPullRefreshing = false
+            }
+        }
+    }
+
     startLoading = { url: String ->
         BBSPageState.isLoading = true
         BBSPageState.isErrorState = false
@@ -538,31 +547,102 @@ fun BBSPage(
         CookieManager.getInstance().setCookie(url, GlobalData.currentCookie)
         CookieManager.getInstance().flush()
 
-        timeoutJob?.cancel()
-        timeoutJob = scope.launch {
-            delay(10000)
-            if (BBSPageState.isLoading) {
-                webView.stopLoading()
-                BBSPageState.isErrorState = true
-                BBSPageState.isLoading = false
-                BBSPageState.showLoadError = true
-                isPullRefreshing = false
-            }
-        }
+        startLoadTimeout()
         webView.loadUrl(url)
     }
+
+    fun reloadCurrentPageWithTimeout() {
+        val targetUrl = BBSPageState.bestRecoveryUrl(webView, mobileIndexUrl)
+        BBSPageState.isLoading = true
+        BBSPageState.isErrorState = false
+        BBSPageState.showLoadError = false
+        retryCount = 0
+        CookieManager.getInstance().setCookie(targetUrl, GlobalData.currentCookie)
+        CookieManager.getInstance().flush()
+
+        startLoadTimeout()
+        if (BBSPageState.isUsableBbsUrl(webView.url)) {
+            webView.reload()
+        } else {
+            webView.loadUrl(targetUrl)
+        }
+    }
+
     val isNetworkAvailable by remember {
         NetworkMonitor.observeNetwork(context)
     }.collectAsState(initial = false)
 
+    fun recoverBbsWebViewAfterResume() {
+        if (!isSelected) return
+        if (!isNetworkAvailable) return
+        if (!BBSPageState.needsResumeRecovery &&
+            !BBSPageState.isErrorState &&
+            !BBSPageState.showLoadError
+        ) {
+            return
+        }
+
+        BBSPageState.cancelPause()
+        webView.onResume()
+        webView.resumeTimers()
+        webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
+
+        val targetUrl = BBSPageState.bestRecoveryUrl(webView, mobileIndexUrl)
+        val shouldLoadUrl = BBSPageState.isErrorState ||
+                BBSPageState.showLoadError ||
+                !BBSPageState.hasSuccessfullyLoaded ||
+                !BBSPageState.isUsableBbsUrl(webView.url)
+
+        BBSPageState.finishResumeRecovery()
+
+        if (shouldLoadUrl) {
+            startLoading(targetUrl)
+        } else {
+            reloadCurrentPageWithTimeout()
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, webView) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                webView.onResume()
+                webView.resumeTimers()
+                webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
+
+                if (BBSPageState.isErrorState || BBSPageState.showLoadError) {
+                    BBSPageState.requestResumeRecovery()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(isNetworkAvailable, BBSPageState.isErrorState) {
         if (isNetworkAvailable && BBSPageState.isErrorState) {
-            val curl = webView.url
-            if (!curl.isNullOrEmpty() && curl != "about:blank") {
-                startLoading(curl)
-            } else {
-                startLoading(mobileIndexUrl)
+            BBSPageState.requestResumeRecovery()
+        }
+    }
+
+    LaunchedEffect(
+        isSelected,
+        isNetworkAvailable,
+        BBSPageState.needsResumeRecovery,
+        BBSPageState.isErrorState,
+        BBSPageState.showLoadError,
+        webView
+    ) {
+        if (isSelected &&
+            isNetworkAvailable &&
+            (BBSPageState.needsResumeRecovery ||
+                    BBSPageState.isErrorState ||
+                    BBSPageState.showLoadError)
+        ) {
+            val throttleDelayMs = BBSPageState.resumeRecoveryThrottleDelayMs()
+            if (throttleDelayMs > 0L) {
+                delay(throttleDelayMs)
             }
+            recoverBbsWebViewAfterResume()
         }
     }
     LaunchedEffect(isFullscreenState.value) {
