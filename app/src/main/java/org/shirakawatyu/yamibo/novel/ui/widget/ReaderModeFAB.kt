@@ -12,10 +12,10 @@ import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import org.shirakawatyu.yamibo.novel.R
-import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
 
 /**
@@ -39,10 +39,13 @@ fun ReaderModeFAB(
         FloatingActionButton(
             onClick = onClick,
             containerColor = darkModeColor(
-                YamiboColors.secondary.copy(alpha = 0.5f),
-                YamiboColors.secondaryDark.copy(alpha = 0.5f)
+                Color(0xFFE0E0E0).copy(alpha = 0.5f),
+                Color(0xFF383838).copy(alpha = 0.7f)
             ),
-            contentColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark),
+            contentColor = darkModeColor(
+                Color(0xFF424242),
+                Color(0xFFBBBBBB)
+            ),
             elevation = FloatingActionButtonDefaults.elevation(
                 defaultElevation = 0.dp,
                 pressedElevation = 0.dp,
