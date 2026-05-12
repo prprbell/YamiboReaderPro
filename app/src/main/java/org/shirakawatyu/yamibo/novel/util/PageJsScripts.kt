@@ -1088,6 +1088,7 @@ object PageJsScripts {
         ".threadlist_foot { background: #1e1e1e !important; border-color: #333 !important; }",
         ".threadlist_foot a, .threadlist_foot i, .threadlist_foot em { color: #888888 !important; }",
         ".threadlist_foot li { border: 1px solid #555 !important; outline: none !important; box-shadow: none !important; }",
+        ".threadlist_foot li.mr { border: none !important; }",
         ".threadlist_foot .dm-heart, .threadlist_foot .dm-chat-s, .dm-heart, .dm-chat-s, .dm-eye-fill, .dm-chat-s-fill { color: #888888 !important; }",
         "/* === 帖子列表项 - 顶部 (头像+用户名) === */",
         ".threadlist_top, .threadlist_top a, .threadlist_top .mimg, .threadlist_top .muser { background: #1e1e1e !important; }",
