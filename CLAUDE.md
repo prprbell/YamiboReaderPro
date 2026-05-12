@@ -69,10 +69,10 @@ Custom `DynamicDns` races AliDNS and TencentDNS DoH resolvers (1.5s timeout), fa
 
 ### Release Upload
 
-When the user requests a release upload, first check if `app/build.gradle.kts` versionName matches the latest git tag (`git describe --tags --abbrev=0`). If they are the same, warn the user to bump the version before proceeding. Then run `git log <lastTag>..HEAD` and `git diff <lastTag>..HEAD` to analyze changes and generate Chinese release notes. Release notes must be written in plain, user-facing language — do NOT use technical jargon (e.g. PJAX, DNS cache), internal file names (e.g. MinePage, BBSPage), or variable/parameter names (e.g. mycenter, authorid). Describe changes from the user's perspective. Then reply with the upload command for the user to execute themselves (Claude cannot run it directly):
+When the user requests a release upload, first check if `app/build.gradle.kts` versionName matches the latest git tag (`git describe --tags --abbrev=0`). If they are the same, warn the user to bump the version before proceeding. Then run `git log <lastTag>..HEAD` and `git diff <lastTag>..HEAD` to analyze changes and generate Chinese release notes. Release notes must be written in plain, user-facing language — do NOT use technical jargon (e.g. PJAX, DNS cache), internal file names (e.g. MinePage, BBSPage), or variable/parameter names (e.g. mycenter, authorid). Describe changes from the user's perspective. Write the notes to `release_notes.txt` in the project root, then reply with the upload command for the user to execute themselves (Claude cannot run it directly):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\upload_release.ps1 -Notes "generated release notes"
+powershell -ExecutionPolicy Bypass -File .\upload_release.ps1 -NotesFile .\release_notes.txt
 ```
 
 The script automatically: reads version code → pushes git tag → uploads APK to GitHub Release.

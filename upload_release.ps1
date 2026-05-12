@@ -48,9 +48,11 @@ if ($?) {
     gh release delete $TAG --repo $REPO --yes
 }
 
-# Release notes: 接受 -Notes 参数，或自动从 commits 生成
+# Release notes: 接受 -NotesFile 参数读取文件，或 -Notes 参数，或自动从 commits 生成
 $notes = ""
-if ($args -match "-Notes\s+(.+)" -and $Matches[1]) {
+if ($args -match "-NotesFile\s+(\S+)" -and $Matches[1]) {
+    $notes = Get-Content -Path $Matches[1] -Raw
+} elseif ($args -match "-Notes\s+(.+)" -and $Matches[1]) {
     $notes = $Matches[1]
 } else {
     $lastTag = git describe --tags --abbrev=0 2>$null
