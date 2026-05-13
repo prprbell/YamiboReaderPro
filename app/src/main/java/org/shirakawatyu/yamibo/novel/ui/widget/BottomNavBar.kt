@@ -139,7 +139,6 @@ fun BottomNavBar(
         onQuickActionSheetVisibleChange(showActionSheet)
     }
 
-
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     var activeSlot by remember { mutableStateOf<ActionSlot?>(null) }
@@ -176,7 +175,6 @@ fun BottomNavBar(
         }
     }
 
-
     DisposableEffect(Unit) {
         onDispose {
             cancelPendingReset()
@@ -192,12 +190,10 @@ fun BottomNavBar(
     val baseTargetYPx = with(density) { (-100).dp.toPx() }
     val minDragYPx = with(density) { -30.dp.toPx() }
     val snapRadiusPx = with(density) { 60.dp.toPx() }
-    // 只增强“光球已经在功能球上方”时的纵向吸附，避免往两侧或下方误吸。
     val upwardSnapHalfWidthPx = with(density) { 42.dp.toPx() }
     val upwardSnapHeightPx = with(density) { 130.dp.toPx() }
     val upwardSnapGracePx = with(density) { 10.dp.toPx() }
 
-    // 每个 slot 的目标坐标 (px)
     val slotTargetX = remember(density) {
         ActionSlot.entries.associateWith { with(density) { it.labelX.dp.toPx() } }
     }
@@ -205,7 +201,6 @@ fun BottomNavBar(
         ActionSlot.entries.associateWith { baseTargetYPx + with(density) { it.labelYOffset.dp.toPx() } }
     }
 
-    // overlay 原点偏移
     val screenWidthDp = configuration.screenWidthDp.dp
     val tabWidthDp = screenWidthDp / 3
     val originXDp = when (pressedItemIndex) {
@@ -214,18 +209,18 @@ fun BottomNavBar(
         else -> 0.dp
     }
 
-    // 展开和收回动作
+    // 优化：展开和收回动作
     LaunchedEffect(showActionSheet) {
         if (showActionSheet) {
             expansionAnim.animateTo(
                 1f,
                 spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    dampingRatio = 0.85f, // 稍微降低一点点弹性，减少末端震荡
                     stiffness = Spring.StiffnessMediumLow
                 )
             )
         } else {
-            val stiffness = if (isExecuting) 100f else 280f
+            val stiffness = if (isExecuting) 100f else 350f // 收回时稍微快一点，更干脆
             expansionAnim.animateTo(
                 0f,
                 spring(dampingRatio = 1f, stiffness = stiffness)
@@ -233,7 +228,6 @@ fun BottomNavBar(
         }
     }
 
-    // 方向切换时触发震动反馈
     LaunchedEffect(activeSlot) {
         if (activeSlot != null && activeSlot != lastVibratedSlot && !isExecuting) {
             HapticUtil.performTick(view)
@@ -267,12 +261,9 @@ fun BottomNavBar(
         // ================= 快捷操作浮层 =================
         AnimatedVisibility(
             visible = showActionSheet,
-            // 外层只负责淡入淡出，不再叠加 scaleIn。
-            // 功能球的位置/缩放已经由 expansionAnim 控制；外层再做一次弹性 scale
-            // 会和内部动画叠加，展开末端容易出现阴影闪动。
-            enter = fadeIn(tween(90)),
-            // 延迟外层容器的消失时间，保留内部图标回收动画。
-            exit = fadeOut(tween(durationMillis = 150, delayMillis = 450)),
+            // 优化点 1：去掉 EnterTransition 默认的 scale 效果，防止与内部位移叠加
+            enter = fadeIn(tween(120)),
+            exit = fadeOut(tween(durationMillis = 180, delayMillis = 400)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .offset(x = originXDp, y = (-25).dp)
@@ -280,10 +271,10 @@ fun BottomNavBar(
                 .height(quickActionLayerHeight)
                 .zIndex(10f)
         ) {
-            // 仍然钳制到 0..1，防止收回/状态切换时出现越界绘制。
-            val expansionProgress = expansionAnim.value.coerceIn(0f, 1f)
+            // 优化点 2：扩张进度映射。Spring 动画由于惯性会超过 1.0，
+            // 强制限制在 [0, 1.05] 左右，并为透明度增加平滑曲线。
+            val expansionProgress = expansionAnim.value.coerceIn(0f, 1.1f)
 
-            // 手指光球的流体追踪 (带磁吸效果)
             val activeTargetX = activeSlot?.let { slotTargetX[it] }
             val activeTargetY = activeSlot?.let { slotTargetY[it] }
             val animFingerX by animateFloatAsState(
@@ -292,7 +283,7 @@ fun BottomNavBar(
                     activeTargetX != null -> activeTargetX
                     else -> dragOffsetX
                 },
-                animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMedium),
+                animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
                 label = "fingerX"
             )
             val animFingerY by animateFloatAsState(
@@ -301,7 +292,7 @@ fun BottomNavBar(
                     activeTargetY != null -> activeTargetY
                     else -> dragOffsetY
                 },
-                animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMedium),
+                animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
                 label = "fingerY"
             )
 
@@ -310,8 +301,6 @@ fun BottomNavBar(
                     .fillMaxWidth()
                     .height(quickActionLayerHeight)
             ) {
-
-                // --------- 为每个配置的 Action 渲染按钮 ---------
                 for (action in quickActions) {
                     val slot = action.slot
                     val targetX = slotTargetX[slot]!!
@@ -320,10 +309,9 @@ fun BottomNavBar(
                     val isThisExecuting = isExecuting && executedSlot == slot
                     val isHighlighted = isThisActive || isThisExecuting
 
-                    // 阴影保留，但不再跟随 scale 变形。
-                    // 外层只负责位移和透明度；固定尺寸的 shadow 层始终是 48.dp，
-                    // 这样展开末端不会再出现“阴影最后又撑开一下”的闪动。
-                    val appearAlpha = ((expansionProgress - 0.06f) / 0.94f).coerceIn(0f, 1f)
+                    // 优化点 3：优化透明度曲线。让图标在扩张到一半时就完成大部分淡入，
+                    // 而不是死板地跟着 expansionAnim 线性变化，能显著提升观感流畅度。
+                    val appearAlpha = ((expansionProgress - 0.05f) / 0.4f).coerceIn(0f, 1f)
 
                     val iconScale by animateFloatAsState(
                         targetValue = if (isHighlighted) 1.12f else 1f,
@@ -339,7 +327,7 @@ fun BottomNavBar(
                             activeSlot != null -> 0.35f
                             else -> 0.85f
                         },
-                        animationSpec = tween(durationMillis = 120),
+                        animationSpec = tween(durationMillis = 150),
                         label = "alpha_${slot.name}"
                     )
 
@@ -352,9 +340,7 @@ fun BottomNavBar(
                                     (targetY * expansionProgress).roundToInt()
                                 )
                             }
-                            // 只淡入，不缩放 shadow。
                             .alpha(appearAlpha)
-                            // 比按钮本体更大的布局空间，给原生 shadow 留出绘制余量。
                             .size(68.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -365,14 +351,8 @@ fun BottomNavBar(
                                     elevation = if (isHighlighted) 12.dp else 5.dp,
                                     shape = CircleShape,
                                     clip = false,
-                                    ambientColor = darkModeColor(
-                                        YamiboColors.primary,
-                                        YamiboColors.primaryDark
-                                    ),
-                                    spotColor = darkModeColor(
-                                        YamiboColors.primary,
-                                        YamiboColors.primaryDark
-                                    )
+                                    ambientColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark),
+                                    spotColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark)
                                 )
                                 .background(
                                     darkModeColor(
@@ -399,7 +379,6 @@ fun BottomNavBar(
                                     YamiboColors.primaryDark.copy(alpha = btnAlpha)
                                 ),
                                 modifier = Modifier
-                                    // 高亮反馈只给图标，不再放大整颗球和 shadow。
                                     .scale(iconScale)
                                     .size(24.dp)
                                     .rotate(
@@ -413,7 +392,7 @@ fun BottomNavBar(
 
                 // --------- 灵动追随光球 ---------
                 if (!isExecuting) {
-                    val appearAlpha = ((expansionProgress - 0.06f) / 0.94f).coerceIn(0f, 1f)
+                    val fingerAlpha = ((expansionProgress - 0.1f) / 0.3f).coerceIn(0f, 1f)
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -423,8 +402,7 @@ fun BottomNavBar(
                                     animFingerY.roundToInt()
                                 )
                             }
-                            // 追随光球同样只淡入，不缩放它的阴影。
-                            .alpha(appearAlpha)
+                            .alpha(fingerAlpha)
                             .size(44.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -451,16 +429,10 @@ fun BottomNavBar(
                                     elevation = 6.dp,
                                     shape = CircleShape,
                                     clip = false,
-                                    spotColor = darkModeColor(
-                                        YamiboColors.primary,
-                                        YamiboColors.primaryDark
-                                    )
+                                    spotColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark)
                                 )
                                 .background(
-                                    darkModeColor(
-                                        YamiboColors.primary,
-                                        YamiboColors.primaryDark
-                                    ),
+                                    darkModeColor(YamiboColors.primary, YamiboColors.primaryDark),
                                     CircleShape
                                 )
                         )
@@ -469,10 +441,7 @@ fun BottomNavBar(
             }
         }
 
-        // ================= 底部导航栏 (始终贴底) =================
-        // 长按手势放在整条 NavigationBar 上，而不是单个 NavigationBarItem 上。
-        // 这样 MinePage 最右侧“看起来仍属于按钮”的空白区域也会被纳入同一个 1/3 命中区，
-        // 不再受 NavigationBarItem 内部实际触摸范围/内边距影响。
+        // ================= 底部导航栏 =================
         NavigationBar(
             Modifier
                 .fillMaxWidth()
@@ -569,15 +538,14 @@ fun BottomNavBar(
                                     ActionKind.Home -> {
                                         currentRoute?.let { navBarVM.triggerGoHome(it) }
                                         coroutineScope.launch {
-                                            delay(150) // 黄金停顿：让球体完成放大弹簧动画
-                                            showActionSheet = false // 触发回缩和柔和退场
-                                            delay(450) // 等待回缩动画完全播完
+                                            delay(150)
+                                            showActionSheet = false
+                                            delay(450)
                                             isExecuting = false
                                             executedSlot = null
                                             resetGestureState()
                                         }
                                     }
-
                                     ActionKind.Refresh -> {
                                         currentRoute?.let { navBarVM.triggerRefresh(it) }
                                         coroutineScope.launch {
@@ -587,9 +555,8 @@ fun BottomNavBar(
                                                     animationSpec = tween(600, easing = LinearEasing)
                                                 )
                                             }
-                                            delay(150) // 转动一小段圆弧，作为视觉确认
+                                            delay(150)
                                             showActionSheet = false
-
                                             delay(450)
                                             isExecuting = false
                                             executedSlot = null
@@ -598,7 +565,6 @@ fun BottomNavBar(
                                             resetGestureState()
                                         }
                                     }
-
                                     ActionKind.DarkMode -> {
                                         currentRoute?.let { navBarVM.triggerDarkMode(it) }
                                         coroutineScope.launch {
@@ -612,9 +578,8 @@ fun BottomNavBar(
                                     }
                                 }
                             } else {
-                                // 未选任何功能时的取消逻辑
                                 showActionSheet = false
-                                scheduleGestureReset(400) // 等待退场播完；若用户立刻再次长按，会被取消，避免中途清状态。
+                                scheduleGestureReset(400)
                             }
                         },
                         onDragCancel = {
@@ -624,7 +589,7 @@ fun BottomNavBar(
                             }
                             isNavBarLongPressAccepted = false
                             showActionSheet = false
-                            scheduleGestureReset(400) // 同样等待退场播完；新一轮长按会取消这次延迟清理。
+                            scheduleGestureReset(400)
                         }
                     )
                 },
