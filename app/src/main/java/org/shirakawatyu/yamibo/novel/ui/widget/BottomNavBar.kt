@@ -41,7 +41,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -63,9 +62,7 @@ import androidx.compose.ui.zIndex
 import androidx.navigation.NavController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
@@ -220,7 +217,7 @@ fun BottomNavBar(
     // 展开和收回动作
     LaunchedEffect(showActionSheet) {
         if (showActionSheet) {
-             expansionAnim.animateTo(
+            expansionAnim.animateTo(
                 1f,
                 spring(
                     dampingRatio = Spring.DampingRatioNoBouncy,
@@ -258,7 +255,14 @@ fun BottomNavBar(
         }
     }
 
-    Box(modifier = Modifier.fillMaxWidth()) {
+    val navBarHeight = 50.dp
+    val quickActionLayerHeight = 210.dp
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(quickActionLayerHeight)
+    ) {
 
         // ================= 快捷操作浮层 =================
         AnimatedVisibility(
@@ -272,6 +276,8 @@ fun BottomNavBar(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .offset(x = originXDp, y = (-25).dp)
+                .fillMaxWidth()
+                .height(quickActionLayerHeight)
                 .zIndex(10f)
         ) {
             // 仍然钳制到 0..1，防止收回/状态切换时出现越界绘制。
@@ -299,7 +305,11 @@ fun BottomNavBar(
                 label = "fingerY"
             )
 
-            Box(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(quickActionLayerHeight)
+            ) {
 
                 // --------- 为每个配置的 Action 渲染按钮 ---------
                 for (action in quickActions) {
@@ -466,8 +476,9 @@ fun BottomNavBar(
         NavigationBar(
             Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .height(navBarHeight)
                 .align(Alignment.BottomCenter)
+                .zIndex(5f)
                 .pointerInput(currentRoute, quickActions) {
                     var isNavBarLongPressAccepted = false
                     detectDragGesturesAfterLongPress(
@@ -654,7 +665,10 @@ fun BottomNavBar(
                 shrinkTowards = Alignment.Top,
                 animationSpec = tween(300)
             ),
-            modifier = Modifier.align(Alignment.TopCenter).zIndex(20f)
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .offset(y = -navBarHeight)
+                .zIndex(20f)
         ) {
             LinearProgressIndicator(
                 progress = { animatedProgress.value },
