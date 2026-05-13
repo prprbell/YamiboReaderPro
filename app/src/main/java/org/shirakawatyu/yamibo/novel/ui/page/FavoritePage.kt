@@ -503,7 +503,12 @@ fun FavoritePage(
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
-                                    text = { Text(if (isFavoriteCollapsed) "关闭折叠" else "折叠模式") },
+                                    text = {
+                                        Text(
+                                            text = if (isFavoriteCollapsed) "关闭折叠" else "折叠模式",
+                                            color = if (isFavoriteCollapsed) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
                                     onClick = {
                                         menuExpanded = false
                                         coroutineScope.launch {
@@ -517,7 +522,8 @@ fun FavoritePage(
                                         Icon(
                                             painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
                                             null,
-                                            Modifier.size(24.dp)
+                                            Modifier.size(24.dp),
+                                            tint = if (isFavoriteCollapsed) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 )
@@ -539,7 +545,12 @@ fun FavoritePage(
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
-                                    text = { Text(if (isClickToTopEnabled) "关闭置顶" else "阅后置顶") },
+                                    text = {
+                                        Text(
+                                            text = if (isClickToTopEnabled) "关闭置顶" else "阅后置顶",
+                                            color = if (isClickToTopEnabled) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
                                     onClick = {
                                         menuExpanded = false
                                         if (isClickToTopEnabled) {
@@ -622,7 +633,12 @@ fun FavoritePage(
                                 val isAutoSignIn = GlobalData.isAutoSignInEnabled.value
                                 DropdownMenuItem(
                                     modifier = Modifier.weight(1f),
-                                    text = { Text(if (isAutoSignIn) "关闭签到" else "自动签到") },
+                                    text = {
+                                        Text(
+                                            text = if (isAutoSignIn) "关闭签到" else "自动签到",
+                                            color = if (isAutoSignIn) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
                                     onClick = {
                                         menuExpanded = false
                                         coroutineScope.launch {
