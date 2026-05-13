@@ -23,14 +23,21 @@ object BBSPageState {
     var isErrorState by mutableStateOf(false)
     var hasExecutedInitialDelay: Boolean = false
 
-    // App 级前后台恢复标记。使用 elapsedRealtime，避免用户手动改时间/系统校时影响判断。
+    // 短后台：尝试恢复/刷新；长后台：直接重建 WebView，避免复用半死不活的 renderer/surface。
     private const val BACKGROUND_RECOVERY_THRESHOLD_MS = 30_000L
+    private const val FORCE_RECREATE_AFTER_LONG_BACKGROUND_MS = 10 * 60 * 1000L
     private const val RESUME_RECOVERY_THROTTLE_MS = 5_000L
 
     var lastStoppedElapsedRealtime: Long = 0L
         private set
+
     var needsResumeRecovery by mutableStateOf(false)
         private set
+
+    // Boolean 已经是 true 时再次 request 不会触发 LaunchedEffect；token 用来保证每次请求都能被消费。
+    var resumeRecoveryToken by mutableStateOf(0)
+        private set
+
     private var lastResumeRecoveryElapsedRealtime: Long = 0L
 
     private val handler = Handler(Looper.getMainLooper())
@@ -66,8 +73,15 @@ object BBSPageState {
         }
     }
 
+    fun shouldForceRecreateWebViewAfterLongBackground(): Boolean {
+        val stoppedAt = lastStoppedElapsedRealtime
+        return stoppedAt > 0L &&
+                SystemClock.elapsedRealtime() - stoppedAt >= FORCE_RECREATE_AFTER_LONG_BACKGROUND_MS
+    }
+
     fun requestResumeRecovery() {
         needsResumeRecovery = true
+        resumeRecoveryToken++
     }
 
     fun finishResumeRecovery() {
@@ -84,10 +98,6 @@ object BBSPageState {
         return (RESUME_RECOVERY_THROTTLE_MS - elapsed).coerceAtLeast(0L)
     }
 
-    fun isResumeRecoveryThrottled(): Boolean {
-        return resumeRecoveryThrottleDelayMs() > 0L
-    }
-
     fun isUsableBbsUrl(url: String?): Boolean {
         return !url.isNullOrBlank() &&
                 url != "about:blank" &&
@@ -96,7 +106,13 @@ object BBSPageState {
     }
 
     fun bestRecoveryUrl(webView: WebView?, fallbackUrl: String): String {
-        return webView?.url?.takeIf { isUsableBbsUrl(it) }
+        val viewUrl = try {
+            webView?.url
+        } catch (_: Throwable) {
+            null
+        }
+
+        return viewUrl?.takeIf { isUsableBbsUrl(it) }
             ?: currentUrl?.takeIf { isUsableBbsUrl(it) }
             ?: fallbackUrl
     }

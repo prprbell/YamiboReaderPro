@@ -32,14 +32,17 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
@@ -234,6 +237,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+
+        // 长时间后台时，backgroundStopJob 的 delay 可能因为进程进入 cached/doze 而没有按时执行。
+        // 因此回到前台时必须再次用 elapsedRealtime 判断，必要时主动丢弃旧 WebView。
+        val shouldRecreateBbsWebView =
+            bbsWebViewState != null && BBSPageState.shouldForceRecreateWebViewAfterLongBackground()
+
         backgroundStopJob?.cancel()
         backgroundStopJob = null
 
@@ -242,11 +251,20 @@ class MainActivity : ComponentActivity() {
             BBSPageState.requestResumeRecovery()
         }
 
-        if (bbsWebViewState == null) {
-            bbsWebViewState = createBbsWebView(this, customWebChromeClient)
-        } else {
-            bbsWebViewState?.onResume()
-            bbsWebViewState?.resumeTimers()
+        when {
+            bbsWebViewState == null -> {
+                bbsWebViewState = createBbsWebView(this, customWebChromeClient)
+                BBSPageState.requestResumeRecovery()
+            }
+
+            shouldRecreateBbsWebView -> {
+                recreateBbsWebViewAfterLongBackground()
+            }
+
+            else -> {
+                bbsWebViewState?.onResume()
+                bbsWebViewState?.resumeTimers()
+            }
         }
     }
 
@@ -276,10 +294,22 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        recreateBbsWebViewForRecovery(clearErrorState = false)
+    }
+
+    private fun recreateBbsWebViewAfterLongBackground() {
+        recreateBbsWebViewForRecovery(clearErrorState = true)
+    }
+
+    private fun recreateBbsWebViewForRecovery(clearErrorState: Boolean) {
         destroyBbsWebView(bbsWebViewState)
         bbsWebViewState = createBbsWebView(this, customWebChromeClient)
         BBSPageState.hasSuccessfullyLoaded = false
         BBSPageState.isLoading = false
+        if (clearErrorState) {
+            BBSPageState.isErrorState = false
+            BBSPageState.showLoadError = false
+        }
         BBSPageState.requestResumeRecovery()
     }
 
@@ -351,15 +381,31 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
 @Composable
 private fun QuickActionFirstLaunchHint(
     currentRoute: String?,
-    bottomPadding: Dp
+    bottomPadding: Dp,
+    isQuickActionSheetVisible: Boolean
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var showHint by rememberSaveable { mutableStateOf(false) }
-    val shouldShowOnRoute = currentRoute == "FavoritePage" ||
-            currentRoute == "BBSPage" ||
+    val shouldShowOnRoute = currentRoute == "BBSPage" ||
             currentRoute == "MinePage"
 
-    LaunchedEffect(Unit) {
+    fun dismissHint() {
+        showHint = false
+        coroutineScope.launch {
+            try {
+                context.applicationContext.dataStore.edit { prefs ->
+                    prefs[QuickActionHintShownKey] = true
+                }
+            } catch (_: Exception) {
+                // 提示关闭状态保存失败不影响主流程。
+            }
+        }
+    }
+
+    LaunchedEffect(shouldShowOnRoute) {
+        if (!shouldShowOnRoute) return@LaunchedEffect
+
         val hasShown = try {
             context.applicationContext.dataStore.data.first()[QuickActionHintShownKey] == true
         } catch (_: Exception) {
@@ -369,22 +415,19 @@ private fun QuickActionFirstLaunchHint(
         if (!hasShown) {
             delay(700L)
             showHint = true
-            try {
-                context.applicationContext.dataStore.edit { prefs ->
-                    prefs[QuickActionHintShownKey] = true
-                }
-            } catch (_: Exception) {
-                // 提示失败不影响主流程。
-            }
-            delay(6000L)
-            showHint = false
+        }
+    }
+
+    LaunchedEffect(isQuickActionSheetVisible) {
+        if (isQuickActionSheetVisible) {
+            dismissHint()
         }
     }
 
     AnimatedVisibility(
-        visible = showHint && shouldShowOnRoute,
-        enter = fadeIn(tween(250)),
-        exit = fadeOut(tween(250)),
+        visible = showHint && shouldShowOnRoute && !isQuickActionSheetVisible,
+        enter = fadeIn(tween(180)),
+        exit = fadeOut(tween(120)),
         modifier = Modifier
             .fillMaxSize()
             .zIndex(80f)
@@ -395,25 +438,53 @@ private fun QuickActionFirstLaunchHint(
         ) {
             Surface(
                 modifier = Modifier
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = bottomPadding + 8.dp),
-                shape = RoundedCornerShape(18.dp),
-                tonalElevation = 6.dp,
-                shadowElevation = 8.dp,
-                color = MaterialTheme.colorScheme.inverseSurface
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp)
+                    .padding(bottom = bottomPadding + 10.dp),
+                shape = RoundedCornerShape(22.dp),
+                tonalElevation = 4.dp,
+                shadowElevation = 12.dp,
+                color = MaterialTheme.colorScheme.surface
             ) {
-                Text(
-                    text = "Tips：长按底部的导航按钮，可以呼出返回首页/夜间模式/刷新功能。",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    color = MaterialTheme.colorScheme.inverseOnSurface,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center
-                )
+                Row(
+                    modifier = Modifier.padding(start = 18.dp, top = 14.dp, end = 12.dp, bottom = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "长按底部导航",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "返回首页 · 夜间模式 · 刷新",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
+                    Surface(
+                        modifier = Modifier
+                            .padding(start = 14.dp)
+                            .clickable { dismissHint() },
+                        shape = RoundedCornerShape(999.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                    ) {
+                        Text(
+                            text = "知道了",
+                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
             }
         }
     }
 }
-
 @RequiresApi(Build.VERSION_CODES.O)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -518,6 +589,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val currentRoute = navBackStackEntry?.destination?.route
                     val bottomNavBarVM: BottomNavBarVM = viewModel(stateOwner!!)
+                    var isQuickActionSheetVisible by remember { mutableStateOf(false) }
                     val context = LocalContext.current
                     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
                     val selectedItemIndex =
@@ -550,6 +622,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                         BBSPageState.isErrorState = true
                                         BBSPageState.isLoading = false
                                         BBSPageState.showLoadError = true
+                                        BBSPageState.requestResumeRecovery()
                                     }
                                 }
                             } catch (e: Exception) {
@@ -659,7 +732,12 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                             .align(Alignment.BottomCenter)
                                             .padding(bottom = lockedNavHeight)
                                     ) {
-                                        BottomNavBar(navController, "FavoritePage", bottomNavBarVM)
+                                        BottomNavBar(
+                                            navController = navController,
+                                            currentRoute = "FavoritePage",
+                                            navBarVM = bottomNavBarVM,
+                                            onQuickActionSheetVisibleChange = { isQuickActionSheetVisible = it }
+                                        )
                                     }
 
                                     val isContentPage = currentRoute?.run {
@@ -737,7 +815,12 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                                 .align(Alignment.BottomCenter)
                                                 .padding(bottom = lockedNavHeight)
                                         ) {
-                                            BottomNavBar(navController, "BBSPage", bottomNavBarVM)
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = "BBSPage",
+                                                navBarVM = bottomNavBarVM,
+                                                onQuickActionSheetVisibleChange = { isQuickActionSheetVisible = it }
+                                            )
                                         }
 
                                         val isContentPage = currentRoute?.run {
@@ -819,7 +902,12 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                             .align(Alignment.BottomCenter)
                                             .padding(bottom = lockedNavHeight)
                                     ) {
-                                        BottomNavBar(navController, "MinePage", bottomNavBarVM)
+                                        BottomNavBar(
+                                            navController = navController,
+                                            currentRoute = "MinePage",
+                                            navBarVM = bottomNavBarVM,
+                                            onQuickActionSheetVisibleChange = { isQuickActionSheetVisible = it }
+                                        )
                                     }
 
                                     val isContentPage = currentRoute?.run {
@@ -984,7 +1072,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
 
                         QuickActionFirstLaunchHint(
                             currentRoute = currentRoute ?: homeRoute,
-                            bottomPadding = lockedNavHeight + 58.dp
+                            bottomPadding = lockedNavHeight + 58.dp,
+                            isQuickActionSheetVisible = isQuickActionSheetVisible
                         )
                     }
                 }

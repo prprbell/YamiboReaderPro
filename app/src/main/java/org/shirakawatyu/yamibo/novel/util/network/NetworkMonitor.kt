@@ -8,10 +8,11 @@ import android.net.NetworkRequest
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 object NetworkMonitor {
     fun observeNetwork(context: Context): Flow<Boolean> = callbackFlow {
-        val connectivityManager = 
+        val connectivityManager =
             context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
         val callback = object : ConnectivityManager.NetworkCallback() {
@@ -21,8 +22,9 @@ object NetworkMonitor {
                 networkCapabilities: NetworkCapabilities
             ) {
                 super.onCapabilitiesChanged(network, networkCapabilities)
-                val isInternetReady = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                                      networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                val isInternetReady =
+                    networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                            networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                 trySend(isInternetReady)
             }
 
@@ -42,13 +44,13 @@ object NetworkMonitor {
         val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
         val initialIsConnected = capabilities?.let {
             it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            it.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    it.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
         } ?: false
-        
+
         trySend(initialIsConnected)
 
         awaitClose {
             connectivityManager.unregisterNetworkCallback(callback)
         }
-    }
+    }.distinctUntilChanged()
 }

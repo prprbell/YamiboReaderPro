@@ -553,7 +553,16 @@ fun BBSPage(
         CookieManager.getInstance().flush()
 
         startLoadTimeout()
-        webView.loadUrl(url)
+        try {
+            webView.loadUrl(url)
+        } catch (_: Throwable) {
+            BBSPageState.isLoading = false
+            BBSPageState.isErrorState = true
+            BBSPageState.showLoadError = true
+            BBSPageState.requestResumeRecovery()
+            (context as? org.shirakawatyu.yamibo.novel.MainActivity)
+                ?.recreateBbsWebViewAfterRendererGone(webView)
+        }
     }
 
     fun reloadCurrentPageWithTimeout() {
@@ -566,7 +575,13 @@ fun BBSPage(
         CookieManager.getInstance().flush()
 
         startLoadTimeout()
-        if (BBSPageState.isUsableBbsUrl(webView.url)) {
+        val currentWebViewUrl = try {
+            webView.url
+        } catch (_: Throwable) {
+            null
+        }
+
+        if (BBSPageState.isUsableBbsUrl(currentWebViewUrl)) {
             webView.reload()
         } else {
             webView.loadUrl(targetUrl)
@@ -579,7 +594,6 @@ fun BBSPage(
 
     fun recoverBbsWebViewAfterResume() {
         if (!isSelected) return
-        if (!isNetworkAvailable) return
         if (!BBSPageState.needsResumeRecovery &&
             !BBSPageState.isErrorState &&
             !BBSPageState.showLoadError
@@ -587,23 +601,38 @@ fun BBSPage(
             return
         }
 
-        BBSPageState.cancelPause()
-        webView.onResume()
-        webView.resumeTimers()
-        webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
+        try {
+            BBSPageState.cancelPause()
+            webView.onResume()
+            webView.resumeTimers()
+            webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
 
-        val targetUrl = BBSPageState.bestRecoveryUrl(webView, mobileIndexUrl)
-        val shouldLoadUrl = BBSPageState.isErrorState ||
-                BBSPageState.showLoadError ||
-                !BBSPageState.hasSuccessfullyLoaded ||
-                !BBSPageState.isUsableBbsUrl(webView.url)
+            val targetUrl = BBSPageState.bestRecoveryUrl(webView, mobileIndexUrl)
+            val currentWebViewUrl = try {
+                webView.url
+            } catch (_: Throwable) {
+                null
+            }
 
-        BBSPageState.finishResumeRecovery()
+            val shouldLoadUrl = BBSPageState.isErrorState ||
+                    BBSPageState.showLoadError ||
+                    !BBSPageState.hasSuccessfullyLoaded ||
+                    !BBSPageState.isUsableBbsUrl(currentWebViewUrl)
 
-        if (shouldLoadUrl) {
-            startLoading(targetUrl)
-        } else {
-            reloadCurrentPageWithTimeout()
+            if (shouldLoadUrl) {
+                startLoading(targetUrl)
+            } else {
+                reloadCurrentPageWithTimeout()
+            }
+
+            BBSPageState.finishResumeRecovery()
+        } catch (_: Throwable) {
+            BBSPageState.isLoading = false
+            BBSPageState.isErrorState = true
+            BBSPageState.showLoadError = true
+            BBSPageState.requestResumeRecovery()
+            (context as? org.shirakawatyu.yamibo.novel.MainActivity)
+                ?.recreateBbsWebViewAfterRendererGone(webView)
         }
     }
 
@@ -623,8 +652,8 @@ fun BBSPage(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(isNetworkAvailable, BBSPageState.isErrorState) {
-        if (isNetworkAvailable && BBSPageState.isErrorState) {
+    LaunchedEffect(isNetworkAvailable, BBSPageState.isErrorState, BBSPageState.showLoadError) {
+        if (BBSPageState.isErrorState || BBSPageState.showLoadError) {
             BBSPageState.requestResumeRecovery()
         }
     }
@@ -633,12 +662,12 @@ fun BBSPage(
         isSelected,
         isNetworkAvailable,
         BBSPageState.needsResumeRecovery,
+        BBSPageState.resumeRecoveryToken,
         BBSPageState.isErrorState,
         BBSPageState.showLoadError,
         webView
     ) {
         if (isSelected &&
-            isNetworkAvailable &&
             (BBSPageState.needsResumeRecovery ||
                     BBSPageState.isErrorState ||
                     BBSPageState.showLoadError)
@@ -886,7 +915,7 @@ fun BBSPage(
                 )
         ) {
             AndroidView(
-                modifier = Modifier,
+                modifier = Modifier.fillMaxSize(),
                 factory = { context ->
                     FrameLayout(context).apply {
                         layoutParams = ViewGroup.LayoutParams(
@@ -908,10 +937,37 @@ fun BBSPage(
                         webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
                     }
                 },
-                update = { _ ->
-                    canGoBack = webView.canGoBack()
-                    BBSPageState.currentUrl = webView.url
-                    BBSPageState.pageTitle = webView.title ?: ""
+                update = { container ->
+                    if (webView.parent !== container) {
+                        (webView.parent as? ViewGroup)?.removeView(webView)
+                        container.removeAllViews()
+                        container.addView(
+                            webView,
+                            ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        )
+                    }
+
+                    webView.requestLayout()
+                    webView.invalidate()
+
+                    canGoBack = try {
+                        webView.canGoBack()
+                    } catch (_: Throwable) {
+                        false
+                    }
+                    BBSPageState.currentUrl = try {
+                        webView.url
+                    } catch (_: Throwable) {
+                        null
+                    }
+                    BBSPageState.pageTitle = try {
+                        webView.title ?: ""
+                    } catch (_: Throwable) {
+                        ""
+                    }
                 },
                 onRelease = {
                     val delayMs = if (!BBSPageState.hasExecutedInitialDelay) {
