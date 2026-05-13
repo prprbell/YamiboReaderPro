@@ -43,7 +43,7 @@ private val LightColorScheme = lightColorScheme(
     secondary = YellowLightDark,
     tertiary = YellowLightLight,
     background = YellowLightDark,
-    surface = YellowLightDark
+    surface = YellowLightLight
 )
 
 @Composable
