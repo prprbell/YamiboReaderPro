@@ -11,7 +11,12 @@
       "Bash(git push *)",
       "Bash(git *)",
       "WebSearch",
-      "Bash(gh release *)"
+      "Bash(gh release *)",
+      "Bash(mkdir -p C:/Users/Administrator/Desktop/manga_files)",
+      "Bash(cp D:/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/bean/MangaDirectory.kt C:/Users/Administrator/Desktop/manga_files/)",
+      "Bash(cp D:/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/bean/MangaChapterItem.kt C:/Users/Administrator/Desktop/manga_files/)",
+      "Bash(cp D:/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/bean/DirectoryStrategy.kt C:/Users/Administrator/Desktop/manga_files/)",
+      "Bash(cp D:/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/bean/MangaSettings.kt C:/Users/Administrator/Desktop/manga_files/)"
     ]
   }
 }

@@ -72,6 +72,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.util.HapticUtil
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -155,6 +156,10 @@ fun BottomNavBar(
     val baseTargetYPx = with(density) { (-100).dp.toPx() }
     val minDragYPx = with(density) { -30.dp.toPx() }
     val snapRadiusPx = with(density) { 60.dp.toPx() }
+    // 只增强“光球已经在功能球上方”时的纵向吸附，避免往两侧或下方误吸。
+    val upwardSnapHalfWidthPx = with(density) { 42.dp.toPx() }
+    val upwardSnapHeightPx = with(density) { 130.dp.toPx() }
+    val upwardSnapGracePx = with(density) { 10.dp.toPx() }
 
     // 每个 slot 的目标坐标 (px)
     val slotTargetX = remember(density) {
@@ -229,7 +234,8 @@ fun BottomNavBar(
                 .offset(x = originXDp, y = (-25).dp)
                 .zIndex(10f)
         ) {
-            val expansionProgress = expansionAnim.value
+            // spring 会在 1f 附近轻微过冲；用于绘制时钳制，避免展开末端位置/阴影回弹产生白线。
+            val expansionProgress = expansionAnim.value.coerceIn(0f, 1f)
 
             // 手指光球的流体追踪 (带磁吸效果)
             val activeTargetX = activeSlot?.let { slotTargetX[it] }
@@ -376,11 +382,178 @@ fun BottomNavBar(
         }
 
         // ================= 底部导航栏 (始终贴底) =================
+        // 长按手势放在整条 NavigationBar 上，而不是单个 NavigationBarItem 上。
+        // 这样 MinePage 最右侧“看起来仍属于按钮”的空白区域也会被纳入同一个 1/3 命中区，
+        // 不再受 NavigationBarItem 内部实际触摸范围/内边距影响。
         NavigationBar(
             Modifier
                 .fillMaxWidth()
                 .height(50.dp)
-                .align(Alignment.BottomCenter),
+                .align(Alignment.BottomCenter)
+                .pointerInput(currentRoute, quickActions) {
+                    var isNavBarLongPressAccepted = false
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { startOffset ->
+                            if (isExecuting) {
+                                isNavBarLongPressAccepted = false
+                                return@detectDragGesturesAfterLongPress
+                            }
+
+                            val tabWidthPx = size.width / pageList.size.toFloat()
+                            val touchedIndex = (startOffset.x / tabWidthPx)
+                                .toInt()
+                                .coerceIn(0, pageList.lastIndex)
+                            val targetRoute = pageList[touchedIndex]
+
+                            isNavBarLongPressAccepted =
+                                currentRoute == targetRoute &&
+                                        targetRoute != "FavoritePage" &&
+                                        quickActions.isNotEmpty()
+
+                            if (!isNavBarLongPressAccepted) return@detectDragGesturesAfterLongPress
+
+                            HapticUtil.performLongPress(view)
+                            pressedItemIndex = touchedIndex
+                            showActionSheet = true
+                            dragOffsetX = 0f
+                            dragOffsetY = 0f
+                            activeSlot = null
+                            coroutineScope.launch { rotationAnim.snapTo(0f) }
+                        },
+                        onDrag = { change, dragAmount ->
+                            if (!isNavBarLongPressAccepted || isExecuting) return@detectDragGesturesAfterLongPress
+                            change.consume()
+                            dragOffsetX += dragAmount.x
+                            dragOffsetY += dragAmount.y
+
+                            if (dragOffsetY > minDragYPx) {
+                                activeSlot = null
+                                return@detectDragGesturesAfterLongPress
+                            }
+
+                            val sortedSlots = quickActions.map { it.slot }
+                                .sortedBy { slotTargetX[it]!! }
+
+                            activeSlot = null
+                            for ((i, slot) in sortedSlots.withIndex()) {
+                                val tx = slotTargetX[slot]!!
+                                val ty = slotTargetY[slot]!!
+                                val leftBound = if (i > 0) {
+                                    (tx + slotTargetX[sortedSlots[i - 1]]!!) / 2f
+                                } else Float.NEGATIVE_INFINITY
+                                val rightBound = if (i < sortedSlots.size - 1) {
+                                    (tx + slotTargetX[sortedSlots[i + 1]]!!) / 2f
+                                } else Float.POSITIVE_INFINITY
+
+                                if (dragOffsetX in leftBound..rightBound) {
+                                    val dx = dragOffsetX - tx
+                                    val dy = dragOffsetY - ty
+                                    val dist = hypot(dx, dy)
+                                    val isDirectlyAboveSlot =
+                                        dy <= upwardSnapGracePx &&
+                                                abs(dx) <= upwardSnapHalfWidthPx &&
+                                                -dy <= upwardSnapHeightPx
+
+                                    if (dist < snapRadiusPx || isDirectlyAboveSlot) {
+                                        activeSlot = slot
+                                    }
+                                    break
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            if (!isNavBarLongPressAccepted || isExecuting) {
+                                isNavBarLongPressAccepted = false
+                                return@detectDragGesturesAfterLongPress
+                            }
+                            isNavBarLongPressAccepted = false
+
+                            val slot = activeSlot
+                            if (slot != null) {
+                                val action = quickActions.first { it.slot == slot }
+                                isExecuting = true
+                                executedSlot = slot
+                                HapticUtil.performLongPress(view)
+
+                                when (action.kind) {
+                                    ActionKind.Home -> {
+                                        currentRoute?.let { navBarVM.triggerGoHome(it) }
+                                        coroutineScope.launch {
+                                            delay(150) // 黄金停顿：让球体完成放大弹簧动画
+                                            showActionSheet = false // 触发回缩和柔和退场
+                                            delay(450) // 等待回缩动画完全播完
+                                            isExecuting = false
+                                            executedSlot = null
+                                            activeSlot = null
+                                            dragOffsetX = 0f
+                                            dragOffsetY = 0f
+                                        }
+                                    }
+
+                                    ActionKind.Refresh -> {
+                                        currentRoute?.let { navBarVM.triggerRefresh(it) }
+                                        coroutineScope.launch {
+                                            val spinJob = launch {
+                                                rotationAnim.animateTo(
+                                                    targetValue = rotationAnim.value + 360f,
+                                                    animationSpec = tween(600, easing = LinearEasing)
+                                                )
+                                            }
+                                            delay(150) // 转动一小段圆弧，作为视觉确认
+                                            showActionSheet = false
+
+                                            delay(450)
+                                            isExecuting = false
+                                            executedSlot = null
+                                            spinJob.cancel()
+                                            rotationAnim.snapTo(0f)
+                                            activeSlot = null
+                                            dragOffsetX = 0f
+                                            dragOffsetY = 0f
+                                        }
+                                    }
+
+                                    ActionKind.DarkMode -> {
+                                        currentRoute?.let { navBarVM.triggerDarkMode(it) }
+                                        coroutineScope.launch {
+                                            delay(150)
+                                            showActionSheet = false
+                                            delay(450)
+                                            isExecuting = false
+                                            executedSlot = null
+                                            activeSlot = null
+                                            dragOffsetX = 0f
+                                            dragOffsetY = 0f
+                                        }
+                                    }
+                                }
+                            } else {
+                                // 未选任何功能时的取消逻辑
+                                showActionSheet = false
+                                coroutineScope.launch {
+                                    delay(400) // 等待图标优雅且同步地收缩完再归零状态
+                                    activeSlot = null
+                                    dragOffsetX = 0f
+                                    dragOffsetY = 0f
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            if (!isNavBarLongPressAccepted || isExecuting) {
+                                isNavBarLongPressAccepted = false
+                                return@detectDragGesturesAfterLongPress
+                            }
+                            isNavBarLongPressAccepted = false
+                            showActionSheet = false
+                            coroutineScope.launch {
+                                delay(400) // 同样等待退场播完再重置光球状态，防割裂
+                                activeSlot = null
+                                dragOffsetX = 0f
+                                dragOffsetY = 0f
+                            }
+                        }
+                    )
+                },
             windowInsets = WindowInsets(0, 0, 0, 0),
             containerColor = darkModeColor(YamiboColors.onSurface, YamiboColors.onSurfaceDark)
         ) {
@@ -394,139 +567,6 @@ fun BottomNavBar(
                     onClick = {
                         if (currentRoute == targetRoute) return@NavigationBarItem
                         navBarVM.changeSelection(index, navController)
-                    },
-                    modifier = Modifier.pointerInput(isSelected) {
-                        if (!isSelected || targetRoute == "FavoritePage") return@pointerInput
-
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = {
-                                if (isExecuting) return@detectDragGesturesAfterLongPress
-                                HapticUtil.performLongPress(view)
-                                pressedItemIndex = index
-                                showActionSheet = true
-                                dragOffsetX = 0f
-                                dragOffsetY = 0f
-                                activeSlot = null
-                                coroutineScope.launch { rotationAnim.snapTo(0f) }
-                            },
-                            onDrag = { change, dragAmount ->
-                                if (isExecuting) return@detectDragGesturesAfterLongPress
-                                change.consume()
-                                dragOffsetX += dragAmount.x
-                                dragOffsetY += dragAmount.y
-
-                                if (dragOffsetY > minDragYPx) {
-                                    activeSlot = null
-                                    return@detectDragGesturesAfterLongPress
-                                }
-
-                                val sortedSlots = quickActions.map { it.slot }
-                                    .sortedBy { slotTargetX[it]!! }
-
-                                activeSlot = null
-                                for ((i, slot) in sortedSlots.withIndex()) {
-                                    val tx = slotTargetX[slot]!!
-                                    val ty = slotTargetY[slot]!!
-                                    val leftBound = if (i > 0) {
-                                        (tx + slotTargetX[sortedSlots[i - 1]]!!) / 2f
-                                    } else Float.NEGATIVE_INFINITY
-                                    val rightBound = if (i < sortedSlots.size - 1) {
-                                        (tx + slotTargetX[sortedSlots[i + 1]]!!) / 2f
-                                    } else Float.POSITIVE_INFINITY
-
-                                    if (dragOffsetX in leftBound..rightBound) {
-                                        val dist = hypot(dragOffsetX - tx, dragOffsetY - ty)
-                                        if (dist < snapRadiusPx) {
-                                            activeSlot = slot
-                                        }
-                                        break
-                                    }
-                                }
-                            },
-                            onDragEnd = {
-                                if (isExecuting) return@detectDragGesturesAfterLongPress
-
-                                val slot = activeSlot
-                                if (slot != null) {
-                                    val action = quickActions.first { it.slot == slot }
-                                    isExecuting = true
-                                    executedSlot = slot
-                                    HapticUtil.performLongPress(view)
-
-                                    when (action.kind) {
-                                        ActionKind.Home -> {
-                                            currentRoute?.let { navBarVM.triggerGoHome(it) }
-                                            coroutineScope.launch {
-                                                delay(150) // 黄金停顿：让球体完成放大弹簧动画
-                                                showActionSheet = false // 触发回缩和柔和退场
-                                                delay(450) // 等待回缩动画完全播完
-                                                isExecuting = false
-                                                executedSlot = null
-                                                activeSlot = null
-                                                dragOffsetX = 0f
-                                                dragOffsetY = 0f
-                                            }
-                                        }
-
-                                        ActionKind.Refresh -> {
-                                            currentRoute?.let { navBarVM.triggerRefresh(it) }
-                                            coroutineScope.launch {
-                                                val spinJob = launch {
-                                                    rotationAnim.animateTo(
-                                                        targetValue = rotationAnim.value + 360f,
-                                                        animationSpec = tween(600, easing = LinearEasing)
-                                                    )
-                                                }
-                                                delay(150) // 转动一小段圆弧，作为视觉确认
-                                                showActionSheet = false
-
-                                                delay(450)
-                                                isExecuting = false
-                                                executedSlot = null
-                                                spinJob.cancel()
-                                                rotationAnim.snapTo(0f)
-                                                activeSlot = null
-                                                dragOffsetX = 0f
-                                                dragOffsetY = 0f
-                                            }
-                                        }
-
-                                        ActionKind.DarkMode -> {
-                                            currentRoute?.let { navBarVM.triggerDarkMode(it) }
-                                            coroutineScope.launch {
-                                                delay(150)
-                                                showActionSheet = false
-                                                delay(450)
-                                                isExecuting = false
-                                                executedSlot = null
-                                                activeSlot = null
-                                                dragOffsetX = 0f
-                                                dragOffsetY = 0f
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // 未选任何功能时的取消逻辑
-                                    showActionSheet = false
-                                    coroutineScope.launch {
-                                        delay(400) // 等待图标优雅且同步地收缩完再归零状态
-                                        activeSlot = null
-                                        dragOffsetX = 0f
-                                        dragOffsetY = 0f
-                                    }
-                                }
-                            },
-                            onDragCancel = {
-                                if (isExecuting) return@detectDragGesturesAfterLongPress
-                                showActionSheet = false
-                                coroutineScope.launch {
-                                    delay(400) // 同样等待退场播完再重置光球状态，防割裂
-                                    activeSlot = null
-                                    dragOffsetX = 0f
-                                    dragOffsetY = 0f
-                                }
-                            }
-                        )
                     }
                 )
             }

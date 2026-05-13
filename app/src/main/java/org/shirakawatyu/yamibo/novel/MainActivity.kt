@@ -18,6 +18,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -31,6 +32,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -44,6 +46,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -59,12 +62,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -114,6 +121,7 @@ import java.net.URLDecoder
 import kotlin.coroutines.resume
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cookies")
+private val QuickActionHintShownKey = booleanPreferencesKey("quick_action_hint_shown")
 
 class MainActivity : ComponentActivity() {
 
@@ -337,6 +345,72 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
 
         resumeTimers()
         onResume()
+    }
+}
+
+@Composable
+private fun QuickActionFirstLaunchHint(
+    currentRoute: String?,
+    bottomPadding: Dp
+) {
+    val context = LocalContext.current
+    var showHint by rememberSaveable { mutableStateOf(false) }
+    val shouldShowOnRoute = currentRoute == "FavoritePage" ||
+            currentRoute == "BBSPage" ||
+            currentRoute == "MinePage"
+
+    LaunchedEffect(Unit) {
+        val hasShown = try {
+            context.applicationContext.dataStore.data.first()[QuickActionHintShownKey] == true
+        } catch (_: Exception) {
+            false
+        }
+
+        if (!hasShown) {
+            delay(700L)
+            showHint = true
+            try {
+                context.applicationContext.dataStore.edit { prefs ->
+                    prefs[QuickActionHintShownKey] = true
+                }
+            } catch (_: Exception) {
+                // 提示失败不影响主流程。
+            }
+            delay(6000L)
+            showHint = false
+        }
+    }
+
+    AnimatedVisibility(
+        visible = showHint && shouldShowOnRoute,
+        enter = fadeIn(tween(250)),
+        exit = fadeOut(tween(250)),
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(80f)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Surface(
+                modifier = Modifier
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = bottomPadding + 8.dp),
+                shape = RoundedCornerShape(18.dp),
+                tonalElevation = 6.dp,
+                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.inverseSurface
+            ) {
+                Text(
+                    text = "Tips：长按底部的导航按钮，可以呼出返回首页/夜间模式/刷新功能。",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
     }
 }
 
@@ -907,6 +981,11 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 )
                             }
                         }
+
+                        QuickActionFirstLaunchHint(
+                            currentRoute = currentRoute ?: homeRoute,
+                            bottomPadding = lockedNavHeight + 58.dp
+                        )
                     }
                 }
             } else {

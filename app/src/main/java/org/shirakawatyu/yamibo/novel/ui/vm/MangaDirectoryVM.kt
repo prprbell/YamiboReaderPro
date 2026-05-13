@@ -36,6 +36,9 @@ class MangaDirectoryVM(application: Application) : AndroidViewModel(application)
 
     /**
      * 接收 WebView 传来的 HTML 进行静态解析初始化
+     * 这里的 html 不一定来自 WebView。
+     * API 成功时，它是由 postlist[].message 拼接伪装的 HTML 片段；
+     * WebView 兜底时，才是真实页面 HTML。
      */
     fun initDirectoryFromWeb(url: String, html: String, title: String) {
         val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: return
