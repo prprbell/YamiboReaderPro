@@ -58,6 +58,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.navigation.NavController
 import kotlinx.coroutines.delay
@@ -104,14 +105,15 @@ data class ThemeQuickAction(
     val slot: SubActionSlot,
     val name: String,
     val themeId: Int,
-    val color: Color
+    val color: Color,
+    val hint: String
 )
 
 val themeActions = listOf(
-    ThemeQuickAction(SubActionSlot.FarLeft, "纯黑", 0, Color(0xFF121212)),
-    ThemeQuickAction(SubActionSlot.NearLeft, "灰蓝", 1, Color(0xFF13191F)),
-    ThemeQuickAction(SubActionSlot.NearRight, "OLED", 2, Color(0xFF000000)),
-    ThemeQuickAction(SubActionSlot.FarRight, "紫夜", 3, Color(0xFF15151F))
+    ThemeQuickAction(SubActionSlot.FarLeft, "纯黑", 0, Color(0xFF121212), "暗"),
+    ThemeQuickAction(SubActionSlot.NearLeft, "灰蓝", 1, Color(0xFF13191F), "蓝"),
+    ThemeQuickAction(SubActionSlot.NearRight, "OLED", 2, Color(0xFF000000), "黑"),
+    ThemeQuickAction(SubActionSlot.FarRight, "紫夜", 3, Color(0xFF15151F), "紫")
 )
 
 /** 根据当前路由和夜间模式状态返回该页面允许的快捷操作列表 */
@@ -390,7 +392,14 @@ fun BottomNavBar(
                                     .shadow(if (isThisSubActive) 10.dp else 4.dp, CircleShape, spotColor = subAction.color)
                                     .background(subAction.color, CircleShape)
                                     .border(1.5.dp, darkThemeColor(YamiboColors.primary.copy(alpha = 0.25f)) { primary.copy(alpha = 0.25f) }, CircleShape)
-                            ) {}
+                            ) {
+                                androidx.compose.material3.Text(
+                                    text = subAction.hint,
+                                    color = Color.White.copy(alpha = 0.55f),
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                            }
                         }
                     }
                 }
@@ -534,8 +543,12 @@ fun BottomNavBar(
                                         }
                                     }
                                 } else {
-                                    showActionSheet = false
-                                    scheduleGestureReset(400)
+                                    // 夜间模式下拖到中央按钮松手 → 直接回到日间模式，无需进入二级选色菜单
+                                    isExecuting = true
+                                    executedSlot = slot
+                                    HapticUtil.performLongPress(view)
+                                    currentRoute?.let { navBarVM.applyTheme(it, -1) }
+                                    coroutineScope.launch { delay(150); showActionSheet = false; delay(450); isExecuting = false; resetGestureState() }
                                 }
                             } else {
                                 showActionSheet = false

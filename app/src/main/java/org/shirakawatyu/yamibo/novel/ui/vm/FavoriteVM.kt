@@ -215,6 +215,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 val json = JSON.parseObject(resp)
                 val variables = json.getJSONObject("Variables")
                     ?: throw Exception("Missing Variables")
+                prefetchFormHash = variables.getString("formhash") ?: prefetchFormHash
                 val list = variables.getJSONArray("list")
                 val pageList = mutableListOf<Favorite>()
 
@@ -414,21 +415,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             selectedItems = emptySet()
         )
         updateUiList()
-
-        // 进入管理模式时，开启后台探针
-        if (newMode) {
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val api = YamiboRetrofit.getInstance().create(FavoriteApi::class.java)
-                    val profileResponse = api.getFormHash().execute()
-                    val json = profileResponse.body()?.string() ?: return@launch
-                    try {
-                        val jsonObject = JSON.parseObject(json)
-                        prefetchFormHash = jsonObject?.getJSONObject("Variables")?.getString("formhash")
-                    } catch (_: Exception) { }
-                } catch (_: Exception) { }
-            }
-        }
     }
 
     fun toggleItemSelection(url: String) {
