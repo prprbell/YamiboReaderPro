@@ -288,6 +288,7 @@ fun OtherWebPage(
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             otherWebView.evaluateJavascript(PageJsScripts.CLEANUP_FULLSCREEN_JS, null)
+            GlobalData.webProgress.value = 100
         } else {
             if (autoOpenMangaMode) autoOpenMangaMode = false
 
@@ -466,6 +467,9 @@ fun OtherWebPage(
                         baseIndex = list.currentIndex
                     }
                     canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
+                }
+                if (!isLoading) {
+                    GlobalData.webProgress.value = 100
                 }
             }
 

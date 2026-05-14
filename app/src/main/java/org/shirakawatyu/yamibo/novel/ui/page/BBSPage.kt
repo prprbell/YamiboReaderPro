@@ -198,6 +198,9 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
                 androidx.lifecycle.ViewModelProvider(activity)[BottomNavBarVM::class.java]
             navBarVM.isBbsAtRoot = isHomepage
         }
+        if (!BBSPageState.isLoading) {
+            GlobalData.webProgress.value = 100
+        }
     }
 
     override fun onFormResubmission(
@@ -682,6 +685,7 @@ fun BBSPage(
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             webView.evaluateJavascript(PageJsScripts.CLEANUP_FULLSCREEN_JS, null)
+            GlobalData.webProgress.value = 100
         } else {
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false

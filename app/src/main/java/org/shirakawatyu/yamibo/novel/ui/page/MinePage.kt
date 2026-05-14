@@ -438,6 +438,7 @@ fun MinePage(
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             mineWebView.evaluateJavascript(PageJsScripts.CLEANUP_FULLSCREEN_JS, null)
+            GlobalData.webProgress.value = 100
         } else {
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
@@ -650,6 +651,9 @@ fun MinePage(
                 val isHomePage =
                     isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("mycenter=1")
                 bottomNavBarVM.isMineAtRoot = isHomePage
+                if (!isLoading) {
+                    GlobalData.webProgress.value = 100
+                }
             }
 
             override fun onPageCommitVisible(view: WebView?, url: String?) {

@@ -367,6 +367,7 @@ fun MangaWebPage(
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
             mangaWebView.evaluateJavascript(PageJsScripts.CLEANUP_FULLSCREEN_JS, null)
+            GlobalData.webProgress.value = 100
         } else {
             if (autoOpenMangaMode) autoOpenMangaMode = false
             currentUrl?.let { threadUrl ->
@@ -551,6 +552,9 @@ fun MangaWebPage(
                         baseIndex = list.currentIndex
                     }
                     canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
+                }
+                if (!isLoading) {
+                    GlobalData.webProgress.value = 100
                 }
             }
 
