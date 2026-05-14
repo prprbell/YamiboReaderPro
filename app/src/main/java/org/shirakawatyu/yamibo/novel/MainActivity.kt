@@ -118,10 +118,13 @@ import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.SignTrigger
+import org.shirakawatyu.yamibo.novel.util.currentDarkThemeColors
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
+import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
 import java.net.URLDecoder
 import kotlin.coroutines.resume
+import androidx.core.graphics.toColorInt
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cookies")
 private val QuickActionHintShownKey = booleanPreferencesKey("quick_action_hint_shown")
@@ -193,15 +196,18 @@ class MainActivity : ComponentActivity() {
         }
         GlobalData.homePageRoute.value = initialRoute
         // 预加载夜间模式设置，避免首帧骨架屏闪现日间样式
-        val darkMode = runBlocking {
+        val (darkMode, darkModeTheme) = runBlocking {
             try {
                 val prefs = applicationContext.dataStore.data.first()
-                prefs[stringPreferencesKey("dark_mode")]?.toBooleanStrictOrNull() ?: false
+                val dm = prefs[stringPreferencesKey("dark_mode")]?.toBooleanStrictOrNull() ?: false
+                val dmt = prefs[stringPreferencesKey("dark_mode_theme")]?.toIntOrNull() ?: 0
+                dm to dmt
             } catch (_: Exception) {
-                false
+                false to 0
             }
         }
         GlobalData.isDarkMode.value = darkMode
+        GlobalData.darkModeTheme.value = darkModeTheme
         super.onCreate(savedInstanceState)
 
         val isRestoring = savedInstanceState != null
@@ -216,10 +222,16 @@ class MainActivity : ComponentActivity() {
         WindowInsetsControllerCompat(window, window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-        window.statusBarColor = if (darkMode)
-            android.graphics.Color.parseColor("#1A1A1A")
-        else
-            android.graphics.Color.parseColor("#551200")
+        window.statusBarColor = if (darkMode) {
+            when (darkModeTheme) {
+                1 -> "#13191F".toColorInt()
+                2 -> "#000000".toColorInt()
+                3 -> "#191925".toColorInt()
+                else -> "#1A1A1A".toColorInt()
+            }
+        } else {
+            "#551200".toColorInt()
+        }
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = !darkMode
 
         if (bbsWebViewState == null) {
@@ -519,6 +531,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                 SettingsUtil.getDnsOptimizationMode { GlobalData.dnsOptimizationMode.value = it }
                 SettingsUtil.getCustomDnsUrl { GlobalData.customDnsUrl.value = it }
                 SettingsUtil.getDarkMode { GlobalData.isDarkMode.value = it }
+                SettingsUtil.getDarkModeTheme { GlobalData.darkModeTheme.value = it }
                 GlobalData.isAppInitialized = true
             }
         }
@@ -667,13 +680,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                     val lockedNavHeight = maxOf(currentPaddingValue, lockedNavHeightValue).dp
 
                     Box(modifier = Modifier.fillMaxSize()) {
-                        val isDark = GlobalData.isDarkMode.collectAsState().value
-                        val darkStatusColor = androidx.compose.ui.graphics.Color(0xFF1a1a1a)
+                        val darkTheme = currentDarkThemeColors()
+                        val isDark = darkTheme != null
                         val statusBarColor = when {
-                            currentRoute == "FavoritePage" -> if (isDark) darkStatusColor else YamiboColors.onSurface
-                            currentRoute == "BBSPage" -> if (isDark) darkStatusColor else YamiboColors.primary
-                            currentRoute == "MinePage" -> if (isDark) darkStatusColor else YamiboColors.primary
-                            currentRoute?.startsWith("OtherWebPage") == true -> if (isDark) darkStatusColor else YamiboColors.primary
+                            currentRoute == "FavoritePage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.onSurface
+                            currentRoute == "BBSPage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
+                            currentRoute == "MinePage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
+                            currentRoute?.startsWith("OtherWebPage") == true -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
                             else -> null
                         }
                         if (statusBarColor != null) {
@@ -853,7 +866,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        CircularProgressIndicator(color = darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark))
+                                        CircularProgressIndicator(color = darkThemeColor(YamiboColors.secondary) { surfaceVariant })
                                     }
                                 }
                             }
@@ -1122,7 +1135,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                         contentAlignment = Alignment.Center
                     ) {
                         if (!isRestoring) {
-                            CircularProgressIndicator(color = darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark))
+                            CircularProgressIndicator(color = darkThemeColor(YamiboColors.secondary) { surfaceVariant })
                         }
                     }
                 }

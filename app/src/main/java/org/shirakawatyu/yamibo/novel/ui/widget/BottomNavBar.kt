@@ -69,7 +69,7 @@ import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.util.HapticUtil
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
-import kotlin.math.abs
+import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -90,6 +90,28 @@ data class QuickAction(
     val description: String,
     val kind: ActionKind,
     val iconResId: Int? = null   // 非 null 时优先使用此资源，支持夜间模式动态切换图标
+)
+
+// ================= 新增二级菜单的配置 =================
+enum class SubActionSlot(val labelX: Float, val labelYOffset: Float) {
+    FarLeft(-105f, -82f),
+    NearLeft(-42f, -108f),
+    NearRight(42f, -108f),
+    FarRight(105f, -82f)
+}
+
+data class ThemeQuickAction(
+    val slot: SubActionSlot,
+    val name: String,
+    val themeId: Int,
+    val color: Color
+)
+
+val themeActions = listOf(
+    ThemeQuickAction(SubActionSlot.FarLeft, "纯黑", 0, Color(0xFF121212)),
+    ThemeQuickAction(SubActionSlot.NearLeft, "灰蓝", 1, Color(0xFF13191F)),
+    ThemeQuickAction(SubActionSlot.NearRight, "OLED", 2, Color(0xFF000000)),
+    ThemeQuickAction(SubActionSlot.FarRight, "紫夜", 3, Color(0xFF15151F))
 )
 
 /** 根据当前路由和夜间模式状态返回该页面允许的快捷操作列表 */
@@ -128,12 +150,12 @@ fun BottomNavBar(
 
     val animatedProgress = remember { Animatable(0f) }
 
-    // ==== 当前路由的快捷操作配置 ====
     val isDarkMode by GlobalData.isDarkMode.collectAsState()
     val quickActions = remember(currentRoute, isDarkMode) { getQuickActions(currentRoute, isDarkMode) }
 
     // ==== 手势 / 动画状态 ====
     var showActionSheet by remember { mutableStateOf(false) }
+    var inSubMenuMode by remember { mutableStateOf(false) }
 
     LaunchedEffect(showActionSheet) {
         onQuickActionSheetVisibleChange(showActionSheet)
@@ -142,13 +164,15 @@ fun BottomNavBar(
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     var activeSlot by remember { mutableStateOf<ActionSlot?>(null) }
+    var activeSubSlot by remember { mutableStateOf<SubActionSlot?>(null) }
     var isExecuting by remember { mutableStateOf(false) }
     var executedSlot by remember { mutableStateOf<ActionSlot?>(null) }
-    var lastVibratedSlot by remember { mutableStateOf<ActionSlot?>(null) }
+    var lastVibratedSlot by remember { mutableStateOf<Any?>(null) }
     var pressedItemIndex by remember { mutableStateOf(1) }
 
     val rotationAnim = remember { Animatable(0f) }
     val expansionAnim = remember { Animatable(0f) }
+    val subMenuExpansionAnim = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
     var pendingResetJob by remember { mutableStateOf<Job?>(null) }
 
@@ -159,6 +183,8 @@ fun BottomNavBar(
 
     fun resetGestureState() {
         activeSlot = null
+        activeSubSlot = null
+        inSubMenuMode = false
         dragOffsetX = 0f
         dragOffsetY = 0f
         lastVibratedSlot = null
@@ -186,20 +212,15 @@ fun BottomNavBar(
     val configuration = LocalConfiguration.current
     val view = LocalView.current
 
-    // 目标位置
     val baseTargetYPx = with(density) { (-100).dp.toPx() }
     val minDragYPx = with(density) { -30.dp.toPx() }
     val snapRadiusPx = with(density) { 60.dp.toPx() }
-    val upwardSnapHalfWidthPx = with(density) { 42.dp.toPx() }
-    val upwardSnapHeightPx = with(density) { 130.dp.toPx() }
-    val upwardSnapGracePx = with(density) { 10.dp.toPx() }
 
-    val slotTargetX = remember(density) {
-        ActionSlot.entries.associateWith { with(density) { it.labelX.dp.toPx() } }
-    }
-    val slotTargetY = remember(density) {
-        ActionSlot.entries.associateWith { baseTargetYPx + with(density) { it.labelYOffset.dp.toPx() } }
-    }
+    val slotTargetX = remember(density) { ActionSlot.entries.associateWith { with(density) { it.labelX.dp.toPx() } } }
+    val slotTargetY = remember(density) { ActionSlot.entries.associateWith { baseTargetYPx + with(density) { it.labelYOffset.dp.toPx() } } }
+
+    val subSlotTargetX = remember(density) { SubActionSlot.entries.associateWith { with(density) { it.labelX.dp.toPx() } } }
+    val subSlotTargetY = remember(density) { SubActionSlot.entries.associateWith { baseTargetYPx + with(density) { it.labelYOffset.dp.toPx() } } }
 
     val screenWidthDp = configuration.screenWidthDp.dp
     val tabWidthDp = screenWidthDp / 3
@@ -209,78 +230,58 @@ fun BottomNavBar(
         else -> 0.dp
     }
 
-    // 优化：展开和收回动作
     LaunchedEffect(showActionSheet) {
         if (showActionSheet) {
-            expansionAnim.animateTo(
-                1f,
-                spring(
-                    dampingRatio = 0.85f, // 稍微降低一点点弹性，减少末端震荡
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            )
+            expansionAnim.animateTo(1f, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow))
         } else {
-            val stiffness = if (isExecuting) 100f else 350f // 收回时稍微快一点，更干脆
-            expansionAnim.animateTo(
-                0f,
-                spring(dampingRatio = 1f, stiffness = stiffness)
-            )
+            inSubMenuMode = false
+            expansionAnim.animateTo(0f, spring(dampingRatio = 1f, stiffness = if (isExecuting) 100f else 350f))
         }
     }
 
-    LaunchedEffect(activeSlot) {
-        if (activeSlot != null && activeSlot != lastVibratedSlot && !isExecuting) {
+    LaunchedEffect(inSubMenuMode) {
+        if (inSubMenuMode) {
+            subMenuExpansionAnim.animateTo(1f, spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMedium))
+        } else {
+            subMenuExpansionAnim.animateTo(0f, tween(150))
+        }
+    }
+
+    LaunchedEffect(activeSlot, activeSubSlot) {
+        val currentActive = if (inSubMenuMode) activeSubSlot else activeSlot
+        if (currentActive != null && currentActive != lastVibratedSlot && !isExecuting) {
             HapticUtil.performTick(view)
-            lastVibratedSlot = activeSlot
-        } else if (activeSlot == null) {
+            lastVibratedSlot = currentActive
+        } else if (currentActive == null) {
             lastVibratedSlot = null
         }
     }
 
     LaunchedEffect(webProgress) {
         val target = webProgress.toFloat() / 100f
-        if (target < animatedProgress.value || target == 0f) {
-            animatedProgress.snapTo(target)
-        } else {
-            animatedProgress.animateTo(
-                targetValue = target,
-                animationSpec = tween(durationMillis = 250, easing = LinearEasing)
-            )
-        }
+        if (target < animatedProgress.value || target == 0f) animatedProgress.snapTo(target)
+        else animatedProgress.animateTo(target, tween(durationMillis = 250, easing = LinearEasing))
     }
 
     val navBarHeight = 50.dp
-    val quickActionLayerHeight = 210.dp
+    val quickActionLayerHeight = 240.dp
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(quickActionLayerHeight)
-    ) {
+    Box(modifier = Modifier.fillMaxWidth().height(quickActionLayerHeight)) {
 
         // ================= 快捷操作浮层 =================
         AnimatedVisibility(
             visible = showActionSheet,
-            // 优化点 1：去掉 EnterTransition 默认的 scale 效果，防止与内部位移叠加
             enter = fadeIn(tween(120)),
             exit = fadeOut(tween(durationMillis = 180, delayMillis = 400)),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .offset(x = originXDp, y = (-25).dp)
-                .fillMaxWidth()
-                .height(quickActionLayerHeight)
-                .zIndex(10f)
+            modifier = Modifier.align(Alignment.BottomCenter).offset(x = originXDp, y = (-25).dp).fillMaxWidth().height(quickActionLayerHeight).zIndex(10f)
         ) {
-            // 优化点 2：扩张进度映射。Spring 动画由于惯性会超过 1.0，
-            // 强制限制在 [0, 1.05] 左右，并为透明度增加平滑曲线。
             val expansionProgress = expansionAnim.value.coerceIn(0f, 1.1f)
 
-            val activeTargetX = activeSlot?.let { slotTargetX[it] }
-            val activeTargetY = activeSlot?.let { slotTargetY[it] }
             val animFingerX by animateFloatAsState(
                 targetValue = when {
                     !showActionSheet -> 0f
-                    activeTargetX != null -> activeTargetX
+                    activeSubSlot != null -> subSlotTargetX[activeSubSlot]!!
+                    activeSlot != null -> slotTargetX[activeSlot]!!
                     else -> dragOffsetX
                 },
                 animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
@@ -289,18 +290,16 @@ fun BottomNavBar(
             val animFingerY by animateFloatAsState(
                 targetValue = when {
                     !showActionSheet -> 0f
-                    activeTargetY != null -> activeTargetY
+                    activeSubSlot != null -> subSlotTargetY[activeSubSlot]!!
+                    activeSlot != null -> slotTargetY[activeSlot]!!
                     else -> dragOffsetY
                 },
                 animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
                 label = "fingerY"
             )
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(quickActionLayerHeight)
-            ) {
+            Box(modifier = Modifier.fillMaxWidth().height(quickActionLayerHeight)) {
+                // 1. 渲染一层主按钮
                 for (action in quickActions) {
                     val slot = action.slot
                     val targetX = slotTargetX[slot]!!
@@ -309,37 +308,28 @@ fun BottomNavBar(
                     val isThisExecuting = isExecuting && executedSlot == slot
                     val isHighlighted = isThisActive || isThisExecuting
 
-                    // 优化点 3：优化透明度曲线。让图标在扩张到一半时就完成大部分淡入，
-                    // 而不是死板地跟着 expansionAnim 线性变化，能显著提升观感流畅度。
                     val appearAlpha = ((expansionProgress - 0.05f) / 0.4f).coerceIn(0f, 1f)
 
-                    val iconScale by animateFloatAsState(
-                        targetValue = if (isHighlighted) 1.12f else 1f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMedium
-                        ),
-                        label = "iconScale_${slot.name}"
-                    )
                     val btnAlpha by animateFloatAsState(
                         targetValue = when {
+                            inSubMenuMode && slot == ActionSlot.Center -> 1f
+                            inSubMenuMode && slot != ActionSlot.Center -> 0.25f
                             isHighlighted -> 1f
                             activeSlot != null -> 0.35f
                             else -> 0.85f
                         },
-                        animationSpec = tween(durationMillis = 150),
-                        label = "alpha_${slot.name}"
+                        animationSpec = tween(durationMillis = 150)
+                    )
+
+                    val iconScale by animateFloatAsState(
+                        targetValue = if (isHighlighted) 1.12f else 1f,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
                     )
 
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .offset {
-                                IntOffset(
-                                    (targetX * expansionProgress).roundToInt(),
-                                    (targetY * expansionProgress).roundToInt()
-                                )
-                            }
+                            .offset { IntOffset((targetX * expansionProgress).roundToInt(), (targetY * expansionProgress).roundToInt()) }
                             .alpha(appearAlpha)
                             .size(68.dp),
                         contentAlignment = Alignment.Center
@@ -347,135 +337,100 @@ fun BottomNavBar(
                         Box(
                             modifier = Modifier
                                 .size(48.dp)
-                                .shadow(
-                                    elevation = if (isHighlighted) 12.dp else 5.dp,
-                                    shape = CircleShape,
-                                    clip = false,
-                                    ambientColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark),
-                                    spotColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark)
-                                )
-                                .background(
-                                    darkModeColor(
-                                        YamiboColors.onSurface.copy(alpha = 0.94f),
-                                        YamiboColors.onSurfaceDark.copy(alpha = 0.94f)
-                                    ),
-                                    CircleShape
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = darkModeColor(
-                                        YamiboColors.primary.copy(alpha = if (isHighlighted) 0.78f else 0.12f),
-                                        YamiboColors.primaryDark.copy(alpha = if (isHighlighted) 0.78f else 0.12f)
-                                    ),
-                                    shape = CircleShape
-                                ),
+                                .shadow(if (isHighlighted) 12.dp else 5.dp, CircleShape, spotColor = darkThemeColor(YamiboColors.primary) { primary })
+                                .background(darkThemeColor(YamiboColors.onSurface.copy(alpha = 0.94f)) { navBar.copy(alpha = 0.94f) }, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = action.iconResId?.let { ImageVector.vectorResource(id = it) } ?: action.icon,
                                 contentDescription = action.description,
-                                tint = darkModeColor(
-                                    YamiboColors.primary.copy(alpha = btnAlpha),
-                                    YamiboColors.primaryDark.copy(alpha = btnAlpha)
-                                ),
-                                modifier = Modifier
-                                    .scale(iconScale)
-                                    .size(24.dp)
-                                    .rotate(
-                                        if (isThisExecuting && action.kind == ActionKind.Refresh) rotationAnim.value
-                                        else 0f
-                                    )
+                                tint = darkThemeColor(YamiboColors.primary.copy(alpha = btnAlpha)) { primary.copy(alpha = btnAlpha) },
+                                modifier = Modifier.scale(iconScale).size(24.dp).rotate(if (isThisExecuting && action.kind == ActionKind.Refresh) rotationAnim.value else 0f)
                             )
                         }
                     }
                 }
 
-                // --------- 灵动追随光球 ---------
+                // 2. 渲染二级主题球
+                if (inSubMenuMode || subMenuExpansionAnim.value > 0.01f) {
+                    val centerTx = slotTargetX[ActionSlot.Center]!!
+                    val centerTy = slotTargetY[ActionSlot.Center]!!
+                    val subProgress = subMenuExpansionAnim.value
+
+                    for (subAction in themeActions) {
+                        val slot = subAction.slot
+                        val isThisSubActive = activeSubSlot == slot
+                        val subAppearAlpha = subProgress.coerceIn(0f, 1f)
+
+                        val currentTx = centerTx + (subSlotTargetX[slot]!! - centerTx) * subProgress
+                        val currentTy = centerTy + (subSlotTargetY[slot]!! - centerTy) * subProgress
+
+                        val subBtnAlpha by animateFloatAsState(
+                            targetValue = when {
+                                isThisSubActive -> 1f
+                                activeSubSlot != null -> 0.35f
+                                else -> 0.85f
+                            },
+                            animationSpec = tween(150)
+                        )
+                        val subScale by animateFloatAsState(targetValue = if (isThisSubActive) 1.15f else 1f)
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .offset { IntOffset(currentTx.roundToInt(), currentTy.roundToInt()) }
+                                .alpha(subAppearAlpha)
+                                .size(68.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .scale(subScale)
+                                    .shadow(if (isThisSubActive) 10.dp else 4.dp, CircleShape, spotColor = subAction.color)
+                                    .background(subAction.color, CircleShape)
+                                    .border(1.5.dp, darkThemeColor(YamiboColors.primary.copy(alpha = 0.25f)) { primary.copy(alpha = 0.25f) }, CircleShape)
+                            ) {}
+                        }
+                    }
+                }
+
+                // 3. 灵动追随光球
                 if (!isExecuting) {
                     val fingerAlpha = ((expansionProgress - 0.1f) / 0.3f).coerceIn(0f, 1f)
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .offset {
-                                IntOffset(
-                                    animFingerX.roundToInt(),
-                                    animFingerY.roundToInt()
-                                )
-                            }
+                            .offset { IntOffset(animFingerX.roundToInt(), animFingerY.roundToInt()) }
                             .alpha(fingerAlpha)
                             .size(44.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .background(
-                                    Brush.radialGradient(
-                                        colors = listOf(
-                                            darkModeColor(
-                                                YamiboColors.primary.copy(alpha = 0.4f),
-                                                YamiboColors.primaryDark.copy(alpha = 0.4f)
-                                            ),
-                                            Color.Transparent
-                                        )
-                                    ),
-                                    CircleShape
-                                )
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .shadow(
-                                    elevation = 6.dp,
-                                    shape = CircleShape,
-                                    clip = false,
-                                    spotColor = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark)
-                                )
-                                .background(
-                                    darkModeColor(YamiboColors.primary, YamiboColors.primaryDark),
-                                    CircleShape
-                                )
-                        )
+                        Box(modifier = Modifier.size(40.dp).background(Brush.radialGradient(listOf(darkThemeColor(YamiboColors.primary.copy(alpha = 0.4f)) { primary.copy(alpha = 0.4f) }, Color.Transparent)), CircleShape))
+                        Box(modifier = Modifier.size(12.dp).shadow(6.dp, CircleShape, spotColor = darkThemeColor(YamiboColors.primary) { primary }).background(darkThemeColor(YamiboColors.primary) { primary }, CircleShape))
                     }
                 }
             }
         }
 
-        // ================= 底部导航栏 =================
+        // ================= 底部导航栏及触摸检测 =================
         NavigationBar(
-            Modifier
-                .fillMaxWidth()
-                .height(navBarHeight)
-                .align(Alignment.BottomCenter)
-                .zIndex(5f)
+            Modifier.fillMaxWidth().height(navBarHeight).align(Alignment.BottomCenter).zIndex(5f)
                 .pointerInput(currentRoute, quickActions) {
                     var isNavBarLongPressAccepted = false
                     detectDragGesturesAfterLongPress(
                         onDragStart = { startOffset ->
-                            if (isExecuting) {
-                                isNavBarLongPressAccepted = false
-                                return@detectDragGesturesAfterLongPress
-                            }
-
-                            val tabWidthPx = size.width / pageList.size.toFloat()
-                            val touchedIndex = (startOffset.x / tabWidthPx)
-                                .toInt()
-                                .coerceIn(0, pageList.lastIndex)
+                            if (isExecuting) return@detectDragGesturesAfterLongPress
+                            val touchedIndex = (startOffset.x / (size.width / pageList.size.toFloat())).toInt().coerceIn(0, pageList.lastIndex)
                             val targetRoute = pageList[touchedIndex]
 
-                            isNavBarLongPressAccepted =
-                                currentRoute == targetRoute &&
-                                        targetRoute != "FavoritePage" &&
-                                        quickActions.isNotEmpty()
-
+                            isNavBarLongPressAccepted = currentRoute == targetRoute && targetRoute != "FavoritePage" && quickActions.isNotEmpty()
                             if (!isNavBarLongPressAccepted) return@detectDragGesturesAfterLongPress
 
                             cancelPendingReset()
                             HapticUtil.performLongPress(view)
                             pressedItemIndex = touchedIndex
-                            dragOffsetX = 0f
-                            dragOffsetY = 0f
-                            activeSlot = null
+                            resetGestureState()
                             showActionSheet = true
                             coroutineScope.launch { rotationAnim.snapTo(0f) }
                         },
@@ -485,97 +440,102 @@ fun BottomNavBar(
                             dragOffsetX += dragAmount.x
                             dragOffsetY += dragAmount.y
 
-                            if (dragOffsetY > minDragYPx) {
-                                activeSlot = null
-                                return@detectDragGesturesAfterLongPress
-                            }
-
-                            val sortedSlots = quickActions.map { it.slot }
-                                .sortedBy { slotTargetX[it]!! }
-
-                            activeSlot = null
-                            for ((i, slot) in sortedSlots.withIndex()) {
-                                val tx = slotTargetX[slot]!!
-                                val ty = slotTargetY[slot]!!
-                                val leftBound = if (i > 0) {
-                                    (tx + slotTargetX[sortedSlots[i - 1]]!!) / 2f
-                                } else Float.NEGATIVE_INFINITY
-                                val rightBound = if (i < sortedSlots.size - 1) {
-                                    (tx + slotTargetX[sortedSlots[i + 1]]!!) / 2f
-                                } else Float.POSITIVE_INFINITY
-
-                                if (dragOffsetX in leftBound..rightBound) {
-                                    val dx = dragOffsetX - tx
-                                    val dy = dragOffsetY - ty
-                                    val dist = hypot(dx, dy)
-                                    val isDirectlyAboveSlot =
-                                        dy <= upwardSnapGracePx &&
-                                                abs(dx) <= upwardSnapHalfWidthPx &&
-                                                -dy <= upwardSnapHeightPx
-
-                                    if (dist < snapRadiusPx || isDirectlyAboveSlot) {
-                                        activeSlot = slot
+                            if (inSubMenuMode) {
+                                if (dragOffsetY > slotTargetY[ActionSlot.Center]!! + 30f) {
+                                    inSubMenuMode = false
+                                    activeSubSlot = null
+                                    HapticUtil.performTick(view)
+                                } else {
+                                    activeSubSlot = null
+                                    for (slot in SubActionSlot.entries) {
+                                        val dist = hypot(dragOffsetX - subSlotTargetX[slot]!!, dragOffsetY - subSlotTargetY[slot]!!)
+                                        if (dist < snapRadiusPx) {
+                                            activeSubSlot = slot
+                                            break
+                                        }
                                     }
-                                    break
+                                }
+                            } else {
+                                if (dragOffsetY > minDragYPx) {
+                                    activeSlot = null
+                                    return@detectDragGesturesAfterLongPress
+                                }
+                                activeSlot = null
+                                for (slot in ActionSlot.entries) {
+                                    val dist = hypot(dragOffsetX - slotTargetX[slot]!!, dragOffsetY - slotTargetY[slot]!!)
+                                    if (dist < snapRadiusPx) {
+                                        activeSlot = slot
+                                        if (slot == ActionSlot.Center && dragOffsetY < slotTargetY[ActionSlot.Center]!! - 15f) {
+                                            if (isDarkMode) {
+                                                inSubMenuMode = true
+                                                HapticUtil.performTick(view)
+                                            }
+                                        }
+                                        break
+                                    }
                                 }
                             }
                         },
                         onDragEnd = {
-                            if (!isNavBarLongPressAccepted || isExecuting) {
-                                isNavBarLongPressAccepted = false
-                                return@detectDragGesturesAfterLongPress
-                            }
+                            if (!isNavBarLongPressAccepted || isExecuting) return@detectDragGesturesAfterLongPress
                             isNavBarLongPressAccepted = false
 
-                            val slot = activeSlot
-                            if (slot != null) {
-                                val action = quickActions.first { it.slot == slot }
+                            if (inSubMenuMode && activeSubSlot != null) {
+                                val selectedThemeAction = themeActions.first { it.slot == activeSubSlot }
                                 isExecuting = true
-                                executedSlot = slot
                                 HapticUtil.performLongPress(view)
 
-                                when (action.kind) {
-                                    ActionKind.Home -> {
-                                        currentRoute?.let { navBarVM.triggerGoHome(it) }
-                                        coroutineScope.launch {
-                                            delay(150)
-                                            showActionSheet = false
-                                            delay(450)
-                                            isExecuting = false
-                                            executedSlot = null
-                                            resetGestureState()
+                                currentRoute?.let { navBarVM.applyTheme(it, selectedThemeAction.themeId) }
+
+                                coroutineScope.launch {
+                                    delay(150)
+                                    showActionSheet = false
+                                    delay(450)
+                                    isExecuting = false
+                                    resetGestureState()
+                                }
+                            } else if (inSubMenuMode && GlobalData.isDarkMode.value) {
+                                isExecuting = true
+                                HapticUtil.performLongPress(view)
+
+                                currentRoute?.let { navBarVM.applyTheme(it, -1) }
+
+                                coroutineScope.launch {
+                                    delay(150)
+                                    showActionSheet = false
+                                    delay(450)
+                                    isExecuting = false
+                                    resetGestureState()
+                                }
+                            } else if (!inSubMenuMode && activeSlot != null) {
+                                val slot = activeSlot!!
+                                val action = quickActions.first { it.slot == slot }
+
+                                if (action.kind != ActionKind.DarkMode || !isDarkMode) {
+                                    isExecuting = true
+                                    executedSlot = slot
+                                    HapticUtil.performLongPress(view)
+
+                                    when (action.kind) {
+                                        ActionKind.Home -> {
+                                            currentRoute?.let { navBarVM.triggerGoHome(it) }
+                                            coroutineScope.launch { delay(150); showActionSheet = false; delay(450); isExecuting = false; resetGestureState() }
                                         }
-                                    }
-                                    ActionKind.Refresh -> {
-                                        currentRoute?.let { navBarVM.triggerRefresh(it) }
-                                        coroutineScope.launch {
-                                            val spinJob = launch {
-                                                rotationAnim.animateTo(
-                                                    targetValue = rotationAnim.value + 360f,
-                                                    animationSpec = tween(600, easing = LinearEasing)
-                                                )
+                                        ActionKind.Refresh -> {
+                                            currentRoute?.let { navBarVM.triggerRefresh(it) }
+                                            coroutineScope.launch {
+                                                val spinJob = launch { rotationAnim.animateTo(rotationAnim.value + 360f, tween(600, easing = LinearEasing)) }
+                                                delay(150); showActionSheet = false; delay(450); isExecuting = false; spinJob.cancel(); rotationAnim.snapTo(0f); resetGestureState()
                                             }
-                                            delay(150)
-                                            showActionSheet = false
-                                            delay(450)
-                                            isExecuting = false
-                                            executedSlot = null
-                                            spinJob.cancel()
-                                            rotationAnim.snapTo(0f)
-                                            resetGestureState()
+                                        }
+                                        ActionKind.DarkMode -> {
+                                            currentRoute?.let { navBarVM.applyTheme(it, GlobalData.darkModeTheme.value) }
+                                            coroutineScope.launch { delay(150); showActionSheet = false; delay(450); isExecuting = false; resetGestureState() }
                                         }
                                     }
-                                    ActionKind.DarkMode -> {
-                                        currentRoute?.let { navBarVM.triggerDarkMode(it) }
-                                        coroutineScope.launch {
-                                            delay(150)
-                                            showActionSheet = false
-                                            delay(450)
-                                            isExecuting = false
-                                            executedSlot = null
-                                            resetGestureState()
-                                        }
-                                    }
+                                } else {
+                                    showActionSheet = false
+                                    scheduleGestureReset(400)
                                 }
                             } else {
                                 showActionSheet = false
@@ -583,10 +543,7 @@ fun BottomNavBar(
                             }
                         },
                         onDragCancel = {
-                            if (!isNavBarLongPressAccepted || isExecuting) {
-                                isNavBarLongPressAccepted = false
-                                return@detectDragGesturesAfterLongPress
-                            }
+                            if (!isNavBarLongPressAccepted || isExecuting) return@detectDragGesturesAfterLongPress
                             isNavBarLongPressAccepted = false
                             showActionSheet = false
                             scheduleGestureReset(400)
@@ -594,57 +551,34 @@ fun BottomNavBar(
                     )
                 },
             windowInsets = WindowInsets(0, 0, 0, 0),
-            containerColor = darkModeColor(YamiboColors.onSurface, YamiboColors.onSurfaceDark)
+            containerColor = darkThemeColor(YamiboColors.onSurface) { navBar }
         ) {
             uiState.icons.forEachIndexed { index, item ->
                 val targetRoute = pageList[index]
-                val isSelected = currentRoute == targetRoute
                 NavigationBarItem(
                     icon = { Icon(item, contentDescription = "") },
-                    selected = isSelected,
-                    colors = NavigationBarItemDefaults.colors(indicatorColor = darkModeColor(YamiboColors.tertiary, YamiboColors.tertiaryDark)),
-                    onClick = {
-                        if (currentRoute == targetRoute) return@NavigationBarItem
-                        navBarVM.changeSelection(index, navController)
-                    }
+                    selected = currentRoute == targetRoute,
+                    colors = NavigationBarItemDefaults.colors(indicatorColor = darkThemeColor(YamiboColors.tertiary) { tertiary }),
+                    onClick = { if (currentRoute != targetRoute) navBarVM.changeSelection(index, navController) }
                 )
             }
         }
 
         // ================= 网页进度条 =================
-        val isAtRoot = when (currentRoute) {
-            "BBSPage" -> navBarVM.isBbsAtRoot
-            "MinePage" -> navBarVM.isMineAtRoot
-            else -> true
-        }
-
         AnimatedVisibility(
             visible = webProgress > 0 && animatedProgress.value < 1f &&
                     (currentRoute == "BBSPage" || currentRoute == "MinePage") &&
-                    !isAtRoot,
-            enter = fadeIn(tween(200)) + expandVertically(
-                expandFrom = Alignment.Top,
-                animationSpec = tween(200)
-            ),
-            exit = fadeOut(tween(300)) + shrinkVertically(
-                shrinkTowards = Alignment.Top,
-                animationSpec = tween(300)
-            ),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .offset(y = -navBarHeight)
-                .zIndex(20f)
+                    !navBarVM.isNavigating,
+            enter = fadeIn(tween(200)) + expandVertically(expandFrom = Alignment.Top, animationSpec = tween(200)),
+            exit = fadeOut(tween(300)) + shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = tween(300)),
+
+            modifier = Modifier.align(Alignment.BottomCenter).offset(y = -navBarHeight).zIndex(20f)
         ) {
             LinearProgressIndicator(
                 progress = { animatedProgress.value },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp),
-                color = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark),
-                trackColor = darkModeColor(
-                    YamiboColors.primary.copy(alpha = 0.1f),
-                    YamiboColors.primaryDark.copy(alpha = 0.1f)
-                ),
+                modifier = Modifier.fillMaxWidth().height(2.dp),
+                color = darkThemeColor(YamiboColors.primary) { primary },
+                trackColor = darkThemeColor(YamiboColors.primary.copy(alpha = 0.1f)) { primary.copy(alpha = 0.1f) },
                 strokeCap = StrokeCap.Round
             )
         }

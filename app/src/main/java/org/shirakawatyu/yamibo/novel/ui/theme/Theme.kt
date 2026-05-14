@@ -16,26 +16,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.util.DarkThemeColors
 
 private val DefaultDarkColorScheme = darkColorScheme(
     primary = Purple80,
     secondary = PurpleGrey80,
     tertiary = Pink80
-)
-
-private val ForumDarkColorScheme = darkColorScheme(
-    primary = Color(0xFFcc7755),
-    secondary = Color(0xFF2a2a2a),
-    tertiary = Color(0xFF2a2a2a),
-    background = Color(0xFF121212),
-    surface = Color(0xFF1e1e1e),
-    onPrimary = Color(0xFFffffff),
-    onSecondary = Color(0xFFcccccc),
-    onTertiary = Color(0xFFcccccc),
-    onBackground = Color(0xFFcccccc),
-    onSurface = Color(0xFFcccccc),
-    onSurfaceVariant = Color(0xFF999999),
-    outline = Color(0xFF444444)
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -53,6 +39,7 @@ fun _300文学Theme(
     content: @Composable () -> Unit
 ) {
     val isForumDark by GlobalData.isDarkMode.collectAsState()
+    val darkThemeId by GlobalData.darkModeTheme.collectAsState()
     val effectiveDark = darkTheme || isForumDark
 
     val colorScheme = when {
@@ -61,7 +48,7 @@ fun _300文学Theme(
             if (effectiveDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
 
-        isForumDark -> ForumDarkColorScheme
+        isForumDark -> DarkThemeColors.forTheme(darkThemeId).toDarkColorScheme()
         effectiveDark -> DefaultDarkColorScheme
         else -> LightColorScheme
     }

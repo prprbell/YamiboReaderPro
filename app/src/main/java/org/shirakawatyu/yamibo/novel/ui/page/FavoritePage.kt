@@ -113,6 +113,7 @@ import org.shirakawatyu.yamibo.novel.item.FavoriteItem
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.theme.YellowLightLight
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
+import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
@@ -319,7 +320,7 @@ fun FavoritePage(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(if (lockedStatusHeight > 0.dp) lockedStatusHeight else 28.dp)
-                .background(darkModeColor(YamiboColors.onSurface, YamiboColors.onSurfaceDark))
+                .background(darkThemeColor(YamiboColors.onSurface) { navBar })
         )
         TopBar(title = "") {
             Row(
@@ -455,7 +456,7 @@ fun FavoritePage(
                                 painter = painterResource(id = R.drawable.ic_more_horiz),
                                 contentDescription = "更多选项",
                                 modifier = Modifier.size(24.dp),
-                                tint = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark)
+                                tint = darkThemeColor(YamiboColors.primary) { primary }
                             )
                         }
                         DropdownMenu(
@@ -506,7 +507,7 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = if (isFavoriteCollapsed) "关闭折叠" else "折叠模式",
-                                            color = if (isFavoriteCollapsed) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
+                                            color = if (isFavoriteCollapsed) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
                                         )
                                     },
                                     onClick = {
@@ -523,7 +524,7 @@ fun FavoritePage(
                                             painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
                                             null,
                                             Modifier.size(24.dp),
-                                            tint = if (isFavoriteCollapsed) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
+                                            tint = if (isFavoriteCollapsed) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 )
@@ -548,7 +549,7 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = if (isClickToTopEnabled) "关闭置顶" else "阅后置顶",
-                                            color = if (isClickToTopEnabled) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
+                                            color = if (isClickToTopEnabled) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
                                         )
                                     },
                                     onClick = {
@@ -566,7 +567,7 @@ fun FavoritePage(
                                             painter = painterResource(id = R.drawable.ic_align_top),
                                             contentDescription = null,
                                             modifier = Modifier.size(24.dp),
-                                            tint = if (isClickToTopEnabled) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
+                                            tint = if (isClickToTopEnabled) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 )
@@ -593,7 +594,7 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = "网络优化",
-                                            color = if (isDnsOptimizationEnabled) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
+                                            color = if (isDnsOptimizationEnabled) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
                                         )
                                     },
                                     onClick = {
@@ -605,7 +606,7 @@ fun FavoritePage(
                                             Icons.Default.Build,
                                             contentDescription = null,
                                             modifier = Modifier.size(24.dp),
-                                            tint = if (isDnsOptimizationEnabled) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
+                                            tint = if (isDnsOptimizationEnabled) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 )
@@ -636,7 +637,7 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = if (isAutoSignIn) "关闭签到" else "自动签到",
-                                            color = if (isAutoSignIn) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
+                                            color = if (isAutoSignIn) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
                                         )
                                     },
                                     onClick = {
@@ -662,7 +663,7 @@ fun FavoritePage(
                                             else Icons.Default.CheckCircle,
                                             contentDescription = null,
                                             modifier = Modifier.size(24.dp),
-                                            tint = if (isAutoSignIn) darkModeColor(YamiboColors.primary, YamiboColors.primaryDark) else MaterialTheme.colorScheme.onSurface
+                                            tint = if (isAutoSignIn) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 )
@@ -816,7 +817,7 @@ fun FavoritePage(
                                     Icon(
                                         Icons.Filled.Menu,
                                         contentDescription = "Reorder",
-                                        tint = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark)
+                                        tint = darkThemeColor(YamiboColors.primary) { primary }
                                     )
                                 }
                             }
@@ -841,14 +842,13 @@ fun FavoritePage(
             ) {
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = darkModeColor(YellowLightLight, YamiboColors.onSurfaceDark),
+                    color = darkThemeColor(YellowLightLight) { navBar },
                     shadowElevation = 3.dp,
                     border = BorderStroke(
                         width = 2.dp,
-                        color = darkModeColor(
-                            YamiboColors.primary.copy(alpha = 0.4f),
-                            YamiboColors.primaryDark.copy(alpha = 0.5f)
-                        )
+                        color = darkThemeColor(
+                            YamiboColors.primary.copy(alpha = 0.4f)
+                        ) { primary.copy(alpha = 0.5f) }
                     ),
                     modifier = Modifier.padding(horizontal = 16.dp)
                 ) {

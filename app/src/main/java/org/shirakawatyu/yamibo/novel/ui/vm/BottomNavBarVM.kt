@@ -56,6 +56,21 @@ class BottomNavBarVM : ViewModel() {
         }
     }
 
+    fun applyTheme(route: String, themeId: Int) {
+        viewModelScope.launch {
+            if (themeId == -1) {
+                GlobalData.isDarkMode.value = false
+                SettingsUtil.saveDarkMode(false)
+            } else {
+                GlobalData.isDarkMode.value = true
+                GlobalData.darkModeTheme.value = themeId
+                SettingsUtil.saveDarkMode(true)
+                SettingsUtil.saveDarkModeTheme(themeId)
+            }
+            _darkModeEvent.emit(route)
+        }
+    }
+
     fun changeSelection(index: Int, navController: NavController) {
         if (isNavigating) return
         if (index < 0 || index >= pageList.size) {

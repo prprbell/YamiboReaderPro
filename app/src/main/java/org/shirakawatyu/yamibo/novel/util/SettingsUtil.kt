@@ -26,6 +26,7 @@ class SettingsUtil {
         private val dnsEnabledKey = stringPreferencesKey("dns_optimization_enabled")
         private val dnsModeKey = stringPreferencesKey("dns_optimization_mode")
         private val darkModeKey = stringPreferencesKey("dark_mode")
+        private val darkModeThemeKey = stringPreferencesKey("dark_mode_theme")
         private val customDnsUrlKey = stringPreferencesKey("custom_dns_url")
         fun saveSettings(settings: ReaderSettings) {
             DataStoreUtil.addData(JSON.toJSONString(settings), key)
@@ -137,6 +138,16 @@ class SettingsUtil {
                 callback(value)
             }, onNull = {
                 callback("")
+            })
+        }
+        fun saveDarkModeTheme(themeId: Int) {
+            DataStoreUtil.addData(themeId.toString(), darkModeThemeKey)
+        }
+        fun getDarkModeTheme(callback: (Int) -> Unit) {
+            DataStoreUtil.getData(darkModeThemeKey, callback = {
+                callback(it.toIntOrNull() ?: 0)
+            }, onNull = {
+                callback(0)
             })
         }
         fun saveDarkMode(enabled: Boolean) {

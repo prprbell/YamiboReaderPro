@@ -77,6 +77,7 @@ import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
+import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
@@ -262,7 +263,7 @@ fun OtherWebPage(
     LaunchedEffect(Unit) {
         bottomNavBarVM.darkModeEvent.collect {
             val enable = GlobalData.isDarkMode.value
-            val js = PageJsScripts.DARK_MODE_SET_JS.replace("%s", if (enable) "true" else "false")
+            val js = PageJsScripts.getDarkModeSetJs(enable, GlobalData.darkModeTheme.value)
             otherWebView.evaluateJavascript(js, null)
         }
     }
@@ -376,7 +377,7 @@ fun OtherWebPage(
                 ) {
                     val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
                     if (html != null) {
-                        val modified = PageJsScripts.injectDarkModeCssIntoHtml(html)
+                        val modified = PageJsScripts.injectDarkModeCssIntoHtml(html, GlobalData.darkModeTheme.value)
                         return WebResourceResponse(
                             "text/html",
                             "utf-8",
@@ -483,7 +484,7 @@ fun OtherWebPage(
 
                 if (GlobalData.isDarkMode.value) {
                     view?.evaluateJavascript(
-                        PageJsScripts.DARK_MODE_SET_JS.replace("%s", "true"), null
+                        PageJsScripts.getDarkModeSetJs(true, GlobalData.darkModeTheme.value), null
                     )
                 }
 
@@ -637,7 +638,7 @@ fun OtherWebPage(
     val lockedStatusHeight = lockedStatusHeightValue.dp
 
     val isFullscreen = isFullscreenState.value || autoOpenMangaMode
-    val topSpacerColor = if (isFullscreen) Color.Black else darkModeColor(YamiboColors.primary, YamiboColors.onSurfaceDark)
+    val topSpacerColor = if (isFullscreen) Color.Black else darkThemeColor(YamiboColors.primary) { statusBar }
 
     Box(
         modifier = Modifier

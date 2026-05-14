@@ -58,6 +58,7 @@ import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
+import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 
 private val PREFIX_REGEX = Regex("^(?:[【\\[].*?[】\\]]|[\\s\\u00A0\\u3000])+")
@@ -139,10 +140,10 @@ fun FavoriteItem(
     )
     val color by animateColorAsState(
         targetValue = when {
-            isDragging -> darkModeColor(YamiboColors.onSurface, YamiboColors.onSurfaceDark) // 拖拽时
-            isManageMode && isSelected -> darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark) // 管理模式 + 选中
+            isDragging -> darkThemeColor(YamiboColors.onSurface) { surface } // 拖拽时
+            isManageMode && isSelected -> darkThemeColor(YamiboColors.secondary) { surfaceVariant } // 管理模式 + 选中
             isManageMode && isHidden -> darkModeColor(Color.LightGray, Color(0xFF3a3a3a)) // 管理模式+已隐藏(未选中)
-            else -> darkModeColor(YamiboColors.tertiary, YamiboColors.tertiaryDark) // 默认
+            else -> darkThemeColor(YamiboColors.tertiary) { tertiary } // 默认
         },
         label = "color_animation"
     )
@@ -196,7 +197,7 @@ fun FavoriteItem(
                     Text(
                         modifier = Modifier.fillMaxWidth(),
                         fontSize = 16.sp,
-                        color = darkModeColor(Color.Black, Color(0xFFE0E0E0)),
+                        color = darkThemeColor(Color.Black) { onSurface },
                         maxLines = if (collapsed) {
                             2
                         } else {
@@ -228,7 +229,7 @@ fun FavoriteItem(
                         if (!lastChapter.isNullOrBlank()) {
                             Text(
                                 modifier = Modifier.padding(0.dp, 2.dp),
-                                color = darkModeColor(Color.Black.copy(alpha = 0.7f), Color.White.copy(alpha = 0.7f)),
+                                color = darkThemeColor(Color.Black.copy(alpha = 0.7f)) { onSurfaceVariant.copy(alpha = 0.7f) },
                                 fontSize = 12.sp,
                                 text = lastChapter,
                                 maxLines = 1,
@@ -237,7 +238,7 @@ fun FavoriteItem(
                         }
                         if (type == 1) {
                             Text(
-                                color = darkModeColor(Color.Black.copy(alpha = 0.8f), Color.White.copy(alpha = 0.8f)),
+                                color = darkThemeColor(Color.Black.copy(alpha = 0.8f)) { onSurfaceVariant.copy(alpha = 0.8f) },
                                 fontSize = 12.sp,
                                 text = "上次读到第${lastPage + 1}页, 对应网页第${lastView}页"
                             )
@@ -291,7 +292,7 @@ fun FavoriteItem(
                         Icon(
                             imageVector = if (isExpandedLocally) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                             contentDescription = if (isExpandedLocally) "收起" else "展开",
-                            tint = darkModeColor(YamiboColors.primary, YamiboColors.primaryDark)
+                            tint = darkThemeColor(YamiboColors.primary) { primary }
                         )
                     }
                 } else {

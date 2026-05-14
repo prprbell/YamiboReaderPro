@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 
 @Composable
 fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
@@ -48,13 +49,13 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
         label = "skeleton_alpha"
     )
     val isDarkMode by GlobalData.isDarkMode.collectAsState()
-    val baseHeaderColor = if (isDarkMode) Color(0xFF1A1A1A) else Color(0xFF551200)
+    val baseHeaderColor = darkThemeColor(Color(0xFF551200)) { navBar }
     val headerBg = baseHeaderColor.copy(alpha = if (isDarkMode) 0.9f else alpha + 0.8f)
 
-    val baseYellowishColor = if (isDarkMode) Color(0xFF3a3a3a) else Color(0xFFD4C8B0)
+    val baseYellowishColor = darkThemeColor(Color(0xFFD4C8B0)) { surfaceVariant }
     val skeletonColor = baseYellowishColor.copy(alpha = if (isDarkMode) alpha * 0.7f else alpha)
 
-    val baseDarkRedColor = if (isDarkMode) Color(0xFF3a2a2a) else Color(0xFF9E6565)
+    val baseDarkRedColor = darkThemeColor(Color(0xFF9E6565)) { tertiary }
     val sectionHeaderBg = baseDarkRedColor.copy(alpha = if (isDarkMode) alpha * 0.5f else alpha * 0.8f)
 
     Column(
