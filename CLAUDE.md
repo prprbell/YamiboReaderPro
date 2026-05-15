@@ -77,3 +77,20 @@ powershell -ExecutionPolicy Bypass -File .\upload_release.ps1 -NotesFile .\relea
 
 The script automatically: reads version code → pushes git tag → uploads APK to GitHub Release.
 Prerequisite: `gh` CLI installed and authenticated.
+
+### Git Remote Sync
+
+This project has two remotes:
+- **`origin`** — `https://github.com/prprbell/YamiboReaderPro.git` (GitHub)
+- **`gitee`** — `https://gitee.com/windcloudjet/YamiboReaderPro.git` (Gitee, 私有镜像)
+
+When the user asks for any git push/pull/fetch operation, ALWAYS sync both remotes:
+
+- **git push**: Push to `origin` first, then `gitee`. Push both branches and tags.
+- **git pull**: Pull from `origin` (source of truth), then push to `gitee` to keep it in sync.
+- **git fetch**: Fetch from both remotes.
+
+When pushing to Gitee, read the token from `.gitee_token` in the project root and embed it in the URL:
+```
+https://windcloudjet:<token>@gitee.com/windcloudjet/YamiboReaderPro.git
+```

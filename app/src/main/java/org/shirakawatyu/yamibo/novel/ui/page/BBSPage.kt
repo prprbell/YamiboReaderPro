@@ -504,6 +504,13 @@ fun BBSPage(
         }
     }
 
+    val pendingUrl by GlobalData.pendingClipboardUrl.collectAsState()
+    LaunchedEffect(pendingUrl) {
+        val url = pendingUrl ?: return@LaunchedEffect
+        webView.loadUrl(url)
+        GlobalData.pendingClipboardUrl.value = null
+    }
+
     LaunchedEffect(BBSPageState.isLoading) {
         if (!BBSPageState.isLoading && autoOpenMangaMode) {
             webView.evaluateJavascript(PageJsScripts.AUTO_OPEN_MANGA_JS, null)

@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -80,6 +81,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -96,6 +98,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.page.BBSGlobalWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.page.BBSPage
@@ -113,18 +116,23 @@ import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BbsSkeletonScreen
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
+import org.shirakawatyu.yamibo.novel.ui.component.UpdateDialog
 import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.SignTrigger
+import org.shirakawatyu.yamibo.novel.util.UpdateInfo
+import org.shirakawatyu.yamibo.novel.util.UpdateManager
 import org.shirakawatyu.yamibo.novel.util.currentDarkThemeColors
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
 import java.net.URLDecoder
+import kotlin.text.RegexOption
 import kotlin.coroutines.resume
 import androidx.core.graphics.toColorInt
+import androidx.navigation.NavGraph.Companion.findStartDestination
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cookies")
 private val QuickActionHintShownKey = booleanPreferencesKey("quick_action_hint_shown")
@@ -497,6 +505,108 @@ private fun QuickActionFirstLaunchHint(
         }
     }
 }
+
+@Composable
+private fun ClipboardLinkHint(
+    url: String,
+    lockedNavHeight: Dp,
+    navController: NavController,
+    currentRoute: String?,
+    onDismiss: () -> Unit
+) {
+    AnimatedVisibility(
+        visible = true,
+        enter = fadeIn(tween(180)),
+        exit = fadeOut(tween(120)),
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(80f)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp)
+                    .padding(bottom = lockedNavHeight + 52.dp),
+                shape = RoundedCornerShape(22.dp),
+                tonalElevation = 4.dp,
+                shadowElevation = 12.dp,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier.padding(start = 18.dp, top = 14.dp, end = 12.dp, bottom = 14.dp)
+                ) {
+                    Text(
+                        text = "检测到百合会链接",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = url,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End
+                    ) {
+                        Surface(
+                            modifier = Modifier.clickable { onDismiss() },
+                            shape = RoundedCornerShape(999.dp),
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
+                            Text(
+                                text = "以后再说",
+                                modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Surface(
+                            modifier = Modifier.clickable {
+                                GlobalData.pendingClipboardUrl.value = url
+                                GlobalData.lastClipboardUrl = url
+                                if (currentRoute != "BBSPage") {
+                                    navController.navigate("BBSPage") {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                                onDismiss()
+                            },
+                            shape = RoundedCornerShape(999.dp),
+                            color = MaterialTheme.colorScheme.primary
+                        ) {
+                            Text(
+                                text = "打开",
+                                modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 @RequiresApi(Build.VERSION_CODES.O)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -538,6 +648,11 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
     }
 
     var isFirstResume by remember { mutableStateOf(true) }
+    var showClipboardHint by remember { mutableStateOf(false) }
+    var detectedClipboardUrl by remember { mutableStateOf("") }
+    var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var skipVersion by remember { mutableStateOf("") }
 
     LaunchedEffect(isAppInitialized, isNetworkAvailable) {
         if (isAppInitialized && isNetworkAvailable && GlobalData.isAutoSignInEnabled.value) {
@@ -545,6 +660,27 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                 if (AutoSignManager.needsSignIn(SignTrigger.LAUNCH)) {
                     delay(3000L)
                     AutoSignManager.checkAndSignIfNeeded(context, SignTrigger.LAUNCH)
+                }
+            }
+        }
+    }
+
+    // 自动检查更新（首次启动且网络可用时）
+    LaunchedEffect(isAppInitialized, isNetworkAvailable) {
+        if (isAppInitialized && isNetworkAvailable) {
+            launch(Dispatchers.IO) {
+                delay(5000L)
+                val info = UpdateManager.checkForUpdate()
+                if (info != null) {
+                    val skipped = suspendCancellableCoroutine { cont ->
+                        SettingsUtil.getSkipVersion {
+                            cont.resume(it)
+                        }
+                    }
+                    if (info.versionName != skipped) {
+                        updateInfo = info
+                        showUpdateDialog = true
+                    }
                 }
             }
         }
@@ -586,6 +722,37 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
+
+    // 剪贴板检测：切回前台时检查是否复制了百合会链接
+    DisposableEffect(lifecycleOwner, isAppInitialized) {
+        if (!isAppInitialized) return@DisposableEffect onDispose {}
+
+        val clipboardObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && !showClipboardHint) {
+                coroutineScope.launch {
+                    delay(300L)
+                    if (showClipboardHint) return@launch
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager ?: return@launch
+                    val desc = cm.primaryClipDescription ?: return@launch
+                    if (!desc.hasMimeType("text/plain")) return@launch
+                    val text = cm.primaryClip?.getItemAt(0)?.text?.toString()
+                    if (text == null || text.contains(Regex("""<[a-zA-Z/][^>]*>"""))) return@launch
+                    val urlRegex = Regex("""https?://(?:bbs\.)?yamibo\.com/[^\s]*""")
+                    val matched = text?.let { urlRegex.find(it)?.value }
+                    val imageUrlPattern = Regex("""/data/attachment/|\.(jpg|jpeg|png|webp|gif|bmp)(\?|$)""", RegexOption.IGNORE_CASE)
+                    if (matched != null && !imageUrlPattern.containsMatchIn(matched) && matched != GlobalData.lastClipboardUrl) {
+                        detectedClipboardUrl = matched
+                        showClipboardHint = true
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(clipboardObserver)
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(clipboardObserver)
+        }
+    }
     _300文学Theme {
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -602,6 +769,23 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val currentRoute = navBackStackEntry?.destination?.route
                     val bottomNavBarVM: BottomNavBarVM = viewModel(stateOwner!!)
+
+                    // 手动触发更新检查（来自 MinePage 长按操作）
+                    LaunchedEffect(bottomNavBarVM) {
+                        bottomNavBarVM.checkUpdateEvent.collect {
+                            val info = withContext(Dispatchers.IO) { UpdateManager.checkForUpdate() }
+                            if (info != null) {
+                                val skipped = suspendCancellableCoroutine { cont ->
+                                    SettingsUtil.getSkipVersion { cont.resume(it) }
+                                }
+                                if (info.versionName != skipped) {
+                                    updateInfo = info
+                                    showUpdateDialog = true
+                                }
+                            }
+                        }
+                    }
+
                     var isQuickActionSheetVisible by remember { mutableStateOf(false) }
                     val context = LocalContext.current
                     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
@@ -1088,6 +1272,19 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                             bottomPadding = lockedNavHeight + 58.dp,
                             isQuickActionSheetVisible = isQuickActionSheetVisible
                         )
+
+                        if (showClipboardHint && detectedClipboardUrl.isNotEmpty()) {
+                            ClipboardLinkHint(
+                                url = detectedClipboardUrl,
+                                lockedNavHeight = lockedNavHeight,
+                                navController = navController,
+                                currentRoute = currentRoute,
+                                onDismiss = {
+                                    GlobalData.lastClipboardUrl = detectedClipboardUrl
+                                    showClipboardHint = false
+                                }
+                            )
+                        }
                     }
                 }
             } else {
@@ -1138,6 +1335,18 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                             CircularProgressIndicator(color = darkThemeColor(YamiboColors.secondary) { surfaceVariant })
                         }
                     }
+                }
+
+                // 更新弹窗
+                if (showUpdateDialog && updateInfo != null) {
+                    UpdateDialog(
+                        info = updateInfo!!,
+                        onDismiss = { showUpdateDialog = false },
+                        onSkipVersion = { version ->
+                            skipVersion = version
+                            SettingsUtil.saveSkipVersion(version)
+                        }
+                    )
                 }
             }
         }

@@ -61,7 +61,7 @@ object ImageSaveUtil {
                 }
 
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "图片已保存到 Pictures/Yamibo", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "保存成功", Toast.LENGTH_SHORT).show()
                 }
                 Result.success(Unit)
             } catch (e: Exception) {

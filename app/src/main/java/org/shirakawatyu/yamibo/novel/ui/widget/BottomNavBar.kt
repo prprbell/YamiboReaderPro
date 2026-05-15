@@ -82,7 +82,7 @@ enum class ActionSlot(val labelX: Float, val labelYOffset: Float) {
 }
 
 /** 操作类型 — 决定松手后的执行逻辑 */
-enum class ActionKind { Home, Refresh, DarkMode }
+enum class ActionKind { Home, Refresh, DarkMode, CheckUpdate }
 
 /** 单个快捷操作的配置 */
 data class QuickAction(
@@ -132,7 +132,8 @@ private fun getQuickActions(route: String?, isDarkMode: Boolean): List<QuickActi
         )
         "MinePage" -> listOf(
             QuickAction(ActionSlot.Left, Icons.Default.Person, "返回首页", ActionKind.Home),
-            QuickAction(ActionSlot.Center, Icons.Default.Refresh, "刷新", ActionKind.Refresh)
+            QuickAction(ActionSlot.Center, Icons.Default.Refresh, "刷新", ActionKind.Refresh),
+            QuickAction(ActionSlot.Right, Icons.Default.Star, "检查更新", ActionKind.CheckUpdate)
         )
         else -> emptyList()
     }
@@ -539,6 +540,10 @@ fun BottomNavBar(
                                         }
                                         ActionKind.DarkMode -> {
                                             currentRoute?.let { navBarVM.applyTheme(it, GlobalData.darkModeTheme.value) }
+                                            coroutineScope.launch { delay(150); showActionSheet = false; delay(450); isExecuting = false; resetGestureState() }
+                                        }
+                                        ActionKind.CheckUpdate -> {
+                                            navBarVM.triggerCheckUpdate()
                                             coroutineScope.launch { delay(150); showActionSheet = false; delay(450); isExecuting = false; resetGestureState() }
                                         }
                                     }

@@ -34,6 +34,8 @@ class BottomNavBarVM : ViewModel() {
     val goHomeEvent = _goHomeEvent.asSharedFlow()
     private val _darkModeEvent = MutableSharedFlow<String>(replay = 1)
     val darkModeEvent = _darkModeEvent.asSharedFlow()
+    private val _checkUpdateEvent = MutableSharedFlow<Unit>()
+    val checkUpdateEvent = _checkUpdateEvent.asSharedFlow()
 
     fun triggerRefresh(route: String) {
         viewModelScope.launch {
@@ -68,6 +70,12 @@ class BottomNavBarVM : ViewModel() {
                 SettingsUtil.saveDarkModeTheme(themeId)
             }
             _darkModeEvent.emit(route)
+        }
+    }
+
+    fun triggerCheckUpdate() {
+        viewModelScope.launch {
+            _checkUpdateEvent.emit(Unit)
         }
     }
 

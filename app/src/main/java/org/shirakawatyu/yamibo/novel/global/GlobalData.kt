@@ -44,5 +44,8 @@ class GlobalData {
         val dnsOptimizationMode = MutableStateFlow("auto")
         val customDnsUrl = MutableStateFlow("")
 
+        val pendingClipboardUrl = MutableStateFlow<String?>(null)
+        var lastClipboardUrl: String? = null
+
     }
 }

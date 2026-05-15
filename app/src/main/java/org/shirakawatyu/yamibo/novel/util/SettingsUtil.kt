@@ -28,6 +28,7 @@ class SettingsUtil {
         private val darkModeKey = stringPreferencesKey("dark_mode")
         private val darkModeThemeKey = stringPreferencesKey("dark_mode_theme")
         private val customDnsUrlKey = stringPreferencesKey("custom_dns_url")
+        private val skipVersionKey = stringPreferencesKey("skip_version")
         fun saveSettings(settings: ReaderSettings) {
             DataStoreUtil.addData(JSON.toJSONString(settings), key)
         }
@@ -158,6 +159,16 @@ class SettingsUtil {
                 callback(it.toBooleanStrictOrNull() ?: false)
             }, onNull = {
                 callback(false)
+            })
+        }
+        fun saveSkipVersion(version: String) {
+            DataStoreUtil.addData(version, skipVersionKey)
+        }
+        fun getSkipVersion(callback: (String) -> Unit) {
+            DataStoreUtil.getData(skipVersionKey, callback = {
+                callback(it)
+            }, onNull = {
+                callback("")
             })
         }
     }
