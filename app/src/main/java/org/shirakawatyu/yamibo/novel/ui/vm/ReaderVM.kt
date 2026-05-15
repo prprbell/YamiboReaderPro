@@ -362,7 +362,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     loadImages = settings?.loadImages ?: false,
                     isVerticalMode = settings?.isVerticalMode ?: false,
                     translationMode = settings?.translationMode ?: 0,
-                    fontFamily = settings?.getFontFamily() ?: 0
+                    fontFamily = settings?.fontFamily ?: 0
                 )
                 updateFontRatios()
                 loadWithSettings(initialPageNum)
