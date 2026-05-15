@@ -669,7 +669,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
     LaunchedEffect(isAppInitialized, isNetworkAvailable) {
         if (isAppInitialized && isNetworkAvailable) {
             launch(Dispatchers.IO) {
-                delay(5000L)
+                delay(3000L)
                 val info = UpdateManager.checkForUpdate()
                 if (info != null) {
                     val skipped = suspendCancellableCoroutine { cont ->
@@ -678,8 +678,10 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                         }
                     }
                     if (info.versionName != skipped) {
-                        updateInfo = info
-                        showUpdateDialog = true
+                        withContext(Dispatchers.Main) {
+                            updateInfo = info
+                            showUpdateDialog = true
+                        }
                     }
                 }
             }
@@ -758,6 +760,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
+            Box(modifier = Modifier.fillMaxSize()) {
             if (isAppInitialized) {
                 Box(contentAlignment = Alignment.TopCenter) {
                     val navController = rememberNavController()
@@ -1336,19 +1339,20 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                         }
                     }
                 }
+            } // isAppInitialized else 结束
 
-                // 更新弹窗
-                if (showUpdateDialog && updateInfo != null) {
-                    UpdateDialog(
-                        info = updateInfo!!,
-                        onDismiss = { showUpdateDialog = false },
-                        onSkipVersion = { version ->
-                            skipVersion = version
-                            SettingsUtil.saveSkipVersion(version)
-                        }
-                    )
-                }
+            // 更新弹窗 — 置于最外层 Box，脱离 if-else 分支，保证始终在视图树上
+            if (showUpdateDialog && updateInfo != null) {
+                UpdateDialog(
+                    info = updateInfo!!,
+                    onDismiss = { showUpdateDialog = false },
+                    onSkipVersion = { version ->
+                        skipVersion = version
+                        SettingsUtil.saveSkipVersion(version)
+                    }
+                )
             }
+        } // 外层 Box 结束
         }
     }
 }

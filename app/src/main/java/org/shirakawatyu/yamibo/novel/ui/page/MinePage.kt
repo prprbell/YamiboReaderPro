@@ -1,8 +1,12 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
-import android.app.AlertDialog
+import androidx.compose.material3.AlertDialog
 import android.graphics.Bitmap
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.font.FontWeight
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -75,9 +79,14 @@ import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import org.shirakawatyu.yamibo.novel.ui.component.UpdateDialog
+import org.shirakawatyu.yamibo.novel.util.SettingsUtil
+import org.shirakawatyu.yamibo.novel.util.UpdateInfo
+import org.shirakawatyu.yamibo.novel.util.UpdateManager
 import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
@@ -147,9 +156,20 @@ class NativeMangaMineJSInterface {
     }
 }
 
+class AboutMineJSInterface {
+    var onShowAbout: (() -> Unit)? = null
+
+    @JavascriptInterface
+    fun showAbout() {
+        Handler(Looper.getMainLooper()).post { onShowAbout?.invoke() }
+    }
+}
+
 private var cachedFullscreenApiMine: FullscreenApiMine? = null
 private var cachedNativeMangaApiMine: NativeMangaMineJSInterface? = null
+private var cachedAboutApiMine: AboutMineJSInterface? = null
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun MinePage(
@@ -172,6 +192,9 @@ fun MinePage(
     var autoOpenMangaMode by remember { mutableStateOf(false) }
     var savedMangaUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var needFallbackToHome by rememberSaveable { mutableStateOf(false) }
+    var showAboutDialog by remember { mutableStateOf(false) }
+    var mineUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+    var showMineUpdateDialog by remember { mutableStateOf(false) }
 
     val canConvertToReader = remember(currentUrl, pageTitle) {
         ReaderModeDetector.canConvertToReaderMode(currentUrl, pageTitle)
@@ -263,7 +286,7 @@ fun MinePage(
     fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
     fullscreenApi.onSaveImage = { url ->
-        AlertDialog.Builder(context)
+        android.app.AlertDialog.Builder(context)
             .setTitle("保存图片")
             .setMessage("是否保存当前图片到手机？")
             .setPositiveButton("保存") { _, _ ->
@@ -281,6 +304,14 @@ fun MinePage(
         }
         cachedNativeMangaApiMine!!
     }
+    val aboutApi = remember {
+        if (cachedAboutApiMine == null) {
+            cachedAboutApiMine = AboutMineJSInterface()
+        }
+        cachedAboutApiMine!!
+    }
+    aboutApi.onShowAbout = { showAboutDialog = true }
+
     val mineWebView = remember {
         val isNew = minePageVM.cachedWebView == null
         val webView = minePageVM.getOrAcquireWebView(context)
@@ -298,6 +329,7 @@ fun MinePage(
             }
             webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
+            webView.addJavascriptInterface(aboutApi, "AboutApi")
         }
         webView.webChromeClient = webChromeClient
 
@@ -691,8 +723,23 @@ fun MinePage(
                         }
                         if ($isMineRoot) {
                             style.innerHTML = '.header .z, .header .y { display: none !important; }';
+                            var aboutBtn = document.getElementById('mine-about-btn');
+                            if (!aboutBtn) {
+                                aboutBtn = document.createElement('a');
+                                aboutBtn.id = 'mine-about-btn';
+                                aboutBtn.innerText = '关于';
+                                aboutBtn.href = 'javascript:void(0)';
+                                aboutBtn.style.cssText = 'position:fixed; right:12px; top:8px; height:32px; line-height:32px; padding:0 14px; color:#ffffff; background:rgba(0,0,0,0.35); border-radius:16px; text-decoration:none; z-index:9999; font-size:15px; font-weight:500;';                                    e.preventDefault();
+                                    window.AboutApi.showAbout();
+                                });
+                                document.body.appendChild(aboutBtn);
+                            } else {
+                                aboutBtn.style.display = '';
+                            }
                         } else {
                             style.innerHTML = '.header, .header .z, .header .y { display: block !important; visibility: visible !important; opacity: 1 !important; }';
+                            var btn = document.getElementById('mine-about-btn');
+                            if (btn) btn.style.display = 'none';
                         }
                     })();
                 """.trimIndent()
@@ -727,8 +774,24 @@ fun MinePage(
                         }
                         if ($isMineRoot) {
                             style.innerHTML = '.header .z, .header .y { display: none !important; }';
+                            var aboutBtn = document.getElementById('mine-about-btn');
+                            if (!aboutBtn) {
+                                aboutBtn = document.createElement('a');
+                                aboutBtn.id = 'mine-about-btn';
+                                aboutBtn.innerText = '关于';
+                                aboutBtn.href = 'javascript:void(0)';
+                                aboutBtn.style.cssText = 'position:fixed; right:12px; top:8px; height:32px; line-height:32px; padding:0 14px; color:#ffffff; background:rgba(0,0,0,0.35); border-radius:16px; text-decoration:none; z-index:9999; font-size:15px; font-weight:500;';                                aboutBtn.addEventListener('click', function(e) {
+                                    e.preventDefault();
+                                    window.AboutApi.showAbout();
+                                });
+                                document.body.appendChild(aboutBtn);
+                            } else {
+                                aboutBtn.style.display = '';
+                            }
                         } else {
                             style.innerHTML = '.header, .header .z, .header .y { display: block !important; visibility: visible !important; opacity: 1 !important; }';
+                            var btn = document.getElementById('mine-about-btn');
+                            if (btn) btn.style.display = 'none';
                         }
                     })();
                 """.trimIndent()
@@ -1058,6 +1121,114 @@ fun MinePage(
                         color = Color.White
                     )
                 }
+            }
+
+            // 关于弹窗
+            if (showAboutDialog) {
+                var checking by remember { mutableStateOf(false) }
+                var checkResult by remember { mutableStateOf<UpdateInfo?>(null) }
+                var checked by remember { mutableStateOf(false) }
+
+                if (checkResult != null) {
+                    // 发现新版本
+                    val ri = checkResult!!
+                    AlertDialog(
+                        onDismissRequest = { showAboutDialog = false; checkResult = null; checked = false },
+                        title = { Text("发现新版本") },
+                        text = {
+                            Column {
+                                Text("版本 ${ri.versionName}", fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(4.dp))
+                                Text("大小: ${"%.1f".format(ri.size / (1024.0 * 1024.0))} MB", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                                if (ri.body.isNotBlank()) {
+                                    Spacer(Modifier.height(12.dp))
+                                    HorizontalDivider()
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(ri.body, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            Button(onClick = {
+                                showAboutDialog = false
+                                mineUpdateInfo = ri
+                                showMineUpdateDialog = true
+                                checking = false; checkResult = null; checked = false
+                            }) { Text("立即更新") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showAboutDialog = false; checkResult = null; checked = false }) { Text("关闭") }
+                        }
+                    )
+                } else if (checked) {
+                    // 已是最新版本
+                    AlertDialog(
+                        onDismissRequest = { showAboutDialog = false; checked = false },
+                        title = { Text("检查更新") },
+                        text = { Text("已是最新版本", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)) },
+                        confirmButton = {
+                            TextButton(onClick = { showAboutDialog = false; checked = false }) { Text("关闭") }
+                        }
+                    )
+                } else {
+                    // 初始状态：关于信息 + 检查更新
+                    val pkgInfo = remember {
+                        runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
+                    }
+                    val currentVersion = pkgInfo?.versionName ?: ""
+                    AlertDialog(
+                        onDismissRequest = { showAboutDialog = false },
+                        title = { Text("关于  百合会阅读器", fontSize = 18.sp) },
+                        text = {
+                            Column {
+                                Text("当前版本号：$currentVersion", fontSize = 13.sp)
+                                Spacer(Modifier.height(12.dp))
+                                Text("百合会（yamibo.com）论坛的非官方阅读器，支持小说和漫画阅读。", fontSize = 14.sp)
+                                Spacer(Modifier.height(12.dp))
+                                Text("仓库: github.com/prprbell/YamiboReaderPro", fontSize = 13.sp)
+                                Text("作者: prprbell", fontSize = 13.sp)
+                                if (checking) {
+                                    Spacer(Modifier.height(16.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("正在检查...", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    if (!checking) {
+                                        checking = true
+                                        scope.launch(Dispatchers.IO) {
+                                            val info = UpdateManager.checkForUpdate()
+                                            withContext(Dispatchers.Main) {
+                                                checking = false
+                                                checked = true
+                                                checkResult = info
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !checking
+                            ) { Text("检查更新") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showAboutDialog = false }) { Text("关闭") }
+                        }
+                    )
+                }
+            }
+
+            // 更新弹窗（从关于页面的"检查更新"触发）
+            if (showMineUpdateDialog && mineUpdateInfo != null) {
+                UpdateDialog(
+                    info = mineUpdateInfo!!,
+                    onDismiss = { showMineUpdateDialog = false },
+                    onSkipVersion = { version -> SettingsUtil.saveSkipVersion(version); showMineUpdateDialog = false }
+                )
             }
         }
     }

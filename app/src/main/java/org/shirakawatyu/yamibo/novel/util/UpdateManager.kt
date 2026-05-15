@@ -1,25 +1,26 @@
 package org.shirakawatyu.yamibo.novel.util
 
+import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import androidx.core.content.FileProvider
 import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.shirakawatyu.yamibo.novel.BuildConfig
+import org.shirakawatyu.yamibo.novel.YamiboApplication
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import java.io.File
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
+import androidx.core.net.toUri
 
 data class UpdateInfo(
     val versionName: String,
@@ -80,12 +81,21 @@ object UpdateManager {
     }
 
     suspend fun checkForUpdate(): UpdateInfo? = withContext(Dispatchers.IO) {
+        val app = YamiboApplication.application
+        val packageInfo = try {
+            app.packageManager.getPackageInfo(app.packageName, 0)
+        } catch (_: PackageManager.NameNotFoundException) {
+            return@withContext null
+        }
+        val currentVersionCode = packageInfo.versionCode
+        val currentVersionName = packageInfo.versionName ?: "0"
+
         val release = fetchFromGitee() ?: fetchFromGithub() ?: return@withContext null
         val apkAsset = release.apkAsset ?: return@withContext null
         val latestVersion = release.tag_name.removePrefix("v").removePrefix("v.")
         val latestCode = estimateVersionCode(latestVersion)
 
-        if (compareVersion(latestVersion, BuildConfig.VERSION_NAME) > 0 || latestCode > BuildConfig.VERSION_CODE) {
+        if (compareVersion(latestVersion, currentVersionName) > 0 || latestCode > currentVersionCode) {
             UpdateInfo(
                 versionName = release.tag_name,
                 versionCode = latestCode,
@@ -131,7 +141,7 @@ object UpdateManager {
     /** 使用系统 DownloadManager 下载 APK，完成后返回下载 ID */
     fun downloadViaManager(context: Context, info: UpdateInfo): Long {
         val fileName = "yamibo_${info.versionName}.apk"
-        val request = DownloadManager.Request(Uri.parse(info.downloadUrl + "?access_token=$GITEE_TOKEN"))
+        val request = DownloadManager.Request((info.downloadUrl + "?access_token=$GITEE_TOKEN").toUri())
             .setTitle("百合会阅读器更新")
             .setDescription("正在下载 v${info.versionName}")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -144,6 +154,7 @@ object UpdateManager {
     }
 
     /** 监听下载完成并尝试安装 */
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     fun registerDownloadReceiver(context: Context, downloadId: Long, onComplete: (File) -> Unit): BroadcastReceiver {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -160,7 +171,7 @@ object UpdateManager {
                         cursor.close()
                         uriStr?.let {
                             // 从 content URI 复制到缓存目录以便 FileProvider 访问
-                            val apkFile = copyToCache(context, Uri.parse(it))
+                            val apkFile = copyToCache(context, it.toUri())
                             if (apkFile != null) {
                                 onComplete(apkFile)
                             }
@@ -170,7 +181,7 @@ object UpdateManager {
             }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_NOT_EXPORTED)
+            context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
         } else {
             context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
         }
@@ -197,15 +208,13 @@ object UpdateManager {
     fun installApk(context: Context, apkFile: File) {
         val uri = FileProvider.getUriForFile(
             context,
-            "${BuildConfig.APPLICATION_ID}.fileprovider",
+            "${context.packageName}.fileprovider",
             apkFile
         )
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(intent)
     }
