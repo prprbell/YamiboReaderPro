@@ -18,7 +18,13 @@
       "Bash(cp D:/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/bean/DirectoryStrategy.kt C:/Users/Administrator/Desktop/manga_files/)",
       "Bash(cp D:/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/bean/MangaSettings.kt C:/Users/Administrator/Desktop/manga_files/)",
       "Bash(cmd.exe *)",
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "Bash(curl *)",
+      "Bash(mkdir -p \"/d/Desktop/update_check_files\")",
+      "Bash(cp \"D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/util/UpdateManager.kt\" \"/d/Desktop/update_check_files/\")",
+      "Bash(cp \"D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/component/UpdateDialog.kt\" \"/d/Desktop/update_check_files/\")",
+      "Bash(cp \"D:/Workspace/YamiboReaderPro/app/src/main/res/xml/file_paths.xml\" \"/d/Desktop/update_check_files/\")",
+      "Bash(cp \"D:/Workspace/YamiboReaderPro/app/src/main/AndroidManifest.xml\" \"/d/Desktop/update_check_files/\")"
     ]
   }
 }

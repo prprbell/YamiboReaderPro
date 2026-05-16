@@ -86,7 +86,7 @@ This project has two remotes:
 
 When the user asks for any git push/pull/fetch operation, ALWAYS sync both remotes:
 
-- **git push**: Push to `origin` first, then `gitee`. Push both branches and tags.
+- **git push**: The user expects "git push" to include commit first (commit + push). Analyze changes, write a good commit message, commit, then push to `origin` first, then `gitee`. Push both branches and tags.
 - **git pull**: Pull from `origin` (source of truth), then push to `gitee` to keep it in sync.
 - **git fetch**: Fetch from both remotes.
 

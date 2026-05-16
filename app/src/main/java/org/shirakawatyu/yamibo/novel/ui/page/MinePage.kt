@@ -537,7 +537,40 @@ fun MinePage(
                     else -> false
                 }
             }
-
+            private fun getToggleHeaderJs(isMineRoot: Boolean): String {
+                return """
+                javascript:(function() {
+                    var style = document.getElementById('mine-dynamic-header');
+                    if (!style) {
+                        style = document.createElement('style');
+                        style.id = 'mine-dynamic-header';
+                        document.head.appendChild(style);
+                    }
+                    if ($isMineRoot) {
+                        style.innerHTML = '.header .z, .header .y { display: none !important; }';
+                        var aboutBtn = document.getElementById('mine-about-btn');
+                        if (!aboutBtn) {
+                            aboutBtn = document.createElement('a');
+                            aboutBtn.id = 'mine-about-btn';
+                            aboutBtn.innerText = '关于';
+                            aboutBtn.href = 'javascript:void(0)';
+                            aboutBtn.style.cssText = 'position:fixed; right:12px; top:8px; height:32px; line-height:32px; padding:0 14px; color:#ffffff; background:rgba(0,0,0,0.35); border-radius:16px; text-decoration:none; z-index:9999; font-size:15px; font-weight:500;';
+                            aboutBtn.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                window.AboutApi.showAbout();
+                            });
+                            document.body.appendChild(aboutBtn);
+                        } else {
+                            aboutBtn.style.display = '';
+                        }
+                    } else {
+                        style.innerHTML = '.header, .header .z, .header .y { display: block !important; visibility: visible !important; opacity: 1 !important; }';
+                        var btn = document.getElementById('mine-about-btn');
+                        if (btn) btn.style.display = 'none';
+                    }
+                })();
+            """.trimIndent()
+            }
             override fun onFormResubmission(
                 view: WebView?,
                 dontResend: android.os.Message?,
@@ -713,36 +746,7 @@ fun MinePage(
                 }
 
                 val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1"))
-                val toggleHeaderJs = """
-                    javascript:(function() {
-                        var style = document.getElementById('mine-dynamic-header');
-                        if (!style) {
-                            style = document.createElement('style');
-                            style.id = 'mine-dynamic-header';
-                            document.head.appendChild(style);
-                        }
-                        if ($isMineRoot) {
-                            style.innerHTML = '.header .z, .header .y { display: none !important; }';
-                            var aboutBtn = document.getElementById('mine-about-btn');
-                            if (!aboutBtn) {
-                                aboutBtn = document.createElement('a');
-                                aboutBtn.id = 'mine-about-btn';
-                                aboutBtn.innerText = '关于';
-                                aboutBtn.href = 'javascript:void(0)';
-                                aboutBtn.style.cssText = 'position:fixed; right:12px; top:8px; height:32px; line-height:32px; padding:0 14px; color:#ffffff; background:rgba(0,0,0,0.35); border-radius:16px; text-decoration:none; z-index:9999; font-size:15px; font-weight:500;';                                    e.preventDefault();
-                                    window.AboutApi.showAbout();
-                                });
-                                document.body.appendChild(aboutBtn);
-                            } else {
-                                aboutBtn.style.display = '';
-                            }
-                        } else {
-                            style.innerHTML = '.header, .header .z, .header .y { display: block !important; visibility: visible !important; opacity: 1 !important; }';
-                            var btn = document.getElementById('mine-about-btn');
-                            if (btn) btn.style.display = 'none';
-                        }
-                    })();
-                """.trimIndent()
+                val toggleHeaderJs = getToggleHeaderJs(isMineRoot)
                 view?.evaluateJavascript(toggleHeaderJs, null)
             }
 
@@ -764,37 +768,7 @@ fun MinePage(
 
                 canGoBack = evaluateCanGoBack(view)
                 val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1"))
-                val toggleHeaderJs = """
-                    javascript:(function() {
-                        var style = document.getElementById('mine-dynamic-header');
-                        if (!style) {
-                            style = document.createElement('style');
-                            style.id = 'mine-dynamic-header';
-                            document.head.appendChild(style);
-                        }
-                        if ($isMineRoot) {
-                            style.innerHTML = '.header .z, .header .y { display: none !important; }';
-                            var aboutBtn = document.getElementById('mine-about-btn');
-                            if (!aboutBtn) {
-                                aboutBtn = document.createElement('a');
-                                aboutBtn.id = 'mine-about-btn';
-                                aboutBtn.innerText = '关于';
-                                aboutBtn.href = 'javascript:void(0)';
-                                aboutBtn.style.cssText = 'position:fixed; right:12px; top:8px; height:32px; line-height:32px; padding:0 14px; color:#ffffff; background:rgba(0,0,0,0.35); border-radius:16px; text-decoration:none; z-index:9999; font-size:15px; font-weight:500;';                                aboutBtn.addEventListener('click', function(e) {
-                                    e.preventDefault();
-                                    window.AboutApi.showAbout();
-                                });
-                                document.body.appendChild(aboutBtn);
-                            } else {
-                                aboutBtn.style.display = '';
-                            }
-                        } else {
-                            style.innerHTML = '.header, .header .z, .header .y { display: block !important; visibility: visible !important; opacity: 1 !important; }';
-                            var btn = document.getElementById('mine-about-btn');
-                            if (btn) btn.style.display = 'none';
-                        }
-                    })();
-                """.trimIndent()
+                val toggleHeaderJs = getToggleHeaderJs(isMineRoot)
                 view?.evaluateJavascript(toggleHeaderJs, null)
             }
 
