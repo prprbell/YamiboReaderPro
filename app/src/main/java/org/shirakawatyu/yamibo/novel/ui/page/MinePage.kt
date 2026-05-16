@@ -49,7 +49,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -318,13 +317,13 @@ fun MinePage(
         cachedAboutApiMine!!
     }
     aboutApi.onShowAbout = { showAboutDialog = true }
+    var pendingSearchUrl by remember { mutableStateOf<String?>(null) }
     val searchNavApi = remember {
         object {
             @JavascriptInterface
             fun navigateToPost(url: String) {
                 Handler(Looper.getMainLooper()).post {
-                    GlobalData.pendingClipboardUrl.value = url
-                    GlobalData.lastClipboardUrl = url
+                    pendingSearchUrl = url
                 }
             }
         }
@@ -405,11 +404,10 @@ fun MinePage(
         }
     }
 
-    val pendingUrl by GlobalData.pendingClipboardUrl.collectAsState()
-    LaunchedEffect(pendingUrl) {
-        val url = pendingUrl ?: return@LaunchedEffect
+    LaunchedEffect(pendingSearchUrl) {
+        val url = pendingSearchUrl ?: return@LaunchedEffect
         mineWebView.loadUrl(url)
-        GlobalData.pendingClipboardUrl.value = null
+        pendingSearchUrl = null
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1179,10 +1177,10 @@ fun MinePage(
                     val currentVersion = pkgInfo?.versionName ?: ""
                     AlertDialog(
                         onDismissRequest = { showAboutDialog = false },
-                        title = { Text("关于  百合会阅读器", fontSize = 18.sp) },
+                        title = { Text("关于", fontSize = 18.sp) },
                         text = {
                             Column {
-                                Text("百合会（yamibo.com）论坛的非官方阅读器，支持小说和漫画阅读。", fontSize = 14.sp)
+                                Text("YamiboReaderPro是百合会论坛的非官方阅读器，支持小说和漫画阅读。", fontSize = 14.sp)
                                 Spacer(Modifier.height(12.dp))
                                 Text("当前版本号：$currentVersion", fontSize = 13.sp)
                                 Spacer(Modifier.height(12.dp))

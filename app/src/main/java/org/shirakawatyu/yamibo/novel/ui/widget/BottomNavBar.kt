@@ -133,8 +133,7 @@ private fun getQuickActions(route: String?, isDarkMode: Boolean): List<QuickActi
         )
         "MinePage" -> listOf(
             QuickAction(ActionSlot.Left, Icons.Default.Person, "返回首页", ActionKind.Home),
-            QuickAction(ActionSlot.Center, Icons.Default.Refresh, "刷新", ActionKind.Refresh),
-            QuickAction(ActionSlot.Right, Icons.Default.Star, "检查更新", ActionKind.CheckUpdate)
+            QuickAction(ActionSlot.Center, Icons.Default.Refresh, "刷新", ActionKind.Refresh)
         )
         else -> emptyList()
     }

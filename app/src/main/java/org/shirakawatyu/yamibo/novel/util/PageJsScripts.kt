@@ -786,51 +786,6 @@ object PageJsScripts {
         })()
     """.trimIndent()
 
-    val MANGA_WEB_IS_MANGA_SECTION_JS = """
-        (function(){
-            var a = document.querySelector('.header h2 a');
-            if (!a) return false;
-            var t = a.innerText;
-            return t.indexOf('中文百合漫画区') !== -1 || t.indexOf('貼圖區') !== -1 || t.indexOf('原创图作区') !== -1 || t.indexOf('百合漫画图源区') !== -1;
-        })()
-    """.trimIndent()
-
-    val MANGA_WEB_INJECT_CLICK_LISTENER_JS = """
-        javascript:(function() {
-            document.addEventListener('click', function(e) {
-                var targetContainer = e.target.closest('.img_one li, .img_one a, .message a, .img_one img, .message img');
-                if (!targetContainer) return;
-                
-                var targetImg = targetContainer.tagName.toLowerCase() === 'img' ? targetContainer : targetContainer.querySelector('img');
-                
-                if (targetImg) {
-                    var imgSrc = targetImg.getAttribute('src') || '';
-                    var imgZsrc = targetImg.getAttribute('zsrc') || '';
-                    
-                    if (imgSrc.indexOf('smiley') === -1 && imgZsrc.indexOf('smiley') === -1) { 
-                        e.preventDefault(); 
-                        e.stopPropagation();
-                        
-                        var allImgs = document.querySelectorAll('.img_one img, .message img:not([src*="smiley"])');
-                        var urls = [];
-                        var clickedIndex = 0;
-                        for (var i = 0; i < allImgs.length; i++) {
-                            var rawSrc = allImgs[i].getAttribute('zsrc') || allImgs[i].getAttribute('file') || allImgs[i].getAttribute('src');
-                            if (rawSrc) {
-                                var absoluteUrl = new URL(rawSrc, document.baseURI).href;
-                                urls.push(absoluteUrl);
-                                if (allImgs[i] === targetImg) clickedIndex = urls.length - 1;
-                            }
-                        }
-                        if (window.NativeMangaApi) {
-                            window.NativeMangaApi.openNativeManga(urls.join('|||'), clickedIndex, document.title);
-                        }
-                    }
-                }
-            }, true); 
-        })();
-    """.trimIndent()
-
     val MANGA_WEB_AUTO_OPEN_JS = """
         (function() {
             // 版块与公告检查
@@ -1973,12 +1928,13 @@ $styleString
 
                 // 只匹配帖子网址:
                 // https://bbs.yamibo.com/forum.php?mod=viewthread&tid=XXX...
-                if (/^https?:\/\/bbs\.yamibo\.com\/forum\.php\?mod=viewthread&tid=\d+/.test(keyword)) {
-                    url = keyword;
+                // https://m.yamibo.com/forum.php?mod=viewthread&tid=XXX...
+                if (/^https?:\/\/(bbs|m)\.yamibo\.com\/forum\.php\?mod=viewthread&tid=\d+/.test(keyword)) {
+                    url = keyword.replace(/&highlight=[^&]*/g, '');
                 }
 
                 // https://bbs.yamibo.com/thread-XXX-X-X.html
-                if (!url && /^https?:\/\/bbs\.yamibo\.com\/thread-\d+-\d+-\d+\.html$/.test(keyword)) {
+                if (!url && /^https?:\/\/(bbs|m)\.yamibo\.com\/thread-\d+-\d+-\d+\.html$/.test(keyword)) {
                     url = keyword;
                 }
 

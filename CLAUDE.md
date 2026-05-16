@@ -27,7 +27,7 @@ This is an Android reader app for the yamibo.com (百合会) forum, supporting n
 Three bottom-tab top-level routes: `FavoritePage`, `BBSPage`, `MinePage`.
 
 Content routes:
-- **`ProbingPage`** — Smart router. Loads a URL in a hidden `WebView` (from `WebViewPool`), runs JS to detect content type (novel=1, manga=2, forum=3), then navigates to the appropriate reader. Uses `MangaImagePipeline.handoffPrefetch()` for manga image pre-warming.
+- **`ProbingPage`** — Smart router. Loads a URL in a hidden `WebView` (from `WebViewPool`), runs JS to detect content type (novel=1, manga=2, forum=3), then navigates to the appropriate reader. Uses `MangaImagePipeline.handoffPrefetch()` for manga image pre-warming. **Scope: only used for favorite type detection — must not take on any other responsibility.**
 - **`ReaderPage`** — Novel reader. Horizontal pager (swipe left/right) or vertical scroll mode. Toolbar with night mode, font settings, translation (simplified/traditional Chinese), chapter drawer, and caching controls.
 - **`NativeMangaPage`** — Native manga reader with zoom/pan gestures via Telephoto library.
 - **`MangaWebPage`** — WebView-based manga reader (fallback / fast-forward mode).

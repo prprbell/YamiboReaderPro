@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -246,6 +247,8 @@ class MainActivity : ComponentActivity() {
             bbsWebViewState = createBbsWebView(this, customWebChromeClient)
         }
 
+        handleDeepLink(intent)
+
         setContent {
             App(
                 bbsWebView = bbsWebViewState,
@@ -253,6 +256,19 @@ class MainActivity : ComponentActivity() {
                 isRestoring = isRestoring
             )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val uri = intent.data ?: return
+        val url = uri.toString()
+        if (!url.contains("bbs.yamibo.com") && !url.contains("m.yamibo.com")) return
+        GlobalData.pendingDeepLinkUrl.value = url
     }
 
     override fun onStart() {
@@ -739,8 +755,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                     if (!desc.hasMimeType("text/plain")) return@launch
                     val text = cm.primaryClip?.getItemAt(0)?.text?.toString()
                     if (text == null || text.contains(Regex("""<[a-zA-Z/][^>]*>"""))) return@launch
-                    val urlRegex = Regex("""https?://(?:bbs\.)?yamibo\.com/(?:forum\.php\?mod=viewthread&tid=\d+|thread-\d+-\d+-\d+\.html)""")
+                    val urlRegex = Regex("""https?://(?:bbs\.|m\.)?yamibo\.com/(?:forum\.php\?mod=viewthread&tid=\d+[^\s]*|thread-\d+-\d+-\d+\.html)""")
                     val matched = text.let { urlRegex.find(it)?.value }
+                        ?.replace(Regex("""&highlight=[^&\s]*"""), "")
                     val imageUrlPattern = Regex("""/data/attachment/|\.(jpg|jpeg|png|webp|gif|bmp)(\?|$)""", RegexOption.IGNORE_CASE)
                     if (matched != null && !imageUrlPattern.containsMatchIn(matched) && matched != GlobalData.lastClipboardUrl) {
                         detectedClipboardUrl = matched
@@ -784,6 +801,23 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 if (info.versionName != skipped) {
                                     updateInfo = info
                                     showUpdateDialog = true
+                                }
+                            }
+                        }
+                    }
+
+                    // Deep link: 从其他 app 点击百合会链接跳转进来
+                    LaunchedEffect(Unit) {
+                        GlobalData.pendingDeepLinkUrl.collect { url ->
+                            if (url == null) return@collect
+                            GlobalData.pendingClipboardUrl.value = url
+                            GlobalData.lastClipboardUrl = url
+                            GlobalData.pendingDeepLinkUrl.value = null
+                            if (navController.currentDestination?.route != "BBSPage") {
+                                navController.navigate("BBSPage") {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
                                 }
                             }
                         }
