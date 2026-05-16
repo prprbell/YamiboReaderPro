@@ -489,6 +489,32 @@ object PageJsScripts {
             return '';
         })();
     """.trimIndent()
+
+    // 获取帖子历史详情专用JS
+    val EXTRACT_THREAD_INFO_JS = """
+        (function() {
+            var title = document.title || '';
+            var section = '';
+            var sectionHeader = document.querySelector('.header h2 a');
+            if (sectionHeader) {
+                section = sectionHeader.innerText.trim();
+            } else {
+                var nav = document.querySelector('.z, .nav, .mz, .thread_nav, .sq_nav');
+                if (nav) section = nav.innerText.trim();
+            }
+            var author = '';
+            var authorEl = document.querySelector('.authi a.xw1, .authi a, .mtit .z a, .pi .authi a');
+            if (authorEl) {
+                author = authorEl.innerText.trim();
+            } else {
+                var byUser = document.querySelector('.by a');
+                if (byUser) author = byUser.innerText.trim();
+            }
+            title = title.replace(/\s*-\s*百合会.*$/, '');
+            return JSON.stringify({title: title, section: section, author: author});
+        })();
+    """.trimIndent()
+
     val AUTO_OPEN_MANGA_JS = """
         (function() {
             // 版块白名单

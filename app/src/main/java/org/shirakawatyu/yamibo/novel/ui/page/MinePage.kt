@@ -2,7 +2,9 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
 import androidx.compose.material3.AlertDialog
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.HorizontalDivider
@@ -25,6 +27,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,11 +37,14 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
@@ -48,6 +54,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -70,6 +77,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -108,6 +116,7 @@ import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
+import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import java.io.ByteArrayInputStream
@@ -171,9 +180,19 @@ class AboutMineJSInterface {
     }
 }
 
+class HistoryJSInterface {
+    var onShowHistory: (() -> Unit)? = null
+
+    @JavascriptInterface
+    fun showHistory() {
+        Handler(Looper.getMainLooper()).post { onShowHistory?.invoke() }
+    }
+}
+
 private var cachedFullscreenApiMine: FullscreenApiMine? = null
 private var cachedNativeMangaApiMine: NativeMangaMineJSInterface? = null
 private var cachedAboutApiMine: AboutMineJSInterface? = null
+private var cachedHistoryApiMine: HistoryJSInterface? = null
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
@@ -199,6 +218,7 @@ fun MinePage(
     var savedMangaUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var needFallbackToHome by rememberSaveable { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showHistoryDialog by remember { mutableStateOf(false) }
     var mineUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var showMineUpdateDialog by remember { mutableStateOf(false) }
 
@@ -317,6 +337,13 @@ fun MinePage(
         cachedAboutApiMine!!
     }
     aboutApi.onShowAbout = { showAboutDialog = true }
+    val historyApi = remember {
+        if (cachedHistoryApiMine == null) {
+            cachedHistoryApiMine = HistoryJSInterface()
+        }
+        cachedHistoryApiMine!!
+    }
+    historyApi.onShowHistory = { showHistoryDialog = true }
     var pendingSearchUrl by remember { mutableStateOf<String?>(null) }
     val searchNavApi = remember {
         object {
@@ -347,6 +374,7 @@ fun MinePage(
             webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
             webView.addJavascriptInterface(aboutApi, "AboutApi")
+            webView.addJavascriptInterface(historyApi, "HistoryApi")
             webView.addJavascriptInterface(searchNavApi, "AndroidSearchNav")
         }
         webView.webChromeClient = webChromeClient
@@ -587,10 +615,27 @@ fun MinePage(
                         } else {
                             aboutBtn.style.display = '';
                         }
+                        var historyBtn = document.getElementById('mine-history-btn');
+                        if (!historyBtn) {
+                            historyBtn = document.createElement('a');
+                            historyBtn.id = 'mine-history-btn';
+                            historyBtn.innerText = '历史';
+                            historyBtn.href = 'javascript:void(0)';
+                            historyBtn.style.cssText = 'position:fixed; left:12px; top:8px; height:32px; line-height:32px; padding:0 14px; color:#ffffff; background:rgba(0,0,0,0.35); border-radius:16px; text-decoration:none; z-index:9999; font-size:15px; font-weight:500;';
+                            historyBtn.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                if(window.HistoryApi) window.HistoryApi.showHistory();
+                            });
+                            document.body.appendChild(historyBtn);
+                        } else {
+                            historyBtn.style.display = '';
+                        }
                     } else {
                         style.innerHTML = '.header, .header .z, .header .y { display: block !important; visibility: visible !important; opacity: 1 !important; }';
-                        var btn = document.getElementById('mine-about-btn');
-                        if (btn) btn.style.display = 'none';
+                        var btnA = document.getElementById('mine-about-btn');
+                        if (btnA) btnA.style.display = 'none';
+                        var btnH = document.getElementById('mine-history-btn');
+                        if (btnH) btnH.style.display = 'none';
                     }
                 })();
             """.trimIndent()
@@ -609,6 +654,14 @@ fun MinePage(
             ): Boolean {
                 val urlStr = request?.url?.toString() ?: ""
 
+                if (urlStr.isNotEmpty() && !urlStr.startsWith("http://") && !urlStr.startsWith("https://")) {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(urlStr)))
+                    } catch (_: Exception) {
+                    }
+                    return true
+                }
+
                 if (isSelected && isHomepageUrl(urlStr) && view != null) {
                     scope.launch(Dispatchers.IO) {
                         delay(500L)
@@ -622,6 +675,19 @@ fun MinePage(
                 }
 
                 return super.shouldOverrideUrlLoading(view, request)
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                val safeUrl = url ?: ""
+                if (safeUrl.isNotEmpty() && !safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
+                    } catch (_: Exception) {
+                    }
+                    return true
+                }
+                return super.shouldOverrideUrlLoading(view, url)
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -773,6 +839,26 @@ fun MinePage(
                 val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1"))
                 val toggleHeaderJs = getToggleHeaderJs(isMineRoot)
                 view?.evaluateJavascript(toggleHeaderJs, null)
+
+                // 记录浏览历史
+                if (url != null && HistoryUtil.isThreadUrl(url)) {
+                    view?.evaluateJavascript(PageJsScripts.EXTRACT_THREAD_INFO_JS) { jsonStr ->
+                        try {
+                            val cleanJson = if (jsonStr?.startsWith("\"") == true) JSON.parse(jsonStr) as String else jsonStr
+                            val obj = JSON.parseObject(cleanJson)
+                            val title = obj.getString("title") ?: ""
+                            val author = obj.getString("author") ?: ""
+                            val section = obj.getString("section") ?: ""
+                            if (title.isNotBlank()) {
+                                scope.launch(Dispatchers.IO) {
+                                    HistoryUtil.addOrUpdateHistory(url, title, author, section)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -825,11 +911,13 @@ fun MinePage(
                 timeoutJob?.cancel()
                 retryCount = 0
                 super.onReceivedError(view, errorCode, description, failingUrl)
-                hasError = true
-                isLoading = false
-                isPullRefreshing = false
-                if (retryCount == 0) {
-                    showLoadError = true
+                if (failingUrl != null && failingUrl == view?.url) {
+                    hasError = true
+                    isLoading = false
+                    isPullRefreshing = false
+                    if (retryCount == 0) {
+                        showLoadError = true
+                    }
                 }
             }
 
@@ -1242,6 +1330,111 @@ fun MinePage(
                     onSkipVersion = { version -> SettingsUtil.saveSkipVersion(version); showMineUpdateDialog = false }
                 )
             }
+
+            if (showHistoryDialog) {
+                HistoryDialog(
+                    onDismiss = { showHistoryDialog = false },
+                    navController = navController
+                )
+            }
         }
     }
+}
+
+private fun formatRelativeTime(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    return when {
+        diff < 60_000L -> "刚刚"
+        diff < 3600_000L -> "${diff / 60_000L}分钟前"
+        diff < 86400_000L -> "${diff / 3600_000L}小时前"
+        diff < 172800_000L -> "昨天"
+        else -> "${diff / 86400_000L}天前"
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun HistoryDialog(onDismiss: () -> Unit, navController: NavController) {
+    val historyList by HistoryUtil.getHistoryFlow().collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text("浏览历史", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                if (historyList.isNotEmpty()) {
+                    TextButton(onClick = {
+                        scope.launch { HistoryUtil.clearHistory() }
+                    }) {
+                        Text("清空", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        },
+        text = {
+            if (historyList.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                    Text("暂无浏览记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp)) {
+                    items(historyList, key = { it.url }) { entry ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onDismiss()
+                                    val encodedUrl = URLEncoder.encode(entry.url, "utf-8")
+                                    navController.navigate("OtherWebPage/$encodedUrl")
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp)
+                        ) {
+                            Text(
+                                text = entry.title,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val metaText = buildString {
+                                    if (entry.author.isNotBlank()) append(entry.author)
+                                    if (entry.author.isNotBlank() && entry.section.isNotBlank()) append(" · ")
+                                    if (entry.section.isNotBlank()) append(entry.section)
+                                }
+                                Text(
+                                    text = metaText,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = formatRelativeTime(entry.timestamp),
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
+    )
 }

@@ -3,7 +3,9 @@ package org.shirakawatyu.yamibo.novel.ui.page
 import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -76,11 +78,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.alibaba.fastjson2.JSON
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
@@ -103,6 +108,7 @@ import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
+import androidx.core.net.toUri
 
 class FullscreenApi {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -204,6 +210,34 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         }
     }
 
+    override fun shouldOverrideUrlLoading(
+        view: WebView?,
+        request: WebResourceRequest?
+    ): Boolean {
+        val url = request?.url?.toString() ?: ""
+        if (url.isNotEmpty() && !url.startsWith("http://") && !url.startsWith("https://")) {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            } catch (_: Exception) {
+            }
+            return true
+        }
+        return super.shouldOverrideUrlLoading(view, request)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+        val safeUrl = url ?: ""
+        if (safeUrl.isNotEmpty() && !safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
+            } catch (_: Exception) {
+            }
+            return true
+        }
+        return super.shouldOverrideUrlLoading(view, url)
+    }
+
     override fun onFormResubmission(
         view: WebView?,
         dontResend: android.os.Message?,
@@ -293,6 +327,25 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
             BBSPageState.isLoading = false
             BBSPageState.showLoadError = false
         }
+
+        if (url != null && HistoryUtil.isThreadUrl(url)) {
+            view?.evaluateJavascript(PageJsScripts.EXTRACT_THREAD_INFO_JS) { jsonStr ->
+                try {
+                    val cleanJson = if (jsonStr?.startsWith("\"") == true) JSON.parse(jsonStr) as String else jsonStr
+                    val obj = JSON.parseObject(cleanJson)
+                    val title = obj.getString("title") ?: ""
+                    val author = obj.getString("author") ?: ""
+                    val section = obj.getString("section") ?: ""
+                    if (title.isNotBlank()) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            HistoryUtil.addOrUpdateHistory(url, title, author, section)
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {
@@ -356,7 +409,9 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         failingUrl: String?
     ) {
         super.onReceivedError(view, errorCode, description, failingUrl)
-        handleErrorState()
+        if (failingUrl != null && failingUrl == view?.url) {
+            handleErrorState()
+        }
     }
 
     override fun onReceivedHttpError(

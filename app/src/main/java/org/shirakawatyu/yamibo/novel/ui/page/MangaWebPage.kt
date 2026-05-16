@@ -3,7 +3,9 @@ package org.shirakawatyu.yamibo.novel.ui.page
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -71,12 +73,14 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
+import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import kotlin.text.Charsets
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
@@ -594,6 +598,25 @@ fun MangaWebPage(
                 isLoading = false
                 currentUrl = finishedUrl
 
+                if (finishedUrl != null && HistoryUtil.isThreadUrl(finishedUrl)) {
+                    view?.evaluateJavascript(PageJsScripts.EXTRACT_THREAD_INFO_JS) { jsonStr ->
+                        try {
+                            val cleanJson = if (jsonStr?.startsWith("\"") == true) JSON.parse(jsonStr) as String else jsonStr
+                            val obj = JSON.parseObject(cleanJson)
+                            val title = obj.getString("title") ?: ""
+                            val author = obj.getString("author") ?: ""
+                            val section = obj.getString("section") ?: ""
+                            if (title.isNotBlank()) {
+                                scope.launch(Dispatchers.IO) {
+                                    HistoryUtil.addOrUpdateHistory(finishedUrl, title, author, section)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+
                 canGoBack = view?.let {
                     val list = it.copyBackForwardList()
                     if (baseIndex != -1 && list.currentIndex < baseIndex) {
@@ -608,6 +631,34 @@ fun MangaWebPage(
                     mangaWebView.loadUrl(finalUrl)
                 }
 
+            }
+
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): Boolean {
+                val link = request?.url?.toString() ?: ""
+                if (link.isNotEmpty() && !link.startsWith("http://") && !link.startsWith("https://")) {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                    } catch (_: Exception) {
+                    }
+                    return true
+                }
+                return super.shouldOverrideUrlLoading(view, request)
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(view: WebView?, link: String?): Boolean {
+                val safeUrl = link ?: ""
+                if (safeUrl.isNotEmpty() && !safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
+                    } catch (_: Exception) {
+                    }
+                    return true
+                }
+                return super.shouldOverrideUrlLoading(view, link)
             }
 
             override fun onReceivedError(
