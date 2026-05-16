@@ -65,7 +65,7 @@ object HistoryUtil {
             map.remove(normalizedUrl)
             map[normalizedUrl] = entry
 
-            if (map.size > 1000) {
+            if (map.size > 500) {
                 val oldestKey = map.keys.first()
                 map.remove(oldestKey)
             }
@@ -83,6 +83,25 @@ object HistoryUtil {
                     cont.resume(Unit)
                 }
             }
+        }
+    }
+
+    suspend fun deleteEntry(url: String) {
+        val normalizedUrl = FavoriteUtil.normalizeUrl(url)
+        writeMutex.withLock {
+            val map = getHistoryMapSuspend()
+            map.remove(normalizedUrl)
+            pendingHistoryMap = map
+            scheduleSave()
+        }
+    }
+
+    suspend fun batchDelete(urls: List<String>) {
+        writeMutex.withLock {
+            val map = getHistoryMapSuspend()
+            urls.forEach { map.remove(FavoriteUtil.normalizeUrl(it)) }
+            pendingHistoryMap = map
+            scheduleSave()
         }
     }
 

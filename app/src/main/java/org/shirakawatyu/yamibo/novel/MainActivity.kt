@@ -107,6 +107,7 @@ import org.shirakawatyu.yamibo.novel.ui.page.FavoritePage
 import org.shirakawatyu.yamibo.novel.ui.page.MangaWebPage
 import org.shirakawatyu.yamibo.novel.ui.page.MinePage
 import org.shirakawatyu.yamibo.novel.ui.page.NativeMangaPage
+import org.shirakawatyu.yamibo.novel.ui.page.HistoryPage
 import org.shirakawatyu.yamibo.novel.ui.page.OtherWebPage
 import org.shirakawatyu.yamibo.novel.ui.page.ProbingPage
 import org.shirakawatyu.yamibo.novel.ui.page.ReaderPage
@@ -908,6 +909,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                             currentRoute == "BBSPage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
                             currentRoute == "MinePage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
                             currentRoute?.startsWith("OtherWebPage") == true -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
+                            currentRoute == "HistoryPage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
                             else -> null
                         }
                         if (statusBarColor != null) {
@@ -1262,6 +1264,11 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 val url =
                                     URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
                                 ProbingPage(url, navController)
+                            }
+                            composable("HistoryPage") {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    HistoryPage(navController = navController)
+                                }
                             }
                             composable(
                                 route = "NativeMangaPage?url={url}&originalUrl={originalUrl}",

@@ -37,14 +37,11 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
@@ -218,7 +215,6 @@ fun MinePage(
     var savedMangaUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var needFallbackToHome by rememberSaveable { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
-    var showHistoryDialog by remember { mutableStateOf(false) }
     var mineUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var showMineUpdateDialog by remember { mutableStateOf(false) }
 
@@ -343,7 +339,7 @@ fun MinePage(
         }
         cachedHistoryApiMine!!
     }
-    historyApi.onShowHistory = { showHistoryDialog = true }
+    historyApi.onShowHistory = { navController.navigate("HistoryPage") }
     var pendingSearchUrl by remember { mutableStateOf<String?>(null) }
     val searchNavApi = remember {
         object {
@@ -1331,110 +1327,7 @@ fun MinePage(
                 )
             }
 
-            if (showHistoryDialog) {
-                HistoryDialog(
-                    onDismiss = { showHistoryDialog = false },
-                    navController = navController
-                )
-            }
         }
     }
 }
 
-private fun formatRelativeTime(timestamp: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - timestamp
-    return when {
-        diff < 60_000L -> "刚刚"
-        diff < 3600_000L -> "${diff / 60_000L}分钟前"
-        diff < 86400_000L -> "${diff / 3600_000L}小时前"
-        diff < 172800_000L -> "昨天"
-        else -> "${diff / 86400_000L}天前"
-    }
-}
-
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Composable
-fun HistoryDialog(onDismiss: () -> Unit, navController: NavController) {
-    val historyList by HistoryUtil.getHistoryFlow().collectAsState(initial = emptyList())
-    val scope = rememberCoroutineScope()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text("浏览历史", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                if (historyList.isNotEmpty()) {
-                    TextButton(onClick = {
-                        scope.launch { HistoryUtil.clearHistory() }
-                    }) {
-                        Text("清空", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-        },
-        text = {
-            if (historyList.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                    Text("暂无浏览记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp)) {
-                    items(historyList, key = { it.url }) { entry ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onDismiss()
-                                    val encodedUrl = URLEncoder.encode(entry.url, "utf-8")
-                                    navController.navigate("OtherWebPage/$encodedUrl")
-                                }
-                                .padding(vertical = 12.dp, horizontal = 8.dp)
-                        ) {
-                            Text(
-                                text = entry.title,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                val metaText = buildString {
-                                    if (entry.author.isNotBlank()) append(entry.author)
-                                    if (entry.author.isNotBlank() && entry.section.isNotBlank()) append(" · ")
-                                    if (entry.section.isNotBlank()) append(entry.section)
-                                }
-                                Text(
-                                    text = metaText,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = formatRelativeTime(entry.timestamp),
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-                            }
-                        }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
-        }
-    )
-}
