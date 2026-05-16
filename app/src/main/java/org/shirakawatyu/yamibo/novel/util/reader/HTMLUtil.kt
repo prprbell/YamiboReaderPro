@@ -16,13 +16,16 @@ class HTMLUtil {
                 // 3. 移除所有其他HTML标签 (例如 <div...>, <font...>, <i>)
                 .replace(Regex("<[^>]+>"), "")
 
-                // 4. 解码 &nbsp;
+                // 4. 移除 BBCode 标签（如 [attach]123456[/attach]）
+                .replace(Regex("\\[attach]\\d+\\[/attach]"), "")
+
+                // 5. 解码 &nbsp;
                 .replace("&nbsp;", " ")
 
-                // 5. 处理缩进规则
+                // 6. 处理缩进规则
                 .replace(Regex(" {3,}"), "    ")
 
-                // 6. 清理多余的换行符。
+                // 7. 清理多余的换行符。
                 .replace(Regex("\n{3,}"), "\n\n")
 
             // 7. 移除开头和结尾的空白
