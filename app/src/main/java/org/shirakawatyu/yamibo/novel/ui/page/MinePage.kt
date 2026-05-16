@@ -3,6 +3,7 @@ package org.shirakawatyu.yamibo.novel.ui.page
 import android.annotation.SuppressLint
 import androidx.compose.material3.AlertDialog
 import android.graphics.Bitmap
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TextButton
@@ -48,6 +49,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -63,8 +65,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -311,6 +318,17 @@ fun MinePage(
         cachedAboutApiMine!!
     }
     aboutApi.onShowAbout = { showAboutDialog = true }
+    val searchNavApi = remember {
+        object {
+            @JavascriptInterface
+            fun navigateToPost(url: String) {
+                Handler(Looper.getMainLooper()).post {
+                    GlobalData.pendingClipboardUrl.value = url
+                    GlobalData.lastClipboardUrl = url
+                }
+            }
+        }
+    }
 
     val mineWebView = remember {
         val isNew = minePageVM.cachedWebView == null
@@ -330,6 +348,7 @@ fun MinePage(
             webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
             webView.addJavascriptInterface(aboutApi, "AboutApi")
+            webView.addJavascriptInterface(searchNavApi, "AndroidSearchNav")
         }
         webView.webChromeClient = webChromeClient
 
@@ -384,6 +403,13 @@ fun MinePage(
                 mineWebView.evaluateJavascript(js, null)
             }
         }
+    }
+
+    val pendingUrl by GlobalData.pendingClipboardUrl.collectAsState()
+    LaunchedEffect(pendingUrl) {
+        val url = pendingUrl ?: return@LaunchedEffect
+        mineWebView.loadUrl(url)
+        GlobalData.pendingClipboardUrl.value = null
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -738,6 +764,7 @@ fun MinePage(
                 view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
                 view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
                 view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+                view?.evaluateJavascript(PageJsScripts.SEARCH_DIRECT_NAV_JS, null)
 
                 if (GlobalData.isDarkMode.value) {
                     view?.evaluateJavascript(
@@ -1155,12 +1182,25 @@ fun MinePage(
                         title = { Text("关于  百合会阅读器", fontSize = 18.sp) },
                         text = {
                             Column {
-                                Text("当前版本号：$currentVersion", fontSize = 13.sp)
-                                Spacer(Modifier.height(12.dp))
                                 Text("百合会（yamibo.com）论坛的非官方阅读器，支持小说和漫画阅读。", fontSize = 14.sp)
                                 Spacer(Modifier.height(12.dp))
-                                Text("仓库: github.com/prprbell/YamiboReaderPro", fontSize = 13.sp)
-                                Text("作者: prprbell", fontSize = 13.sp)
+                                Text("当前版本号：$currentVersion", fontSize = 13.sp)
+                                Spacer(Modifier.height(12.dp))
+                                val repoUrl = "https://github.com/prprbell/YamiboReaderPro"
+                                val uriHandler = LocalUriHandler.current
+                                Row {
+                                    Text("仓库: ", fontSize = 13.sp)
+                                    ClickableText(
+                                        text = buildAnnotatedString {
+                                            withStyle(SpanStyle(
+                                                color = MaterialTheme.colorScheme.primary,
+                                                textDecoration = TextDecoration.Underline
+                                            )) { append(repoUrl) }
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                                        onClick = { uriHandler.openUri(repoUrl) }
+                                    )
+                                }
                                 if (checking) {
                                     Spacer(Modifier.height(16.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {

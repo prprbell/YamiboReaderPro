@@ -739,8 +739,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                     if (!desc.hasMimeType("text/plain")) return@launch
                     val text = cm.primaryClip?.getItemAt(0)?.text?.toString()
                     if (text == null || text.contains(Regex("""<[a-zA-Z/][^>]*>"""))) return@launch
-                    val urlRegex = Regex("""https?://(?:bbs\.)?yamibo\.com/[^\s]*""")
-                    val matched = text?.let { urlRegex.find(it)?.value }
+                    val urlRegex = Regex("""https?://(?:bbs\.)?yamibo\.com/(?:forum\.php\?mod=viewthread&tid=\d+|thread-\d+-\d+-\d+\.html)""")
+                    val matched = text.let { urlRegex.find(it)?.value }
                     val imageUrlPattern = Regex("""/data/attachment/|\.(jpg|jpeg|png|webp|gif|bmp)(\?|$)""", RegexOption.IGNORE_CASE)
                     if (matched != null && !imageUrlPattern.containsMatchIn(matched) && matched != GlobalData.lastClipboardUrl) {
                         detectedClipboardUrl = matched

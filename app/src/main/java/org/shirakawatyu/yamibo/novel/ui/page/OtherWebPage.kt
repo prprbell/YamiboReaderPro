@@ -46,6 +46,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -121,7 +122,8 @@ fun OtherWebPage(
     navController: NavController,
     webChromeClient: WebChromeClient
 ) {
-    val statusColor = if (GlobalData.isDarkMode.value) androidx.compose.ui.graphics.Color(0xFF1a1a1a) else YamiboColors.primary
+    val isDarkMode by GlobalData.isDarkMode.collectAsState()
+    val statusColor = if (isDarkMode) Color(0xFF1a1a1a) else YamiboColors.primary
     SetStatusBarColor(statusColor)
     val finalUrl = remember(url) {
         if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"

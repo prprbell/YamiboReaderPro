@@ -1949,6 +1949,48 @@ $styleString
         }
     }
 
+    val SEARCH_DIRECT_NAV_JS = """
+        (function() {
+            if (window.__yamiboSearchNav) return;
+            window.__yamiboSearchNav = true;
+
+            // 事件委托在 document 上，避免 PJAX 导航后 DOM 替换导致监听丢失
+            document.addEventListener('submit', function(e) {
+                var form = e.target;
+                if (!form || !form.classList.contains('searchform')) return;
+                if (!/search\.php/.test(window.location.href)) return;
+
+                var input = document.getElementById('scform_srchtxt');
+                if (!input) return;
+
+                var keyword = input.value.trim();
+                if (!keyword) return;
+
+                // 包含中文或空白字符则不匹配（必须是纯网址）
+                if (/[一-鿿㐀-䶿豈-﫿\s]/.test(keyword)) return;
+
+                var url = null;
+
+                // 只匹配帖子网址:
+                // https://bbs.yamibo.com/forum.php?mod=viewthread&tid=XXX...
+                if (/^https?:\/\/bbs\.yamibo\.com\/forum\.php\?mod=viewthread&tid=\d+/.test(keyword)) {
+                    url = keyword;
+                }
+
+                // https://bbs.yamibo.com/thread-XXX-X-X.html
+                if (!url && /^https?:\/\/bbs\.yamibo\.com\/thread-\d+-\d+-\d+\.html$/.test(keyword)) {
+                    url = keyword;
+                }
+
+                if (url && window.AndroidSearchNav) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.AndroidSearchNav.navigateToPost(url);
+                }
+            }, true);
+        })();
+    """.trimIndent()
+
     val RELOAD_BROKEN_IMAGES_JS = """
         (function(){
             var imgs = document.querySelectorAll('img');

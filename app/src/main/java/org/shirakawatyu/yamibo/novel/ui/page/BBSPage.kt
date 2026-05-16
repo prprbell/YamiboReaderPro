@@ -280,6 +280,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
         view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
         view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+        view?.evaluateJavascript(PageJsScripts.SEARCH_DIRECT_NAV_JS, null)
 
         if (GlobalData.isDarkMode.value) {
             view?.evaluateJavascript(
@@ -477,6 +478,17 @@ fun BBSPage(
                     val passUrl = BBSPageState.currentUrl ?: indexUrl
                     val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
                     navController.navigate("NativeMangaPage?url=$encodedUrl")
+                }
+            }
+        }
+    }
+    val searchNavApi = remember {
+        object {
+            @JavascriptInterface
+            fun navigateToPost(url: String) {
+                Handler(Looper.getMainLooper()).post {
+                    GlobalData.pendingClipboardUrl.value = url
+                    GlobalData.lastClipboardUrl = url
                 }
             }
         }
@@ -947,6 +959,7 @@ fun BBSPage(
 
                         webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
                         webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
+                        webView.addJavascriptInterface(searchNavApi, "AndroidSearchNav")
                     }
                 },
                 update = { container ->

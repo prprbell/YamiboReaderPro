@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import org.shirakawatyu.yamibo.novel.R
+import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
 
 /**
@@ -39,11 +40,11 @@ fun ReaderModeFAB(
         FloatingActionButton(
             onClick = onClick,
             containerColor = darkModeColor(
-                Color(0xFFE0E0E0).copy(alpha = 0.5f),
+                YamiboColors.secondary.copy(alpha = 0.5f),
                 Color(0xFF383838).copy(alpha = 0.7f)
             ),
             contentColor = darkModeColor(
-                Color(0xFF424242),
+                YamiboColors.primary,
                 Color(0xFFBBBBBB)
             ),
             elevation = FloatingActionButtonDefaults.elevation(
