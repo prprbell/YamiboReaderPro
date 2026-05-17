@@ -46,7 +46,7 @@ Write-Host "========== 版本: $version | 标签: $TAG | APK: $APK =========="
 $notes = ""
 $argList = $args -join " "
 if ($argList -match "-NotesFile\s+(\S+)") {
-    $notes = Get-Content -Path $Matches[1] -Raw
+    $notes = Get-Content -Path $Matches[1] -Raw -Encoding UTF8
 } elseif ($argList -match "-Notes\s+(.+)") {
     $notes = $Matches[1]
 } else {
@@ -111,13 +111,14 @@ if ($giteeToken) {
     }
 
     $createBodyJson = $createBodyObj | ConvertTo-Json -Compress
+    $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($createBodyJson)
 
     $releaseId = $null
     try {
         $createResp = Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$GITEE_REPO/releases" `
             -Method Post `
             -ContentType "application/json; charset=utf-8" `
-            -Body $createBodyJson
+            -Body $bodyBytes
 
         $releaseId = $createResp.id
         Write-Host "✅ Gitee: Release 创建成功 (id=$releaseId)"
