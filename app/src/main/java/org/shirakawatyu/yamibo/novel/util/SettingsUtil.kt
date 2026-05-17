@@ -183,5 +183,16 @@ class SettingsUtil {
                 callback("")
             })
         }
+
+        fun saveLastUpdateCheckTime(millis: Long) {
+            DataStoreUtil.addData(millis.toString(), stringPreferencesKey("last_update_check"))
+        }
+        fun getLastUpdateCheckTime(callback: (Long) -> Unit) {
+            DataStoreUtil.getData(stringPreferencesKey("last_update_check"), callback = {
+                callback(it.toLongOrNull() ?: 0L)
+            }, onNull = {
+                callback(0L)
+            })
+        }
     }
 }

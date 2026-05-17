@@ -2,6 +2,7 @@ package org.shirakawatyu.yamibo.novel.util
 
 import android.annotation.SuppressLint
 import android.app.DownloadManager
+import android.util.Log
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -13,11 +14,7 @@ import android.os.Environment
 import androidx.core.content.FileProvider
 import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.shirakawatyu.yamibo.novel.YamiboApplication
@@ -30,32 +27,22 @@ data class UpdateInfo(
     val versionName: String,
     val versionCode: Int,
     val downloadUrl: String,
-    val size: Long,
     val body: String
 )
 
 object UpdateManager {
-    private const val GITEE_LATEST = "https://gitee.com/api/v5/repos/windcloudjet/YamiboReaderPro-Releases/releases/latest"
-    private const val GITHUB_LATEST = "https://api.github.com/repos/prprbell/YamiboReaderPro/releases/latest"
+    private const val TAG = "UpdateManager"
+    private const val UPDATE_JSON_URL = "https://yamibo-reader-pro-release.oss-cn-chengdu.aliyuncs.com/update.json"
 
     private val client by lazy {
         OkHttpClient.Builder()
             .dns(YamiboRetrofit.okHttpClient.dns)
             .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
             .followRedirects(true)
             .build()
     }
 
-    private data class ParsedRelease(
-        val tag_name: String,
-        val body: String,
-        val apkName: String,
-        val apkSize: Long,
-        val apkDownloadUrl: String
-    )
-
-    /** 比较两个版本名字符串（如 "1.10.2" vs "v1.9.22"），返回 >0 / 0 / <0 */
     fun compareVersion(v1: String, v2: String): Int {
         val parts1 = v1.removePrefix("v").removePrefix("v.").split(".").map { it.toIntOrNull() ?: 0 }
         val parts2 = v2.removePrefix("v").removePrefix("v.").split(".").map { it.toIntOrNull() ?: 0 }
@@ -68,7 +55,6 @@ object UpdateManager {
         return 0
     }
 
-    /** 从版本名字符串中估算 versionCode（取末段数字） */
     private fun estimateVersionCode(versionName: String): Int {
         val parts = versionName.removePrefix("v").removePrefix("v.").split(".")
         return parts.lastOrNull()?.toIntOrNull() ?: 0
@@ -79,117 +65,71 @@ object UpdateManager {
         val packageInfo = try {
             app.packageManager.getPackageInfo(app.packageName, 0)
         } catch (_: PackageManager.NameNotFoundException) {
+            Log.w(TAG, "checkForUpdate: cannot get packageInfo")
             return@withContext null
         }
         val currentVersionCode = packageInfo.versionCode
         val currentVersionName = packageInfo.versionName ?: "0"
+        Log.d(TAG, "checkForUpdate: current=$currentVersionName code=$currentVersionCode")
 
-        val release = raceFetchRelease() ?: return@withContext null
+        val request = Request.Builder()
+            .url(UPDATE_JSON_URL)
+            .header("Cache-Control", "no-cache")
+            .build()
 
-        val latestVersion = release.tag_name.removePrefix("v").removePrefix("v.")
-        val latestCode = estimateVersionCode(latestVersion)
-
-        if (compareVersion(latestVersion, currentVersionName) > 0 || latestCode > currentVersionCode) {
-            UpdateInfo(
-                versionName = release.tag_name,
-                versionCode = latestCode,
-                downloadUrl = release.apkDownloadUrl,
-                size = release.apkSize,
-                body = release.body
-            )
-        } else {
-            null
-        }
-    }
-
-    /** Gitee + GitHub 竞速请求 */
-    private suspend fun raceFetchRelease(): ParsedRelease? = coroutineScope {
-        val giteeDeferred = async(Dispatchers.IO) { fetchFromGitee() }
-        val githubDeferred = async(Dispatchers.IO) {
-            kotlinx.coroutines.delay(1000)
-            fetchFromGithub()
+        val response = try {
+            client.newCall(request).execute()
+        } catch (e: Exception) {
+            Log.w(TAG, "checkForUpdate: request failed: ${e.message}")
+            return@withContext null
         }
 
-        withTimeoutOrNull(8000) {
-            select {
-                giteeDeferred.onAwait { it ?: githubDeferred.await() }
-                githubDeferred.onAwait { it ?: giteeDeferred.await() }
+        if (!response.isSuccessful) {
+            Log.w(TAG, "checkForUpdate: HTTP ${response.code}")
+            return@withContext null
+        }
+        val body = response.body?.string() ?: run {
+            Log.w(TAG, "checkForUpdate: empty body")
+            return@withContext null
+        }
+        Log.d(TAG, "checkForUpdate: body=${body.take(300)}")
+
+        try {
+            val json = JSON.parseObject(body)
+            val latestVersion = json.getString("tag_name") ?: run {
+                Log.w(TAG, "checkForUpdate: tag_name missing")
+                return@withContext null
             }
-        }
-    }
+            val pureVersion = latestVersion.removePrefix("v").removePrefix("v.")
+            val latestCode = estimateVersionCode(pureVersion)
+            val downloadUrl = json.getString("apkDownloadUrl") ?: ""
 
-    private fun parseReleaseJson(body: String): ParsedRelease? {
-        val json = JSON.parseObject(body)
-        val tag = json.getString("tag_name") ?: ""
-        val releaseBody = json.getString("body") ?: ""
-
-        var apkName = ""
-        var apkSize = 0L
-        var apkUrl = ""
-
-        fun tryExtractApk(arr: com.alibaba.fastjson2.JSONArray?) {
-            if (arr == null || apkUrl.isNotEmpty()) return
-            for (item in arr) {
-                val itemObj = item as? com.alibaba.fastjson2.JSONObject ?: continue
-                val name = itemObj.getString("name") ?: ""
-                if (!name.endsWith(".apk")) continue
-                apkName = name
-                apkSize = itemObj.getLongValue("size", 0L)
-                apkUrl = itemObj.getString("browser_download_url")
-                    ?: itemObj.getString("download_url")
-                    ?: itemObj.getString("url")
-                    ?: ""
-                break
+            if (compareVersion(pureVersion, currentVersionName) > 0 || latestCode > currentVersionCode) {
+                Log.i(TAG, "checkForUpdate: NEW version: $latestVersion (code=$latestCode) url=$downloadUrl")
+                return@withContext UpdateInfo(
+                    versionName = latestVersion,
+                    versionCode = latestCode,
+                    downloadUrl = downloadUrl,
+                    body = json.getString("body") ?: ""
+                )
+            } else {
+                Log.d(TAG, "checkForUpdate: up-to-date ($pureVersion <= $currentVersionName)")
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "checkForUpdate: parse failed: ${e.message}")
         }
 
-        tryExtractApk(json.getJSONArray("attach_files"))
-        tryExtractApk(json.getJSONArray("assets"))
-
-        if (tag.isEmpty() || apkUrl.isEmpty()) return null
-        return ParsedRelease(tag, releaseBody, apkName, apkSize, apkUrl)
+        return@withContext null
     }
 
-    private fun fetchFromGitee(): ParsedRelease? {
-        return try {
-            val request = Request.Builder()
-                .url(GITEE_LATEST)
-                .header("Accept", "application/json")
-                .build()
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string() ?: return null
-                parseReleaseJson(body)
-            } else null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun fetchFromGithub(): ParsedRelease? {
-        return try {
-            val request = Request.Builder()
-                .url(GITHUB_LATEST)
-                .header("Accept", "application/vnd.github.v3+json")
-                .build()
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string() ?: return null
-                parseReleaseJson(body)
-            } else null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    /** 使用系统 DownloadManager 下载 APK，完成后返回下载 ID */
     fun downloadViaManager(context: Context, info: UpdateInfo): Long {
         val fileName = "yamibo_${info.versionName}.apk"
         val request = DownloadManager.Request(info.downloadUrl.toUri())
-            .setTitle("百合会阅读器更新")
+            .setTitle("YamiboReaderPro")
             .setDescription("正在下载 v${info.versionName}")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+            .setMimeType("application/vnd.android.package-archive")
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(false)
 
@@ -197,36 +137,52 @@ object UpdateManager {
         return dm.enqueue(request)
     }
 
-    /** 监听下载完成并尝试安装 */
+    /** 监听下载完成并尝试安装，回调后自动注销 */
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     fun registerDownloadReceiver(context: Context, downloadId: Long, onComplete: (File) -> Unit): BroadcastReceiver {
+        val appContext = context.applicationContext
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
                 if (id != downloadId) return
 
-                val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                runCatching { appContext.unregisterReceiver(this) }
+
+                val dm = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
                 val query = DownloadManager.Query().setFilterById(downloadId)
-                val cursor = dm.query(query)
-                if (cursor.moveToFirst()) {
-                    val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                    if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                        val uriStr = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
-                        cursor.close()
-                        uriStr?.let {
-                            val apkFile = copyToCache(context, it.toUri())
-                            if (apkFile != null) {
-                                onComplete(apkFile)
-                            }
-                        }
+                val cursor = dm.query(query) ?: return
+                cursor.use { c ->
+                    if (!c.moveToFirst()) return
+
+                    val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                    if (status != DownloadManager.STATUS_SUCCESSFUL) {
+                        Log.w(TAG, "download failed or cancelled: id=$downloadId status=$status")
+                        return
+                    }
+
+                    val uriStr = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
+                    if (uriStr.isNullOrBlank()) {
+                        Log.w(TAG, "download completed but local uri is empty: id=$downloadId")
+                        return
+                    }
+
+                    val apkFile = copyToCache(appContext, uriStr.toUri())
+                    if (apkFile != null) {
+                        onComplete(apkFile)
+                    } else {
+                        Log.w(TAG, "copy downloaded apk to cache failed: id=$downloadId")
                     }
                 }
             }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
+            appContext.registerReceiver(
+                receiver,
+                IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+                Context.RECEIVER_EXPORTED
+            )
         } else {
-            context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+            appContext.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
         }
         return receiver
     }

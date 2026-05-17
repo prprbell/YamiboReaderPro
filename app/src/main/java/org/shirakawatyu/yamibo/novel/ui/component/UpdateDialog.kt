@@ -28,6 +28,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -35,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.shirakawatyu.yamibo.novel.util.UpdateInfo
 import org.shirakawatyu.yamibo.novel.util.UpdateManager
+import androidx.core.net.toUri
 
 @Composable
 fun UpdateDialog(
@@ -43,16 +48,23 @@ fun UpdateDialog(
     onSkipVersion: (String) -> Unit
 ) {
     val context = LocalContext.current
+    var startingDownload by remember { mutableStateOf(false) }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (!startingDownload) onDismiss()
+        },
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text("发现新版本", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                IconButton(
+                    enabled = !startingDownload,
+                    onClick = onDismiss,
+                    modifier = Modifier.size(24.dp)
+                ) {
                     Icon(
                         Icons.Default.Close,
                         contentDescription = "关闭",
@@ -87,26 +99,48 @@ fun UpdateDialog(
         },
         confirmButton = {
             Button(
+                enabled = !startingDownload,
                 onClick = {
+                    if (startingDownload) return@Button
+
+                    if (info.downloadUrl.isBlank()) {
+                        Toast.makeText(context, "更新包下载地址为空", Toast.LENGTH_LONG).show()
+                        return@Button
+                    }
+
                     if (!canInstallApk(context)) {
-                        Toast.makeText(context, "请允许安装未知来源应用", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "请允许安装未知来源应用，授权后请重新检查更新", Toast.LENGTH_LONG).show()
+                        onDismiss()
                         openInstallPermissionSettings(context)
                         return@Button
                     }
-                    val id = UpdateManager.downloadViaManager(context, info)
-                    UpdateManager.registerDownloadReceiver(context, id) { file ->
-                        UpdateManager.installApk(context, file)
+
+                    startingDownload = true
+                    try {
+                        val appContext = context.applicationContext
+                        val id = UpdateManager.downloadViaManager(appContext, info)
+                        UpdateManager.registerDownloadReceiver(appContext, id) { file ->
+                            UpdateManager.installApk(appContext, file)
+                        }
+                        Toast.makeText(context, "正在下载更新...", Toast.LENGTH_SHORT).show()
+                        onDismiss()
+                    } catch (e: Exception) {
+                        startingDownload = false
+                        Toast.makeText(
+                            context,
+                            "启动下载失败：${e.message ?: "未知错误"}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
-                    Toast.makeText(context, "正在下载更新...", Toast.LENGTH_SHORT).show()
-                    onDismiss()
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                Text("立即更新")
+                Text(if (startingDownload) "准备中..." else "立即更新")
             }
         },
         dismissButton = {
             TextButton(
+                enabled = !startingDownload,
                 onClick = {
                     onSkipVersion(info.versionName)
                     onDismiss()
@@ -128,7 +162,7 @@ private fun canInstallApk(context: Context): Boolean {
 private fun openInstallPermissionSettings(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-            data = Uri.parse("package:${context.packageName}")
+            data = "package:${context.packageName}".toUri()
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)

@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **IMPORTANT**: Do NOT attempt to build, compile, or run tests locally. The development machine does not have Java/Android SDK installed. Rely on code review and static analysis to verify correctness.
 
+**IMPORTANT**: NEVER run `git checkout -- <file>` or any other destructive/irreversible git command without explicit user confirmation. These commands discard uncommitted changes permanently with no recovery. Always show `git diff` first and ask before reverting. Use `git stash` if a reversible alternative is needed.
+
 ## 技术栈
 
 **构建**: Gradle 8.2.1, AGP 8.2.1, Kotlin 1.9.0, Compose Compiler 1.5.1, Java 17 target, configuration cache enabled.
@@ -71,19 +73,29 @@ Custom `DynamicDns` races AliDNS and TencentDNS DoH resolvers (1.5s timeout), fa
 
 ### Release Upload
 
-When the user requests a release upload, first check if `app/build.gradle.kts` versionName matches the latest git tag (`git describe --tags --abbrev=0`). If they are the same, warn the user to bump the version before proceeding. Then run `git log <lastTag>..HEAD` and `git diff <lastTag>..HEAD` to analyze changes and generate Chinese release notes. Release notes must be written in plain, user-facing language — do NOT use technical jargon (e.g. PJAX, DNS cache), internal file names (e.g. MinePage, BBSPage), or variable/parameter names (e.g. mycenter, authorid). Describe changes from the user's perspective. Focus on the end result: what feature was delivered, not the incremental fixes along the way. If a feature took multiple commits (including bug fixes), write only that the feature was completed — never list intermediate bug fixes as separate items. Write the notes to `release_notes.txt` in the project root, then reply with the upload commands for the user to execute themselves (Claude cannot run it directly):
+When the user requests a release upload, first check if `app/build.gradle.kts` versionName matches the latest git tag (`git describe --tags --abbrev=0`). If they are the same, warn the user to bump the version before proceeding. Then run `git log <lastTag>..HEAD` and `git diff <lastTag>..HEAD` to analyze changes and generate Chinese release notes. Release notes must be written in plain, user-facing language — do NOT use technical jargon (e.g. PJAX, DNS cache), internal file names (e.g. MinePage, BBSPage), or variable/parameter names (e.g. mycenter, authorid). Describe changes from the user's perspective. Focus on the end result: what feature was delivered, not the incremental fixes along the way. If a feature took multiple commits (including bug fixes), write only that the feature was completed — never list intermediate bug fixes as separate items. Write the notes to `release_notes.txt` in the project root.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\upload_github.ps1 -NotesFile .\release_notes.txt
-powershell -ExecutionPolicy Bypass -File .\upload_gitee.ps1 -NotesFile .\release_notes.txt
+APK is distributed via Alibaba Cloud OSS. Aliyun blocks `.apk` download on default domains, so the APK **must be renamed to `.zip`** before uploading.
+
+**`update.json`** on OSS bucket `yamibo-reader-pro-release` (oss-cn-chengdu):
+```json
+{
+  "tag_name": "v1.11.0",
+  "body": "更新内容说明",
+  "apkName": "yamibo_v1.11.0.apk",
+  "apkDownloadUrl": "https://yamibo-reader-pro-release.oss-cn-chengdu.aliyuncs.com/yamibo_v1.11.0.zip"
+}
 ```
 
-The scripts automatically: read version code → push git tag → upload APK to release.
-Prerequisite: `gh` CLI installed and authenticated (GitHub), `.gitee_token` file (Gitee).
+Place the generated `update.json` and the renamed APK (`.zip`) into the `release/` folder so they are ready for upload. After building the APK and writing release notes, reply with instructions for the user:
+1. Rename the APK from `.apk` to `.zip` and move it into `release/`
+2. Upload both files (`release/update.json` + `release/yamibo_vX.X.X.zip`) to OSS bucket root
 
-### Git Remote
+The client `DownloadManager` uses `setMimeType("application/vnd.android.package-archive")` so the system treats downloaded `.zip` files as APKs regardless of URL extension.
 
-This project has one remote:
-- **`origin`** — `https://github.com/prprbell/YamiboReaderPro.git` (GitHub)
+```powershell
+# Push git tag to GitHub only
+powershell -ExecutionPolicy Bypass -File .\upload_github.ps1 -NotesFile .\release_notes.txt
+```
 
-The Gitee remote is no longer maintained as a code mirror. APK releases are uploaded to the **public** distribution repo `windcloudjet/YamiboReaderPro-Releases` via `upload_gitee.ps1`.
+Prerequisite: `gh` CLI installed and authenticated (GitHub).

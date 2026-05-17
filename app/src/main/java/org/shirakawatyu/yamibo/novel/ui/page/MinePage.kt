@@ -225,6 +225,14 @@ private fun isSameHistoryTargetUrl(actualUrl: String?, targetUrl: String?): Bool
     return actualTid != null && actualTid == targetTid
 }
 
+private sealed interface MineDialogState {
+    object None : MineDialogState
+    object About : MineDialogState
+    object CheckingUpdate : MineDialogState
+    object Latest : MineDialogState
+    data class Update(val info: UpdateInfo) : MineDialogState
+}
+
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
@@ -274,9 +282,7 @@ fun MinePage(
     var autoOpenMangaMode by remember { mutableStateOf(false) }
     var savedMangaUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var needFallbackToHome by rememberSaveable { mutableStateOf(false) }
-    var showAboutDialog by remember { mutableStateOf(false) }
-    var mineUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
-    var showMineUpdateDialog by remember { mutableStateOf(false) }
+    var mineDialog by remember { mutableStateOf<MineDialogState>(MineDialogState.None) }
 
     val canConvertToReader = remember(currentUrl, pageTitle) {
         ReaderModeDetector.canConvertToReaderMode(currentUrl, pageTitle)
@@ -455,7 +461,7 @@ fun MinePage(
             cachedAboutApiMine!!
         }
     }
-    aboutApi.onShowAbout = { showAboutDialog = true }
+    aboutApi.onShowAbout = { mineDialog = MineDialogState.About }
     val historyApi = remember(fromHistory) {
         if (fromHistory) {
             HistoryJSInterface()
@@ -1450,123 +1456,133 @@ fun MinePage(
                 }
             }
 
-            // 关于弹窗
-            if (showAboutDialog) {
-                var checking by remember { mutableStateOf(false) }
-                var checkResult by remember { mutableStateOf<UpdateInfo?>(null) }
-                var checked by remember { mutableStateOf(false) }
+            // 关于 / 检查更新 / 更新弹窗：只保留一个状态源，避免多个 AlertDialog 抢状态。
+            when (val dialog = mineDialog) {
+                MineDialogState.None -> Unit
 
-                if (checkResult != null) {
-                    // 发现新版本
-                    val ri = checkResult!!
-                    AlertDialog(
-                        onDismissRequest = { showAboutDialog = false; checkResult = null; checked = false },
-                        title = { Text("发现新版本") },
-                        text = {
-                            Column {
-                                Text("版本 ${ri.versionName}", fontWeight = FontWeight.Bold)
-                                if (ri.body.isNotBlank()) {
-                                    Spacer(Modifier.height(12.dp))
-                                    HorizontalDivider()
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(ri.body, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
-                                }
-                            }
-                        },
-                        confirmButton = {
-                            Button(onClick = {
-                                showAboutDialog = false
-                                mineUpdateInfo = ri
-                                showMineUpdateDialog = true
-                                checking = false; checkResult = null; checked = false
-                            }) { Text("立即更新") }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showAboutDialog = false; checkResult = null; checked = false }) { Text("关闭") }
-                        }
-                    )
-                } else if (checked) {
-                    // 已是最新版本
-                    AlertDialog(
-                        onDismissRequest = { showAboutDialog = false; checked = false },
-                        title = { Text("检查更新") },
-                        text = { Text("已是最新版本", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)) },
-                        confirmButton = {
-                            TextButton(onClick = { showAboutDialog = false; checked = false }) { Text("关闭") }
-                        }
-                    )
-                } else {
-                    // 初始状态：关于信息 + 检查更新
+                MineDialogState.About,
+                MineDialogState.CheckingUpdate -> {
+                    val isChecking = dialog == MineDialogState.CheckingUpdate
                     val pkgInfo = remember {
-                        runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
+                        runCatching {
+                            context.packageManager.getPackageInfo(context.packageName, 0)
+                        }.getOrNull()
                     }
                     val currentVersion = pkgInfo?.versionName ?: ""
+                    val repoUrl = "https://github.com/prprbell/YamiboReaderPro"
+                    val uriHandler = LocalUriHandler.current
+
                     AlertDialog(
-                        onDismissRequest = { showAboutDialog = false },
+                        onDismissRequest = {
+                            if (!isChecking) mineDialog = MineDialogState.None
+                        },
                         title = { Text("关于", fontSize = 18.sp) },
                         text = {
                             Column {
-                                Text("YamiboReaderPro是百合会论坛的非官方阅读器，支持小说和漫画阅读。", fontSize = 14.sp)
+                                Text(
+                                    "YamiboReaderPro是百合会论坛的非官方阅读器，支持小说和漫画阅读。",
+                                    fontSize = 14.sp
+                                )
                                 Spacer(Modifier.height(12.dp))
                                 Text("当前版本号：$currentVersion", fontSize = 13.sp)
                                 Spacer(Modifier.height(12.dp))
-                                val repoUrl = "https://github.com/prprbell/YamiboReaderPro"
-                                val uriHandler = LocalUriHandler.current
+
                                 Row {
                                     Text("仓库: ", fontSize = 13.sp)
                                     ClickableText(
                                         text = buildAnnotatedString {
-                                            withStyle(SpanStyle(
-                                                color = MaterialTheme.colorScheme.primary,
-                                                textDecoration = TextDecoration.Underline
-                                            )) { append(repoUrl) }
+                                            withStyle(
+                                                SpanStyle(
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    textDecoration = TextDecoration.Underline
+                                                )
+                                            ) {
+                                                append(repoUrl)
+                                            }
                                         },
                                         style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
                                         onClick = { uriHandler.openUri(repoUrl) }
                                     )
                                 }
-                                if (checking) {
+
+                                if (isChecking) {
                                     Spacer(Modifier.height(16.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp
+                                        )
                                         Spacer(Modifier.width(8.dp))
-                                        Text("正在检查...", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                                        Text(
+                                            "正在检查...",
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                        )
                                     }
                                 }
                             }
                         },
                         confirmButton = {
                             Button(
+                                enabled = !isChecking,
                                 onClick = {
-                                    if (!checking) {
-                                        checking = true
-                                        scope.launch(Dispatchers.IO) {
-                                            val info = UpdateManager.checkForUpdate()
-                                            withContext(Dispatchers.Main) {
-                                                checking = false
-                                                checked = true
-                                                checkResult = info
+                                    if (isChecking) return@Button
+
+                                    mineDialog = MineDialogState.CheckingUpdate
+                                    scope.launch(Dispatchers.IO) {
+                                        val info = UpdateManager.checkForUpdate()
+                                        withContext(Dispatchers.Main) {
+                                            mineDialog = if (info != null) {
+                                                MineDialogState.Update(info)
+                                            } else {
+                                                MineDialogState.Latest
                                             }
                                         }
                                     }
-                                },
-                                enabled = !checking
-                            ) { Text("检查更新") }
+                                }
+                            ) {
+                                Text(if (isChecking) "检查中..." else "检查更新")
+                            }
                         },
                         dismissButton = {
-                            TextButton(onClick = { showAboutDialog = false }) { Text("关闭") }
+                            TextButton(
+                                enabled = !isChecking,
+                                onClick = { mineDialog = MineDialogState.None }
+                            ) {
+                                Text("关闭")
+                            }
                         }
                     )
                 }
-            }
 
-            // 更新弹窗（从关于页面的"检查更新"触发）
-            if (showMineUpdateDialog && mineUpdateInfo != null) {
-                UpdateDialog(
-                    info = mineUpdateInfo!!,
-                    onDismiss = { showMineUpdateDialog = false },
-                    onSkipVersion = { version -> SettingsUtil.saveSkipVersion(version); showMineUpdateDialog = false }
-                )
+                MineDialogState.Latest -> {
+                    AlertDialog(
+                        onDismissRequest = { mineDialog = MineDialogState.None },
+                        title = { Text("检查更新") },
+                        text = {
+                            Text(
+                                "已是最新版本",
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { mineDialog = MineDialogState.None }) {
+                                Text("关闭")
+                            }
+                        }
+                    )
+                }
+
+                is MineDialogState.Update -> {
+                    UpdateDialog(
+                        info = dialog.info,
+                        onDismiss = { mineDialog = MineDialogState.None },
+                        onSkipVersion = { version ->
+                            SettingsUtil.saveSkipVersion(version)
+                            mineDialog = MineDialogState.None
+                        }
+                    )
+                }
             }
 
         }
