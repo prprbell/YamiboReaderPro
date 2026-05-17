@@ -32,6 +32,7 @@ Content routes:
 - **`NativeMangaPage`** — Native manga reader with zoom/pan gestures via Telephoto library.
 - **`MangaWebPage`** — WebView-based manga reader (fallback / fast-forward mode).
 - **`OtherWebPage`** — Generic WebView page for forum browsing.
+- **`HistoryPage`** — Full-screen browsing history page. Timeline grouping (today/yesterday/week/older), search/filter, multi-select delete. Reads from `HistoryUtil.getHistoryFlow()`.
 
 ### Core ViewModels
 
@@ -60,6 +61,7 @@ Custom `DynamicDns` races AliDNS and TencentDNS DoH resolvers (1.5s timeout), fa
 - `util/manga/` — `MangaReaderManager`, `MangaImagePipeline` (prefetch), `ZoomPanGestureHandler`, `MangaProber`.
 - `util/network/` — `NetworkMonitor`, `NetworkPreWarmer`, `RateLimitInterceptor`, `TtlDnsCache`.
 - `util/favorite/` — `FavoriteUtil`, `FavoriteDeleteUtil`, `TombstoneQueueUtil` (offline delete retry).
+- `util/history/` — `HistoryUtil`. `LinkedHashMap`-backed browsing history, persisted to DataStore as JSON. Flow-based reads, mutex-guarded writes with debounced save (1.5s). 500-entry cap, URL-normalized dedup. Exposes `isThreadUrl()` to identify forum thread URLs.
 
 ### Threading Rules
 

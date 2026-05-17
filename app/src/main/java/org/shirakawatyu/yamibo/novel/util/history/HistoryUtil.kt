@@ -9,7 +9,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -27,26 +27,28 @@ object HistoryUtil {
     private val writeMutex = Mutex()
     private var pendingHistoryMap: LinkedHashMap<String, HistoryEntry>? = null
 
-    fun getHistoryFlow(): Flow<List<HistoryEntry>> {
-        val dataStore = GlobalData.dataStore
-            ?: throw IllegalStateException("DataStore not initialized")
-        return dataStore.data.map { preferences ->
-            writeMutex.withLock {
-                pendingHistoryMap?.let {
-                    return@withLock it.values.toList().sortedByDescending { e -> e.timestamp }
-                }
+    private val _historyFlow = MutableStateFlow<List<HistoryEntry>>(emptyList())
+    private var historyFlowInitialized = false
 
-                val jsonString = preferences[key]
-                if (jsonString != null) {
-                    try {
-                        jsonToHashMap(jsonString).values.toList().sortedByDescending { it.timestamp }
-                    } catch (_: Exception) {
-                        emptyList()
+    fun getHistoryFlow(): Flow<List<HistoryEntry>> {
+        if (!historyFlowInitialized) {
+            historyFlowInitialized = true
+            ioScope.launch {
+                val map = getHistoryMapSuspend()
+                writeMutex.withLock {
+                    if (pendingHistoryMap == null) {
+                        pendingHistoryMap = map
+                        emitCurrentHistory()
                     }
-                } else {
-                    emptyList()
                 }
             }
+        }
+        return _historyFlow
+    }
+
+    private fun emitCurrentHistory() {
+        pendingHistoryMap?.let {
+            _historyFlow.value = it.values.toList().sortedByDescending { it.timestamp }
         }
     }
 
@@ -65,12 +67,14 @@ object HistoryUtil {
             map.remove(normalizedUrl)
             map[normalizedUrl] = entry
 
-            if (map.size > 500) {
+            val maxCount = GlobalData.historyMaxCount.value.coerceIn(100, 2000)
+            while (map.size > maxCount) {
                 val oldestKey = map.keys.first()
                 map.remove(oldestKey)
             }
 
             pendingHistoryMap = map
+            emitCurrentHistory()
             scheduleSave()
         }
     }
@@ -78,6 +82,7 @@ object HistoryUtil {
     suspend fun clearHistory() {
         writeMutex.withLock {
             pendingHistoryMap = LinkedHashMap()
+            _historyFlow.value = emptyList()
             suspendCancellableCoroutine { cont ->
                 DataStoreUtil.addData(JSON.toJSONString(pendingHistoryMap), key) {
                     cont.resume(Unit)
@@ -92,6 +97,7 @@ object HistoryUtil {
             val map = getHistoryMapSuspend()
             map.remove(normalizedUrl)
             pendingHistoryMap = map
+            emitCurrentHistory()
             scheduleSave()
         }
     }
@@ -101,6 +107,7 @@ object HistoryUtil {
             val map = getHistoryMapSuspend()
             urls.forEach { map.remove(FavoriteUtil.normalizeUrl(it)) }
             pendingHistoryMap = map
+            emitCurrentHistory()
             scheduleSave()
         }
     }

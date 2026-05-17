@@ -161,6 +161,18 @@ class SettingsUtil {
                 callback(false)
             })
         }
+        fun saveHistoryMaxCount(count: Int) {
+            DataStoreUtil.addData(count.toString(), stringPreferencesKey("history_max_count"))
+        }
+
+        fun getHistoryMaxCount(callback: (Int) -> Unit) {
+            DataStoreUtil.getData(stringPreferencesKey("history_max_count"), callback = {
+                callback(it.toIntOrNull() ?: 500)
+            }, onNull = {
+                callback(500)
+            })
+        }
+
         fun saveSkipVersion(version: String) {
             DataStoreUtil.addData(version, skipVersionKey)
         }

@@ -47,6 +47,7 @@ class GlobalData {
         val pendingClipboardUrl = MutableStateFlow<String?>(null)
         var lastClipboardUrl: String? = null
         val pendingDeepLinkUrl = MutableStateFlow<String?>(null)
+        val historyMaxCount = MutableStateFlow(500)
 
     }
 }

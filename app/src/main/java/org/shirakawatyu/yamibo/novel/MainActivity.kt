@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import androidx.compose.ui.graphics.Color as ComposeColor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -659,6 +660,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                 SettingsUtil.getCustomDnsUrl { GlobalData.customDnsUrl.value = it }
                 SettingsUtil.getDarkMode { GlobalData.isDarkMode.value = it }
                 SettingsUtil.getDarkModeTheme { GlobalData.darkModeTheme.value = it }
+                SettingsUtil.getHistoryMaxCount { GlobalData.historyMaxCount.value = it }
                 GlobalData.isAppInitialized = true
             }
         }
@@ -909,7 +911,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                             currentRoute == "BBSPage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
                             currentRoute == "MinePage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
                             currentRoute?.startsWith("OtherWebPage") == true -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
-                            currentRoute == "HistoryPage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
+                            currentRoute == "HistoryPage" -> if (isDark) darkTheme!!.statusBar else ComposeColor(0xFFF5F5F5)
                             else -> null
                         }
                         if (statusBarColor != null) {
