@@ -35,8 +35,7 @@ data class UpdateInfo(
 )
 
 object UpdateManager {
-    private const val GITEE_TOKEN = "dc288904e9ab77c002d79d9b9b3aa819"
-    private const val GITEE_LATEST = "https://gitee.com/api/v5/repos/windcloudjet/YamiboReaderPro/releases/latest"
+    private const val GITEE_LATEST = "https://gitee.com/api/v5/repos/windcloudjet/YamiboReaderPro-Releases/releases/latest"
     private const val GITHUB_LATEST = "https://api.github.com/repos/prprbell/YamiboReaderPro/releases/latest"
 
     private val client by lazy {
@@ -154,7 +153,7 @@ object UpdateManager {
     private fun fetchFromGitee(): ParsedRelease? {
         return try {
             val request = Request.Builder()
-                .url("$GITEE_LATEST?access_token=$GITEE_TOKEN")
+                .url(GITEE_LATEST)
                 .header("Accept", "application/json")
                 .build()
             val response = client.newCall(request).execute()
@@ -186,7 +185,7 @@ object UpdateManager {
     /** 使用系统 DownloadManager 下载 APK，完成后返回下载 ID */
     fun downloadViaManager(context: Context, info: UpdateInfo): Long {
         val fileName = "yamibo_${info.versionName}.apk"
-        val request = DownloadManager.Request((info.downloadUrl + "?access_token=$GITEE_TOKEN").toUri())
+        val request = DownloadManager.Request(info.downloadUrl.toUri())
             .setTitle("百合会阅读器更新")
             .setDescription("正在下载 v${info.versionName}")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)

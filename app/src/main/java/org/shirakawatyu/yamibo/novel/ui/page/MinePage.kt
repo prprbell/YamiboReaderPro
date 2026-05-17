@@ -1465,8 +1465,6 @@ fun MinePage(
                         text = {
                             Column {
                                 Text("版本 ${ri.versionName}", fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.height(4.dp))
-                                Text("大小: ${"%.1f".format(ri.size / (1024.0 * 1024.0))} MB", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                                 if (ri.body.isNotBlank()) {
                                     Spacer(Modifier.height(12.dp))
                                     HorizontalDivider()

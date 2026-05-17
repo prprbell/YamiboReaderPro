@@ -7,7 +7,7 @@
 
 约定：
   1. Gitee token 优先读环境变量 GITEE_TOKEN，其次读脚本同目录 .gitee_token
-  2. 默认仓库为 windcloudjet/YamiboReaderPro
+  2. 默认仓库为 windcloudjet/YamiboReaderPro-Releases（公开分发库）
   3. 默认从 app/build.gradle.kts 的 versionName 生成 tag，例如 v1.11.0
   4. 本地 tag 不存在时会自动创建；tag 指向旧 commit 时默认自动移动到当前 HEAD
   5. 远端 tag 已存在但需要更新时会先尝试 force 推送；如果 Gitee 不接受，会自动删除远端 tag 后重推；Release 已存在时直接复用，不重复创建
@@ -15,7 +15,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$GiteeRepo = "windcloudjet/YamiboReaderPro",
+    [string]$GiteeRepo = "windcloudjet/YamiboReaderPro-Releases",
     [string]$TokenFile,
     [string]$NotesFile,
     [string]$Notes,

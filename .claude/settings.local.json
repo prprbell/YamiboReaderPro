@@ -34,7 +34,8 @@
       "Bash(mkdir -p D:/Desktop/mine_related/util/history D:/Desktop/mine_related/util/manga D:/Desktop/mine_related/util/reader D:/Desktop/mine_related/util/network D:/Desktop/mine_related/util/favorite)",
       "Bash(mkdir -p D:/Desktop/mine_related/global D:/Desktop/mine_related/module D:/Desktop/mine_related/constant D:/Desktop/mine_related/bean D:/Desktop/mine_related/repository)",
       "Bash(cp D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/page/MinePage.kt D:/Desktop/mine_related/ui/page/)",
-      "Bash(cp D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/page/HistoryPage.kt D:/Desktop/mine_related/ui/page/)"
+      "Bash(cp D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/page/HistoryPage.kt D:/Desktop/mine_related/ui/page/)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'private={d.get\\(\\\\\"private\\\\\"\\)}, public={d.get\\(\\\\\"public\\\\\"\\)}'\\)\")"
     ]
   }
 }
