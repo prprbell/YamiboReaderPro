@@ -690,7 +690,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
     LaunchedEffect(isAppInitialized, isNetworkAvailable) {
         if (isAppInitialized && isNetworkAvailable) {
             launch(Dispatchers.IO) {
-                delay(3000L)
+                delay(5000L)
                 val info = UpdateManager.checkForUpdate()
                 if (info != null) {
                     val skipped = suspendCancellableCoroutine { cont ->

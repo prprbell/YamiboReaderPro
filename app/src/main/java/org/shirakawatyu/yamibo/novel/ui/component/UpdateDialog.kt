@@ -73,11 +73,6 @@ fun UpdateDialog(
                     fontSize = 16.sp,
                     color = MaterialTheme.colorScheme.primary
                 )
-                Text(
-                    text = "大小: ${formatSize(info.size)}",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
                 if (info.body.isNotBlank()) {
                     Spacer(Modifier.height(12.dp))
                     HorizontalDivider()
@@ -121,11 +116,6 @@ fun UpdateDialog(
             }
         }
     )
-}
-
-private fun formatSize(bytes: Long): String {
-    val mb = bytes / (1024.0 * 1024.0)
-    return if (mb >= 1.0) "%.1f MB".format(mb) else "${bytes / 1024} KB"
 }
 
 private fun canInstallApk(context: Context): Boolean {

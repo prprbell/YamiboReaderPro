@@ -48,22 +48,13 @@ object UpdateManager {
             .build()
     }
 
-    data class ReleaseAsset(
-        val name: String = "",
-        val size: Long = 0,
-        val browser_download_url: String = ""
+    private data class ParsedRelease(
+        val tag_name: String,
+        val body: String,
+        val apkName: String,
+        val apkSize: Long,
+        val apkDownloadUrl: String
     )
-
-    data class ApiRelease(
-        val tag_name: String = "",
-        val body: String = "",
-        val assets: List<ReleaseAsset>? = null,
-        val attach_files: List<ReleaseAsset>? = null
-    ) {
-        val apkAsset: ReleaseAsset?
-            get() = attach_files?.firstOrNull { it.name.endsWith(".apk") }
-                ?: assets?.firstOrNull { it.name.endsWith(".apk") }
-    }
 
     /** 比较两个版本名字符串（如 "1.10.2" vs "v1.9.22"），返回 >0 / 0 / <0 */
     fun compareVersion(v1: String, v2: String): Int {
@@ -95,7 +86,7 @@ object UpdateManager {
         val currentVersionName = packageInfo.versionName ?: "0"
 
         val release = raceFetchRelease() ?: return@withContext null
-        val apkAsset = release.apkAsset ?: return@withContext null
+
         val latestVersion = release.tag_name.removePrefix("v").removePrefix("v.")
         val latestCode = estimateVersionCode(latestVersion)
 
@@ -103,8 +94,8 @@ object UpdateManager {
             UpdateInfo(
                 versionName = release.tag_name,
                 versionCode = latestCode,
-                downloadUrl = apkAsset.browser_download_url,
-                size = apkAsset.size,
+                downloadUrl = release.apkDownloadUrl,
+                size = release.apkSize,
                 body = release.body
             )
         } else {
@@ -112,8 +103,8 @@ object UpdateManager {
         }
     }
 
-    /** 竞速请求*/
-    private suspend fun raceFetchRelease(): ApiRelease? = coroutineScope {
+    /** Gitee + GitHub 竞速请求 */
+    private suspend fun raceFetchRelease(): ParsedRelease? = coroutineScope {
         val giteeDeferred = async(Dispatchers.IO) { fetchFromGitee() }
         val githubDeferred = async(Dispatchers.IO) {
             kotlinx.coroutines.delay(1000)
@@ -128,7 +119,39 @@ object UpdateManager {
         }
     }
 
-    private fun fetchFromGitee(): ApiRelease? {
+    private fun parseReleaseJson(body: String): ParsedRelease? {
+        val json = JSON.parseObject(body)
+        val tag = json.getString("tag_name") ?: ""
+        val releaseBody = json.getString("body") ?: ""
+
+        var apkName = ""
+        var apkSize = 0L
+        var apkUrl = ""
+
+        fun tryExtractApk(arr: com.alibaba.fastjson2.JSONArray?) {
+            if (arr == null || apkUrl.isNotEmpty()) return
+            for (item in arr) {
+                val itemObj = item as? com.alibaba.fastjson2.JSONObject ?: continue
+                val name = itemObj.getString("name") ?: ""
+                if (!name.endsWith(".apk")) continue
+                apkName = name
+                apkSize = itemObj.getLongValue("size", 0L)
+                apkUrl = itemObj.getString("browser_download_url")
+                    ?: itemObj.getString("download_url")
+                    ?: itemObj.getString("url")
+                    ?: ""
+                break
+            }
+        }
+
+        tryExtractApk(json.getJSONArray("attach_files"))
+        tryExtractApk(json.getJSONArray("assets"))
+
+        if (tag.isEmpty() || apkUrl.isEmpty()) return null
+        return ParsedRelease(tag, releaseBody, apkName, apkSize, apkUrl)
+    }
+
+    private fun fetchFromGitee(): ParsedRelease? {
         return try {
             val request = Request.Builder()
                 .url("$GITEE_LATEST?access_token=$GITEE_TOKEN")
@@ -136,14 +159,15 @@ object UpdateManager {
                 .build()
             val response = client.newCall(request).execute()
             if (response.isSuccessful) {
-                response.body?.string()?.let { JSON.parseObject(it, ApiRelease::class.java) }
+                val body = response.body?.string() ?: return null
+                parseReleaseJson(body)
             } else null
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun fetchFromGithub(): ApiRelease? {
+    private fun fetchFromGithub(): ParsedRelease? {
         return try {
             val request = Request.Builder()
                 .url(GITHUB_LATEST)
@@ -151,7 +175,8 @@ object UpdateManager {
                 .build()
             val response = client.newCall(request).execute()
             if (response.isSuccessful) {
-                response.body?.string()?.let { JSON.parseObject(it, ApiRelease::class.java) }
+                val body = response.body?.string() ?: return null
+                parseReleaseJson(body)
             } else null
         } catch (_: Exception) {
             null
@@ -190,7 +215,6 @@ object UpdateManager {
                         val uriStr = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
                         cursor.close()
                         uriStr?.let {
-                            // 从 content URI 复制到缓存目录以便 FileProvider 访问
                             val apkFile = copyToCache(context, it.toUri())
                             if (apkFile != null) {
                                 onComplete(apkFile)
