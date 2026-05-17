@@ -121,6 +121,7 @@ import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import java.io.ByteArrayInputStream
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -195,6 +196,35 @@ private var cachedNativeMangaApiMine: NativeMangaMineJSInterface? = null
 private var cachedAboutApiMine: AboutMineJSInterface? = null
 private var cachedHistoryApiMine: HistoryJSInterface? = null
 
+private fun decodeHistoryTargetUrl(initUrl: String): String {
+    val decodedUrl = runCatching { URLDecoder.decode(initUrl, "utf-8") }.getOrElse { initUrl }
+    val absoluteUrl = if (decodedUrl.startsWith("http://") || decodedUrl.startsWith("https://")) {
+        decodedUrl
+    } else {
+        "https://bbs.yamibo.com/${decodedUrl.removePrefix("/")}"
+    }
+    return normalizeHistoryComparableUrl(absoluteUrl)
+}
+
+private fun normalizeHistoryComparableUrl(url: String?): String {
+    return url
+        ?.trim()
+        ?.substringBefore("#")
+        ?.removeSuffix("/")
+        .orEmpty()
+}
+
+private fun isSameHistoryTargetUrl(actualUrl: String?, targetUrl: String?): Boolean {
+    val actual = normalizeHistoryComparableUrl(actualUrl)
+    val target = normalizeHistoryComparableUrl(targetUrl)
+    if (actual.isBlank() || target.isBlank()) return false
+    if (actual == target) return true
+
+    val actualTid = org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner.extractTidFromUrl(actual)
+    val targetTid = org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner.extractTidFromUrl(target)
+    return actualTid != null && actualTid == targetTid
+}
+
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
@@ -208,25 +238,24 @@ fun MinePage(
     val mineUrl = "https://bbs.yamibo.com/home.php?mod=space&do=profile&mycenter=1&mobile=2"
     val context = LocalContext.current
     val activity = context as? ComponentActivity
-    val minePageVM: MinePageVM = viewModel(viewModelStoreOwner = context as ComponentActivity)
+    val activityMinePageVM: MinePageVM = viewModel(viewModelStoreOwner = context as ComponentActivity)
+    val routeMinePageVM: MinePageVM = viewModel()
+    val minePageVM = if (fromHistory) routeMinePageVM else activityMinePageVM
+    val historyTargetUrl = remember(fromHistory, initUrl) {
+        if (fromHistory && initUrl.isNotBlank()) decodeHistoryTargetUrl(initUrl) else null
+    }
 
+    var activeHistoryTargetUrl by remember { mutableStateOf<String?>(historyTargetUrl) }
+    var activeLoadTargetUrl by remember { mutableStateOf<String?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
     var isLoading by remember {
         mutableStateOf(run {
             val cachedView = minePageVM.cachedWebView
             val cachedUrl = cachedView?.url
-            if (fromHistory && initUrl.isNotBlank()) {
-                val decodedUrl = java.net.URLDecoder.decode(initUrl, "utf-8")
-                val safeUrl = if (decodedUrl.startsWith("http")) decodedUrl else "https://bbs.yamibo.com/${decodedUrl.removePrefix("/")}"
-
-                val targetTid = org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner.extractTidFromUrl(safeUrl)
-                val currentTid = org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner.extractTidFromUrl(cachedUrl ?: "")
-
-                val isSameThread = targetTid != null && targetTid == currentTid
-                val isSameUrl = cachedUrl == safeUrl || cachedUrl == "$safeUrl/"
-
-                // 如果没有命中缓存帖子，则保持 Loading 状态遮挡旧 DOM
-                !(isSameThread || isSameUrl)
+            if (fromHistory && historyTargetUrl != null) {
+                // 历史帖子页使用 route-scoped MinePageVM 的独立 WebView，
+                // 不再读取真正 MinePage 的 cachedWebView 状态。
+                true
             } else if (!fromHistory) {
                 (cachedUrl == null || cachedView?.tag?.toString()?.startsWith("recycled") == true || cachedUrl == "about:blank" || (!cachedUrl.contains("mycenter=1") && cachedUrl != mineUrl))
             } else {
@@ -257,6 +286,52 @@ fun MinePage(
     )
     lateinit var startLoading: (webView: WebView, url: String) -> Unit
 
+    fun isMineRootUrl(url: String?): Boolean {
+        val normalized = normalizeHistoryComparableUrl(url)
+        return normalized == normalizeHistoryComparableUrl(mineUrl) || normalized.contains("mycenter=1")
+    }
+
+    fun isSamePageTargetUrl(actualUrl: String?, targetUrl: String?): Boolean {
+        val target = normalizeHistoryComparableUrl(targetUrl)
+        if (target.isBlank()) return true
+        if (target == normalizeHistoryComparableUrl(mineUrl) || target.contains("mycenter=1")) {
+            return isMineRootUrl(actualUrl)
+        }
+        return isSameHistoryTargetUrl(actualUrl, target)
+    }
+
+    fun currentExpectedLoadTarget(): String? {
+        return activeLoadTargetUrl ?: activeHistoryTargetUrl
+    }
+
+    fun isExpectedLoadCallback(url: String?): Boolean {
+        val target = currentExpectedLoadTarget()
+        return target.isNullOrBlank() || isSamePageTargetUrl(url, target)
+    }
+
+    fun finishLoadingIfExpected(view: WebView?, url: String?) {
+        if (hasError || view == null || !isLoading || !isExpectedLoadCallback(url)) return
+        timeoutJob?.cancel()
+        retryCount = 0
+        isLoading = false
+        isPullRefreshing = false
+        showLoadError = false
+        activeLoadTargetUrl = null
+        if (fromHistory) activeHistoryTargetUrl = null
+    }
+
+    fun markMainFrameErrorIfExpected(url: String?) {
+        if (!isExpectedLoadCallback(url)) return
+        timeoutJob?.cancel()
+        retryCount = 0
+        hasError = true
+        isLoading = false
+        isPullRefreshing = false
+        activeLoadTargetUrl = null
+        activeHistoryTargetUrl = null
+        showLoadError = true
+    }
+
     fun evaluateCanGoBack(view: WebView?): Boolean {
         if (view == null || !view.canGoBack()) return false
         val currUrl = view.url ?: ""
@@ -286,22 +361,30 @@ fun MinePage(
     }
 
     startLoading = { webView: WebView, url: String ->
+        val targetForThisLoad = normalizeHistoryComparableUrl(url)
+        activeLoadTargetUrl = targetForThisLoad
+        if (fromHistory) activeHistoryTargetUrl = targetForThisLoad
         isLoading = true
         hasError = false
         showLoadError = false
         retryCount = 0
+        webView.stopLoading()
         CookieManager.getInstance().setCookie(url, GlobalData.currentCookie)
         CookieManager.getInstance().flush()
         runTimeout(webView) {
+            if (activeLoadTargetUrl != targetForThisLoad) return@runTimeout
             Log.w("MinePage", "WebView loading timed out. Retrying...")
             webView.stopLoading()
             retryCount++
 
             runTimeout(webView) {
+                if (activeLoadTargetUrl != targetForThisLoad) return@runTimeout
                 Log.e("MinePage", "Retry timed out. Giving up.")
                 hasError = true
                 isLoading = false
                 isPullRefreshing = false
+                activeLoadTargetUrl = null
+                activeHistoryTargetUrl = null
                 showLoadError = true
                 webView.stopLoading()
             }
@@ -327,11 +410,15 @@ fun MinePage(
         }
     }
 
-    val fullscreenApi = remember {
-        if (cachedFullscreenApiMine == null) {
-            cachedFullscreenApiMine = FullscreenApiMine()
+    val fullscreenApi = remember(fromHistory) {
+        if (fromHistory) {
+            FullscreenApiMine()
+        } else {
+            if (cachedFullscreenApiMine == null) {
+                cachedFullscreenApiMine = FullscreenApiMine()
+            }
+            cachedFullscreenApiMine!!
         }
-        cachedFullscreenApiMine!!
     }
     fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
@@ -348,24 +435,36 @@ fun MinePage(
             .show()
     }
 
-    val nativeMangaApi = remember {
-        if (cachedNativeMangaApiMine == null) {
-            cachedNativeMangaApiMine = NativeMangaMineJSInterface()
+    val nativeMangaApi = remember(fromHistory) {
+        if (fromHistory) {
+            NativeMangaMineJSInterface()
+        } else {
+            if (cachedNativeMangaApiMine == null) {
+                cachedNativeMangaApiMine = NativeMangaMineJSInterface()
+            }
+            cachedNativeMangaApiMine!!
         }
-        cachedNativeMangaApiMine!!
     }
-    val aboutApi = remember {
-        if (cachedAboutApiMine == null) {
-            cachedAboutApiMine = AboutMineJSInterface()
+    val aboutApi = remember(fromHistory) {
+        if (fromHistory) {
+            AboutMineJSInterface()
+        } else {
+            if (cachedAboutApiMine == null) {
+                cachedAboutApiMine = AboutMineJSInterface()
+            }
+            cachedAboutApiMine!!
         }
-        cachedAboutApiMine!!
     }
     aboutApi.onShowAbout = { showAboutDialog = true }
-    val historyApi = remember {
-        if (cachedHistoryApiMine == null) {
-            cachedHistoryApiMine = HistoryJSInterface()
+    val historyApi = remember(fromHistory) {
+        if (fromHistory) {
+            HistoryJSInterface()
+        } else {
+            if (cachedHistoryApiMine == null) {
+                cachedHistoryApiMine = HistoryJSInterface()
+            }
+            cachedHistoryApiMine!!
         }
-        cachedHistoryApiMine!!
     }
     historyApi.onShowHistory = { navController.navigate("HistoryPage") }
     var pendingSearchUrl by remember { mutableStateOf<String?>(null) }
@@ -380,12 +479,14 @@ fun MinePage(
         }
     }
 
-    val mineWebView = remember {
+    val mineWebView = remember(fromHistory, historyTargetUrl) {
         val isNew = minePageVM.cachedWebView == null
         val webView = minePageVM.getOrAcquireWebView(context)
 
         if (isNew) {
             webView.settings.apply {
+                javaScriptEnabled = true
+                useWideViewPort = true
                 loadWithOverviewMode = true
                 setSupportZoom(false)
                 builtInZoomControls = false
@@ -394,6 +495,21 @@ fun MinePage(
                 domStorageEnabled = true
                 loadsImagesAutomatically = true
                 blockNetworkImage = false
+            }
+        }
+
+        // 历史帖子详情页使用独立的 route-scoped WebView，但 composable 可能在进入 NativeMangaPage / ReaderPage 后重建。
+        // 因此 fromHistory 时每次都重新绑定 JS interface，避免 WebView 内还拿着上一次组合的回调对象。
+        if (isNew || fromHistory) {
+            if (fromHistory && !isNew) {
+                try {
+                    webView.removeJavascriptInterface("AndroidFullscreen")
+                    webView.removeJavascriptInterface("NativeMangaApi")
+                    webView.removeJavascriptInterface("AboutApi")
+                    webView.removeJavascriptInterface("HistoryApi")
+                    webView.removeJavascriptInterface("AndroidSearchNav")
+                } catch (_: Exception) {
+                }
             }
             webView.addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             webView.addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
@@ -409,22 +525,17 @@ fun MinePage(
     val rootHistoryIndex = remember { mineWebView.copyBackForwardList().currentIndex }
 
     LaunchedEffect(mineWebView, isSelected, initUrl) {
-        if (fromHistory && initUrl.isNotBlank()) {
-            val decodedUrl = java.net.URLDecoder.decode(initUrl, "utf-8")
-            val safeUrl = if (decodedUrl.startsWith("http")) decodedUrl else "https://bbs.yamibo.com/${decodedUrl.removePrefix("/")}"
+        if (fromHistory && historyTargetUrl != null) {
+            activeHistoryTargetUrl = historyTargetUrl
 
             val currentWebViewUrl = mineWebView.url ?: ""
-            val targetTid = org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner.extractTidFromUrl(safeUrl)
-            val currentTid = org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner.extractTidFromUrl(currentWebViewUrl)
-
-            val isSameThread = targetTid != null && targetTid == currentTid
-            val isSameUrl = currentWebViewUrl == safeUrl || currentWebViewUrl == "$safeUrl/"
-
-            if (isSameThread || isSameUrl) {
+            if (isSameHistoryTargetUrl(currentWebViewUrl, historyTargetUrl)) {
+                activeLoadTargetUrl = null
+                activeHistoryTargetUrl = null
                 isLoading = false
                 canGoBack = evaluateCanGoBack(mineWebView)
             } else {
-                startLoading(mineWebView, safeUrl)
+                startLoading(mineWebView, historyTargetUrl)
             }
         } else if (!fromHistory) {
             val currentWebViewUrl = mineWebView.url
@@ -449,14 +560,32 @@ fun MinePage(
 
     DisposableEffect(mineWebView) {
         onDispose {
+            timeoutJob?.cancel()
+            activeLoadTargetUrl = null
+            activeHistoryTargetUrl = null
+
             if (fromHistory) {
-                val currentIndex = mineWebView.copyBackForwardList().currentIndex
-                val stepsBack = currentIndex - rootHistoryIndex
-                if (stepsBack > 0 && mineWebView.canGoBack()) {
-                    mineWebView.goBackOrForward(-stepsBack)
+                val nextRoute = navController.currentDestination?.route.orEmpty()
+                val keepHistoryWebViewForChildPage =
+                    nextRoute.startsWith("NativeMangaPage") || nextRoute.startsWith("ReaderPage")
+
+                if (!keepHistoryWebViewForChildPage) {
+                    // 真正离开历史帖子详情页时，清掉这个 route-scoped WebView。
+                    // 它不会写回真正的 MinePageVM，因此返回 MinePage 时不会再显示历史帖子。
+                    try {
+                        mineWebView.stopLoading()
+                        mineWebView.clearHistory()
+                    } catch (e: Exception) {
+                        Log.w("MinePage", "Cleanup history WebView failed", e)
+                    }
+                    minePageVM.scheduleRelease(delayMs = 0L)
+                } else {
+                    // 去原生漫画 / 阅读器时保留几分钟，返回详情页可以恢复原 WebView。
+                    minePageVM.scheduleRelease()
                 }
+            } else {
+                minePageVM.scheduleRelease()
             }
-            minePageVM.scheduleRelease()
         }
     }
 
@@ -515,7 +644,7 @@ fun MinePage(
 
     LaunchedEffect(pendingSearchUrl) {
         val url = pendingSearchUrl ?: return@LaunchedEffect
-        mineWebView.loadUrl(url)
+        startLoading(mineWebView, url)
         pendingSearchUrl = null
     }
 
@@ -744,7 +873,7 @@ fun MinePage(
                     return true
                 }
 
-                if (isSelected && isHomepageUrl(urlStr) && view != null) {
+                if (!fromHistory && isSelected && isHomepageUrl(urlStr) && view != null) {
                     scope.launch(Dispatchers.IO) {
                         delay(500L)
                         AccountSyncManager.syncCookieAndCheckSign(
@@ -778,6 +907,11 @@ fun MinePage(
                     ) == true
                 ) return
 
+                if (!isExpectedLoadCallback(url)) {
+                    super.onPageStarted(view, url, favicon)
+                    return
+                }
+
                 val checkUrl = url ?: ""
 
                 // 区分自己的主页(含mycenter=1)才算是 Root
@@ -785,7 +919,7 @@ fun MinePage(
                     isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("mycenter=1")
                 bottomNavBarVM.isMineAtRoot = isHomePage
 
-                if (isSelected && isHomepageUrl(checkUrl) && view != null) {
+                if (!fromHistory && isSelected && isHomepageUrl(checkUrl) && view != null) {
                     view.stopLoading()
                     scope.launch(Dispatchers.IO) {
                         delay(500L)
@@ -898,16 +1032,11 @@ fun MinePage(
                 if (url == "about:blank" || url?.contains("warmup=true") == true) return
                 super.onPageCommitVisible(view, url)
 
-                pageTitle = view?.title ?: ""
-                val isDirtyCallback = fromHistory && url != null && (url == mineUrl || url.contains("mycenter=1"))
+                if (!isExpectedLoadCallback(url)) return
 
-                if (!hasError && view != null && isLoading && !isDirtyCallback) {
-                    timeoutJob?.cancel()
-                    retryCount = 0
-                    isLoading = false
-                    isPullRefreshing = false
-                    showLoadError = false
-                }
+                pageTitle = view?.title ?: ""
+                finishLoadingIfExpected(view, url)
+
                 // 使用外部提取的特定于 MinePage 的脚本常量
                 view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
                 view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
@@ -946,17 +1075,12 @@ fun MinePage(
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                val isDirtyCallback = fromHistory && url != null && (url == mineUrl || url.contains("mycenter=1"))
-
-                if (!isDirtyCallback) {
-                    timeoutJob?.cancel()
-                    retryCount = 0
-                    isLoading = false
-                    isPullRefreshing = false
-                    if (!hasError) {
-                        showLoadError = false
-                    }
+                if (!isExpectedLoadCallback(url)) {
+                    super.onPageFinished(view, url)
+                    return
                 }
+
+                finishLoadingIfExpected(view, url)
 
                 super.onPageFinished(view, url)
                 currentUrl = url
@@ -977,16 +1101,9 @@ fun MinePage(
                 request: WebResourceRequest?,
                 error: WebResourceError?
             ) {
-                timeoutJob?.cancel()
-                retryCount = 0
                 super.onReceivedError(view, request, error)
                 if (request?.isForMainFrame == true) {
-                    hasError = true
-                    isLoading = false
-                    isPullRefreshing = false
-                    if (retryCount == 0) {
-                        showLoadError = true
-                    }
+                    markMainFrameErrorIfExpected(request.url?.toString())
                 }
             }
 
@@ -997,16 +1114,9 @@ fun MinePage(
                 description: String?,
                 failingUrl: String?
             ) {
-                timeoutJob?.cancel()
-                retryCount = 0
                 super.onReceivedError(view, errorCode, description, failingUrl)
                 if (failingUrl != null && failingUrl == view?.url) {
-                    hasError = true
-                    isLoading = false
-                    isPullRefreshing = false
-                    if (retryCount == 0) {
-                        showLoadError = true
-                    }
+                    markMainFrameErrorIfExpected(failingUrl)
                 }
             }
 
@@ -1030,16 +1140,9 @@ fun MinePage(
                 request: WebResourceRequest?,
                 errorResponse: WebResourceResponse?
             ) {
-                timeoutJob?.cancel()
-                retryCount = 0
                 super.onReceivedHttpError(view, request, errorResponse)
                 if (request?.isForMainFrame == true) {
-                    hasError = true
-                    isLoading = false
-                    isPullRefreshing = false
-                    if (retryCount == 0) {
-                        showLoadError = true
-                    }
+                    markMainFrameErrorIfExpected(request.url?.toString())
                 }
             }
         }
@@ -1270,9 +1373,15 @@ fun MinePage(
                 }
             }
 
-            // 平滑淡出的遮罩动画
+            val expectedLoadTarget = currentExpectedLoadTarget()
+            val shouldBlockOldWebContent = isLoading && !isPullRefreshing && (
+                fromHistory || !isSamePageTargetUrl(mineWebView.url, expectedLoadTarget)
+            )
+
+            // 只要当前 WebView 还不是本次目标页面，就用不透明遮罩挡住旧 DOM。
+            // 这样从历史帖子返回 MinePage 时，不会在个人主页提交前露出刚才的帖子。
             AnimatedVisibility(
-                visible = isLoading && !isPullRefreshing && fromHistory,
+                visible = shouldBlockOldWebContent,
                 enter = EnterTransition.None,
                 exit = fadeOut()
             ) {
@@ -1290,7 +1399,7 @@ fun MinePage(
                 }
             }
 
-            if (isLoading && !isPullRefreshing && !fromHistory) {
+            if (isLoading && !isPullRefreshing && !shouldBlockOldWebContent) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
                     color = darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark)

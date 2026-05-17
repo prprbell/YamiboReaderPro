@@ -2,13 +2,12 @@ package org.shirakawatyu.yamibo.novel.ui.page
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -80,8 +80,7 @@ import java.util.Calendar
 import kotlin.math.roundToInt
 
 // 自定义日历图标，用于日期筛选器
-private val CalendarIcon: ImageVector
-    get() = ImageVector.Builder(
+private val CalendarIcon: ImageVector = ImageVector.Builder(
         name = "Calendar",
         defaultWidth = 24.dp,
         defaultHeight = 24.dp,
@@ -263,6 +262,7 @@ fun HistoryPage(navController: NavController) {
     }
 
     val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val lazyListState = rememberLazyListState()
 
     // 组合式日期选择器 Dialog
     if (showDatePicker) {
@@ -672,7 +672,9 @@ fun HistoryPage(navController: NavController) {
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    state = lazyListState,
+                    contentPadding = PaddingValues(bottom = navBarPadding + 16.dp)
                 ) {
                     grouped.forEach { group ->
                         stickyHeader(key = group.label) {
@@ -698,13 +700,11 @@ fun HistoryPage(navController: NavController) {
                             key = { it.url }
                         ) { entry ->
                             val isSelected = entry.url in selectedUrls
-                            val bgColor by animateColorAsState(
-                                targetValue = if (isSelected) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-                                } else Color.Transparent,
-                                animationSpec = tween(150),
-                                label = "selectBg"
-                            )
+                            val bgColor = if (isSelected) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                            } else {
+                                Color.Transparent
+                            }
 
                             Row(
                                 modifier = Modifier
@@ -807,10 +807,6 @@ fun HistoryPage(navController: NavController) {
                                 modifier = Modifier.padding(horizontal = 16.dp)
                             )
                         }
-                    }
-
-                    item {
-                        Spacer(modifier = Modifier.height(navBarPadding + 16.dp))
                     }
                 }
             }

@@ -1383,45 +1383,6 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                     }
                                 }
                                 composable(
-                                    route = "MineHistoryPostPage?url={url}",
-                                    arguments = listOf(navArgument("url") { defaultValue = "" }),
-                                    enterTransition = {
-                                        slideIntoContainer(
-                                            towards = AnimatedContentTransitionScope.SlideDirection.Left,
-                                            animationSpec = tween(enterDuration, easing = enterEasing)
-                                        )
-                                    },
-                                    popExitTransition = {
-                                        slideOutOfContainer(
-                                            towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                                            animationSpec = tween(exitDuration, easing = exitEasing)
-                                        )
-                                    }
-                                ) { backStackEntry ->
-                                    val url = URLDecoder.decode(backStackEntry.arguments?.getString("url") ?: "", "utf-8")
-                                    Box(modifier = Modifier.fillMaxSize()) {
-                                        MinePage(
-                                            isSelected = true,
-                                            navController = navController,
-                                            webChromeClient = webChromeClient,
-                                            initUrl = url,
-                                            fromHistory = true
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.BottomCenter)
-                                                .padding(bottom = lockedNavHeight)
-                                        ) {
-                                            BottomNavBar(
-                                                navController = navController,
-                                                currentRoute = "MineHistoryPostPage",
-                                                navBarVM = bottomNavBarVM,
-                                                onQuickActionSheetVisibleChange = { isQuickActionSheetVisible = it }
-                                            )
-                                        }
-                                    }
-                                }
-                                composable(
                                     route = "NativeMangaPage?url={url}&originalUrl={originalUrl}",
                                     arguments = listOf(
                                         navArgument("url") { defaultValue = "" },

@@ -25,7 +25,16 @@
       "Bash(cp \"D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/component/UpdateDialog.kt\" \"/d/Desktop/update_check_files/\")",
       "Bash(cp \"D:/Workspace/YamiboReaderPro/app/src/main/res/xml/file_paths.xml\" \"/d/Desktop/update_check_files/\")",
       "Bash(cp \"D:/Workspace/YamiboReaderPro/app/src/main/AndroidManifest.xml\" \"/d/Desktop/update_check_files/\")",
-      "Bash(curl.exe *)"
+      "Bash(curl.exe *)",
+      "Bash(cp \"D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/page/MinePage.kt\" \"/d/Desktop/MinePage.kt\")",
+      "Bash(cp \"D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/vm/MinePageVM.kt\" \"/d/Desktop/MinePageVM.kt\")",
+      "Bash(cp \"D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/MainActivity.kt\" \"/d/Desktop/MainActivity.kt\")",
+      "Bash(cp \"D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/page/HistoryPage.kt\" \"/d/Desktop/HistoryPage.kt\")",
+      "Bash(mkdir -p D:/Desktop/mine_related/ui/page D:/Desktop/mine_related/ui/vm D:/Desktop/mine_related/ui/widget D:/Desktop/mine_related/ui/state D:/Desktop/mine_related/ui/theme D:/Desktop/mine_related/ui/component)",
+      "Bash(mkdir -p D:/Desktop/mine_related/util/history D:/Desktop/mine_related/util/manga D:/Desktop/mine_related/util/reader D:/Desktop/mine_related/util/network D:/Desktop/mine_related/util/favorite)",
+      "Bash(mkdir -p D:/Desktop/mine_related/global D:/Desktop/mine_related/module D:/Desktop/mine_related/constant D:/Desktop/mine_related/bean D:/Desktop/mine_related/repository)",
+      "Bash(cp D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/page/MinePage.kt D:/Desktop/mine_related/ui/page/)",
+      "Bash(cp D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/page/HistoryPage.kt D:/Desktop/mine_related/ui/page/)"
     ]
   }
 }
