@@ -13,7 +13,11 @@ import android.os.Environment
 import androidx.core.content.FileProvider
 import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.shirakawatyu.yamibo.novel.YamiboApplication
@@ -90,7 +94,7 @@ object UpdateManager {
         val currentVersionCode = packageInfo.versionCode
         val currentVersionName = packageInfo.versionName ?: "0"
 
-        val release = fetchFromGitee() ?: fetchFromGithub() ?: return@withContext null
+        val release = raceFetchRelease() ?: return@withContext null
         val apkAsset = release.apkAsset ?: return@withContext null
         val latestVersion = release.tag_name.removePrefix("v").removePrefix("v.")
         val latestCode = estimateVersionCode(latestVersion)
@@ -105,6 +109,22 @@ object UpdateManager {
             )
         } else {
             null
+        }
+    }
+
+    /** 竞速请求*/
+    private suspend fun raceFetchRelease(): ApiRelease? = coroutineScope {
+        val giteeDeferred = async(Dispatchers.IO) { fetchFromGitee() }
+        val githubDeferred = async(Dispatchers.IO) {
+            kotlinx.coroutines.delay(1000)
+            fetchFromGithub()
+        }
+
+        withTimeoutOrNull(8000) {
+            select {
+                giteeDeferred.onAwait { it ?: githubDeferred.await() }
+                githubDeferred.onAwait { it ?: giteeDeferred.await() }
+            }
         }
     }
 

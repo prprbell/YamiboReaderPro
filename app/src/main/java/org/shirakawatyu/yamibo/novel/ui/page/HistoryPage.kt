@@ -1,5 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -175,7 +176,7 @@ private fun formatEntryTime(timestamp: Long): String {
     }
 }
 
-// 帮助格式化纯日期的辅助函数 (用于已筛选日期芯片显示)
+// 帮助格式化纯日期的辅助函数
 private fun formatDateOnly(millis: Long): String {
     val cal = Calendar.getInstance().apply { timeInMillis = millis }
     return "${cal.get(Calendar.YEAR)}.${cal.get(Calendar.MONTH) + 1}.${cal.get(Calendar.DAY_OF_MONTH)}"
@@ -184,6 +185,15 @@ private fun formatDateOnly(millis: Long): String {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HistoryPage(navController: NavController) {
+    var isExiting by remember { mutableStateOf(false) }
+
+    // 系统返回键拦截
+    BackHandler(enabled = !isExiting) {
+        isExiting = true
+        navController.popBackStack()
+    }
+
+
     val historyList by HistoryUtil.getHistoryFlow().collectAsState(initial = emptyList())
 
     // 搜索与日期筛选状态
@@ -207,45 +217,46 @@ fun HistoryPage(navController: NavController) {
     }
 
     // 核心筛选逻辑：组合过滤搜索词 + 日期/范围
-    val filteredEntries = remember(historyList, searchTerms, selectedStartDateMillis, selectedEndDateMillis) {
-        historyList.filter { entry ->
-            // 1. 日期匹配 (精确计算到当天的 0点到24点)
-            val matchesDate = if (selectedStartDateMillis != null) {
-                val startOfDay = Calendar.getInstance().apply {
-                    timeInMillis = selectedStartDateMillis!!
-                    set(Calendar.HOUR_OF_DAY, 0)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }.timeInMillis
+    val filteredEntries =
+        remember(historyList, searchTerms, selectedStartDateMillis, selectedEndDateMillis) {
+            historyList.filter { entry ->
+                // 1. 日期匹配 (精确计算到当天的 0点到24点)
+                val matchesDate = if (selectedStartDateMillis != null) {
+                    val startOfDay = Calendar.getInstance().apply {
+                        timeInMillis = selectedStartDateMillis!!
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }.timeInMillis
 
-                val endOfDay = Calendar.getInstance().apply {
-                    timeInMillis = selectedEndDateMillis ?: selectedStartDateMillis!!
-                    set(Calendar.HOUR_OF_DAY, 23)
-                    set(Calendar.MINUTE, 59)
-                    set(Calendar.SECOND, 59)
-                    set(Calendar.MILLISECOND, 999)
-                }.timeInMillis
+                    val endOfDay = Calendar.getInstance().apply {
+                        timeInMillis = selectedEndDateMillis ?: selectedStartDateMillis!!
+                        set(Calendar.HOUR_OF_DAY, 23)
+                        set(Calendar.MINUTE, 59)
+                        set(Calendar.SECOND, 59)
+                        set(Calendar.MILLISECOND, 999)
+                    }.timeInMillis
 
-                entry.timestamp in startOfDay..endOfDay
-            } else {
-                true
-            }
-
-            // 2. 关键词组合匹配（所有关键词都必须至少在标题、作者或分区中命中一个）
-            val matchesSearch = if (searchTerms.isEmpty()) {
-                true
-            } else {
-                searchTerms.all { term ->
-                    entry.title.contains(term, ignoreCase = true) ||
-                            entry.author.contains(term, ignoreCase = true) ||
-                            entry.section.contains(term, ignoreCase = true)
+                    entry.timestamp in startOfDay..endOfDay
+                } else {
+                    true
                 }
-            }
 
-            matchesDate && matchesSearch
+                // 2. 关键词组合匹配
+                val matchesSearch = if (searchTerms.isEmpty()) {
+                    true
+                } else {
+                    searchTerms.all { term ->
+                        entry.title.contains(term, ignoreCase = true) ||
+                                entry.author.contains(term, ignoreCase = true) ||
+                                entry.section.contains(term, ignoreCase = true)
+                    }
+                }
+
+                matchesDate && matchesSearch
+            }
         }
-    }
 
     val grouped = remember(filteredEntries) {
         groupByTimeline(filteredEntries)
@@ -266,7 +277,6 @@ fun HistoryPage(navController: NavController) {
             initialSelectedEndDateMillis = selectedEndDateMillis
         )
 
-        // 自定义的选择器顶部切换栏 (代替默认的"选择日期"文字)
         val customTitle: @Composable () -> Unit = {
             Row(
                 modifier = Modifier
@@ -280,11 +290,12 @@ fun HistoryPage(navController: NavController) {
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                // 单日 / 范围 切换按钮
                 Row {
                     Surface(
                         shape = RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp),
-                        color = if (!isRangeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        color = if (!isRangeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(
+                            alpha = 0.5f
+                        ),
                         modifier = Modifier.clickable { isRangeMode = false }
                     ) {
                         Text(
@@ -296,7 +307,9 @@ fun HistoryPage(navController: NavController) {
                     }
                     Surface(
                         shape = RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp),
-                        color = if (isRangeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        color = if (isRangeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(
+                            alpha = 0.5f
+                        ),
                         modifier = Modifier.clickable { isRangeMode = true }
                     ) {
                         Text(
@@ -316,8 +329,8 @@ fun HistoryPage(navController: NavController) {
                 TextButton(onClick = {
                     if (isRangeMode) {
                         selectedStartDateMillis = dateRangePickerState.selectedStartDateMillis
-                        // 如果用户只点了开始没点结束，作为单日处理
-                        selectedEndDateMillis = dateRangePickerState.selectedEndDateMillis ?: dateRangePickerState.selectedStartDateMillis
+                        selectedEndDateMillis = dateRangePickerState.selectedEndDateMillis
+                            ?: dateRangePickerState.selectedStartDateMillis
                     } else {
                         selectedStartDateMillis = datePickerState.selectedDateMillis
                         selectedEndDateMillis = datePickerState.selectedDateMillis
@@ -333,7 +346,6 @@ fun HistoryPage(navController: NavController) {
                 }
             }
         ) {
-            // 根据模式动态显示对应的 Picker
             if (isRangeMode) {
                 DateRangePicker(
                     state = dateRangePickerState,
@@ -381,8 +393,16 @@ fun HistoryPage(navController: NavController) {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("100", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("2000", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "100",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "2000",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             },
@@ -428,6 +448,7 @@ fun HistoryPage(navController: NavController) {
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -438,7 +459,12 @@ fun HistoryPage(navController: NavController) {
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
+                    IconButton(onClick = {
+                        if (!isExiting) {
+                            isExiting = true
+                            navController.popBackStack()
+                        }
+                    }) {
                         Icon(
                             Icons.Default.ArrowBack,
                             contentDescription = "返回",
@@ -475,7 +501,8 @@ fun HistoryPage(navController: NavController) {
         },
         bottomBar = {
             if (isManageMode) {
-                val allSelected = filteredEntries.isNotEmpty() && selectedUrls.size == filteredEntries.size
+                val allSelected =
+                    filteredEntries.isNotEmpty() && selectedUrls.size == filteredEntries.size
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     tonalElevation = 3.dp,
@@ -540,7 +567,7 @@ fun HistoryPage(navController: NavController) {
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Search bar
+            // 搜索栏
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -584,7 +611,7 @@ fun HistoryPage(navController: NavController) {
                 )
             )
 
-            // 日期过滤标签 (AnimatedVisibility 实现平滑折叠)
+            // 日期过滤标签
             AnimatedVisibility(visible = selectedStartDateMillis != null) {
                 selectedStartDateMillis?.let { startMillis ->
                     val endMillis = selectedEndDateMillis ?: startMillis
@@ -658,7 +685,10 @@ fun HistoryPage(navController: NavController) {
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                                    modifier = Modifier.padding(
+                                        horizontal = 16.dp,
+                                        vertical = 10.dp
+                                    )
                                 )
                             }
                         }
@@ -680,6 +710,7 @@ fun HistoryPage(navController: NavController) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(bgColor)
+                                    // 【修改点】移除了原先复杂的 then(if(isExiting)) 逻辑，还原最干净的高性能可点击区域
                                     .clickable {
                                         if (isManageMode) {
                                             selectedUrls = if (isSelected) {
@@ -689,7 +720,7 @@ fun HistoryPage(navController: NavController) {
                                             }
                                         } else {
                                             val encodedUrl = URLEncoder.encode(entry.url, "utf-8")
-                                            navController.navigate("OtherWebPage/$encodedUrl")
+                                            navController.navigate("MineHistoryPostPage?url=$encodedUrl")
                                         }
                                     }
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -724,7 +755,9 @@ fun HistoryPage(navController: NavController) {
                                     ) {
                                         val metaText = buildString {
                                             if (entry.author.isNotBlank()) append(entry.author)
-                                            if (entry.author.isNotBlank() && entry.section.isNotBlank()) append(" · ")
+                                            if (entry.author.isNotBlank() && entry.section.isNotBlank()) append(
+                                                " · "
+                                            )
                                             if (entry.section.isNotBlank()) append(entry.section)
                                         }
                                         if (metaText.isNotBlank()) {
@@ -741,12 +774,13 @@ fun HistoryPage(navController: NavController) {
                                         Text(
                                             text = formatEntryTime(entry.timestamp),
                                             fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                alpha = 0.7f
+                                            )
                                         )
                                     }
                                 }
 
-                                // Swipe hint or delete button in manage mode
                                 if (!isManageMode) {
                                     Spacer(modifier = Modifier.width(8.dp))
                                     IconButton(
@@ -760,7 +794,9 @@ fun HistoryPage(navController: NavController) {
                                         Icon(
                                             Icons.Default.Close,
                                             contentDescription = "删除",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                alpha = 0.4f
+                                            ),
                                             modifier = Modifier.size(16.dp)
                                         )
                                     }
@@ -774,7 +810,7 @@ fun HistoryPage(navController: NavController) {
                     }
 
                     item {
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(navBarPadding + 16.dp))
                     }
                 }
             }

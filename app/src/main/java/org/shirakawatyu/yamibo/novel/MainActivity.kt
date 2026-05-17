@@ -67,6 +67,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -136,6 +137,7 @@ import kotlin.text.RegexOption
 import kotlin.coroutines.resume
 import androidx.core.graphics.toColorInt
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import org.shirakawatyu.yamibo.novel.util.reader.rememberScreenCorner
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cookies")
 private val QuickActionHintShownKey = booleanPreferencesKey("quick_action_hint_shown")
@@ -781,272 +783,189 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
             color = MaterialTheme.colorScheme.background
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-            if (isAppInitialized) {
-                Box(contentAlignment = Alignment.TopCenter) {
-                    val navController = rememberNavController()
-                    val enterEasing = FastOutSlowInEasing
-                    val exitEasing = FastOutLinearInEasing
-                    val enterDuration = 380
-                    val exitDuration = 300
-                    val stateOwner = LocalViewModelStoreOwner.current
-                    val navBackStackEntry by navController.currentBackStackEntryAsState()
-                    val currentRoute = navBackStackEntry?.destination?.route
-                    val bottomNavBarVM: BottomNavBarVM = viewModel(stateOwner!!)
+                if (isAppInitialized) {
+                    Box(contentAlignment = Alignment.TopCenter) {
+                        val navController = rememberNavController()
+                        val enterEasing = FastOutSlowInEasing
+                        val exitEasing = FastOutLinearInEasing
+                        val enterDuration = 380
+                        val exitDuration = 300
+                        val stateOwner = LocalViewModelStoreOwner.current
+                        val navBackStackEntry by navController.currentBackStackEntryAsState()
+                        val currentRoute = navBackStackEntry?.destination?.route
+                        val bottomNavBarVM: BottomNavBarVM = viewModel(stateOwner!!)
 
-                    // 手动触发更新检查（来自 MinePage 长按操作）
-                    LaunchedEffect(bottomNavBarVM) {
-                        bottomNavBarVM.checkUpdateEvent.collect {
-                            val info = withContext(Dispatchers.IO) { UpdateManager.checkForUpdate() }
-                            if (info != null) {
-                                val skipped = suspendCancellableCoroutine { cont ->
-                                    SettingsUtil.getSkipVersion { cont.resume(it) }
-                                }
-                                if (info.versionName != skipped) {
-                                    updateInfo = info
-                                    showUpdateDialog = true
-                                }
-                            }
-                        }
-                    }
-
-                    // Deep link: 从其他 app 点击百合会链接跳转进来
-                    LaunchedEffect(Unit) {
-                        GlobalData.pendingDeepLinkUrl.collect { url ->
-                            if (url == null) return@collect
-                            GlobalData.pendingClipboardUrl.value = url
-                            GlobalData.lastClipboardUrl = url
-                            GlobalData.pendingDeepLinkUrl.value = null
-                            if (navController.currentDestination?.route != "BBSPage") {
-                                navController.navigate("BBSPage") {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        }
-                    }
-
-                    var isQuickActionSheetVisible by remember { mutableStateOf(false) }
-                    val context = LocalContext.current
-                    val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
-                    val selectedItemIndex =
-                        pageList.indexOf(currentRoute ?: homeRoute).coerceAtLeast(0)
-
-                    LaunchedEffect(
-                        bbsWebView,
-                        isNetworkAvailable,
-                        homeRoute,
-                        BBSPageState.needsResumeRecovery
-                    ) {
-                        if (bbsWebView != null &&
-                            isNetworkAvailable &&
-                            !BBSPageState.hasSuccessfullyLoaded &&
-                            !BBSPageState.needsResumeRecovery
-                        ) {
-                            try {
-                                CookieManager.getInstance()
-                                    .setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
-                                CookieManager.getInstance().flush()
-                                val targetUrl =
-                                    BBSPageState.currentUrl?.takeIf { BBSPageState.isUsableBbsUrl(it) }
-                                        ?: "https://bbs.yamibo.com/forum.php?mobile=2"
-                                bbsWebView.loadUrl(targetUrl)
-                                BBSPageState.isLoading = true
-                                launch {
-                                    delay(18000)
-                                    if (BBSPageState.isLoading) {
-                                        bbsWebView.stopLoading()
-                                        BBSPageState.isErrorState = true
-                                        BBSPageState.isLoading = false
-                                        BBSPageState.showLoadError = true
-                                        BBSPageState.requestResumeRecovery()
+                        // 手动触发更新检查（来自 MinePage 长按操作）
+                        LaunchedEffect(bottomNavBarVM) {
+                            bottomNavBarVM.checkUpdateEvent.collect {
+                                val info = withContext(Dispatchers.IO) { UpdateManager.checkForUpdate() }
+                                if (info != null) {
+                                    val skipped = suspendCancellableCoroutine { cont ->
+                                        SettingsUtil.getSkipVersion { cont.resume(it) }
+                                    }
+                                    if (info.versionName != skipped) {
+                                        updateInfo = info
+                                        showUpdateDialog = true
                                     }
                                 }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
                             }
                         }
-                    }
 
-
-                    val density = androidx.compose.ui.platform.LocalDensity.current.density
-
-                    val initialNavHeight = remember(context, density) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            val wm =
-                                context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                            val insets =
-                                wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
-                                    android.view.WindowInsets.Type.navigationBars() or android.view.WindowInsets.Type.displayCutout()
-                                )
-                            insets.bottom / density
-                        } else {
-                            0f
-                        }
-                    }
-
-                    val navBarsPadding =
-                        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                    val currentPaddingValue = navBarsPadding.value
-
-                    var lockedNavHeightValue by rememberSaveable {
-                        mutableFloatStateOf(
-                            initialNavHeight
-                        )
-                    }
-
-                    SideEffect {
-                        if (currentPaddingValue > lockedNavHeightValue) {
-                            lockedNavHeightValue = currentPaddingValue
-                        }
-                    }
-
-                    val lockedNavHeight = maxOf(currentPaddingValue, lockedNavHeightValue).dp
-
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        val darkTheme = currentDarkThemeColors()
-                        val isDark = darkTheme != null
-                        val statusBarColor = when {
-                            currentRoute == "FavoritePage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.onSurface
-                            currentRoute == "BBSPage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
-                            currentRoute == "MinePage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
-                            currentRoute?.startsWith("OtherWebPage") == true -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
-                            currentRoute == "HistoryPage" -> if (isDark) darkTheme!!.statusBar else ComposeColor(0xFFF5F5F5)
-                            else -> null
-                        }
-                        if (statusBarColor != null) {
-                            SetStatusBarColor(statusBarColor)
-                        }
-                        val topLevelRoutes = listOf("FavoritePage", "BBSPage", "MinePage")
-                        NavHost(
-                            modifier = Modifier.fillMaxSize(),
-                            navController = navController,
-                            startDestination = homeRoute
-                        ) {
-                            composable(
-                                "FavoritePage",
-                                enterTransition = {
-                                    if (initialState.destination.route in topLevelRoutes) EnterTransition.None
-                                    else fadeIn(tween(150))
-                                },
-                                exitTransition = {
-                                    if (targetState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideOutHorizontally(
-                                            targetOffsetX = { -it / 3 },
-                                            animationSpec = tween(
-                                                enterDuration,
-                                                easing = enterEasing
-                                            )
-                                        )
-                                    } else if (targetState.destination.route?.startsWith("NativeMangaPage") == true || targetState.destination.route in topLevelRoutes) {
-                                        ExitTransition.None
-                                    } else fadeOut(tween(150))
-                                },
-                                popEnterTransition = {
-                                    if (initialState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideInHorizontally(
-                                            initialOffsetX = { -it / 3 },
-                                            animationSpec = tween(exitDuration, easing = exitEasing)
-                                        )
-                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
-                                        EnterTransition.None
-                                    } else fadeIn(tween(150))
-                                },
-                                popExitTransition = {
-                                    if (targetState.destination.route in topLevelRoutes) ExitTransition.None
-                                    else fadeOut(tween(150))
+                        // Deep link: 从其他 app 点击百合会链接跳转进来
+                        LaunchedEffect(Unit) {
+                            GlobalData.pendingDeepLinkUrl.collect { url ->
+                                if (url == null) return@collect
+                                GlobalData.pendingClipboardUrl.value = url
+                                GlobalData.lastClipboardUrl = url
+                                GlobalData.pendingDeepLinkUrl.value = null
+                                if (navController.currentDestination?.route != "BBSPage") {
+                                    navController.navigate("BBSPage") {
+                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
+                            }
+                        }
+
+                        var isQuickActionSheetVisible by remember { mutableStateOf(false) }
+                        val context = LocalContext.current
+                        val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
+                        val selectedItemIndex =
+                            pageList.indexOf(currentRoute ?: homeRoute).coerceAtLeast(0)
+
+                        LaunchedEffect(
+                            bbsWebView,
+                            isNetworkAvailable,
+                            homeRoute,
+                            BBSPageState.needsResumeRecovery
+                        ) {
+                            if (bbsWebView != null &&
+                                isNetworkAvailable &&
+                                !BBSPageState.hasSuccessfullyLoaded &&
+                                !BBSPageState.needsResumeRecovery
                             ) {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    FavoritePage(
-                                        viewModel(
-                                            stateOwner,
-                                            factory = ViewModelFactory(context.applicationContext)
-                                        ),
-                                        navController
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomCenter)
-                                            .padding(bottom = lockedNavHeight)
-                                    ) {
-                                        BottomNavBar(
-                                            navController = navController,
-                                            currentRoute = "FavoritePage",
-                                            navBarVM = bottomNavBarVM,
-                                            onQuickActionSheetVisibleChange = { isQuickActionSheetVisible = it }
-                                        )
+                                try {
+                                    CookieManager.getInstance()
+                                        .setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
+                                    CookieManager.getInstance().flush()
+                                    val targetUrl =
+                                        BBSPageState.currentUrl?.takeIf { BBSPageState.isUsableBbsUrl(it) }
+                                            ?: "https://bbs.yamibo.com/forum.php?mobile=2"
+                                    bbsWebView.loadUrl(targetUrl)
+                                    BBSPageState.isLoading = true
+                                    launch {
+                                        delay(18000)
+                                        if (BBSPageState.isLoading) {
+                                            bbsWebView.stopLoading()
+                                            BBSPageState.isErrorState = true
+                                            BBSPageState.isLoading = false
+                                            BBSPageState.showLoadError = true
+                                            BBSPageState.requestResumeRecovery()
+                                        }
                                     }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+                        }
 
-                                    val isContentPage = currentRoute?.run {
-                                        startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith(
-                                            "MangaWebPage"
-                                        ) || startsWith("OtherWebPage")
-                                    } == true
-                                    val maskAlpha by animateFloatAsState(
-                                        targetValue = if (isContentPage) 0.5f else 0f,
-                                        animationSpec = tween(
-                                            if (isContentPage) enterDuration else exitDuration,
-                                            easing = if (isContentPage) enterEasing else exitEasing
-                                        ),
-                                        label = "FavoriteMask"
+
+                        val density = androidx.compose.ui.platform.LocalDensity.current.density
+
+                        val initialNavHeight = remember(context, density) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                val wm =
+                                    context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                                val insets =
+                                    wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
+                                        android.view.WindowInsets.Type.navigationBars() or android.view.WindowInsets.Type.displayCutout()
                                     )
-                                    if (maskAlpha > 0f) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(
-                                                    androidx.compose.ui.graphics.Color.Black.copy(
-                                                        alpha = maskAlpha
-                                                    )
+                                insets.bottom / density
+                            } else {
+                                0f
+                            }
+                        }
+
+                        val navBarsPadding =
+                            WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                        val currentPaddingValue = navBarsPadding.value
+
+                        var lockedNavHeightValue by rememberSaveable {
+                            mutableFloatStateOf(
+                                initialNavHeight
+                            )
+                        }
+
+                        SideEffect {
+                            if (currentPaddingValue > lockedNavHeightValue) {
+                                lockedNavHeightValue = currentPaddingValue
+                            }
+                        }
+
+                        val lockedNavHeight = maxOf(currentPaddingValue, lockedNavHeightValue).dp
+
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            val darkTheme = currentDarkThemeColors()
+                            val isDark = darkTheme != null
+                            val statusBarColor = when {
+                                currentRoute == "FavoritePage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.onSurface
+                                currentRoute == "BBSPage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
+                                currentRoute == "MinePage" || currentRoute?.startsWith("MineHistoryPostPage") == true -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
+                                currentRoute?.startsWith("OtherWebPage") == true -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
+                                currentRoute == "HistoryPage" -> if (isDark) darkTheme!!.statusBar else ComposeColor(0xFFF5F5F5)
+                                else -> null
+                            }
+                            if (statusBarColor != null) {
+                                SetStatusBarColor(statusBarColor)
+                            }
+                            val topLevelRoutes = listOf("FavoritePage", "BBSPage", "MinePage")
+                            NavHost(
+                                modifier = Modifier.fillMaxSize(),
+                                navController = navController,
+                                startDestination = homeRoute
+                            ) {
+                                composable(
+                                    "FavoritePage",
+                                    enterTransition = {
+                                        if (initialState.destination.route in topLevelRoutes) EnterTransition.None
+                                        else fadeIn(tween(150))
+                                    },
+                                    exitTransition = {
+                                        if (targetState.destination.route?.run { startsWith("ReaderPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage") } == true) {
+                                            slideOutHorizontally(
+                                                targetOffsetX = { -it / 3 },
+                                                animationSpec = tween(
+                                                    enterDuration,
+                                                    easing = enterEasing
                                                 )
-                                        )
-                                    }
-                                }
-                            }
-                            composable(
-                                "BBSPage",
-                                enterTransition = {
-                                    if (initialState.destination.route in topLevelRoutes) EnterTransition.None
-                                    else fadeIn(tween(150))
-                                },
-                                exitTransition = {
-                                    if (targetState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideOutHorizontally(
-                                            targetOffsetX = { -it / 3 },
-                                            animationSpec = tween(
-                                                enterDuration,
-                                                easing = enterEasing
                                             )
-                                        )
-                                    } else if (targetState.destination.route in topLevelRoutes) {
-                                        ExitTransition.None
-                                    } else fadeOut(tween(150))
-                                },
-                                popEnterTransition = {
-                                    if (initialState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideInHorizontally(
-                                            initialOffsetX = { -it / 3 },
-                                            animationSpec = tween(exitDuration, easing = exitEasing)
-                                        )
-                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
-                                        EnterTransition.None
-                                    } else if (initialState.destination.route in topLevelRoutes) {
-                                        EnterTransition.None
-                                    } else fadeIn(tween(150))
-                                },
-                                popExitTransition = {
-                                    if (targetState.destination.route in topLevelRoutes) {
-                                        ExitTransition.None
-                                    } else fadeOut(tween(150))
-                                }
-                            ) {
-                                if (bbsWebView != null) {
+                                        } else if (targetState.destination.route?.startsWith("NativeMangaPage") == true || targetState.destination.route in topLevelRoutes) {
+                                            ExitTransition.None
+                                        } else fadeOut(tween(150))
+                                    },
+                                    popEnterTransition = {
+                                        if (initialState.destination.route?.run { startsWith("ReaderPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage") } == true) {
+                                            slideInHorizontally(
+                                                initialOffsetX = { -it / 3 },
+                                                animationSpec = tween(exitDuration, easing = exitEasing)
+                                            )
+                                        } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
+                                            EnterTransition.None
+                                        } else fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                        if (targetState.destination.route in topLevelRoutes) ExitTransition.None
+                                        else fadeOut(tween(150))
+                                    }
+                                ) {
                                     Box(modifier = Modifier.fillMaxSize()) {
-                                        BBSPage(
-                                            webView = bbsWebView,
-                                            isSelected = selectedItemIndex == 1,
-                                            navController = navController
+                                        FavoritePage(
+                                            viewModel(
+                                                stateOwner,
+                                                factory = ViewModelFactory(context.applicationContext)
+                                            ),
+                                            navController
                                         )
                                         Box(
                                             modifier = Modifier
@@ -1055,7 +974,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                         ) {
                                             BottomNavBar(
                                                 navController = navController,
-                                                currentRoute = "BBSPage",
+                                                currentRoute = "FavoritePage",
                                                 navBarVM = bottomNavBarVM,
                                                 onQuickActionSheetVisibleChange = { isQuickActionSheetVisible = it }
                                             )
@@ -1064,7 +983,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                         val isContentPage = currentRoute?.run {
                                             startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith(
                                                 "MangaWebPage"
-                                            ) || startsWith("OtherWebPage")
+                                            ) || startsWith("OtherWebPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage")
                                         } == true
                                         val maskAlpha by animateFloatAsState(
                                             targetValue = if (isContentPage) 0.5f else 0f,
@@ -1072,7 +991,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                                 if (isContentPage) enterDuration else exitDuration,
                                                 easing = if (isContentPage) enterEasing else exitEasing
                                             ),
-                                            label = "BBSMask"
+                                            label = "FavoriteMask"
                                         )
                                         if (maskAlpha > 0f) {
                                             Box(
@@ -1086,316 +1005,546 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                             )
                                         }
                                     }
-                                } else {
-                                    Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(color = darkThemeColor(YamiboColors.secondary) { surfaceVariant })
-                                    }
                                 }
-                            }
-                            composable(
-                                "MinePage",
-                                enterTransition = {
-                                    if (initialState.destination.route in topLevelRoutes) EnterTransition.None
-                                    else fadeIn(tween(150))
-                                },
-                                exitTransition = {
-                                    if (targetState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideOutHorizontally(
-                                            targetOffsetX = { -it / 3 },
-                                            animationSpec = tween(
-                                                enterDuration,
-                                                easing = enterEasing
+                                composable(
+                                    "BBSPage",
+                                    enterTransition = {
+                                        if (initialState.destination.route in topLevelRoutes) EnterTransition.None
+                                        else fadeIn(tween(150))
+                                    },
+                                    exitTransition = {
+                                        if (targetState.destination.route?.run { startsWith("ReaderPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage") } == true) {
+                                            slideOutHorizontally(
+                                                targetOffsetX = { -it / 3 },
+                                                animationSpec = tween(
+                                                    enterDuration,
+                                                    easing = enterEasing
+                                                )
                                             )
-                                        )
-                                    } else if (targetState.destination.route in topLevelRoutes) {
-                                        ExitTransition.None
-                                    } else fadeOut(tween(150))
-                                },
-                                popEnterTransition = {
-                                    if (initialState.destination.route?.startsWith("ReaderPage") == true) {
-                                        slideInHorizontally(
-                                            initialOffsetX = { -it / 3 },
-                                            animationSpec = tween(exitDuration, easing = exitEasing)
-                                        )
-                                    } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
-                                        EnterTransition.None
-                                    } else fadeIn(tween(150))
-                                },
-                                popExitTransition = {
-                                    if (targetState.destination.route in topLevelRoutes) ExitTransition.None
-                                    else fadeOut(tween(150))
-                                }
-                            ) {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    MinePage(
-                                        isSelected = selectedItemIndex == 2,
-                                        navController = navController,
-                                        webChromeClient = webChromeClient
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomCenter)
-                                            .padding(bottom = lockedNavHeight)
-                                    ) {
-                                        BottomNavBar(
-                                            navController = navController,
-                                            currentRoute = "MinePage",
-                                            navBarVM = bottomNavBarVM,
-                                            onQuickActionSheetVisibleChange = { isQuickActionSheetVisible = it }
-                                        )
+                                        } else if (targetState.destination.route in topLevelRoutes) {
+                                            ExitTransition.None
+                                        } else fadeOut(tween(150))
+                                    },
+                                    popEnterTransition = {
+                                        if (initialState.destination.route?.run { startsWith("ReaderPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage") } == true) {
+                                            slideInHorizontally(
+                                                initialOffsetX = { -it / 3 },
+                                                animationSpec = tween(exitDuration, easing = exitEasing)
+                                            )
+                                        } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true) {
+                                            EnterTransition.None
+                                        } else if (initialState.destination.route in topLevelRoutes) {
+                                            EnterTransition.None
+                                        } else fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                        if (targetState.destination.route in topLevelRoutes) {
+                                            ExitTransition.None
+                                        } else fadeOut(tween(150))
                                     }
+                                ) {
+                                    if (bbsWebView != null) {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            BBSPage(
+                                                webView = bbsWebView,
+                                                isSelected = selectedItemIndex == 1,
+                                                navController = navController
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomCenter)
+                                                    .padding(bottom = lockedNavHeight)
+                                            ) {
+                                                BottomNavBar(
+                                                    navController = navController,
+                                                    currentRoute = "BBSPage",
+                                                    navBarVM = bottomNavBarVM,
+                                                    onQuickActionSheetVisibleChange = { isQuickActionSheetVisible = it }
+                                                )
+                                            }
 
-                                    val isContentPage = currentRoute?.run {
-                                        startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith(
-                                            "MangaWebPage"
-                                        ) || startsWith("OtherWebPage")
-                                    } == true
-                                    val maskAlpha by animateFloatAsState(
-                                        targetValue = if (isContentPage) 0.5f else 0f,
-                                        animationSpec = tween(
-                                            if (isContentPage) enterDuration else exitDuration,
-                                            easing = if (isContentPage) enterEasing else exitEasing
-                                        ),
-                                        label = "MineMask"
-                                    )
-                                    if (maskAlpha > 0f) {
+                                            val isContentPage = currentRoute?.run {
+                                                startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith(
+                                                    "MangaWebPage"
+                                                ) || startsWith("OtherWebPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage")
+                                            } == true
+                                            val maskAlpha by animateFloatAsState(
+                                                targetValue = if (isContentPage) 0.5f else 0f,
+                                                animationSpec = tween(
+                                                    if (isContentPage) enterDuration else exitDuration,
+                                                    easing = if (isContentPage) enterEasing else exitEasing
+                                                ),
+                                                label = "BBSMask"
+                                            )
+                                            if (maskAlpha > 0f) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(
+                                                            androidx.compose.ui.graphics.Color.Black.copy(
+                                                                alpha = maskAlpha
+                                                            )
+                                                        )
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(color = darkThemeColor(YamiboColors.secondary) { surfaceVariant })
+                                        }
+                                    }
+                                }
+                                composable(
+                                    "MinePage",
+                                    enterTransition = {
+                                        if (initialState.destination.route in topLevelRoutes) EnterTransition.None
+                                        else fadeIn(tween(150))
+                                    },
+                                    exitTransition = {
+                                        if (targetState.destination.route?.run { startsWith("ReaderPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage") } == true) {
+                                            slideOutHorizontally(
+                                                targetOffsetX = { -it / 3 },
+                                                animationSpec = tween(
+                                                    enterDuration,
+                                                    easing = enterEasing
+                                                )
+                                            )
+                                        } else if (targetState.destination.route in topLevelRoutes) {
+                                            ExitTransition.None
+                                        } else fadeOut(tween(150))
+                                    },
+                                    popEnterTransition = {
+                                        if (initialState.destination.route?.run { startsWith("ReaderPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage") } == true) {
+                                            slideInHorizontally(
+                                                initialOffsetX = { -it / 3 },
+                                                animationSpec = tween(exitDuration, easing = exitEasing)
+                                            )
+                                        } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
+                                            EnterTransition.None
+                                        } else fadeIn(tween(150))
+                                    },
+                                    popExitTransition = {
+                                        if (targetState.destination.route in topLevelRoutes) ExitTransition.None
+                                        else fadeOut(tween(150))
+                                    }
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        MinePage(
+                                            isSelected = selectedItemIndex == 2,
+                                            navController = navController,
+                                            webChromeClient = webChromeClient
+                                        )
                                         Box(
                                             modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(
-                                                    androidx.compose.ui.graphics.Color.Black.copy(
-                                                        alpha = maskAlpha
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = "MinePage",
+                                                navBarVM = bottomNavBarVM,
+                                                onQuickActionSheetVisibleChange = { isQuickActionSheetVisible = it }
+                                            )
+                                        }
+
+                                        val isContentPage = currentRoute?.run {
+                                            startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith(
+                                                "MangaWebPage"
+                                            ) || startsWith("OtherWebPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage")
+                                        } == true
+                                        val maskAlpha by animateFloatAsState(
+                                            targetValue = if (isContentPage) 0.5f else 0f,
+                                            animationSpec = tween(
+                                                if (isContentPage) enterDuration else exitDuration,
+                                                easing = if (isContentPage) enterEasing else exitEasing
+                                            ),
+                                            label = "MineMask"
+                                        )
+                                        if (maskAlpha > 0f) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(
+                                                        androidx.compose.ui.graphics.Color.Black.copy(
+                                                            alpha = maskAlpha
+                                                        )
                                                     )
-                                                )
-                                        )
+                                            )
+                                        }
                                     }
                                 }
-                            }
-                            composable(
-                                "ReaderPage/{passageUrl}",
-                                arguments = listOf(navArgument("passageUrl") {
-                                    type = NavType.StringType
-                                }),
-                                enterTransition = {
-                                    slideIntoContainer(
-                                        towards = AnimatedContentTransitionScope.SlideDirection.Left,
-                                        animationSpec = tween(enterDuration, easing = enterEasing)
-                                    )
-                                },
-                                popExitTransition = {
-                                    slideOutOfContainer(
-                                        towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                                        animationSpec = tween(exitDuration, easing = exitEasing)
-                                    )
-                                }
-                            ) {
-                                it.arguments?.getString("passageUrl")?.let { url ->
-                                    Box(modifier = Modifier.fillMaxSize()) {
-                                        ReaderPage(
-                                            url = URLDecoder.decode(url, "utf-8"),
-                                            navController = navController
+                                composable(
+                                    "ReaderPage/{passageUrl}",
+                                    arguments = listOf(navArgument("passageUrl") {
+                                        type = NavType.StringType
+                                    }),
+                                    enterTransition = {
+                                        slideIntoContainer(
+                                            towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                                            animationSpec = tween(enterDuration, easing = enterEasing)
                                         )
-                                    }
-                                }
-                            }
-                            composable(
-                                "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}&initialPage={initialPage}",
-                                arguments = listOf(
-                                    navArgument("url") { type = NavType.StringType },
-                                    navArgument("originalUrl") { type = NavType.StringType },
-                                    navArgument("fastForward") {
-                                        type = NavType.BoolType; defaultValue = false
                                     },
-                                    navArgument("initialPage") {
-                                        type = NavType.IntType; defaultValue = 0
-                                    }
-                                ),
-                                enterTransition = {
-                                    if (initialState.destination.route?.startsWith("ProbingPage") == true || initialState.destination.route?.startsWith(
-                                            "FavoritePage"
-                                        ) == true
-                                    ) EnterTransition.None
-                                    else fadeIn(tween(150))
-                                },
-                                exitTransition = {
-                                    if (targetState.destination.route?.startsWith("NativeMangaPage") == true) ExitTransition.None
-                                    else fadeOut(tween(150))
-                                },
-                                popEnterTransition = {
-                                    if (initialState.destination.route?.startsWith("NativeMangaPage") == true) EnterTransition.None
-                                    else fadeIn(tween(150))
-                                }
-                            ) {
-                                val loadUrl =
-                                    URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
-                                val originalUrl = URLDecoder.decode(
-                                    it.arguments?.getString("originalUrl") ?: "",
-                                    "utf-8"
-                                )
-                                val fastForward = it.arguments?.getBoolean("fastForward") ?: false
-                                val initialPage = it.arguments?.getInt("initialPage") ?: 0
-
-                                MangaWebPage(
-                                    url = loadUrl,
-                                    originalFavoriteUrl = originalUrl,
-                                    navController = navController,
-                                    webChromeClient = webChromeClient,
-                                    isFastForward = fastForward,
-                                    initialPage = initialPage
-                                )
-                            }
-                            composable(
-                                "OtherWebPage/{url}",
-                                arguments = listOf(navArgument("url") { type = NavType.StringType })
-                            ) {
-                                it.arguments?.getString("url")?.let { url ->
-                                    OtherWebPage(
-                                        url = URLDecoder.decode(url, "utf-8"),
-                                        navController = navController,
-                                        webChromeClient = webChromeClient
-                                    )
-                                }
-                            }
-                            composable(
-                                "ProbingPage/{url}",
-                                arguments = listOf(navArgument("url") { type = NavType.StringType })
-                            ) {
-                                val url =
-                                    URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
-                                ProbingPage(url, navController)
-                            }
-                            composable("HistoryPage") {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    HistoryPage(navController = navController)
-                                }
-                            }
-                            composable(
-                                route = "NativeMangaPage?url={url}&originalUrl={originalUrl}",
-                                arguments = listOf(
-                                    navArgument("url") { defaultValue = "" },
-                                    navArgument("originalUrl") { defaultValue = "" }
-                                ),
-                                enterTransition = {
-                                    scaleIn(
-                                        initialScale = 0.50f,
-                                        animationSpec = tween(300, easing = FastOutSlowInEasing)
-                                    ) + fadeIn(
-                                        animationSpec = tween(
-                                            300,
-                                            easing = FastOutSlowInEasing
+                                    popExitTransition = {
+                                        slideOutOfContainer(
+                                            towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                                            animationSpec = tween(exitDuration, easing = exitEasing)
                                         )
+                                    }
+                                ) {
+                                    it.arguments?.getString("passageUrl")?.let { url ->
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            ReaderPage(
+                                                url = URLDecoder.decode(url, "utf-8"),
+                                                navController = navController
+                                            )
+                                        }
+                                    }
+                                }
+                                composable(
+                                    "MangaWebPage/{url}/{originalUrl}?fastForward={fastForward}&initialPage={initialPage}",
+                                    arguments = listOf(
+                                        navArgument("url") { type = NavType.StringType },
+                                        navArgument("originalUrl") { type = NavType.StringType },
+                                        navArgument("fastForward") {
+                                            type = NavType.BoolType; defaultValue = false
+                                        },
+                                        navArgument("initialPage") {
+                                            type = NavType.IntType; defaultValue = 0
+                                        }
+                                    ),
+                                    enterTransition = {
+                                        if (initialState.destination.route?.startsWith("ProbingPage") == true || initialState.destination.route?.startsWith(
+                                                "FavoritePage"
+                                            ) == true
+                                        ) EnterTransition.None
+                                        else fadeIn(tween(150))
+                                    },
+                                    exitTransition = {
+                                        if (targetState.destination.route?.startsWith("NativeMangaPage") == true) ExitTransition.None
+                                        else fadeOut(tween(150))
+                                    },
+                                    popEnterTransition = {
+                                        if (initialState.destination.route?.startsWith("NativeMangaPage") == true) EnterTransition.None
+                                        else fadeIn(tween(150))
+                                    }
+                                ) {
+                                    val loadUrl =
+                                        URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
+                                    val originalUrl = URLDecoder.decode(
+                                        it.arguments?.getString("originalUrl") ?: "",
+                                        "utf-8"
                                     )
-                                },
-                                exitTransition = { ExitTransition.None },
-                                popEnterTransition = { EnterTransition.None },
-                                popExitTransition = {
-                                    scaleOut(
-                                        targetScale = 0.8f,
-                                        animationSpec = tween(250, easing = FastOutSlowInEasing)
-                                    ) + fadeOut(
-                                        targetAlpha = 0.01f,
-                                        animationSpec = tween(250, easing = FastOutSlowInEasing)
+                                    val fastForward = it.arguments?.getBoolean("fastForward") ?: false
+                                    val initialPage = it.arguments?.getInt("initialPage") ?: 0
+
+                                    MangaWebPage(
+                                        url = loadUrl,
+                                        originalFavoriteUrl = originalUrl,
+                                        navController = navController,
+                                        webChromeClient = webChromeClient,
+                                        isFastForward = fastForward,
+                                        initialPage = initialPage
                                     )
                                 }
-                            ) { backStackEntry ->
-                                val url = backStackEntry.arguments?.getString("url") ?: ""
-                                val originalUrl = backStackEntry.arguments?.getString("originalUrl")
-                                    ?.takeIf { it.isNotBlank() } ?: url
+                                composable(
+                                    "OtherWebPage/{url}",
+                                    arguments = listOf(navArgument("url") { type = NavType.StringType })
+                                ) {
+                                    it.arguments?.getString("url")?.let { url ->
+                                        OtherWebPage(
+                                            url = URLDecoder.decode(url, "utf-8"),
+                                            navController = navController,
+                                            webChromeClient = webChromeClient
+                                        )
+                                    }
+                                }
+                                composable(
+                                    "ProbingPage/{url}",
+                                    arguments = listOf(navArgument("url") { type = NavType.StringType })
+                                ) {
+                                    val url =
+                                        URLDecoder.decode(it.arguments?.getString("url") ?: "", "utf-8")
+                                    ProbingPage(url, navController)
+                                }
+                                composable(
+                                    route = "HistoryPage",
+                                    enterTransition = {
+                                        slideIntoContainer(
+                                            towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                                            animationSpec = tween(enterDuration, easing = enterEasing)
+                                        )
+                                    },
+                                    exitTransition = {
+                                        if (targetState.destination.route?.startsWith("MineHistoryPostPage") == true) {
+                                            slideOutHorizontally(
+                                                targetOffsetX = { -it / 3 },
+                                                animationSpec = tween(enterDuration, easing = enterEasing)
+                                            )
+                                        } else {
+                                            fadeOut(tween(150))
+                                        }
+                                    },
+                                    popEnterTransition = {
+                                        if (initialState.destination.route?.startsWith("MineHistoryPostPage") == true) {
+                                            slideInHorizontally(
+                                                initialOffsetX = { -it / 3 },
+                                                animationSpec = tween(exitDuration, easing = exitEasing)
+                                            )
+                                        } else {
+                                            fadeIn(tween(150))
+                                        }
+                                    },
+                                    popExitTransition = {
+                                        slideOutOfContainer(
+                                            towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                                            animationSpec = tween(exitDuration, easing = exitEasing)
+                                        )
+                                    }
+                                ) {
+                                    // 1. 获取动态物理屏幕圆角
+                                    val screenCorner = rememberScreenCorner()
+                                    // 2. 仅对左上、左下应用圆角裁剪，保持与 ReaderPage 完全一致的抽屉感
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(RoundedCornerShape(topStart = screenCorner, bottomStart = screenCorner))
+                                    ) {
+                                        HistoryPage(navController = navController)
 
-                                NativeMangaPage(
-                                    url = url,
-                                    originalUrl = originalUrl,
-                                    navController = navController
+                                        val isContentPage = currentRoute?.startsWith("MineHistoryPostPage") == true
+                                        val maskAlpha by animateFloatAsState(
+                                            targetValue = if (isContentPage) 0.5f else 0f,
+                                            animationSpec = tween(
+                                                if (isContentPage) enterDuration else exitDuration,
+                                                easing = if (isContentPage) enterEasing else exitEasing
+                                            ),
+                                            label = "HistoryMask"
+                                        )
+                                        if (maskAlpha > 0f) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(
+                                                        androidx.compose.ui.graphics.Color.Black.copy(
+                                                            alpha = maskAlpha
+                                                        )
+                                                    )
+                                            )
+                                        }
+                                    }
+                                }
+                                composable(
+                                    route = "MineHistoryPostPage?url={url}",
+                                    arguments = listOf(navArgument("url") { defaultValue = "" }),
+                                    enterTransition = {
+                                        slideIntoContainer(
+                                            towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                                            animationSpec = tween(enterDuration, easing = enterEasing)
+                                        )
+                                    },
+                                    popExitTransition = {
+                                        slideOutOfContainer(
+                                            towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                                            animationSpec = tween(exitDuration, easing = exitEasing)
+                                        )
+                                    }
+                                ) { backStackEntry ->
+                                    val url = URLDecoder.decode(backStackEntry.arguments?.getString("url") ?: "", "utf-8")
+                                    // 1. 获取动态物理屏幕圆角
+                                    val screenCorner = rememberScreenCorner()
+                                    // 2. 同样仅对左侧应用圆角
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(RoundedCornerShape(topStart = screenCorner, bottomStart = screenCorner))
+                                    ) {
+                                        MinePage(
+                                            isSelected = true,
+                                            navController = navController,
+                                            webChromeClient = webChromeClient,
+                                            initUrl = url,
+                                            fromHistory = true
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = "MineHistoryPostPage",
+                                                navBarVM = bottomNavBarVM,
+                                                onQuickActionSheetVisibleChange = { isQuickActionSheetVisible = it }
+                                            )
+                                        }
+                                    }
+                                }
+                                composable(
+                                    route = "MineHistoryPostPage?url={url}",
+                                    arguments = listOf(navArgument("url") { defaultValue = "" }),
+                                    enterTransition = {
+                                        slideIntoContainer(
+                                            towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                                            animationSpec = tween(enterDuration, easing = enterEasing)
+                                        )
+                                    },
+                                    popExitTransition = {
+                                        slideOutOfContainer(
+                                            towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                                            animationSpec = tween(exitDuration, easing = exitEasing)
+                                        )
+                                    }
+                                ) { backStackEntry ->
+                                    val url = URLDecoder.decode(backStackEntry.arguments?.getString("url") ?: "", "utf-8")
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        MinePage(
+                                            isSelected = true,
+                                            navController = navController,
+                                            webChromeClient = webChromeClient,
+                                            initUrl = url,
+                                            fromHistory = true
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = lockedNavHeight)
+                                        ) {
+                                            BottomNavBar(
+                                                navController = navController,
+                                                currentRoute = "MineHistoryPostPage",
+                                                navBarVM = bottomNavBarVM,
+                                                onQuickActionSheetVisibleChange = { isQuickActionSheetVisible = it }
+                                            )
+                                        }
+                                    }
+                                }
+                                composable(
+                                    route = "NativeMangaPage?url={url}&originalUrl={originalUrl}",
+                                    arguments = listOf(
+                                        navArgument("url") { defaultValue = "" },
+                                        navArgument("originalUrl") { defaultValue = "" }
+                                    ),
+                                    enterTransition = {
+                                        scaleIn(
+                                            initialScale = 0.50f,
+                                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                                        ) + fadeIn(
+                                            animationSpec = tween(
+                                                300,
+                                                easing = FastOutSlowInEasing
+                                            )
+                                        )
+                                    },
+                                    exitTransition = { ExitTransition.None },
+                                    popEnterTransition = { EnterTransition.None },
+                                    popExitTransition = {
+                                        scaleOut(
+                                            targetScale = 0.8f,
+                                            animationSpec = tween(250, easing = FastOutSlowInEasing)
+                                        ) + fadeOut(
+                                            targetAlpha = 0.01f,
+                                            animationSpec = tween(250, easing = FastOutSlowInEasing)
+                                        )
+                                    }
+                                ) { backStackEntry ->
+                                    val url = backStackEntry.arguments?.getString("url") ?: ""
+                                    val originalUrl = backStackEntry.arguments?.getString("originalUrl")
+                                        ?.takeIf { it.isNotBlank() } ?: url
+
+                                    NativeMangaPage(
+                                        url = url,
+                                        originalUrl = originalUrl,
+                                        navController = navController
+                                    )
+                                }
+                            }
+
+                            QuickActionFirstLaunchHint(
+                                currentRoute = currentRoute ?: homeRoute,
+                                bottomPadding = lockedNavHeight + 58.dp,
+                                isQuickActionSheetVisible = isQuickActionSheetVisible
+                            )
+
+                            if (showClipboardHint && detectedClipboardUrl.isNotEmpty()) {
+                                ClipboardLinkHint(
+                                    url = detectedClipboardUrl,
+                                    lockedNavHeight = lockedNavHeight,
+                                    navController = navController,
+                                    currentRoute = currentRoute,
+                                    onDismiss = {
+                                        GlobalData.lastClipboardUrl = detectedClipboardUrl
+                                        showClipboardHint = false
+                                    }
                                 )
                             }
-                        }
-
-                        QuickActionFirstLaunchHint(
-                            currentRoute = currentRoute ?: homeRoute,
-                            bottomPadding = lockedNavHeight + 58.dp,
-                            isQuickActionSheetVisible = isQuickActionSheetVisible
-                        )
-
-                        if (showClipboardHint && detectedClipboardUrl.isNotEmpty()) {
-                            ClipboardLinkHint(
-                                url = detectedClipboardUrl,
-                                lockedNavHeight = lockedNavHeight,
-                                navController = navController,
-                                currentRoute = currentRoute,
-                                onDismiss = {
-                                    GlobalData.lastClipboardUrl = detectedClipboardUrl
-                                    showClipboardHint = false
-                                }
-                            )
-                        }
-                    }
-                }
-            } else {
-                val density = androidx.compose.ui.platform.LocalDensity.current.density
-                val initStatusHeight = remember(context, density) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                        val insets =
-                            wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
-                                android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
-                            )
-                        insets.top / density
-                    } else {
-                        24f
-                    }
-                }
-
-                val currentTopPadding =
-                    WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
-                val lockedTopPadding = maxOf(initStatusHeight, currentTopPadding).dp
-
-                if (homeRoute == "BBSPage" && !isRestoring) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Spacer(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(lockedTopPadding)
-                                .background(YamiboColors.primary)
-                                .align(Alignment.TopCenter)
-                                .zIndex(1f)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(top = lockedTopPadding)
-                        ) {
-                            BbsSkeletonScreen(modifier = Modifier.fillMaxSize())
                         }
                     }
                 } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!isRestoring) {
-                            CircularProgressIndicator(color = darkThemeColor(YamiboColors.secondary) { surfaceVariant })
+                    val density = androidx.compose.ui.platform.LocalDensity.current.density
+                    val initStatusHeight = remember(context, density) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                            val insets =
+                                wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
+                                    android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
+                                )
+                            insets.top / density
+                        } else {
+                            24f
                         }
                     }
-                }
-            } // isAppInitialized else 结束
 
-            // 更新弹窗 — 置于最外层 Box，脱离 if-else 分支，保证始终在视图树上
-            if (showUpdateDialog && updateInfo != null) {
-                UpdateDialog(
-                    info = updateInfo!!,
-                    onDismiss = { showUpdateDialog = false },
-                    onSkipVersion = { version ->
-                        skipVersion = version
-                        SettingsUtil.saveSkipVersion(version)
+                    val currentTopPadding =
+                        WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
+                    val lockedTopPadding = maxOf(initStatusHeight, currentTopPadding).dp
+
+                    if (homeRoute == "BBSPage" && !isRestoring) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Spacer(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(lockedTopPadding)
+                                    .background(YamiboColors.primary)
+                                    .align(Alignment.TopCenter)
+                                    .zIndex(1f)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = lockedTopPadding)
+                            ) {
+                                BbsSkeletonScreen(modifier = Modifier.fillMaxSize())
+                            }
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!isRestoring) {
+                                CircularProgressIndicator(color = darkThemeColor(YamiboColors.secondary) { surfaceVariant })
+                            }
+                        }
                     }
-                )
-            }
-        } // 外层 Box 结束
+                } // isAppInitialized else 结束
+
+                // 更新弹窗 — 置于最外层 Box，脱离 if-else 分支，保证始终在视图树上
+                if (showUpdateDialog && updateInfo != null) {
+                    UpdateDialog(
+                        info = updateInfo!!,
+                        onDismiss = { showUpdateDialog = false },
+                        onSkipVersion = { version ->
+                            skipVersion = version
+                            SettingsUtil.saveSkipVersion(version)
+                        }
+                    )
+                }
+            } // 外层 Box 结束
         }
     }
 }

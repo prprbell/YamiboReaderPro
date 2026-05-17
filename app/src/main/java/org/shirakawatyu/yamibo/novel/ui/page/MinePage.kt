@@ -24,6 +24,10 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -197,12 +201,39 @@ private var cachedHistoryApiMine: HistoryJSInterface? = null
 fun MinePage(
     isSelected: Boolean,
     navController: NavController,
-    webChromeClient: WebChromeClient
+    webChromeClient: WebChromeClient,
+    initUrl: String = "",
+    fromHistory: Boolean = false
 ) {
     val mineUrl = "https://bbs.yamibo.com/home.php?mod=space&do=profile&mycenter=1&mobile=2"
+    val context = LocalContext.current
+    val activity = context as? ComponentActivity
+    val minePageVM: MinePageVM = viewModel(viewModelStoreOwner = context as ComponentActivity)
 
     var canGoBack by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember {
+        mutableStateOf(run {
+            val cachedView = minePageVM.cachedWebView
+            val cachedUrl = cachedView?.url
+            if (fromHistory && initUrl.isNotBlank()) {
+                val decodedUrl = java.net.URLDecoder.decode(initUrl, "utf-8")
+                val safeUrl = if (decodedUrl.startsWith("http")) decodedUrl else "https://bbs.yamibo.com/${decodedUrl.removePrefix("/")}"
+
+                val targetTid = org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner.extractTidFromUrl(safeUrl)
+                val currentTid = org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner.extractTidFromUrl(cachedUrl ?: "")
+
+                val isSameThread = targetTid != null && targetTid == currentTid
+                val isSameUrl = cachedUrl == safeUrl || cachedUrl == "$safeUrl/"
+
+                // 如果没有命中缓存帖子，则保持 Loading 状态遮挡旧 DOM
+                !(isSameThread || isSameUrl)
+            } else if (!fromHistory) {
+                (cachedUrl == null || cachedView?.tag?.toString()?.startsWith("recycled") == true || cachedUrl == "about:blank" || (!cachedUrl.contains("mycenter=1") && cachedUrl != mineUrl))
+            } else {
+                true
+            }
+        })
+    }
     var showLoadError by remember { mutableStateOf(false) }
     var hasError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -279,13 +310,10 @@ fun MinePage(
         webView.loadUrl(url)
     }
 
-    val context = LocalContext.current
-    val activity = context as? ComponentActivity
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
-    val minePageVM: MinePageVM = viewModel(viewModelStoreOwner = context as ComponentActivity)
     DisposableEffect(Unit) {
         onDispose {
             val currentRoute = navController.currentDestination?.route ?: ""
@@ -378,17 +406,74 @@ fun MinePage(
         webView
     }
 
+    val rootHistoryIndex = remember { mineWebView.copyBackForwardList().currentIndex }
+
+    LaunchedEffect(mineWebView, isSelected, initUrl) {
+        if (fromHistory && initUrl.isNotBlank()) {
+            val decodedUrl = java.net.URLDecoder.decode(initUrl, "utf-8")
+            val safeUrl = if (decodedUrl.startsWith("http")) decodedUrl else "https://bbs.yamibo.com/${decodedUrl.removePrefix("/")}"
+
+            val currentWebViewUrl = mineWebView.url ?: ""
+            val targetTid = org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner.extractTidFromUrl(safeUrl)
+            val currentTid = org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner.extractTidFromUrl(currentWebViewUrl)
+
+            val isSameThread = targetTid != null && targetTid == currentTid
+            val isSameUrl = currentWebViewUrl == safeUrl || currentWebViewUrl == "$safeUrl/"
+
+            if (isSameThread || isSameUrl) {
+                isLoading = false
+                canGoBack = evaluateCanGoBack(mineWebView)
+            } else {
+                startLoading(mineWebView, safeUrl)
+            }
+        } else if (!fromHistory) {
+            val currentWebViewUrl = mineWebView.url
+            if (isSelected && (currentWebViewUrl == null || mineWebView.tag?.toString()
+                    ?.startsWith("recycled") == true || currentWebViewUrl == "about:blank"
+                        || (!currentWebViewUrl.contains("mycenter=1") && currentWebViewUrl != mineUrl))
+            ) {
+                mineWebView.tag = null
+                if (savedMangaUrl != null) {
+                    startLoading(mineWebView, savedMangaUrl!!)
+                    savedMangaUrl = null
+                    needFallbackToHome = true
+                } else {
+                    startLoading(mineWebView, mineUrl)
+                }
+            } else {
+                isLoading = false
+                canGoBack = evaluateCanGoBack(mineWebView)
+            }
+        }
+    }
+
     DisposableEffect(mineWebView) {
         onDispose {
+            if (fromHistory) {
+                val currentIndex = mineWebView.copyBackForwardList().currentIndex
+                val stepsBack = currentIndex - rootHistoryIndex
+                if (stepsBack > 0 && mineWebView.canGoBack()) {
+                    mineWebView.goBackOrForward(-stepsBack)
+                }
+            }
             minePageVM.scheduleRelease()
         }
     }
 
     nativeMangaApi.onGoBack = {
-        if (evaluateCanGoBack(mineWebView)) {
-            mineWebView.goBack()
+        if (fromHistory) {
+            val currentIndex = mineWebView.copyBackForwardList().currentIndex
+            if (currentIndex > rootHistoryIndex + 1 && mineWebView.canGoBack()) {
+                mineWebView.goBack()
+            } else {
+                navController.popBackStack()
+            }
         } else {
-            activity?.onBackPressedDispatcher?.onBackPressed()
+            if (evaluateCanGoBack(mineWebView)) {
+                mineWebView.goBack()
+            } else {
+                activity?.onBackPressedDispatcher?.onBackPressed()
+            }
         }
     }
 
@@ -441,6 +526,7 @@ fun MinePage(
                 if (autoOpenMangaMode) {
                     autoOpenMangaMode = false
                 }
+
                 mineWebView.onResume()
                 mineWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
             }
@@ -813,7 +899,9 @@ fun MinePage(
                 super.onPageCommitVisible(view, url)
 
                 pageTitle = view?.title ?: ""
-                if (!hasError && view != null && isLoading) {
+                val isDirtyCallback = fromHistory && url != null && (url == mineUrl || url.contains("mycenter=1"))
+
+                if (!hasError && view != null && isLoading && !isDirtyCallback) {
                     timeoutJob?.cancel()
                     retryCount = 0
                     isLoading = false
@@ -858,13 +946,18 @@ fun MinePage(
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                timeoutJob?.cancel()
-                retryCount = 0
-                isLoading = false
-                isPullRefreshing = false
-                if (!hasError) {
-                    showLoadError = false
+                val isDirtyCallback = fromHistory && url != null && (url == mineUrl || url.contains("mycenter=1"))
+
+                if (!isDirtyCallback) {
+                    timeoutJob?.cancel()
+                    retryCount = 0
+                    isLoading = false
+                    isPullRefreshing = false
+                    if (!hasError) {
+                        showLoadError = false
+                    }
                 }
+
                 super.onPageFinished(view, url)
                 currentUrl = url
 
@@ -951,21 +1044,6 @@ fun MinePage(
             }
         }
 
-        if (isSelected && (mineWebView.url == null || mineWebView.tag?.toString()
-                ?.startsWith("recycled") == true || mineWebView.url == "about:blank")
-        ) {
-            mineWebView.tag = null
-            if (savedMangaUrl != null) {
-                startLoading(mineWebView, savedMangaUrl!!)
-                savedMangaUrl = null
-                needFallbackToHome = true
-            } else {
-                startLoading(mineWebView, mineUrl)
-            }
-        } else {
-            isLoading = false
-            canGoBack = evaluateCanGoBack(mineWebView)
-        }
     }
     DisposableEffect(mineWebView, isSelected) {
         if (isSelected) {
@@ -1002,9 +1080,19 @@ fun MinePage(
 
     BackHandler(enabled = true) {
         val checkUrl = currentUrl ?: mineWebView.url ?: ""
-        // 只检查 mycenter=1
         val isAtMineHome = checkUrl == mineUrl || checkUrl.contains("mycenter=1")
         when {
+            fromHistory -> {
+                val currentIndex = mineWebView.copyBackForwardList().currentIndex
+                if (currentIndex > rootHistoryIndex + 1 && mineWebView.canGoBack()) {
+                    timeoutJob?.cancel()
+                    mineWebView.goBack()
+                } else {
+                    timeoutJob?.cancel()
+                    navController.popBackStack()
+                }
+            }
+
             needFallbackToHome -> {
                 needFallbackToHome = false
                 timeoutJob?.cancel()
@@ -1182,7 +1270,27 @@ fun MinePage(
                 }
             }
 
-            if (isLoading && !isPullRefreshing) {
+            // 平滑淡出的遮罩动画
+            AnimatedVisibility(
+                visible = isLoading && !isPullRefreshing && fromHistory,
+                enter = EnterTransition.None,
+                exit = fadeOut()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                        .pointerInput(Unit) {
+                            detectTapGestures { }
+                            detectVerticalDragGestures { _, _ -> }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                }
+            }
+
+            if (isLoading && !isPullRefreshing && !fromHistory) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
                     color = darkModeColor(YamiboColors.secondary, YamiboColors.secondaryDark)
@@ -1330,4 +1438,3 @@ fun MinePage(
         }
     }
 }
-

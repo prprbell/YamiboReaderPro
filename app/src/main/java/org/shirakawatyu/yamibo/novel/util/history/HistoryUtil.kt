@@ -53,6 +53,7 @@ object HistoryUtil {
     }
 
     suspend fun addOrUpdateHistory(url: String, title: String, author: String, section: String) {
+        if (!url.startsWith("http") || url == "about:blank" || url.contains("error", ignoreCase = true)) return
         val normalizedUrl = FavoriteUtil.normalizeUrl(url)
         val entry = HistoryEntry(
             url = normalizedUrl,

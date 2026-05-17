@@ -322,7 +322,7 @@ fun NativeMangaPage(
         }
         bottomNavBarVM.setBottomNavBarVisibility(true)
 
-        if (previousRoute?.startsWith("MangaWebPage") == true || previousRoute == "BBSPage" || previousRoute == "MinePage") {
+        if (previousRoute?.startsWith("MangaWebPage") == true || previousRoute == "BBSPage" || previousRoute == "MinePage" || previousRoute?.startsWith("MineHistoryPostPage") == true) {
             navController.navigateUp()
         } else {
             val encodedChapterUrl = URLEncoder.encode(url, "utf-8")

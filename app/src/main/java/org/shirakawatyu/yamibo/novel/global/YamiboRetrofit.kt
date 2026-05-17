@@ -154,7 +154,7 @@ class YamiboRetrofit {
         val okHttpClient: OkHttpClient by lazy {
             createOkHttpClient(
                 "http_cache_default",
-                50L * 1024 * 1024,
+                100L * 1024 * 1024,
                 enableCache = true,
                 enableImageChecker = false
             )
@@ -273,30 +273,29 @@ class YamiboRetrofit {
 
                 val isForumImage = urlStr.contains("attachment/forum", ignoreCase = true)
 
-                if (checkedResponse.isSuccessful && urlStr.contains(
-                        Regex(
-                            "\\.(jpg|jpeg|png|webp|gif)",
-                            RegexOption.IGNORE_CASE
-                        )
+                if (checkedResponse.isSuccessful) {
+                    val isStaticResource = urlStr.contains(
+                        Regex("\\.(jpg|jpeg|png|webp|gif|js|css|woff2?|ttf|svg|ico)(\\?.*)?\$", RegexOption.IGNORE_CASE)
                     )
-                ) {
-                    if (isForumImage) {
-                        val maxAge = 60 * 60 * 2
-                        return@addNetworkInterceptor checkedResponse.newBuilder()
-                            .header("Cache-Control", "public, max-age=$maxAge")
-                            .removeHeader("Pragma")
-                            .build()
-                    } else {
-                        val baseMaxAge = 60 * 60 * 24 * 7
-                        val maxAge = baseMaxAge + kotlin.random.Random.nextInt(-86400, 86400)
-                        val swr = 60 * 60 * 24 * 1
-                        return@addNetworkInterceptor checkedResponse.newBuilder()
-                            .header(
-                                "Cache-Control",
-                                "public, max-age=$maxAge, stale-while-revalidate=$swr"
-                            )
-                            .removeHeader("Pragma")
-                            .build()
+                    if (isStaticResource) {
+                        if (isForumImage) {
+                            val maxAge = 60 * 60 * 2
+                            return@addNetworkInterceptor checkedResponse.newBuilder()
+                                .header("Cache-Control", "public, max-age=$maxAge")
+                                .removeHeader("Pragma")
+                                .build()
+                        } else {
+                            val baseMaxAge = 60 * 60 * 24 * 7
+                            val maxAge = baseMaxAge + kotlin.random.Random.nextInt(-86400, 86400)
+                            val swr = 60 * 60 * 24 * 1
+                            return@addNetworkInterceptor checkedResponse.newBuilder()
+                                .header(
+                                    "Cache-Control",
+                                    "public, max-age=$maxAge, stale-while-revalidate=$swr"
+                                )
+                                .removeHeader("Pragma")
+                                .build()
+                        }
                     }
                 }
                 checkedResponse

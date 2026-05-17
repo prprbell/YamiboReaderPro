@@ -101,26 +101,35 @@ if ($giteeToken) {
         Write-Host "⚠️  Gitee: 推送标签失败，尝试继续..."
     }
 
-    # 创建 Gitee Release
-    $createBody = @{
-        tag_name      = $TAG
-        name          = "v$version"
-        body          = $notes
+    # 创建 Gitee Release (使用 Invoke-RestMethod 避免 curl 传参时的引号/编码问题)
+    $createBodyObj = @{
+        access_token     = $giteeToken
+        tag_name         = $TAG
+        name             = "v$version"
+        body             = $notes
         target_commitish = "master"
-    } | ConvertTo-Json -Compress
+    }
 
-    $createResp = curl.exe -s -X POST "https://gitee.com/api/v5/repos/$GITEE_REPO/releases?access_token=$giteeToken" `
-        -H "Content-Type: application/json" `
-        -d $createBody 2>&1
+    $createBodyJson = $createBodyObj | ConvertTo-Json -Compress
 
     $releaseId = $null
     try {
-        $releaseId = ($createResp | ConvertFrom-Json).id
-    } catch { }
+        $createResp = Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$GITEE_REPO/releases" `
+            -Method Post `
+            -ContentType "application/json; charset=utf-8" `
+            -Body $createBodyJson
+
+        $releaseId = $createResp.id
+        Write-Host "✅ Gitee: Release 创建成功 (id=$releaseId)"
+    } catch {
+        Write-Host "❌ Gitee: Release 创建失败:"
+        Write-Host $_.Exception.Message
+        if ($_.ErrorDetails) {
+            Write-Host $_.ErrorDetails.Message
+        }
+    }
 
     if ($releaseId) {
-        Write-Host "✅ Gitee: Release 创建成功 (id=$releaseId)"
-
         # 上传 APK 作为附件
         $uploadResp = curl.exe -s -X POST `
             "https://gitee.com/api/v5/repos/$GITEE_REPO/releases/$releaseId/attach_files?access_token=$giteeToken" `
@@ -138,9 +147,6 @@ if ($giteeToken) {
             Write-Host "⚠️  Gitee: APK 上传可能失败，请检查:"
             Write-Host "   $uploadResp"
         }
-    } else {
-        Write-Host "❌ Gitee: Release 创建失败:"
-        Write-Host "   $createResp"
     }
 
     Write-Host "✅ Gitee: 完成 https://gitee.com/$GITEE_REPO/releases"
