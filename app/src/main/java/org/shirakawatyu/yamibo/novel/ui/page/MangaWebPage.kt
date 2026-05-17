@@ -260,6 +260,20 @@ fun MangaWebPage(
         }
     }
 
+    fun resumeMangaWebViewAfterChildPage() {
+        try {
+            mangaWebView.onResume()
+            mangaWebView.resumeTimers()
+            // 从 NativeMangaPage 返回时，不重新加载帖子，只恢复 WebView 的定时器与点击脚本。
+            mangaWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
+            mangaWebView.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
+            mangaWebView.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
+            mangaWebView.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         try {
@@ -274,9 +288,7 @@ fun MangaWebPage(
                 if (isWaitingForNativeReturn) {
                     isWaitingForNativeReturn = false
                 }
-                mangaWebView.onResume()
-                mangaWebView.resumeTimers()
-                mangaWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
+                resumeMangaWebViewAfterChildPage()
                 val window = activity?.window
                 if (window != null) {
                     WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars =
@@ -321,10 +333,9 @@ fun MangaWebPage(
             GlobalData.tempHtml = cleanHtml
             GlobalData.tempTitle = title
 
-            mangaWebView.evaluateJavascript(PageJsScripts.FREEZE_BROKEN_IMAGES_JS, null)
-            mangaWebView.evaluateJavascript("window.stop();", null)
-            mangaWebView.stopLoading()
-            mangaWebView.onPause()
+            // 不要 freeze / window.stop / stopLoading / onPause。
+            // 否则从 NativeMangaPage 返回时，原 WebView 可能停在半冻结状态，表现为 JS / 点击失效。
+            resumeMangaWebViewAfterChildPage()
 
             autoOpenMangaMode = false
             isWaitingForNativeReturn = true
@@ -789,11 +800,21 @@ fun MangaWebPage(
                 onRelease = { webView ->
                     timeoutJob?.cancel()
                     (webView.parent as? ViewGroup)?.removeView(webView)
-                    try {
-                        webView.onPause()
-                        WebViewPool.release(webView)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+
+                    val nextRoute = navController.currentDestination?.route.orEmpty()
+                    val keepAliveForChildPage =
+                        nextRoute.startsWith("NativeMangaPage") || nextRoute.startsWith("ReaderPage")
+
+                    if (keepAliveForChildPage) {
+                        // 进入 NativeMangaPage 时保留当前 WebView 状态；返回 MangaWebPage 时避免重新加载。
+                        resumeMangaWebViewAfterChildPage()
+                    } else {
+                        try {
+                            webView.onPause()
+                            WebViewPool.release(webView)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
                 }
 

@@ -118,6 +118,59 @@ function Get-HttpErrorText($ErrorRecord) {
     return $message
 }
 
+function Get-ObjectPropertyValue {
+    param(
+        [object]$Object,
+        [Parameter(Mandatory=$true)][string]$Name
+    )
+
+    if ($null -eq $Object) { return $null }
+
+    foreach ($property in $Object.PSObject.Properties) {
+        if ($property.Name -eq $Name) {
+            return $property.Value
+        }
+    }
+
+    return $null
+}
+
+function ConvertTo-SafeDebugJson {
+    param([object]$Object)
+
+    if ($null -eq $Object) { return "<null>" }
+
+    try {
+        $text = $Object | ConvertTo-Json -Depth 20 -Compress
+        if ($text) { return $text }
+    } catch { }
+
+    try {
+        return ($Object | Out-String).Trim()
+    } catch { }
+
+    return "<无法显示对象>"
+}
+
+function Test-GiteeReleaseObject {
+    param(
+        [object]$Object,
+        [string]$ExpectedTag
+    )
+
+    if ($null -eq $Object) { return $false }
+
+    $id = Get-ObjectPropertyValue -Object $Object -Name "id"
+    if ([string]::IsNullOrWhiteSpace([string]$id)) { return $false }
+
+    $tagName = Get-ObjectPropertyValue -Object $Object -Name "tag_name"
+    if (-not [string]::IsNullOrWhiteSpace([string]$tagName)) {
+        if ([string]$tagName -ne $ExpectedTag) { return $false }
+    }
+
+    return $true
+}
+
 function Invoke-GiteeJson {
     param(
         [Parameter(Mandatory=$true)][ValidateSet("GET", "POST", "PATCH", "DELETE")][string]$Method,
@@ -467,9 +520,18 @@ function Get-TargetCommitish {
 function Find-ReleaseByTag([string]$Tag) {
     $tagEnc = UrlEncode $Tag
 
-    # Gitee 支持按 tag 查 release；找不到时返回 $null。
-    $release = Invoke-GiteeJson -Method GET -Path "repos/$Script:OwnerEnc/$Script:RepoEnc/releases/tags/$tagEnc" -Allow404
-    if ($release) { return $release }
+    # Gitee 支持按 tag 查 release；但不同返回形态并不完全稳定。
+    # 因此这里不能只判断“有返回值”，必须确认对象里真的有 id。
+    $rawRelease = Invoke-GiteeJson -Method GET -Path "repos/$Script:OwnerEnc/$Script:RepoEnc/releases/tags/$tagEnc" -Allow404
+    foreach ($candidate in @($rawRelease)) {
+        if (Test-GiteeReleaseObject -Object $candidate -ExpectedTag $Tag) {
+            return $candidate
+        }
+    }
+
+    if ($rawRelease) {
+        Write-Warn "按 tag 查询返回了内容，但不是有效 Release 对象，将改用列表兜底查询。返回摘要：$(ConvertTo-SafeDebugJson $rawRelease)"
+    }
 
     # 兜底：有些环境/权限下按 tag 查询可能不可用，再分页扫 releases。
     for ($page = 1; $page -le 5; $page++) {
@@ -477,7 +539,13 @@ function Find-ReleaseByTag([string]$Tag) {
         if (-not $list) { break }
 
         foreach ($item in @($list)) {
-            if ($item.tag_name -eq $Tag) { return $item }
+            $itemTag = Get-ObjectPropertyValue -Object $item -Name "tag_name"
+            if ([string]$itemTag -eq $Tag) {
+                if (Test-GiteeReleaseObject -Object $item -ExpectedTag $Tag) {
+                    return $item
+                }
+                Write-Warn "列表中找到了 tag=$Tag 的条目，但没有 id，已忽略。条目摘要：$(ConvertTo-SafeDebugJson $item)"
+            }
         }
 
         if (@($list).Count -lt 100) { break }
@@ -490,7 +558,7 @@ function Update-ExistingReleaseIfNeeded($Release, [string]$Tag, [string]$Release
     if (-not $Release) { return $Release }
     if (-not $Script:TagWasMoved) { return $Release }
 
-    $releaseId = [string]$Release.id
+    $releaseId = [string](Get-ObjectPropertyValue -Object $Release -Name "id")
     if (-not $releaseId) { return $Release }
 
     Write-Info "tag 已移动，尝试刷新已有 Gitee Release 的标题、说明和目标 commit..."
@@ -518,24 +586,25 @@ function Get-AttachmentUrl($Release, [string]$FileName) {
     if (-not $Release) { return $null }
 
     $collections = @()
-    if ($Release.PSObject.Properties.Name -contains "attach_files") { $collections += ,$Release.attach_files }
-    if ($Release.PSObject.Properties.Name -contains "assets")       { $collections += ,$Release.assets }
+    $attachFiles = Get-ObjectPropertyValue -Object $Release -Name "attach_files"
+    if ($attachFiles) { $collections += ,$attachFiles }
+
+    $assets = Get-ObjectPropertyValue -Object $Release -Name "assets"
+    if ($assets) { $collections += ,$assets }
 
     foreach ($collection in $collections) {
         foreach ($item in @($collection)) {
             if (-not $item) { continue }
             $names = @()
             foreach ($prop in @("name", "filename", "file_name")) {
-                if ($item.PSObject.Properties.Name -contains $prop) {
-                    $names += [string]$item.$prop
-                }
+                $value = Get-ObjectPropertyValue -Object $item -Name $prop
+                if ($value) { $names += [string]$value }
             }
 
             if ($names -contains $FileName) {
                 foreach ($urlProp in @("browser_download_url", "download_url", "url")) {
-                    if ($item.PSObject.Properties.Name -contains $urlProp -and $item.$urlProp) {
-                        return [string]$item.$urlProp
-                    }
+                    $value = Get-ObjectPropertyValue -Object $item -Name $urlProp
+                    if ($value) { return [string]$value }
                 }
                 return "已存在，但接口未返回下载地址"
             }
@@ -585,9 +654,16 @@ $release = Find-ReleaseByTag $tag
 
 if ($release) {
     $release = Update-ExistingReleaseIfNeeded -Release $release -Tag $tag -ReleaseNotes $releaseNotes -Target $target
-    $releaseId = [string]$release.id
-    Write-Ok "Gitee Release 已存在，直接复用：id=$releaseId"
-} else {
+    $releaseId = [string](Get-ObjectPropertyValue -Object $release -Name "id")
+    if (-not $releaseId) {
+        Write-Warn "查到的 Gitee Release 没有 id，将忽略并尝试重新创建。返回摘要：$(ConvertTo-SafeDebugJson $release)"
+        $release = $null
+    } else {
+        Write-Ok "Gitee Release 已存在，直接复用：id=$releaseId"
+    }
+}
+
+if (-not $release) {
     $body = @{
         tag_name         = [string]$tag
         name             = [string]$tag
@@ -597,7 +673,10 @@ if ($release) {
 
     Write-Info "创建 Gitee Release..."
     $release = Invoke-GiteeJson -Method POST -Path "repos/$Script:OwnerEnc/$Script:RepoEnc/releases" -Body $body
-    $releaseId = [string]$release.id
+    $releaseId = [string](Get-ObjectPropertyValue -Object $release -Name "id")
+    if (-not $releaseId) {
+        Fail "Gitee Release 创建接口没有返回 id。返回摘要：$(ConvertTo-SafeDebugJson $release)"
+    }
     Write-Ok "Gitee Release 创建成功：id=$releaseId"
 }
 
@@ -631,8 +710,9 @@ if ($existingUrl -and -not $shouldUpload) {
 
         if ($uploadResp) {
             foreach ($prop in @("browser_download_url", "download_url", "url")) {
-                if ($uploadResp.PSObject.Properties.Name -contains $prop -and $uploadResp.$prop) {
-                    $downloadUrl = [string]$uploadResp.$prop
+                $value = Get-ObjectPropertyValue -Object $uploadResp -Name $prop
+                if ($value) {
+                    $downloadUrl = [string]$value
                     break
                 }
             }

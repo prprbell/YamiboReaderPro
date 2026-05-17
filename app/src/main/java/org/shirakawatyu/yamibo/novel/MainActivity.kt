@@ -1117,14 +1117,22 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                         } else fadeOut(tween(150))
                                     },
                                     popEnterTransition = {
-                                        if (initialState.destination.route?.run { startsWith("ReaderPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage") } == true) {
-                                            slideInHorizontally(
-                                                initialOffsetX = { -it / 3 },
-                                                animationSpec = tween(exitDuration, easing = exitEasing)
-                                            )
-                                        } else if (initialState.destination.route?.startsWith("NativeMangaPage") == true || initialState.destination.route in topLevelRoutes) {
-                                            EnterTransition.None
-                                        } else fadeIn(tween(150))
+                                        val initialRoute = initialState.destination.route
+                                        when {
+                                            // 从 HistoryPage 返回 MinePage 时不要再播放 MinePage 的抽屉回弹动画。
+                                            // 这样 HistoryPage 自身已经不画退出动画，MinePage 也不会“从左侧补一段动画”。
+                                            initialRoute == "HistoryPage" -> EnterTransition.None
+                                            initialRoute?.run { startsWith("ReaderPage") || startsWith("MineHistoryPostPage") } == true -> {
+                                                slideInHorizontally(
+                                                    initialOffsetX = { -it / 3 },
+                                                    animationSpec = tween(exitDuration, easing = exitEasing)
+                                                )
+                                            }
+                                            initialRoute?.startsWith("NativeMangaPage") == true || initialRoute in topLevelRoutes -> {
+                                                EnterTransition.None
+                                            }
+                                            else -> fadeIn(tween(150))
+                                        }
                                     },
                                     popExitTransition = {
                                         if (targetState.destination.route in topLevelRoutes) ExitTransition.None
@@ -1298,10 +1306,16 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                         }
                                     },
                                     popExitTransition = {
-                                        slideOutOfContainer(
-                                            towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                                            animationSpec = tween(exitDuration, easing = exitEasing)
-                                        )
+                                        if (targetState.destination.route == "MinePage") {
+                                            // HistoryPage -> MinePage 是返回个人页，不再显示右滑退出动画。
+                                            // 保留 MineHistoryPostPage -> HistoryPage 的抽屉感，但彻底避免最终退出时历史界面残留。
+                                            ExitTransition.None
+                                        } else {
+                                            slideOutOfContainer(
+                                                towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                                                animationSpec = tween(exitDuration, easing = exitEasing)
+                                            )
+                                        }
                                     }
                                 ) {
                                     // 1. 获取动态物理屏幕圆角
@@ -1344,6 +1358,43 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                             towards = AnimatedContentTransitionScope.SlideDirection.Left,
                                             animationSpec = tween(enterDuration, easing = enterEasing)
                                         )
+                                    },
+                                    exitTransition = {
+                                        val targetRoute = targetState.destination.route
+                                        when {
+                                            targetRoute?.startsWith("ReaderPage") == true -> {
+                                                slideOutHorizontally(
+                                                    targetOffsetX = { -it / 3 },
+                                                    animationSpec = tween(
+                                                        enterDuration,
+                                                        easing = enterEasing
+                                                    )
+                                                )
+                                            }
+                                            targetRoute?.startsWith("NativeMangaPage") == true -> {
+                                                ExitTransition.None
+                                            }
+                                            else -> {
+                                                fadeOut(tween(150))
+                                            }
+                                        }
+                                    },
+                                    popEnterTransition = {
+                                        val initialRoute = initialState.destination.route
+                                        when {
+                                            initialRoute?.startsWith("ReaderPage") == true -> {
+                                                slideInHorizontally(
+                                                    initialOffsetX = { -it / 3 },
+                                                    animationSpec = tween(exitDuration, easing = exitEasing)
+                                                )
+                                            }
+                                            initialRoute?.startsWith("NativeMangaPage") == true -> {
+                                                EnterTransition.None
+                                            }
+                                            else -> {
+                                                fadeIn(tween(150))
+                                            }
+                                        }
                                     },
                                     popExitTransition = {
                                         slideOutOfContainer(

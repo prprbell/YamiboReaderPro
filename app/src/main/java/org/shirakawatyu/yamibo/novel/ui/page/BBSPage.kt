@@ -492,6 +492,20 @@ fun BBSPage(
         }
         BBSPageState.nativeMangaApi!!
     }
+
+    fun resumeBbsWebViewAfterChildPage() {
+        BBSPageState.cancelPause()
+        try {
+            webView.onResume()
+            webView.resumeTimers()
+            // 从 NativeMangaPage / ReaderPage 返回时，不重新加载页面，只恢复 WebView 的定时器与点击脚本。
+            webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
+            (webView.webViewClient as? BBSGlobalWebViewClient)?.forceInjectMangaJs(webView)
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
+
     nativeMangaApi.onGoBack = {
         activity?.onBackPressedDispatcher?.onBackPressed()
     }
@@ -524,10 +538,9 @@ fun BBSPage(
                     GlobalData.tempHtml = cleanHtml
                     GlobalData.tempTitle = title
 
-                    webView.evaluateJavascript(PageJsScripts.FREEZE_BROKEN_IMAGES_JS, null)
-                    webView.evaluateJavascript("window.stop();", null)
-                    webView.stopLoading()
-                    webView.onPause()
+                    // 不要 freeze / window.stop / stopLoading / onPause。
+                    // 否则从 NativeMangaPage 返回时，原 WebView 可能停在半冻结状态，表现为 JS / 点击失效。
+                    resumeBbsWebViewAfterChildPage()
 
                     autoOpenMangaMode = false
                     val passUrl = BBSPageState.currentUrl ?: indexUrl
@@ -717,9 +730,7 @@ fun BBSPage(
     DisposableEffect(lifecycleOwner, webView) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                webView.onResume()
-                webView.resumeTimers()
-                webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
+                resumeBbsWebViewAfterChildPage()
 
                 if (BBSPageState.isErrorState || BBSPageState.showLoadError) {
                     BBSPageState.requestResumeRecovery()
@@ -859,14 +870,10 @@ fun BBSPage(
     }
 
     DisposableEffect(webView, isSelected) {
-        val client = webView.webViewClient as? BBSGlobalWebViewClient
 
         if (isSelected) {
-            BBSPageState.cancelPause()
             canGoBack = webView.canGoBack()
-            webView.onResume()
-            webView.resumeTimers()
-            client?.forceInjectMangaJs(webView)
+            resumeBbsWebViewAfterChildPage()
         } else {
             timeoutJob?.cancel()
             retryCount = 0
@@ -1050,13 +1057,21 @@ fun BBSPage(
                     }
                 },
                 onRelease = {
-                    val delayMs = if (!BBSPageState.hasExecutedInitialDelay) {
-                        BBSPageState.hasExecutedInitialDelay = true
-                        8000L
+                    val nextRoute = navController.currentDestination?.route.orEmpty()
+                    val keepAliveForChildPage =
+                        nextRoute.startsWith("NativeMangaPage") || nextRoute.startsWith("ReaderPage")
+
+                    if (keepAliveForChildPage) {
+                        BBSPageState.cancelPause()
                     } else {
-                        3000L
+                        val delayMs = if (!BBSPageState.hasExecutedInitialDelay) {
+                            BBSPageState.hasExecutedInitialDelay = true
+                            8000L
+                        } else {
+                            3000L
+                        }
+                        BBSPageState.schedulePause(webView, delayMs)
                     }
-                    BBSPageState.schedulePause(webView, delayMs)
                 }
             )
 

@@ -524,6 +524,24 @@ fun MinePage(
 
     val rootHistoryIndex = remember { mineWebView.copyBackForwardList().currentIndex }
 
+    fun resumeMineWebViewAfterChildPage() {
+        mineWebViewPauseRunnable?.let {
+            mineWebViewHandler.removeCallbacks(it)
+            mineWebViewPauseRunnable = null
+        }
+        try {
+            mineWebView.onResume()
+            mineWebView.resumeTimers()
+            // 从 NativeMangaPage / ReaderPage 返回时，不重新加载帖子，只恢复 WebView 的定时器与点击脚本。
+            mineWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
+            mineWebView.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
+            mineWebView.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+            mineWebView.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     LaunchedEffect(mineWebView, isSelected, initUrl) {
         if (fromHistory && historyTargetUrl != null) {
             activeHistoryTargetUrl = historyTargetUrl
@@ -545,9 +563,20 @@ fun MinePage(
             ) {
                 mineWebView.tag = null
                 if (savedMangaUrl != null) {
-                    startLoading(mineWebView, savedMangaUrl!!)
-                    savedMangaUrl = null
-                    needFallbackToHome = true
+                    val restoreUrl = savedMangaUrl
+                    if (isSamePageTargetUrl(currentWebViewUrl, restoreUrl)) {
+                        // 从 NativeMangaPage 返回原帖时，WebView 仍在同一帖子；不要重新 load，避免回退体验倒退成加载圈。
+                        savedMangaUrl = null
+                        needFallbackToHome = false
+                        activeLoadTargetUrl = null
+                        isLoading = false
+                        canGoBack = evaluateCanGoBack(mineWebView)
+                        resumeMineWebViewAfterChildPage()
+                    } else {
+                        startLoading(mineWebView, restoreUrl!!)
+                        savedMangaUrl = null
+                        needFallbackToHome = true
+                    }
                 } else {
                     startLoading(mineWebView, mineUrl)
                 }
@@ -656,8 +685,7 @@ fun MinePage(
                     autoOpenMangaMode = false
                 }
 
-                mineWebView.onResume()
-                mineWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
+                resumeMineWebViewAfterChildPage()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -695,13 +723,13 @@ fun MinePage(
                     GlobalData.tempHtml = cleanHtml
                     GlobalData.tempTitle = title
 
-                    mineWebView.evaluateJavascript(PageJsScripts.FREEZE_BROKEN_IMAGES_JS, null)
-                    mineWebView.evaluateJavascript("window.stop();", null)
-                    mineWebView.stopLoading()
-                    mineWebView.onPause()
+                    // 老版本返回原帖很快，是因为没有把帖子 WebView 冻住后再恢复。
+                    // 这里不要 window.stop()/stopLoading()/onPause()，否则从 NativeMangaPage 返回时
+                    // route-scoped 历史 WebView 容易停在半冻结状态，表现为 JS / 点击失效。
+                    resumeMineWebViewAfterChildPage()
 
                     autoOpenMangaMode = false
-                    val passUrl = currentUrl ?: "https://bbs.yamibo.com/forum.php"
+                    val passUrl = currentUrl ?: mineWebView.url ?: historyTargetUrl ?: "https://bbs.yamibo.com/forum.php"
 
                     savedMangaUrl = passUrl
                     val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
@@ -1150,16 +1178,7 @@ fun MinePage(
     }
     DisposableEffect(mineWebView, isSelected) {
         if (isSelected) {
-            mineWebViewPauseRunnable?.let {
-                mineWebViewHandler.removeCallbacks(it)
-                mineWebViewPauseRunnable = null
-            }
-            try {
-                mineWebView.onResume()
-                mineWebView.resumeTimers()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            resumeMineWebViewAfterChildPage()
         } else {
             timeoutJob?.cancel()
             retryCount = 0
@@ -1292,18 +1311,26 @@ fun MinePage(
                 onRelease = { _ ->
                     timeoutJob?.cancel()
 
+                    val nextRoute = navController.currentDestination?.route.orEmpty()
+                    val keepAliveForChildPage =
+                        nextRoute.startsWith("NativeMangaPage") || nextRoute.startsWith("ReaderPage")
+
                     mineWebViewPauseRunnable?.let {
                         mineWebViewHandler.removeCallbacks(it)
+                        mineWebViewPauseRunnable = null
                     }
-                    val runnable = Runnable {
-                        try {
-                            mineWebView.onPause()
-                        } catch (e: Exception) {
-                            e.printStackTrace()
+
+                    if (!keepAliveForChildPage) {
+                        val runnable = Runnable {
+                            try {
+                                mineWebView.onPause()
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
                         }
+                        mineWebViewPauseRunnable = runnable
+                        mineWebViewHandler.postDelayed(runnable, 3000L)
                     }
-                    mineWebViewPauseRunnable = runnable
-                    mineWebViewHandler.postDelayed(runnable, 3000L)
                 }
             )
             ReaderModeFAB(
@@ -1375,8 +1402,8 @@ fun MinePage(
 
             val expectedLoadTarget = currentExpectedLoadTarget()
             val shouldBlockOldWebContent = isLoading && !isPullRefreshing && (
-                fromHistory || !isSamePageTargetUrl(mineWebView.url, expectedLoadTarget)
-            )
+                    fromHistory || !isSamePageTargetUrl(mineWebView.url, expectedLoadTarget)
+                    )
 
             // 只要当前 WebView 还不是本次目标页面，就用不透明遮罩挡住旧 DOM。
             // 这样从历史帖子返回 MinePage 时，不会在个人主页提交前露出刚才的帖子。
