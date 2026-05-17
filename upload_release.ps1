@@ -110,24 +110,24 @@ if ($giteeToken) {
         target_commitish = "master"
     }
 
-    $createBodyJson = $createBodyObj | ConvertTo-Json -Compress
-    $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($createBodyJson)
+    # 写入临时文件避免 PS 编码/转义问题
+    $jsonFile = New-TemporaryFile
+    $createBodyObj | ConvertTo-Json -Compress | Out-File -FilePath $jsonFile -Encoding utf8 -NoNewline
 
     $releaseId = $null
     try {
-        $createResp = Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$GITEE_REPO/releases" `
-            -Method Post `
-            -ContentType "application/json; charset=utf-8" `
-            -Body $bodyBytes
+        $createResp = curl.exe -s -X POST `
+            "https://gitee.com/api/v5/repos/$GITEE_REPO/releases" `
+            -H "Content-Type: application/json; charset=utf-8" `
+            --data-binary "@$jsonFile" 2>&1
 
-        $releaseId = $createResp.id
+        $releaseId = ($createResp | ConvertFrom-Json).id
         Write-Host "✅ Gitee: Release 创建成功 (id=$releaseId)"
     } catch {
         Write-Host "❌ Gitee: Release 创建失败:"
-        Write-Host $_.Exception.Message
-        if ($_.ErrorDetails) {
-            Write-Host $_.ErrorDetails.Message
-        }
+        Write-Host $createResp
+    } finally {
+        Remove-Item $jsonFile -Force -ErrorAction SilentlyContinue
     }
 
     if ($releaseId) {
