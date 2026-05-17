@@ -548,7 +548,7 @@ fun HistoryPage(navController: NavController) {
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .padding(top = 8.dp, bottom = 4.dp),
-                placeholder = { Text("搜索标题、作者、分区 (空格组合查询)", fontSize = 14.sp) },
+                placeholder = { Text("支持组合查询", fontSize = 14.sp) },
                 leadingIcon = {
                     Icon(
                         Icons.Default.Search,

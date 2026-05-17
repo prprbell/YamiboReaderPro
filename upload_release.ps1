@@ -101,20 +101,15 @@ if ($giteeToken) {
         Write-Host "⚠️  Gitee: 推送标签失败，尝试继续..."
     }
 
-    # 获取 target_commitish (当前 HEAD SHA)
-    $targetCommit = (git rev-parse HEAD).Substring(0, 7)
-
     # 创建 Gitee Release
     $createBody = @{
-        access_token  = $giteeToken
         tag_name      = $TAG
         name          = "v$version"
         body          = $notes
-        target_commitish = $targetCommit
-        prerelease    = $false
+        target_commitish = "master"
     } | ConvertTo-Json -Compress
 
-    $createResp = curl -s -X POST "https://gitee.com/api/v5/repos/$GITEE_REPO/releases" `
+    $createResp = curl.exe -s -X POST "https://gitee.com/api/v5/repos/$GITEE_REPO/releases?access_token=$giteeToken" `
         -H "Content-Type: application/json" `
         -d $createBody 2>&1
 
@@ -127,9 +122,8 @@ if ($giteeToken) {
         Write-Host "✅ Gitee: Release 创建成功 (id=$releaseId)"
 
         # 上传 APK 作为附件
-        $uploadResp = curl -s -X POST `
-            "https://gitee.com/api/v5/repos/$GITEE_REPO/releases/$releaseId/attach_files" `
-            -F "access_token=$giteeToken" `
+        $uploadResp = curl.exe -s -X POST `
+            "https://gitee.com/api/v5/repos/$GITEE_REPO/releases/$releaseId/attach_files?access_token=$giteeToken" `
             -F "file=@$APK" 2>&1
 
         $downloadUrl = $null
