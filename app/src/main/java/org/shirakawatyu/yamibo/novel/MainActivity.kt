@@ -676,21 +676,19 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
     var skipVersion by remember { mutableStateOf("") }
 
     LaunchedEffect(isAppInitialized, isNetworkAvailable) {
-        if (isAppInitialized && isNetworkAvailable && GlobalData.isAutoSignInEnabled.value) {
-            launch(Dispatchers.IO) {
-                if (AutoSignManager.needsSignIn(SignTrigger.LAUNCH)) {
-                    delay(3000L)
-                    AutoSignManager.checkAndSignIfNeeded(context, SignTrigger.LAUNCH)
-                }
-            }
-        }
-    }
-
-    // 自动检查更新（首次启动且网络可用时）
-    LaunchedEffect(isAppInitialized, isNetworkAvailable) {
         if (isAppInitialized && isNetworkAvailable) {
             launch(Dispatchers.IO) {
-                delay(5000L)
+                delay(3000L)
+                if (GlobalData.isAutoSignInEnabled.value && AutoSignManager.needsSignIn(SignTrigger.LAUNCH)) {
+                    AutoSignManager.checkAndSignIfNeeded(context, SignTrigger.LAUNCH)
+                }
+                delay(500L)
+                val lastCheckTime = suspendCancellableCoroutine<Long> { cont ->
+                    SettingsUtil.getLastUpdateCheckTime { cont.resume(it) }
+                }
+                if (System.currentTimeMillis() - lastCheckTime < 12 * 60 * 60 * 1000L) {
+                    return@launch
+                }
                 val info = UpdateManager.checkForUpdate()
                 if (info != null) {
                     val skipped = suspendCancellableCoroutine { cont ->

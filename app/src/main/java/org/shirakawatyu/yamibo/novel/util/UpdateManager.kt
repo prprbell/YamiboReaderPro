@@ -88,6 +88,7 @@ object UpdateManager {
             Log.w(TAG, "checkForUpdate: HTTP ${response.code}")
             return@withContext null
         }
+        SettingsUtil.saveLastUpdateCheckTime(System.currentTimeMillis())
         val body = response.body?.string() ?: run {
             Log.w(TAG, "checkForUpdate: empty body")
             return@withContext null
