@@ -1,15 +1,9 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.annotation.SuppressLint
-import androidx.compose.material3.AlertDialog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
-import androidx.compose.foundation.text.ClickableText
-import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.TextButton
-import androidx.compose.ui.text.font.FontWeight
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -26,15 +20,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -46,16 +39,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -78,7 +73,6 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -94,19 +88,14 @@ import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
-import org.shirakawatyu.yamibo.novel.ui.component.UpdateDialog
-import org.shirakawatyu.yamibo.novel.util.SettingsUtil
-import org.shirakawatyu.yamibo.novel.util.UpdateInfo
-import org.shirakawatyu.yamibo.novel.util.UpdateManager
 import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
+import org.shirakawatyu.yamibo.novel.ui.component.UpdateDialog
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MinePageVM
@@ -116,7 +105,12 @@ import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
+import org.shirakawatyu.yamibo.novel.util.SettingsUtil
+import org.shirakawatyu.yamibo.novel.util.UpdateInfo
+import org.shirakawatyu.yamibo.novel.util.UpdateManager
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
+import org.shirakawatyu.yamibo.novel.util.darkModeColor
+import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
@@ -265,7 +259,7 @@ fun MinePage(
                 // 不再读取真正 MinePage 的 cachedWebView 状态。
                 true
             } else if (!fromHistory) {
-                (cachedUrl == null || cachedView?.tag?.toString()?.startsWith("recycled") == true || cachedUrl == "about:blank" || (!cachedUrl.contains("mycenter=1") && cachedUrl != mineUrl))
+                (cachedUrl == null || cachedView.tag?.toString()?.startsWith("recycled") == true || cachedUrl == "about:blank")
             } else {
                 true
             }
@@ -294,7 +288,7 @@ fun MinePage(
 
     fun isMineRootUrl(url: String?): Boolean {
         val normalized = normalizeHistoryComparableUrl(url)
-        return normalized == normalizeHistoryComparableUrl(mineUrl) || normalized.contains("mycenter=1")
+        return normalized == normalizeHistoryComparableUrl(mineUrl) || normalized.contains("mycenter=1") || normalized.contains("mod=logging")
     }
 
     fun isSamePageTargetUrl(actualUrl: String?, targetUrl: String?): Boolean {
@@ -341,8 +335,8 @@ fun MinePage(
     fun evaluateCanGoBack(view: WebView?): Boolean {
         if (view == null || !view.canGoBack()) return false
         val currUrl = view.url ?: ""
-        // 只将真正的"我的主页" (含mycenter=1) 当做根页面，其它用户的个人资料页可以GoBack
-        if (currUrl == mineUrl || currUrl.contains("mycenter=1")) return false
+        // 只将真正的"我的主页" (含mycenter=1) 或 登录页 当做根页面，其它用户的个人资料页可以GoBack
+        if (currUrl == mineUrl || currUrl.contains("mycenter=1") || currUrl.contains("mod=logging")) return false
 
         val list = view.copyBackForwardList()
         if (list.currentIndex <= 0) return false
@@ -402,7 +396,7 @@ fun MinePage(
     val view = LocalView.current
     val isFullscreenState = remember { mutableStateOf(false) }
     val bottomNavBarVM: BottomNavBarVM =
-        viewModel(viewModelStoreOwner = context as ComponentActivity)
+        viewModel(viewModelStoreOwner = context)
     DisposableEffect(Unit) {
         onDispose {
             val currentRoute = navController.currentDestination?.route ?: ""
@@ -564,8 +558,7 @@ fun MinePage(
         } else if (!fromHistory) {
             val currentWebViewUrl = mineWebView.url
             if (isSelected && (currentWebViewUrl == null || mineWebView.tag?.toString()
-                    ?.startsWith("recycled") == true || currentWebViewUrl == "about:blank"
-                        || (!currentWebViewUrl.contains("mycenter=1") && currentWebViewUrl != mineUrl))
+                    ?.startsWith("recycled") == true || currentWebViewUrl == "about:blank")
             ) {
                 mineWebView.tag = null
                 if (savedMangaUrl != null) {
@@ -948,9 +941,9 @@ fun MinePage(
 
                 val checkUrl = url ?: ""
 
-                // 区分自己的主页(含mycenter=1)才算是 Root
+                // 区分自己的主页(含mycenter=1) 或 登录页 才算是 Root
                 val isHomePage =
-                    isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("mycenter=1")
+                    isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("mycenter=1") || checkUrl.contains("mod=logging")
                 bottomNavBarVM.isMineAtRoot = isHomePage
 
                 if (!fromHistory && isSelected && isHomepageUrl(checkUrl) && view != null) {
@@ -1047,15 +1040,15 @@ fun MinePage(
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
-                // 只有进入自己的主页时才清空历史，别人的主页不要清空
-                if (url != null && (url == mineUrl || url.contains("mycenter=1"))) {
+                // 只有进入自己的主页或登录页时才清空历史，别人的主页不要清空
+                if (url != null && (url == mineUrl || url.contains("mycenter=1") || url.contains("mod=logging"))) {
                     view?.clearHistory()
                 }
                 canGoBack = evaluateCanGoBack(view)
 
                 val checkUrl = url ?: ""
                 val isHomePage =
-                    isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("mycenter=1")
+                    isHomepageUrl(checkUrl) || checkUrl == mineUrl || checkUrl.contains("mycenter=1") || checkUrl.contains("mod=logging")
                 bottomNavBarVM.isMineAtRoot = isHomePage
                 if (!isLoading) {
                     GlobalData.webProgress.value = 100
@@ -1083,7 +1076,8 @@ fun MinePage(
                     )
                 }
 
-                val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1"))
+                // Explicitly rule out mod=logging for the header injection
+                val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1")) && !url.contains("mod=logging")
                 val toggleHeaderJs = getToggleHeaderJs(isMineRoot)
                 view?.evaluateJavascript(toggleHeaderJs, null)
 
@@ -1119,13 +1113,13 @@ fun MinePage(
                 super.onPageFinished(view, url)
                 currentUrl = url
 
-                // 只有进入自己的主页时才清空历史
-                if (url != null && (url == mineUrl || url.contains("mycenter=1"))) {
+                // 只有进入自己的主页或登录页时才清空历史
+                if (url != null && (url == mineUrl || url.contains("mycenter=1") || url.contains("mod=logging"))) {
                     view?.clearHistory()
                 }
 
                 canGoBack = evaluateCanGoBack(view)
-                val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1"))
+                val isMineRoot = url != null && (url == mineUrl || url.contains("mycenter=1")) && !url.contains("mod=logging")
                 val toggleHeaderJs = getToggleHeaderJs(isMineRoot)
                 view?.evaluateJavascript(toggleHeaderJs, null)
             }
@@ -1182,6 +1176,7 @@ fun MinePage(
         }
 
     }
+
     DisposableEffect(mineWebView, isSelected) {
         if (isSelected) {
             resumeMineWebViewAfterChildPage()
@@ -1208,7 +1203,7 @@ fun MinePage(
 
     BackHandler(enabled = true) {
         val checkUrl = currentUrl ?: mineWebView.url ?: ""
-        val isAtMineHome = checkUrl == mineUrl || checkUrl.contains("mycenter=1")
+        val isAtMineHome = checkUrl == mineUrl || checkUrl.contains("mycenter=1") || checkUrl.contains("mod=logging")
         when {
             fromHistory -> {
                 val currentIndex = mineWebView.copyBackForwardList().currentIndex

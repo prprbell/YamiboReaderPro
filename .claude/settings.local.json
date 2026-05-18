@@ -35,7 +35,9 @@
       "Bash(mkdir -p D:/Desktop/mine_related/global D:/Desktop/mine_related/module D:/Desktop/mine_related/constant D:/Desktop/mine_related/bean D:/Desktop/mine_related/repository)",
       "Bash(cp D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/page/MinePage.kt D:/Desktop/mine_related/ui/page/)",
       "Bash(cp D:/Workspace/YamiboReaderPro/app/src/main/java/org/shirakawatyu/yamibo/novel/ui/page/HistoryPage.kt D:/Desktop/mine_related/ui/page/)",
-      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'private={d.get\\(\\\\\"private\\\\\"\\)}, public={d.get\\(\\\\\"public\\\\\"\\)}'\\)\")"
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'private={d.get\\(\\\\\"private\\\\\"\\)}, public={d.get\\(\\\\\"public\\\\\"\\)}'\\)\")",
+      "Bash(GIT_SEQUENCE_EDITOR=\"sed -i 's/^pick \\\\\\(.*v1\\\\.11\\\\.0\\\\\\)$/reword \\\\1/'\" GIT_EDITOR=\"/tmp/git-editor.sh\" git rebase -i fc45e3d)",
+      "Bash(GIT_SEQUENCE_EDITOR=\"sed -i 's/^pick \\\\\\(.*v1\\\\.11\\\\.0\\\\\\)$/reword \\\\1/'\" GIT_EDITOR=\"/tmp/git-editor.sh\" git rebase -i fc45e3d --autostash)"
     ]
   }
 }
