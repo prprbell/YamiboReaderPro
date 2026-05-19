@@ -87,9 +87,11 @@ APK is distributed via Alibaba Cloud OSS. Aliyun blocks `.apk` download on defau
 }
 ```
 
-Place the generated `update.json` and the renamed APK (`.zip`) into the `release/` folder so they are ready for upload. After building the APK and writing release notes, reply with instructions for the user:
-1. Rename the APK from `.apk` to `.zip` and move it into `release/`
-2. Upload both files (`release/update.json` + `release/yamibo_vX.X.X.zip`) to OSS bucket root
+Place the generated `update.json` and the renamed APK (`.zip`) into the `release/` folder so they are ready for upload. After writing release notes:
+
+1. Auto-copy the release APK: `cp app/release/app-release.apk release/yamibo_vX.X.X.zip`
+2. If `app/release/app-release.apk` not found, instruct user to build the APK and then rename/move it manually
+3. Upload both files (`release/update.json` + `release/yamibo_vX.X.X.zip`) to OSS bucket root
 
 The client `DownloadManager` uses `setMimeType("application/vnd.android.package-archive")` so the system treats downloaded `.zip` files as APKs regardless of URL extension.
 
