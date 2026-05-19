@@ -13,3 +13,4 @@ output-metadata.json
 release/
 release_notes.txt
 .gitee_token
+upload_github.ps1
