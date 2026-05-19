@@ -110,12 +110,21 @@ data class ThemeQuickAction(
     val hint: String
 )
 
-val themeActions = listOf(
-    ThemeQuickAction(SubActionSlot.FarLeft, "纯黑", 0, Color(0xFF121212), "暗"),
+val darkThemeActions = listOf(
+    ThemeQuickAction(SubActionSlot.FarLeft, "暗黑", 0, Color(0xFF121212), "暗"),
     ThemeQuickAction(SubActionSlot.NearLeft, "灰蓝", 1, Color(0xFF13191F), "蓝"),
-    ThemeQuickAction(SubActionSlot.NearRight, "OLED", 2, Color(0xFF000000), "黑"),
+    ThemeQuickAction(SubActionSlot.NearRight, "纯黑", 2, Color(0xFF000000), "黑"),
     ThemeQuickAction(SubActionSlot.FarRight, "紫夜", 3, Color(0xFF15151F), "紫")
 )
+
+val lightThemeActions = listOf(
+    ThemeQuickAction(SubActionSlot.FarRight, "原色", -1, Color(0xFF999999), "原"),
+    ThemeQuickAction(SubActionSlot.FarLeft, "纯白", 11, Color(0xFF5B7FA5), "白"),
+    ThemeQuickAction(SubActionSlot.NearLeft, "淡蓝", 12, Color(0xFF60758C), "灰"),
+    ThemeQuickAction(SubActionSlot.NearRight, "薄荷", 13, Color(0xFF4A8B6F), "绿")
+)
+
+fun getThemeActions(isDarkMode: Boolean) = if (isDarkMode) darkThemeActions else lightThemeActions
 
 /** 根据当前基础激活页面和用户长按触摸的图标，动态返回对应的快捷操作列表 */
 private fun getQuickActions(baseActiveRoute: String?, touchedRoute: String, isDarkMode: Boolean): List<QuickAction> {
@@ -385,7 +394,7 @@ fun BottomNavBar(
                     val centerTy = slotTargetY[ActionSlot.Center]!!
                     val subProgress = subMenuExpansionAnim.value
 
-                    for (subAction in themeActions) {
+                    for (subAction in getThemeActions(isDarkMode)) {
                         val slot = subAction.slot
                         val isThisSubActive = activeSubSlot == slot
                         val subAppearAlpha = subProgress.coerceIn(0f, 1f)
@@ -505,10 +514,8 @@ fun BottomNavBar(
                                     if (dist < snapRadiusPx) {
                                         activeSlot = slot
                                         if (slot == ActionSlot.Center && dragOffsetY < slotTargetY[ActionSlot.Center]!! - 15f) {
-                                            if (isDarkMode) {
-                                                inSubMenuMode = true
-                                                HapticUtil.performTick(view)
-                                            }
+                                            inSubMenuMode = true
+                                            HapticUtil.performTick(view)
                                         }
                                         break
                                     }
@@ -520,7 +527,7 @@ fun BottomNavBar(
                             isNavBarLongPressAccepted = false
 
                             if (inSubMenuMode && activeSubSlot != null) {
-                                val selectedThemeAction = themeActions.first { it.slot == activeSubSlot }
+                                val selectedThemeAction = getThemeActions(isDarkMode).first { it.slot == activeSubSlot }
                                 isExecuting = true
                                 HapticUtil.performLongPress(view)
 
@@ -533,11 +540,18 @@ fun BottomNavBar(
                                     isExecuting = false
                                     resetGestureState()
                                 }
-                            } else if (inSubMenuMode && GlobalData.isDarkMode.value) {
+                            } else if (inSubMenuMode) {
                                 isExecuting = true
                                 HapticUtil.performLongPress(view)
 
-                                baseRoute?.let { navBarVM.applyTheme(it, -1) }
+                                if (isDarkMode) {
+                                    // 暗色子菜单直接松手 -> 回到之前选的日间主题
+                                    val prevLightId = GlobalData.lightModeTheme.value
+                                    baseRoute?.let { navBarVM.applyTheme(it, if (prevLightId > 0) prevLightId + 10 else -1) }
+                                } else {
+                                    // 亮色子菜单直接松手 -> 切到暗色模式
+                                    baseRoute?.let { navBarVM.applyTheme(it, GlobalData.darkModeTheme.value) }
+                                }
 
                                 coroutineScope.launch {
                                     delay(150)
@@ -577,11 +591,12 @@ fun BottomNavBar(
                                         }
                                     }
                                 } else {
-                                    // 夜间模式下直接松手 -> 回到日间模式
+                                    // 夜间模式下直接松手 -> 回到之前选的日间主题
                                     isExecuting = true
                                     executedSlot = slot
                                     HapticUtil.performLongPress(view)
-                                    baseRoute?.let { navBarVM.applyTheme(it, -1) }
+                                    val prevLightId = GlobalData.lightModeTheme.value
+                                    baseRoute?.let { navBarVM.applyTheme(it, if (prevLightId > 0) prevLightId + 10 else -1) }
                                     coroutineScope.launch { delay(150); showActionSheet = false; delay(450); isExecuting = false; resetGestureState() }
                                 }
                             } else {

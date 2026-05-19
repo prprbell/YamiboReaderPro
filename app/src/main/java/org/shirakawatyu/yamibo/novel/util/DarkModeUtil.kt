@@ -1,28 +1,46 @@
 package org.shirakawatyu.yamibo.novel.util
 
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 
+/** 主题色板通用接口，DarkThemeColors 和 LightThemeColors 字段名完全一致 */
+interface ThemeColors {
+    val statusBar: Color
+    val navBar: Color
+    val background: Color
+    val surface: Color
+    val surfaceVariant: Color
+    val primary: Color
+    val onPrimary: Color
+    val onBackground: Color
+    val onSurface: Color
+    val onSurfaceVariant: Color
+    val outline: Color
+    val tertiary: Color
+    val onSecondary: Color
+}
+
 /** 单个夜间主题的完整色板 */
 data class DarkThemeColors(
-    val statusBar: Color,
-    val navBar: Color,
-    val background: Color,
-    val surface: Color,
-    val surfaceVariant: Color,
-    val primary: Color,
-    val onPrimary: Color,
-    val onBackground: Color,
-    val onSurface: Color,
-    val onSurfaceVariant: Color,
-    val outline: Color,
-    val tertiary: Color,
-    val onSecondary: Color,
-) {
+    override val statusBar: Color,
+    override val navBar: Color,
+    override val background: Color,
+    override val surface: Color,
+    override val surfaceVariant: Color,
+    override val primary: Color,
+    override val onPrimary: Color,
+    override val onBackground: Color,
+    override val onSurface: Color,
+    override val onSurfaceVariant: Color,
+    override val outline: Color,
+    override val tertiary: Color,
+    override val onSecondary: Color,
+) : ThemeColors {
     fun toDarkColorScheme() = darkColorScheme(
         primary = primary,
         secondary = surface,
@@ -112,6 +130,122 @@ data class DarkThemeColors(
     }
 }
 
+/** 单个日间主题的完整色板 */
+data class LightThemeColors(
+    override val statusBar: Color,
+    override val navBar: Color,
+    override val background: Color,
+    override val surface: Color,
+    override val surfaceVariant: Color,
+    override val primary: Color,
+    override val onPrimary: Color,
+    override val onBackground: Color,
+    override val onSurface: Color,
+    override val onSurfaceVariant: Color,
+    override val outline: Color,
+    override val tertiary: Color,
+    override val onSecondary: Color,
+) : ThemeColors {
+    fun toLightColorScheme() = lightColorScheme(
+        primary = primary,
+        secondary = surface,
+        tertiary = tertiary,
+        background = background,
+        surface = surface,
+        onPrimary = onPrimary,
+        onSecondary = onSecondary,
+        onTertiary = onSecondary,
+        onBackground = onBackground,
+        onSurface = onSurface,
+        onSurfaceVariant = onSurfaceVariant,
+        outline = outline,
+    )
+
+    companion object {
+        /**
+         * 暖纸 · Warm Paper
+         * 复古书页风格。深陶土棕状态栏给页面"皮革书脊"的厚重感，
+         * 暖米黄纸张作为主体背景，象牙白卡片浮起阅读区，
+         * 中等沙黄作为分区头与轮播底，铁锈橙作为主色用于按钮/链接/FAB。
+         *
+         * 层次：statusBar(深棕) → background(米黄纸) → surfaceVariant(沙黄) → surface(象牙白)
+         * 主色 #B85530 与所有中性色明显拉开，强调可点击元素。
+         */
+        val SEPIA_PAPER = LightThemeColors(
+            statusBar = Color(0xFF7A3E1E),       // 深陶土棕，顶部识别带
+            navBar = Color(0xFFFFFBF3),          // 象牙白底栏，承接卡片
+            background = Color(0xFFF2E8D5),      // 暖米黄主体背景（纸张）
+            surface = Color(0xFFFFFBF3),         // 象牙白卡片（书页）
+            surfaceVariant = Color(0xFFE6D7B5),  // 沙黄分区头
+            primary = Color(0xFFB85530),         // 铁锈橙主色
+            onPrimary = Color(0xFFFFFFFF),
+            onBackground = Color(0xFF3D2817),    // 深咖文字
+            onSurface = Color(0xFF3D2817),
+            onSurfaceVariant = Color(0xFF7A6651),// 棕灰次要文字
+            outline = Color(0xFFD6C5A8),         // 暖边框
+            tertiary = Color(0xFFE6D7B5),        // 沙黄药丸 = 底部导航选中指示器（与 surfaceVariant 同色）
+            onSecondary = Color(0xFF3D2817),
+        )
+
+        /**
+         * 论坛蓝 · Cobalt Forum
+         * 致敬 Discuz 论坛源生 #2B7ACD 蓝色基因。
+         * 深钴蓝状态栏 = 经典论坛 header 的现代化，
+         * 冷调浅灰蓝主体，纯白卡片层级最分明，
+         * 论坛原色 #2B7ACD 留作主色 — 链接/按钮/FAB 与历史一致。
+         *
+         * 层次：statusBar(深钴蓝) → background(浅灰蓝) → surfaceVariant(淡蓝) → surface(纯白)
+         * 这是三个主题中对比度最高的设计，适合长文阅读与扫读列表。
+         */
+        val COBALT_FORUM = LightThemeColors(
+            statusBar = Color(0xFF1F5A8F),       // 深钴蓝顶部识别带
+            navBar = Color(0xFFFFFFFF),          // 纯白底栏
+            background = Color(0xFFEDF1F6),      // 冷调浅灰蓝背景
+            surface = Color(0xFFFFFFFF),         // 纯白卡片（最大对比）
+            surfaceVariant = Color(0xFFDDE7F1),  // 淡蓝分区头
+            primary = Color(0xFF2B7ACD),         // 论坛原色蓝，作为主色保留
+            onPrimary = Color(0xFFFFFFFF),
+            onBackground = Color(0xFF1A2733),    // 深石板灰文字
+            onSurface = Color(0xFF1A2733),
+            onSurfaceVariant = Color(0xFF5B6A7A),// 中调石板次要文字
+            outline = Color(0xFFCFDAE5),         // 冷边框
+            tertiary = Color(0xFFDDE7F1),        // 淡蓝药丸 = 底部导航选中指示器（与 surfaceVariant 同色）
+            onSecondary = Color(0xFF1A2733),
+        )
+
+        /**
+         * 苔色 · Sage Garden
+         * 自然森林意境。深苔绿状态栏沉稳压住顶部，
+         * 浅绿主体淡雅护眼，近白卡片浮起，
+         * 中调森林绿作为主色 — 比蓝主题低饱和但同样清晰。
+         *
+         * 层次：statusBar(深苔绿) → background(浅绿) → surfaceVariant(淡苔) → surface(近白)
+         * 是三个主题中视觉刺激最低的，适合夜晚弱光环境下的长时间使用。
+         */
+        val SAGE_GARDEN = LightThemeColors(
+            statusBar = Color(0xFF37553F),       // 深苔绿顶部识别带
+            navBar = Color(0xFFFAFCF9),          // 近白底栏
+            background = Color(0xFFE9F0EA),      // 浅绿主体背景
+            surface = Color(0xFFFAFCF9),         // 近白卡片
+            surfaceVariant = Color(0xFFD3E0D5),  // 淡苔分区头
+            primary = Color(0xFF4F7857),         // 中调森林绿主色
+            onPrimary = Color(0xFFFFFFFF),
+            onBackground = Color(0xFF1F2B22),    // 深森林文字
+            onSurface = Color(0xFF1F2B22),
+            onSurfaceVariant = Color(0xFF5F6E5E),// 苔灰次要文字
+            outline = Color(0xFFC5D2C2),         // 软绿边框
+            tertiary = Color(0xFFD3E0D5),        // 淡苔药丸 = 底部导航选中指示器（与 surfaceVariant 同色）
+            onSecondary = Color(0xFF1F2B22),
+        )
+
+        fun forTheme(themeId: Int) = when (themeId) {
+            2 -> COBALT_FORUM
+            3 -> SAGE_GARDEN
+            else -> SEPIA_PAPER
+        }
+    }
+}
+
 /** 根据当前夜间主题返回对应的色板；若未开启夜间模式返回 null */
 @Composable
 fun currentDarkThemeColors(): DarkThemeColors? {
@@ -120,11 +254,24 @@ fun currentDarkThemeColors(): DarkThemeColors? {
     return if (isDark) DarkThemeColors.forTheme(themeId) else null
 }
 
-/** 返回当前主题下的颜色：日间模式用 light，夜间模式根据当前主题选 */
+/** 根据当前日间主题返回对应的色板；若为夜间模式或使用默认日间返回 null */
 @Composable
-fun darkThemeColor(light: Color, pick: DarkThemeColors.() -> Color): Color {
-    val theme = currentDarkThemeColors()
-    return if (theme != null) pick(theme) else light
+fun currentLightThemeColors(): LightThemeColors? {
+    val isDark by GlobalData.isDarkMode.collectAsState()
+    val themeId by GlobalData.lightModeTheme.collectAsState()
+    return if (!isDark && themeId > 0) LightThemeColors.forTheme(themeId) else null
+}
+
+/** 返回当前主题下的颜色：日间默认用 light，夜间/日间主题分别取对应色板 */
+@Composable
+fun darkThemeColor(light: Color, pick: ThemeColors.() -> Color): Color {
+    val darkTheme = currentDarkThemeColors()
+    val lightTheme = currentLightThemeColors()
+    return when {
+        darkTheme != null -> pick(darkTheme)
+        lightTheme != null -> pick(lightTheme)
+        else -> light
+    }
 }
 
 /** 原有的双色切换（向后兼容，不走多主题色板） */

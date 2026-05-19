@@ -60,14 +60,25 @@ class BottomNavBarVM : ViewModel() {
 
     fun applyTheme(route: String, themeId: Int) {
         viewModelScope.launch {
-            if (themeId == -1) {
-                GlobalData.isDarkMode.value = false
-                SettingsUtil.saveDarkMode(false)
-            } else {
-                GlobalData.isDarkMode.value = true
-                GlobalData.darkModeTheme.value = themeId
-                SettingsUtil.saveDarkMode(true)
-                SettingsUtil.saveDarkModeTheme(themeId)
+            when {
+                themeId == -1 -> {
+                    GlobalData.isDarkMode.value = false
+                    GlobalData.lightModeTheme.value = 0
+                    SettingsUtil.saveDarkMode(false)
+                    SettingsUtil.saveLightModeTheme(0)
+                }
+                themeId >= 11 -> {
+                    GlobalData.isDarkMode.value = false
+                    GlobalData.lightModeTheme.value = themeId - 10
+                    SettingsUtil.saveDarkMode(false)
+                    SettingsUtil.saveLightModeTheme(themeId - 10)
+                }
+                else -> {
+                    GlobalData.isDarkMode.value = true
+                    GlobalData.darkModeTheme.value = themeId
+                    SettingsUtil.saveDarkMode(true)
+                    SettingsUtil.saveDarkModeTheme(themeId)
+                }
             }
             _darkModeEvent.emit(route)
         }
