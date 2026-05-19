@@ -141,7 +141,7 @@ fun FavoriteItem(
     val color by animateColorAsState(
         targetValue = when {
             isDragging -> darkThemeColor(YamiboColors.onSurface) { surface } // 拖拽时
-            isManageMode && isSelected -> darkModeColor(YamiboColors.secondary, Color(0x4D7E57C2)) // 管理模式 + 选中
+            isManageMode && isSelected -> darkModeColor(YamiboColors.secondary, YamiboColors.primaryDark.copy(alpha = 0.3f)) // 管理模式 + 选中
             isManageMode && isHidden -> darkModeColor(Color.LightGray, Color(0xFF3a3a3a)) // 管理模式+已隐藏(未选中)
             else -> darkThemeColor(YamiboColors.tertiary) { tertiary } // 默认
         },
