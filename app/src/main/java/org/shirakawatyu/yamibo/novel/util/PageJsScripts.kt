@@ -41,80 +41,41 @@ object PageJsScripts {
                 }
             }
     
-            function isBadRawHref(rawHref) {
-                if (!rawHref) return true;
-    
-                rawHref = String(rawHref).trim();
-                if (!rawHref) return true;
-    
-                if (/^javascript:/i.test(rawHref)) return true;
-                if (/^(mailto|tel|sms):/i.test(rawHref)) return true;
-                if (rawHref === '#' || rawHref.indexOf('#') === 0) return true;
-    
-                return false;
-            }
-    
+            // 究极兜底策略：只认“帖子”和“版块”
             function isSafeBbsNavigation(a, url) {
                 if (!a || !url) return false;
+                
+                var rawHref = String(a.getAttribute('href') || '').trim();
+                if (!rawHref || rawHref === '#' || /^javascript:/i.test(rawHref)) return false;
     
-                var rawHref = a.getAttribute('href') || '';
-                if (isBadRawHref(rawHref)) return false;
-    
-                var protocol = String(url.protocol || '').toLowerCase();
-                if (protocol !== 'http:' && protocol !== 'https:') return false;
-    
-                // 只兜底百合会论坛内部链接，避免误伤外链。
                 if (url.hostname !== 'bbs.yamibo.com') return false;
     
-                var target = String(a.getAttribute('target') || '').toLowerCase();
-                if (target && target !== '_self') return false;
+                // 排除带有弹窗类名的元素
+                if (a.classList && a.classList.contains('dialog')) return false;
+                if (a.hasAttribute('data-pswp-width') || closest(a, '.pswp')) return false;
     
-                if (a.hasAttribute('download')) return false;
+                var query = String(url.search || '').toLowerCase();
+                var path = String(url.pathname || '').replace(/^\/+/, '').toLowerCase();
     
-                // PhotoSwipe / 图片预览不要兜底。
-                if (a.hasAttribute('data-pswp-width')) return false;
-                if (closest(a, '.pswp')) return false;
+                // 排除明显的异步请求或操作动作
+                if (/(\?|&)(inajax|action|ac|formhash)=/.test(query)) return false;
     
-                var hasImg = !!a.querySelector('img');
+                // ==========================================
+                // 核心白名单：只针对下面这两种核心链接执行 800ms 兜底跳转
+                // ==========================================
+                var isThread = /^thread-\d+/.test(path) || (path === 'forum.php' && query.indexOf('mod=viewthread') !== -1);
+                var isForum = /^forum-\d+/.test(path) || (path === 'forum.php' && query.indexOf('mod=forumdisplay') !== -1);
     
-                // 带图片的链接很可能是头像、表情、预览图、附件图。
-                // 只有明确是帖子/版块导航时才允许兜底。
-                if (hasImg && !/mod=viewthread|thread-\d+|forum-\d+/i.test(url.href)) {
-                    return false;
+                if (!isThread && !isForum) {
+                    return false; 
                 }
     
-                var path = String(url.pathname || '').replace(/^\/+/, '');
-                var query = String(url.search || '');
-    
-                // 排除 ajax / 弹层 / 表单动作 / 敏感动作。
-                if (/(\?|&)inajax=1\b/i.test(query)) return false;
-                if (/(\?|&)handlekey=/i.test(query)) return false;
-                if (/(\?|&)formhash=/i.test(query)) return false;
-    
-                if (/(\?|&)action=(reply|edit|newthread|delete|recommend|rate|favorite|logout)/i.test(query)) {
-                    return false;
-                }
-    
-                if (/(\?|&)mod=(post|logging|register|ajax|misc)/i.test(query)) {
-                    return false;
-                }
-    
-                // 纯楼层锚点变化不处理。
+                // 纯锚点跳转（楼层跳转）不处理
                 var currentNoHash = location.href.split('#')[0];
                 var targetNoHash = url.href.split('#')[0];
                 if (currentNoHash === targetNoHash) return false;
     
-                // Discuz 常见普通导航白名单。
-                if (/^forum\.php/i.test(path)) return true;
-                if (/^home\.php/i.test(path)) return true;
-                if (/^search\.php/i.test(path)) return true;
-                if (/^portal\.php/i.test(path)) return true;
-    
-                if (/^thread-\d+/i.test(path)) return true;
-                if (/^forum-\d+/i.test(path)) return true;
-                if (/^space-\d+/i.test(path)) return true;
-    
-                return false;
+                return true;
             }
     
             function scheduleFallback(a, reason) {
@@ -131,10 +92,8 @@ object PageJsScripts {
                 pendingTimer = setTimeout(function() {
                     pendingTimer = null;
     
-                    // 正常跳转、PJAX pushState、hash 变化都不再兜底。
                     if (location.href !== before) return;
     
-                    // 页面没动，认为点击被论坛脚本/PJAX 吃掉了，执行硬跳转。
                     try {
                         console.log('[YamiboNavGuard] fallback navigate by ' + reason + ': ' + targetUrl);
                     } catch (_) {}
@@ -149,77 +108,53 @@ object PageJsScripts {
     
             document.addEventListener('click', function(e) {
                 if (e.button && e.button !== 0) return;
-    
                 var a = closest(e.target, 'a[href]');
-                if (!a) return;
-    
-                scheduleFallback(a, 'click');
+                if (a) scheduleFallback(a, 'click');
             }, true);
     
             document.addEventListener('pointerdown', function(e) {
                 var p = getPoint(e);
-                if (!p) return;
-    
-                downPoint = {
-                    x: p.clientX,
-                    y: p.clientY,
-                    t: Date.now()
-                };
+                if (p) downPoint = { x: p.clientX, y: p.clientY, t: Date.now() };
             }, true);
     
             document.addEventListener('pointerup', function(e) {
                 if (!downPoint) return;
-    
                 var p = getPoint(e);
                 if (!p) return;
     
                 var dx = Math.abs(p.clientX - downPoint.x);
                 var dy = Math.abs(p.clientY - downPoint.y);
                 var dt = Date.now() - downPoint.t;
-    
                 downPoint = null;
     
-                // 排除滚动和长按。
                 if (dx > 16 || dy > 16 || dt > 1000) return;
     
                 var el = document.elementFromPoint(p.clientX, p.clientY) || e.target;
                 var a = closest(el, 'a[href]');
-                if (!a) return;
-    
-                scheduleFallback(a, 'pointerup');
+                if (a) scheduleFallback(a, 'pointerup');
             }, true);
     
-            // 部分老 WebView / 页面脚本可能 pointer 事件不稳定，再补 touch。
+            // 兼容老设备
             document.addEventListener('touchstart', function(e) {
                 var p = getPoint(e);
-                if (!p) return;
-    
-                downPoint = {
-                    x: p.clientX,
-                    y: p.clientY,
-                    t: Date.now()
-                };
+                if (p) downPoint = { x: p.clientX, y: p.clientY, t: Date.now() };
             }, true);
     
             document.addEventListener('touchend', function(e) {
                 if (!downPoint) return;
-    
                 var p = getPoint(e);
                 if (!p) return;
     
                 var dx = Math.abs(p.clientX - downPoint.x);
                 var dy = Math.abs(p.clientY - downPoint.y);
                 var dt = Date.now() - downPoint.t;
-    
                 downPoint = null;
     
                 if (dx > 16 || dy > 16 || dt > 1000) return;
     
                 var el = document.elementFromPoint(p.clientX, p.clientY) || e.target;
                 var a = closest(el, 'a[href]');
-                if (!a) return;
-    
-                scheduleFallback(a, 'touchend');
+                if (a) scheduleFallback(a, 'touchend');
             }, true);
     
             window.addEventListener('pagehide', clearPendingTimer, true);
@@ -807,8 +742,8 @@ object PageJsScripts {
     val MANGA_WEB_HIDE_COMMAND = """
         javascript:(function() {
             var style = document.createElement('style');
-            style.innerHTML = '.my, .mz { visibility: hidden !important; pointer-events: none !important; }';
-            document.head.appendChild(style);
+            style.innerHTML = '.mz { visibility: hidden !important; pointer-events: none !important; } .nav-search, #nav-more-menu .btn-to-pc { display: none !important; }';
+            if (document.head) document.head.appendChild(style);
         })()
     """.trimIndent()
 
@@ -887,7 +822,7 @@ object PageJsScripts {
     val OTHER_WEB_HIDE_COMMAND = """
         (function() {
             var style = document.createElement('style');
-            style.innerHTML = '.nav-search, #nav-more-menu .btn-to-pc { display: none !important; }';
+            style.innerHTML = '.mz { visibility: hidden !important; pointer-events: none !important; } .nav-search, #nav-more-menu .btn-to-pc { display: none !important; }';
             if (document.head) document.head.appendChild(style);
         })()
     """.trimIndent()
@@ -966,7 +901,7 @@ object PageJsScripts {
             var currentUrl = window.location.href;
             var mangaSections = ['中文百合漫画区', '貼圖區', '原创图作区', '百合漫画图源区'];
             var isManga = mangaSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=30') !== -1;
-            var novelSections = ['文学区', 'TXT小说区', '轻小说/译文区'];
+            var novelSections = ['文學區', '文学区', 'TXT小说区', '轻小说/译文区'];
             var isNovel = novelSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=55') !== -1;
             if (isNovel) return 1;
             if (isManga) return 2;

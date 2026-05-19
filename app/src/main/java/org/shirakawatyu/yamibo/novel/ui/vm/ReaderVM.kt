@@ -1132,6 +1132,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     fun onSetBackgroundColor(color: Color?) {
         _uiState.value = _uiState.value.copy(backgroundColor = color, nightMode = false)
+        saveCurrentSettings()
     }
 
     override fun onCleared() {

@@ -35,8 +35,8 @@ import java.net.URLEncoder
 
 private val mangaSections = listOf("中文百合漫画区", "贴图区", "貼圖區", "原创图作区", "百合漫画图源区")
 private val novelSections = listOf("文學區", "文学区", "轻小说/译文区", "TXT小说区")
-private val mangaFids = setOf("30")
-private val novelFids = setOf("55")
+private val mangaFids = setOf("13", "30", "46")
+private val novelFids = setOf("49", "55")
 
 private val IMG_TAG_REGEX = Regex(
     """<img\s+[^>]*?(?:zsrc|data-src|file|src)=["']([^"']+)["'][^>]*>""",
@@ -114,7 +114,7 @@ fun ProbingPage(url: String, navController: NavController) {
                         }
                         var rawTitle = title
                         rawTitle = rawTitle.replace(
-                            Regex("\\s+[-—–_]+\\s+.*?(文学区|小说区|译文区|百合会|论坛).*$"),
+                            Regex("\\s+[-—–_]+\\s+.*?(文學區|文学区|小说区|译文区|百合会|论坛).*$"),
                             ""
                         ).trim()
                         if (rawTitle.isNotBlank() && newFav.title != rawTitle) {

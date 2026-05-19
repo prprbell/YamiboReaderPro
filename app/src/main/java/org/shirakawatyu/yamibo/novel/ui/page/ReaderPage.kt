@@ -1,4 +1,5 @@
 package org.shirakawatyu.yamibo.novel.ui.page
+
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
@@ -149,6 +150,7 @@ import org.shirakawatyu.yamibo.novel.ui.widget.reader.DayNightLottieSwitch
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.reader.rememberScreenCorner
 import kotlin.math.roundToInt
+
 private val backgroundColors = listOf(
     null, // 代表 "原背景"
     Color(0xFFf5f1e8),
@@ -156,11 +158,13 @@ private val backgroundColors = listOf(
     Color(0xFFd9e0e8),
     Color(0xFFdddddd)
 )
+
 fun typefaceFromMode(mode: Int): Typeface = when (mode) {
     1 -> Typeface.create("sans-serif-medium", Typeface.NORMAL) // 黑体
     2 -> Typeface.create("serif", Typeface.NORMAL)             // 宋体
     else -> Typeface.DEFAULT                                    // 系统
 }
+
 /**
  * 阅读器页面，用于格式化显示原论坛内容
  *
@@ -358,7 +362,7 @@ fun ReaderPage(
                 null
             }
         var settingsOnOpen by remember {
-            mutableStateOf<Pair<Triple<TextUnit, TextUnit, Dp>, Color?>?>(null)
+            mutableStateOf<Triple<TextUnit, TextUnit, Dp>?>(null)
         }
         val isLoading = readerVM.showLoadingScrim
         var showImageWarning by remember { mutableStateOf(false) }
@@ -445,10 +449,7 @@ fun ReaderPage(
         }
         LaunchedEffect(showSettings) {
             if (showSettings) {
-                settingsOnOpen = Pair(
-                    Triple(uiState.fontSize, uiState.lineHeight, uiState.padding),
-                    uiState.backgroundColor
-                )
+                settingsOnOpen = Triple(uiState.fontSize, uiState.lineHeight, uiState.padding)
             } else {
                 view?.isFocusableInTouchMode = true
                 view?.requestFocus()
@@ -486,10 +487,9 @@ fun ReaderPage(
         val onSettingsMaskClick = remember(readerVM) {
             {
                 val currentState = readerVM.uiState.value
-                val settingsNow = Pair(
-                    Triple(currentState.fontSize, currentState.lineHeight, currentState.padding),
-                    currentState.backgroundColor
-                )
+                val settingsNow =
+                    Triple(currentState.fontSize, currentState.lineHeight, currentState.padding)
+
                 if (settingsOnOpen != settingsNow) readerVM.saveSettings(currentPageIndex)
                 showSettings = false
             }
@@ -1183,6 +1183,7 @@ fun ReaderPage(
         }
     }
 }
+
 @Composable
 fun ReaderSettingsBar(
     modifier: Modifier = Modifier,
@@ -1278,6 +1279,7 @@ fun ReaderSettingsBar(
         }
     }
 }
+
 @Composable
 fun ChapterDrawerContent(
     drawerState: DrawerState,
