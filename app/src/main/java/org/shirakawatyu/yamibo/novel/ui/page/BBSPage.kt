@@ -858,14 +858,10 @@ fun BBSPage(
     }
 
     LaunchedEffect(Unit) {
-        bottomNavBarVM.darkModeEvent.collect { route ->
+        bottomNavBarVM.darkModeEvent.collect { _ ->
             val enable = GlobalData.isDarkMode.value
             val js = PageJsScripts.getDarkModeSetJs(enable, GlobalData.darkModeTheme.value)
-            if (route == "BBSPage") {
-                webView.evaluateJavascript(js, null)
-            } else if (route == "MinePage") {
-                webView.evaluateJavascript(js, null)
-            }
+            webView.evaluateJavascript(js, null)
         }
     }
 

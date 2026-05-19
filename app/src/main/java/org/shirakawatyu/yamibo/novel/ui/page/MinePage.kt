@@ -659,14 +659,10 @@ fun MinePage(
     }
 
     LaunchedEffect(Unit) {
-        bottomNavBarVM.darkModeEvent.collect { route ->
+        bottomNavBarVM.darkModeEvent.collect { _ ->
             val enable = GlobalData.isDarkMode.value
             val js = PageJsScripts.getDarkModeSetJs(enable, GlobalData.darkModeTheme.value)
-            if (route == "MinePage") {
-                mineWebView.evaluateJavascript(js, null)
-            } else if (route == "BBSPage") {
-                mineWebView.evaluateJavascript(js, null)
-            }
+            mineWebView.evaluateJavascript(js, null)
         }
     }
 

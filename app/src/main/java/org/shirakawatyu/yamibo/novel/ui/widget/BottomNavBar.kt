@@ -117,24 +117,45 @@ val themeActions = listOf(
     ThemeQuickAction(SubActionSlot.FarRight, "紫夜", 3, Color(0xFF15151F), "紫")
 )
 
-/** 根据当前路由和夜间模式状态返回该页面允许的快捷操作列表 */
-private fun getQuickActions(route: String?, isDarkMode: Boolean): List<QuickAction> {
-    return when (route) {
-        "BBSPage" -> listOf(
-            QuickAction(ActionSlot.Left, Icons.Default.Home, "返回首页", ActionKind.Home),
-            QuickAction(
-                ActionSlot.Center,
-                Icons.Default.Settings,
-                "夜间模式",
-                ActionKind.DarkMode,
-                iconResId = if (isDarkMode) R.drawable.ic_sun else R.drawable.ic_moon
-            ),
-            QuickAction(ActionSlot.Right, Icons.Default.Refresh, "刷新", ActionKind.Refresh)
-        )
-        "MinePage" -> listOf(
-            QuickAction(ActionSlot.Left, Icons.Default.Person, "返回首页", ActionKind.Home),
-            QuickAction(ActionSlot.Center, Icons.Default.Refresh, "刷新", ActionKind.Refresh)
-        )
+/** 根据当前基础激活页面和用户长按触摸的图标，动态返回对应的快捷操作列表 */
+private fun getQuickActions(baseActiveRoute: String?, touchedRoute: String, isDarkMode: Boolean): List<QuickAction> {
+    return when (touchedRoute) {
+        "BBSPage" -> {
+            if (baseActiveRoute == "BBSPage") {
+                listOf(
+                    QuickAction(ActionSlot.Left, Icons.Default.Home, "返回首页", ActionKind.Home),
+                    QuickAction(
+                        ActionSlot.Center,
+                        Icons.Default.Settings,
+                        "夜间模式",
+                        ActionKind.DarkMode,
+                        iconResId = if (isDarkMode) R.drawable.ic_sun else R.drawable.ic_moon
+                    ),
+                    QuickAction(ActionSlot.Right, Icons.Default.Refresh, "刷新", ActionKind.Refresh)
+                )
+            } else {
+                // 全局跨页触发：只要在非 BBS 页面时长按 BBS 图标，仅保留中央的夜间模式切换功能球
+                listOf(
+                    QuickAction(
+                        ActionSlot.Center,
+                        Icons.Default.Settings,
+                        "夜间模式",
+                        ActionKind.DarkMode,
+                        iconResId = if (isDarkMode) R.drawable.ic_sun else R.drawable.ic_moon
+                    )
+                )
+            }
+        }
+        "MinePage" -> {
+            if (baseActiveRoute == "MinePage") {
+                listOf(
+                    QuickAction(ActionSlot.Left, Icons.Default.Person, "返回首页", ActionKind.Home),
+                    QuickAction(ActionSlot.Center, Icons.Default.Refresh, "刷新", ActionKind.Refresh)
+                )
+            } else {
+                emptyList()
+            }
+        }
         else -> emptyList()
     }
 }
@@ -152,9 +173,13 @@ fun BottomNavBar(
     val pageList = listOf("FavoritePage", "BBSPage", "MinePage")
 
     val animatedProgress = remember { Animatable(0f) }
-
     val isDarkMode by GlobalData.isDarkMode.collectAsState()
-    val quickActions = remember(currentRoute, isDarkMode) { getQuickActions(currentRoute, isDarkMode) }
+
+    // 1. 规范化路由：将历史帖子详情强制映射回 MinePage，恢复底栏图标高亮与事件焦点
+    val baseRoute = if (currentRoute?.startsWith("MineHistoryPostPage") == true) "MinePage" else currentRoute
+
+    // 2. 将快捷操作声明为可变状态，在手指按下时根据触摸的具体图标进行动态计算和填充
+    var activeQuickActions by remember { mutableStateOf<List<QuickAction>>(emptyList()) }
 
     // ==== 手势 / 动画状态 ====
     var showActionSheet by remember { mutableStateOf(false) }
@@ -302,8 +327,8 @@ fun BottomNavBar(
             )
 
             Box(modifier = Modifier.fillMaxWidth().height(quickActionLayerHeight)) {
-                // 1. 渲染一层主按钮
-                for (action in quickActions) {
+                // 1. 动态渲染气泡按钮
+                for (action in activeQuickActions) {
                     val slot = action.slot
                     val targetX = slotTargetX[slot]!!
                     val targetY = slotTargetY[slot]!!
@@ -354,7 +379,7 @@ fun BottomNavBar(
                     }
                 }
 
-                // 2. 渲染二级主题球
+                // 2. 渲染二级主题选色球
                 if (inSubMenuMode || subMenuExpansionAnim.value > 0.01f) {
                     val centerTx = slotTargetX[ActionSlot.Center]!!
                     val centerTy = slotTargetY[ActionSlot.Center]!!
@@ -405,7 +430,7 @@ fun BottomNavBar(
                     }
                 }
 
-                // 3. 灵动追随光球
+                // 3. 灵动追随手势的光球
                 if (!isExecuting) {
                     val fingerAlpha = ((expansionProgress - 0.1f) / 0.3f).coerceIn(0f, 1f)
                     Box(
@@ -426,7 +451,7 @@ fun BottomNavBar(
         // ================= 底部导航栏及触摸检测 =================
         NavigationBar(
             Modifier.fillMaxWidth().height(navBarHeight).align(Alignment.BottomCenter).zIndex(5f)
-                .pointerInput(currentRoute, quickActions) {
+                .pointerInput(baseRoute, isDarkMode) {
                     var isNavBarLongPressAccepted = false
                     detectDragGesturesAfterLongPress(
                         onDragStart = { startOffset ->
@@ -434,9 +459,13 @@ fun BottomNavBar(
                             val touchedIndex = (startOffset.x / (size.width / pageList.size.toFloat())).toInt().coerceIn(0, pageList.lastIndex)
                             val targetRoute = pageList[touchedIndex]
 
-                            isNavBarLongPressAccepted = currentRoute == targetRoute && targetRoute != "FavoritePage" && quickActions.isNotEmpty()
+                            // 【核心改动】：按下时动态根据当前 baseRoute 与触摸的图标 targetRoute 共同计算可用动作
+                            val actionsForTouch = getQuickActions(baseRoute, targetRoute, isDarkMode)
+
+                            isNavBarLongPressAccepted = actionsForTouch.isNotEmpty() && targetRoute != "FavoritePage"
                             if (!isNavBarLongPressAccepted) return@detectDragGesturesAfterLongPress
 
+                            activeQuickActions = actionsForTouch // 动态绑定当前动作集
                             cancelPendingReset()
                             HapticUtil.performLongPress(view)
                             pressedItemIndex = touchedIndex
@@ -495,7 +524,7 @@ fun BottomNavBar(
                                 isExecuting = true
                                 HapticUtil.performLongPress(view)
 
-                                currentRoute?.let { navBarVM.applyTheme(it, selectedThemeAction.themeId) }
+                                baseRoute?.let { navBarVM.applyTheme(it, selectedThemeAction.themeId) }
 
                                 coroutineScope.launch {
                                     delay(150)
@@ -508,7 +537,7 @@ fun BottomNavBar(
                                 isExecuting = true
                                 HapticUtil.performLongPress(view)
 
-                                currentRoute?.let { navBarVM.applyTheme(it, -1) }
+                                baseRoute?.let { navBarVM.applyTheme(it, -1) }
 
                                 coroutineScope.launch {
                                     delay(150)
@@ -519,7 +548,7 @@ fun BottomNavBar(
                                 }
                             } else if (!inSubMenuMode && activeSlot != null) {
                                 val slot = activeSlot!!
-                                val action = quickActions.first { it.slot == slot }
+                                val action = activeQuickActions.first { it.slot == slot }
 
                                 if (action.kind != ActionKind.DarkMode || !isDarkMode) {
                                     isExecuting = true
@@ -528,18 +557,18 @@ fun BottomNavBar(
 
                                     when (action.kind) {
                                         ActionKind.Home -> {
-                                            currentRoute?.let { navBarVM.triggerGoHome(it) }
+                                            baseRoute?.let { navBarVM.triggerGoHome(it) }
                                             coroutineScope.launch { delay(150); showActionSheet = false; delay(450); isExecuting = false; resetGestureState() }
                                         }
                                         ActionKind.Refresh -> {
-                                            currentRoute?.let { navBarVM.triggerRefresh(it) }
+                                            baseRoute?.let { navBarVM.triggerRefresh(it) }
                                             coroutineScope.launch {
                                                 val spinJob = launch { rotationAnim.animateTo(rotationAnim.value + 360f, tween(600, easing = LinearEasing)) }
                                                 delay(150); showActionSheet = false; delay(450); isExecuting = false; spinJob.cancel(); rotationAnim.snapTo(0f); resetGestureState()
                                             }
                                         }
                                         ActionKind.DarkMode -> {
-                                            currentRoute?.let { navBarVM.applyTheme(it, GlobalData.darkModeTheme.value) }
+                                            baseRoute?.let { navBarVM.applyTheme(it, GlobalData.darkModeTheme.value) }
                                             coroutineScope.launch { delay(150); showActionSheet = false; delay(450); isExecuting = false; resetGestureState() }
                                         }
                                         ActionKind.CheckUpdate -> {
@@ -548,11 +577,11 @@ fun BottomNavBar(
                                         }
                                     }
                                 } else {
-                                    // 夜间模式下拖到中央按钮松手 → 直接回到日间模式，无需进入二级选色菜单
+                                    // 夜间模式下直接松手 -> 回到日间模式
                                     isExecuting = true
                                     executedSlot = slot
                                     HapticUtil.performLongPress(view)
-                                    currentRoute?.let { navBarVM.applyTheme(it, -1) }
+                                    baseRoute?.let { navBarVM.applyTheme(it, -1) }
                                     coroutineScope.launch { delay(150); showActionSheet = false; delay(450); isExecuting = false; resetGestureState() }
                                 }
                             } else {
@@ -575,9 +604,9 @@ fun BottomNavBar(
                 val targetRoute = pageList[index]
                 NavigationBarItem(
                     icon = { Icon(item, contentDescription = "") },
-                    selected = currentRoute == targetRoute,
+                    selected = baseRoute == targetRoute, // 使用归一化的 baseRoute 判断高亮状态
                     colors = NavigationBarItemDefaults.colors(indicatorColor = darkThemeColor(YamiboColors.tertiary) { tertiary }),
-                    onClick = { if (currentRoute != targetRoute) navBarVM.changeSelection(index, navController) }
+                    onClick = { if (baseRoute != targetRoute) navBarVM.changeSelection(index, navController) }
                 )
             }
         }
@@ -585,7 +614,7 @@ fun BottomNavBar(
         // ================= 网页进度条 =================
         AnimatedVisibility(
             visible = webProgress > 0 && animatedProgress.value < 1f &&
-                    (currentRoute == "BBSPage" || currentRoute == "MinePage") &&
+                    (baseRoute == "BBSPage" || baseRoute == "MinePage") &&
                     !navBarVM.isNavigating,
             enter = fadeIn(tween(200)) + expandVertically(expandFrom = Alignment.Top, animationSpec = tween(200)),
             exit = fadeOut(tween(300)) + shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = tween(300)),
