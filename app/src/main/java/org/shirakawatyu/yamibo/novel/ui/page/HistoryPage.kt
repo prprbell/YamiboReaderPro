@@ -350,13 +350,42 @@ fun HistoryPage(navController: NavController) {
                 DateRangePicker(
                     state = dateRangePickerState,
                     modifier = Modifier.weight(1f),
-                    title = customTitle
+                    title = customTitle,
+                    headline = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val startText = dateRangePickerState.selectedStartDateMillis?.let { formatDateOnly(it) } ?: "开始日期"
+                            val endText = dateRangePickerState.selectedEndDateMillis?.let { formatDateOnly(it) } ?: "结束日期"
+                            Text(
+                                text = "$startText  至  $endText",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 )
             } else {
                 DatePicker(
                     state = datePickerState,
                     modifier = Modifier.weight(1f),
-                    title = customTitle
+                    title = customTitle,
+                    headline = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val dateText = datePickerState.selectedDateMillis?.let { formatDateOnly(it) } ?: "请选择日期"
+                            Text(
+                                text = dateText,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 )
             }
         }
