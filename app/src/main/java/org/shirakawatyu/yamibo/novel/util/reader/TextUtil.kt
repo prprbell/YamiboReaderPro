@@ -88,7 +88,7 @@ class TextUtil {
             var isStartOfParagraph = true
 
             text.lineSequence().forEach { rawLine ->
-                val line = rawLine.trimEnd(' ', '　', '\t', '\u00A0')
+                val line = rawLine.trimEnd(' ', '　', '\t', '\u00A0', '\u200B')
 
                 if (line.isBlank()) {
                     if (resultLines.isNotEmpty() && resultLines.last().isNotEmpty()) {
@@ -98,7 +98,7 @@ class TextUtil {
                 } else {
                     val lineToChunk: String
                     if (isStartOfParagraph) {
-                        val trimmedLine = line.trimStart(' ', '　')
+                        val trimmedLine = line.trimStart(' ', '　', '\t', '\u00A0', '\u200B')
                         lineToChunk = "　　$trimmedLine"
                         isStartOfParagraph = false
                     } else {
@@ -259,7 +259,7 @@ class TextUtil {
                     val chapterTitle = content.chapterTitle
 
                     text.lineSequence().forEach { rawLine ->
-                        val line = rawLine.trimEnd(' ', '　', '\t', '\u00A0')
+                        val line = rawLine.trimEnd(' ', '　', '\t', '\u00A0', '\u200B')
 
                         if (line.isBlank()) {
                             if (resultLines.isNotEmpty()) {
@@ -272,7 +272,7 @@ class TextUtil {
                         } else {
                             val lineToChunk: String
                             if (isStartOfParagraph) {
-                                val trimmedLine = line.trimStart(' ', '　')
+                                val trimmedLine = line.trimStart(' ', '　', '\t', '\u00A0', '\u200B')
                                 lineToChunk = "　　$trimmedLine"
                                 isStartOfParagraph = false
                             } else {

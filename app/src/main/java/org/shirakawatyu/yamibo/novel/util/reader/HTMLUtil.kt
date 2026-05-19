@@ -7,6 +7,9 @@ class HTMLUtil {
     companion object {
         fun toText(html: String): String {
             val text = html
+                // 0. 清除零宽字符等不可见格式符，防止干扰排版
+                .replace("\u200B", "")
+
                 // 1. 将 <br> 标签替换为单个换行符
                 .replace(Regex("(?i)<br\\s*/?>"), "\n\n")
 
