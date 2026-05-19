@@ -1,0 +1,6 @@
+{
+  "tag_name": "v1.11.1",
+  "body": "- 补全收藏类型识别的版块范围\n- 修复收藏管理模式下夜间主题选中项无高亮的问题",
+  "apkName": "yamibo_v1.11.1.apk",
+  "apkDownloadUrl": "https://yamibo-reader-pro-release.oss-cn-chengdu.aliyuncs.com/yamibo_v1.11.1.zip"
+}
