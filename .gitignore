@@ -11,4 +11,5 @@ captures/
 *.aab
 output-metadata.json
 release/
+release_notes.txt
 .gitee_token
