@@ -320,7 +320,7 @@ fun FavoritePage(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(if (lockedStatusHeight > 0.dp) lockedStatusHeight else 28.dp)
-                .background(darkThemeColor(YamiboColors.onSurface) { navBar })
+                .background(darkThemeColor(YamiboColors.onSurface) { statusBar })
         )
         TopBar(title = "") {
             Row(
@@ -335,7 +335,7 @@ fun FavoritePage(
                         text = "管理收藏 (${selectedItems.size})",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.padding(start = 8.dp)
                     )
                     Spacer(modifier = Modifier.weight(1f))
@@ -361,12 +361,12 @@ fun FavoritePage(
                                 text = "收藏栏/${currentCat.second}",
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onPrimary
                             )
                             Icon(
                                 painterResource(R.drawable.ic_arrow_down),
                                 contentDescription = if (categoryMenuExpanded) "收起分类" else "展开分类",
-                                tint = MaterialTheme.colorScheme.onSurface,
+                                tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier
                                     .offset(y = 4.dp)
                                     .graphicsLayer {
@@ -456,7 +456,7 @@ fun FavoritePage(
                                 painter = painterResource(id = R.drawable.ic_more_horiz),
                                 contentDescription = "更多选项",
                                 modifier = Modifier.size(24.dp),
-                                tint = darkThemeColor(YamiboColors.primary) { primary }
+                                tint = darkThemeColor(Color.White) { onPrimary }
                             )
                         }
                         DropdownMenu(

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -118,10 +119,14 @@ val darkThemeActions = listOf(
 )
 
 val lightThemeActions = listOf(
-    ThemeQuickAction(SubActionSlot.FarRight, "原色", -1, Color(0xFF999999), "原"),
-    ThemeQuickAction(SubActionSlot.FarLeft, "纯白", 11, Color(0xFF5B7FA5), "白"),
-    ThemeQuickAction(SubActionSlot.NearLeft, "淡蓝", 12, Color(0xFF60758C), "灰"),
-    ThemeQuickAction(SubActionSlot.NearRight, "薄荷", 13, Color(0xFF4A8B6F), "绿")
+    // FarLeft  原色 (-1)：不注入任何主题，呈现 yamibo 论坛原生暖米黄
+    ThemeQuickAction(SubActionSlot.FarLeft, "原色", -1, Color(0xFFC9B388), "原"),
+    // NearLeft 纯白 (11)：现代极简白色主题
+    ThemeQuickAction(SubActionSlot.NearLeft, "纯白", 11, Color.White, "白"),
+    // NearRight 论坛 (12)：COBALT_FORUM 蓝 — 用论坛原生 #2B7ACD 主色
+    ThemeQuickAction(SubActionSlot.NearRight, "论坛", 12, Color(0xFF2B7ACD), "蓝"),
+    // FarRight 苔色 (13)：SAGE_GARDEN 绿 — 用森林绿 #4F7857 主色
+    ThemeQuickAction(SubActionSlot.FarRight, "苔色", 13, Color(0xFF4F7857), "苔")
 )
 
 fun getThemeActions(isDarkMode: Boolean) = if (isDarkMode) darkThemeActions else lightThemeActions
@@ -430,7 +435,7 @@ fun BottomNavBar(
                             ) {
                                 androidx.compose.material3.Text(
                                     text = subAction.hint,
-                                    color = Color.White.copy(alpha = 0.55f),
+                                    color = if (subAction.themeId == -1 || subAction.themeId == 11) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.55f),
                                     fontSize = 14.sp,
                                     modifier = Modifier.align(Alignment.Center)
                                 )
@@ -513,7 +518,7 @@ fun BottomNavBar(
                                     val dist = hypot(dragOffsetX - slotTargetX[slot]!!, dragOffsetY - slotTargetY[slot]!!)
                                     if (dist < snapRadiusPx) {
                                         activeSlot = slot
-                                        if (slot == ActionSlot.Center && dragOffsetY < slotTargetY[ActionSlot.Center]!! - 15f) {
+                                        if (slot == ActionSlot.Center && dragOffsetY < slotTargetY[ActionSlot.Center]!! - 15f && activeQuickActions.any { it.slot == ActionSlot.Center && it.kind == ActionKind.DarkMode }) {
                                             inSubMenuMode = true
                                             HapticUtil.performTick(view)
                                         }
@@ -613,14 +618,17 @@ fun BottomNavBar(
                     )
                 },
             windowInsets = WindowInsets(0, 0, 0, 0),
-            containerColor = darkThemeColor(YamiboColors.onSurface) { navBar }
+            containerColor = darkThemeColor(YamiboColors.onSurface) { statusBar }
         ) {
             uiState.icons.forEachIndexed { index, item ->
                 val targetRoute = pageList[index]
                 NavigationBarItem(
                     icon = { Icon(item, contentDescription = "") },
                     selected = baseRoute == targetRoute, // 使用归一化的 baseRoute 判断高亮状态
-                    colors = NavigationBarItemDefaults.colors(indicatorColor = darkThemeColor(YamiboColors.tertiary) { tertiary }),
+                    colors = NavigationBarItemDefaults.colors(
+                        unselectedIconColor = darkThemeColor(MaterialTheme.colorScheme.onSurfaceVariant) { onPrimary.copy(alpha = 0.5f) },
+                        indicatorColor = darkThemeColor(YamiboColors.tertiary) { tertiary }
+                    ),
                     onClick = { if (baseRoute != targetRoute) navBarVM.changeSelection(index, navController) }
                 )
             }

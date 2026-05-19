@@ -163,28 +163,30 @@ data class LightThemeColors(
 
     companion object {
         /**
-         * 暖纸 · Warm Paper
-         * 复古书页风格。深陶土棕状态栏给页面"皮革书脊"的厚重感，
-         * 暖米黄纸张作为主体背景，象牙白卡片浮起阅读区，
-         * 中等沙黄作为分区头与轮播底，铁锈橙作为主色用于按钮/链接/FAB。
+         * 纯白 · Pure White
+         * 现代极简风。岩石灰状态栏作为冷色识别带，
+         * 极淡冷灰主体背景把卡片"抬"出阅读层，纯白卡片承接内容，
+         * 浅冷灰分区头柔和分隔，炭灰作为主色用于按钮/链接/FAB。
          *
-         * 层次：statusBar(深棕) → background(米黄纸) → surfaceVariant(沙黄) → surface(象牙白)
-         * 主色 #B85530 与所有中性色明显拉开，强调可点击元素。
+         * 层次：statusBar(岩石灰) → background(极淡冷灰) → surfaceVariant(浅冷灰) → surface(纯白)
+         * 与原生论坛（暖米黄）、论坛蓝（冷蓝）、苔色（冷绿）三个色相完全分开，
+         * 形成 中性灰阶 这一独立维度。主色 #1F2937 为整体引入足够对比，
+         * 强调可点击元素而不引入额外色彩噪声。
          */
-        val SEPIA_PAPER = LightThemeColors(
-            statusBar = Color(0xFF7A3E1E),       // 深陶土棕，顶部识别带
-            navBar = Color(0xFFFFFBF3),          // 象牙白底栏，承接卡片
-            background = Color(0xFFF2E8D5),      // 暖米黄主体背景（纸张）
-            surface = Color(0xFFFFFBF3),         // 象牙白卡片（书页）
-            surfaceVariant = Color(0xFFE6D7B5),  // 沙黄分区头
-            primary = Color(0xFFB85530),         // 铁锈橙主色
+        val PURE_WHITE = LightThemeColors(
+            statusBar = Color(0xFF1F2937),       // 岩石灰顶部识别带（slate-800）
+            navBar = Color(0xFFFFFFFF),          // 纯白底栏，与卡片同色
+            background = Color(0xFFF7F8FA),      // 极淡冷灰主体背景
+            surface = Color(0xFFFFFFFF),         // 纯白卡片
+            surfaceVariant = Color(0xFFEFF1F4),  // 浅冷灰分区头
+            primary = Color(0xFF1F2937),         // 岩石灰主色（slate-800），中性高对比
             onPrimary = Color(0xFFFFFFFF),
-            onBackground = Color(0xFF3D2817),    // 深咖文字
-            onSurface = Color(0xFF3D2817),
-            onSurfaceVariant = Color(0xFF7A6651),// 棕灰次要文字
-            outline = Color(0xFFD6C5A8),         // 暖边框
-            tertiary = Color(0xFFE6D7B5),        // 沙黄药丸 = 底部导航选中指示器（与 surfaceVariant 同色）
-            onSecondary = Color(0xFF3D2817),
+            onBackground = Color(0xFF111827),    // gray-900 主文字
+            onSurface = Color(0xFF111827),
+            onSurfaceVariant = Color(0xFF6B7280),// gray-500 次要文字
+            outline = Color(0xFFE5E7EB),         // gray-200 边框
+            tertiary = Color(0xFFEFF1F4),        // 浅冷灰药丸 = 底部导航选中指示器（与 surfaceVariant 同色）
+            onSecondary = Color(0xFF111827),
         )
 
         /**
@@ -241,7 +243,7 @@ data class LightThemeColors(
         fun forTheme(themeId: Int) = when (themeId) {
             2 -> COBALT_FORUM
             3 -> SAGE_GARDEN
-            else -> SEPIA_PAPER
+            else -> PURE_WHITE
         }
     }
 }
