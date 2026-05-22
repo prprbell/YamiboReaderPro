@@ -1,6 +1,6 @@
 package org.shirakawatyu.yamibo.novel.util.theme
 
-val LIGHT_MODE_CSS_RULES_PURE_WHITE = listOf(
+val LIGHT_MODE_CSS_RULES_SLATE = listOf(
     "/* === CSS 变量覆盖 (纯白日间版 · 现代极简) === */",
     "body {",
     "--dz-BG-body: #F7F8FA !important;",
@@ -59,7 +59,7 @@ val LIGHT_MODE_CSS_RULES_PURE_WHITE = listOf(
     ".mlist1 li { border-color: #E5E7EB !important; }",
     ".mlist1 .mtit { color: #111827 !important; }",
     ".mlist1 .mtxt { color: #9CA3AF !important; }",
-    ".mlist1 .mnum { color: #B5BAC2 !important; }",
+    ".mlist1 .mnum { color: #374151 !important; }",
     ".bm, .bm_c, .bm_h { background: #FFFFFF !important; border-color: #E5E7EB !important; }",
     ".bm_h, .bm_h h2, .bm_h a { color: #111827 !important; }",
     ".tl_bm, .tl_bm ul, .tl_bm li, .tl_bm li a { background: #FFFFFF !important; }",
@@ -83,6 +83,7 @@ val LIGHT_MODE_CSS_RULES_PURE_WHITE = listOf(
     ".xg1, .xg1 a { color: #6B7280 !important; }",
     ".xg2, .xg2 a { color: #9CA3AF !important; }",
     ".num, .views, .replies { color: #9CA3AF !important; }",
+    ".micon { color: #FFFFFF !important; }",
     ".ts, .time { color: #B5BAC2 !important; }",
     ".pipe { color: #D1D5DB !important; }",
     ".lock, .closed, .icn, .attach, .tattl { color: #9CA3AF !important; }",

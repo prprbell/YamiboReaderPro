@@ -97,6 +97,9 @@ data class QuickAction(
 
 // ================= 新增二级菜单的配置 =================
 enum class SubActionSlot(val labelX: Float, val labelYOffset: Float) {
+    Left(-85f, -82f),
+    Center(0f, -108f),
+    Right(85f, -82f),
     FarLeft(-105f, -82f),
     NearLeft(-42f, -108f),
     NearRight(42f, -108f),
@@ -119,14 +122,9 @@ val darkThemeActions = listOf(
 )
 
 val lightThemeActions = listOf(
-    // FarLeft  原色 (-1)：不注入任何主题，呈现 yamibo 论坛原生暖米黄
-    ThemeQuickAction(SubActionSlot.FarLeft, "原色", -1, Color(0xFFC9B388), "原"),
-    // NearLeft 纯白 (11)：现代极简白色主题
-    ThemeQuickAction(SubActionSlot.NearLeft, "纯白", 11, Color.White, "白"),
-    // NearRight 论坛 (12)：COBALT_FORUM 蓝 — 用论坛原生 #2B7ACD 主色
-    ThemeQuickAction(SubActionSlot.NearRight, "论坛", 12, Color(0xFF2B7ACD), "蓝"),
-    // FarRight 苔色 (13)：SAGE_GARDEN 绿 — 用森林绿 #4F7857 主色
-    ThemeQuickAction(SubActionSlot.FarRight, "苔色", 13, Color(0xFF4F7857), "苔")
+    ThemeQuickAction(SubActionSlot.Left, "原色", -1, Color(0xFFC9B388), "原"),
+    ThemeQuickAction(SubActionSlot.Center, "Slate", 11, Color(0xFF1F2937), "岩"),
+    ThemeQuickAction(SubActionSlot.Right, "纯白", 12, Color.White, "白")
 )
 
 fun getThemeActions(isDarkMode: Boolean) = if (isDarkMode) darkThemeActions else lightThemeActions
@@ -435,7 +433,7 @@ fun BottomNavBar(
                             ) {
                                 androidx.compose.material3.Text(
                                     text = subAction.hint,
-                                    color = if (subAction.themeId == -1 || subAction.themeId == 11) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.55f),
+                                    color = if (subAction.themeId == -1 || subAction.themeId == 12) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.55f),
                                     fontSize = 14.sp,
                                     modifier = Modifier.align(Alignment.Center)
                                 )

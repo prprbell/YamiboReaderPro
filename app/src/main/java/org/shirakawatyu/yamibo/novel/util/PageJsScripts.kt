@@ -4,9 +4,8 @@ import org.shirakawatyu.yamibo.novel.util.theme.DARK_MODE_CSS_RULES_CLASSIC
 import org.shirakawatyu.yamibo.novel.util.theme.DARK_MODE_CSS_RULES_OKLCH
 import org.shirakawatyu.yamibo.novel.util.theme.DARK_MODE_CSS_RULES_OLED
 import org.shirakawatyu.yamibo.novel.util.theme.DARK_MODE_CSS_RULES_TWILIGHT
-import org.shirakawatyu.yamibo.novel.util.theme.LIGHT_MODE_CSS_RULES_COBALT_FORUM
-import org.shirakawatyu.yamibo.novel.util.theme.LIGHT_MODE_CSS_RULES_PURE_WHITE
-import org.shirakawatyu.yamibo.novel.util.theme.LIGHT_MODE_CSS_RULES_SAGE_GARDEN
+import org.shirakawatyu.yamibo.novel.util.theme.LIGHT_MODE_CSS_RULES_SLATE
+import org.shirakawatyu.yamibo.novel.util.theme.LIGHT_MODE_CSS_RULES_WHITE
 
 object PageJsScripts {
 
@@ -1016,9 +1015,8 @@ $styleString
 
     fun getLightModeSetJs(enable: Boolean, themeId: Int = 0): String {
         val rulesList = when (themeId) {
-            2 -> LIGHT_MODE_CSS_RULES_COBALT_FORUM
-            3 -> LIGHT_MODE_CSS_RULES_SAGE_GARDEN
-            else -> LIGHT_MODE_CSS_RULES_PURE_WHITE
+            2 -> LIGHT_MODE_CSS_RULES_WHITE
+            else -> LIGHT_MODE_CSS_RULES_SLATE
         }
         val styleString = rulesList.joinToString(",\n") { "                '$it'" }
 
@@ -1062,9 +1060,8 @@ $styleString
 
     fun injectLightModeCssIntoHtml(html: String, themeId: Int = 0): String {
         val rulesList = when (themeId) {
-            2 -> LIGHT_MODE_CSS_RULES_COBALT_FORUM
-            3 -> LIGHT_MODE_CSS_RULES_SAGE_GARDEN
-            else -> LIGHT_MODE_CSS_RULES_PURE_WHITE
+            2 -> LIGHT_MODE_CSS_RULES_WHITE
+            else -> LIGHT_MODE_CSS_RULES_SLATE
         }
         val css = rulesList.joinToString("\n")
         val styleTag = "<style id=\"yamibo-light-mode\">\n$css\n</style>"

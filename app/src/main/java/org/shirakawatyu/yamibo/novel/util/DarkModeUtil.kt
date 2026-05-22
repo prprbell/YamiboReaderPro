@@ -163,17 +163,14 @@ data class LightThemeColors(
 
     companion object {
         /**
-         * 纯白 · Pure White
-         * 现代极简风。岩石灰状态栏作为冷色识别带，
+         * Slate · 岩板
+         * 中性灰阶主题。岩石灰状态栏作为冷色识别带，
          * 极淡冷灰主体背景把卡片"抬"出阅读层，纯白卡片承接内容，
          * 浅冷灰分区头柔和分隔，炭灰作为主色用于按钮/链接/FAB。
          *
          * 层次：statusBar(岩石灰) → background(极淡冷灰) → surfaceVariant(浅冷灰) → surface(纯白)
-         * 与原生论坛（暖米黄）、论坛蓝（冷蓝）、苔色（冷绿）三个色相完全分开，
-         * 形成 中性灰阶 这一独立维度。主色 #1F2937 为整体引入足够对比，
-         * 强调可点击元素而不引入额外色彩噪声。
          */
-        val PURE_WHITE = LightThemeColors(
+        val SLATE = LightThemeColors(
             statusBar = Color(0xFF1F2937),       // 岩石灰顶部识别带（slate-800）
             navBar = Color(0xFFFFFFFF),          // 纯白底栏，与卡片同色
             background = Color(0xFFF7F8FA),      // 极淡冷灰主体背景
@@ -190,60 +187,31 @@ data class LightThemeColors(
         )
 
         /**
-         * 论坛蓝 · Cobalt Forum
-         * 致敬 Discuz 论坛源生 #2B7ACD 蓝色基因。
-         * 深钴蓝状态栏 = 经典论坛 header 的现代化，
-         * 冷调浅灰蓝主体，纯白卡片层级最分明，
-         * 论坛原色 #2B7ACD 留作主色 — 链接/按钮/FAB 与历史一致。
+         * 纯白 · White
+         * 百度贴吧移动端风格。白 header、淡紫灰 #F7F7FA 背景、
+         * 纯白卡片、近黑文字 #141414。极简中性，无明显品牌色。
          *
-         * 层次：statusBar(深钴蓝) → background(浅灰蓝) → surfaceVariant(淡蓝) → surface(纯白)
-         * 这是三个主题中对比度最高的设计，适合长文阅读与扫读列表。
+         * 层次：statusBar(白) → background(淡紫灰) → surfaceVariant(浅灰) → surface(纯白)
          */
-        val COBALT_FORUM = LightThemeColors(
-            statusBar = Color(0xFF1F5A8F),       // 深钴蓝顶部识别带
-            navBar = Color(0xFFFFFFFF),          // 纯白底栏
-            background = Color(0xFFEDF1F6),      // 冷调浅灰蓝背景
-            surface = Color(0xFFFFFFFF),         // 纯白卡片（最大对比）
-            surfaceVariant = Color(0xFFDDE7F1),  // 淡蓝分区头
-            primary = Color(0xFF2B7ACD),         // 论坛原色蓝，作为主色保留
+        val WHITE = LightThemeColors(
+            statusBar = Color(0xFFFFFFFF),         // 纯白顶部识别带
+            navBar = Color(0xFFFFFFFF),            // 纯白底栏
+            background = Color(0xFFF7F7FA),        // 淡紫灰主体背景
+            surface = Color(0xFFFFFFFF),           // 纯白卡片
+            surfaceVariant = Color(0xFFF3F2F5),    // 浅灰分区头
+            primary = Color(0xFF515154),           // 中灰主色 — FAB/按钮
             onPrimary = Color(0xFFFFFFFF),
-            onBackground = Color(0xFF1A2733),    // 深石板灰文字
-            onSurface = Color(0xFF1A2733),
-            onSurfaceVariant = Color(0xFF5B6A7A),// 中调石板次要文字
-            outline = Color(0xFFCFDAE5),         // 冷边框
-            tertiary = Color(0xFFDDE7F1),        // 淡蓝药丸 = 底部导航选中指示器（与 surfaceVariant 同色）
-            onSecondary = Color(0xFF1A2733),
-        )
-
-        /**
-         * 苔色 · Sage Garden
-         * 自然森林意境。深苔绿状态栏沉稳压住顶部，
-         * 浅绿主体淡雅护眼，近白卡片浮起，
-         * 中调森林绿作为主色 — 比蓝主题低饱和但同样清晰。
-         *
-         * 层次：statusBar(深苔绿) → background(浅绿) → surfaceVariant(淡苔) → surface(近白)
-         * 是三个主题中视觉刺激最低的，适合夜晚弱光环境下的长时间使用。
-         */
-        val SAGE_GARDEN = LightThemeColors(
-            statusBar = Color(0xFF37553F),       // 深苔绿顶部识别带
-            navBar = Color(0xFFFAFCF9),          // 近白底栏
-            background = Color(0xFFE9F0EA),      // 浅绿主体背景
-            surface = Color(0xFFFAFCF9),         // 近白卡片
-            surfaceVariant = Color(0xFFD3E0D5),  // 淡苔分区头
-            primary = Color(0xFF4F7857),         // 中调森林绿主色
-            onPrimary = Color(0xFFFFFFFF),
-            onBackground = Color(0xFF1F2B22),    // 深森林文字
-            onSurface = Color(0xFF1F2B22),
-            onSurfaceVariant = Color(0xFF5F6E5E),// 苔灰次要文字
-            outline = Color(0xFFC5D2C2),         // 软绿边框
-            tertiary = Color(0xFFD3E0D5),        // 淡苔药丸 = 底部导航选中指示器（与 surfaceVariant 同色）
-            onSecondary = Color(0xFF1F2B22),
+            onBackground = Color(0xFF141414),      // 近黑主文字
+            onSurface = Color(0xFF141414),
+            onSurfaceVariant = Color(0xFF515154),  // 中灰次要文字
+            outline = Color(0xFFF3F2F5),           // 浅灰边框
+            tertiary = Color(0xFFF3F2F5),          // 浅灰药丸 = 底部导航选中指示器（与 surfaceVariant 同色）
+            onSecondary = Color(0xFF141414),
         )
 
         fun forTheme(themeId: Int) = when (themeId) {
-            2 -> COBALT_FORUM
-            3 -> SAGE_GARDEN
-            else -> PURE_WHITE
+            2 -> WHITE
+            else -> SLATE
         }
     }
 }
