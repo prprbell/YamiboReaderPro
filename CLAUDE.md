@@ -20,6 +20,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **其他**: OpenCC 1.2.0 (简繁转换), Reorderable 3.0.0 (拖拽排序), Lifecycle ViewModel Compose 2.8.7.
 
+## 主题
+
+日间/夜间双主题，通过 `SettingsUtil` 持久化主题偏好。主题 CSS 样式通过 `ThemeCssData` 注入 WebView，样式数据拆分为独立文件管理。
+
 ## Architecture
 
 This is an Android reader app for the yamibo.com (百合会) forum, supporting novel and manga reading. Single-activity Compose app (`MainActivity`) using Navigation Compose for routing.
@@ -96,8 +100,8 @@ Place the generated `update.json` and the renamed APK (`.zip`) into the `release
 The client `DownloadManager` uses `setMimeType("application/vnd.android.package-archive")` so the system treats downloaded `.zip` files as APKs regardless of URL extension.
 
 ```powershell
-# Push git tag to GitHub only
+# Push git tag to GitHub only（upload_github.ps1 未纳入版本控制，需自行准备）
 powershell -ExecutionPolicy Bypass -File .\upload_github.ps1 -NotesFile .\release_notes.txt
 ```
 
-Prerequisite: `gh` CLI installed and authenticated (GitHub).
+Prerequisite: `gh` CLI installed and authenticated (GitHub). `upload_github.ps1` is not tracked in git — obtain it separately.

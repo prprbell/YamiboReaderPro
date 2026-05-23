@@ -1,3 +1,4 @@
+// Yamibo Reader (300文学) — Android reader app for yamibo.com
 pluginManagement {
     repositories {
         google()
