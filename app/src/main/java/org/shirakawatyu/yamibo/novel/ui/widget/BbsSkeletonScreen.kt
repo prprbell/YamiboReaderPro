@@ -34,7 +34,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.shirakawatyu.yamibo.novel.global.GlobalData
-import org.shirakawatyu.yamibo.novel.util.currentLightThemeColors
 import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 
 @Composable
@@ -50,27 +49,14 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
         label = "skeleton_alpha"
     )
     val isDarkMode by GlobalData.isDarkMode.collectAsState()
-    val lightTheme = currentLightThemeColors()
+    val baseHeaderColor = darkThemeColor(Color(0xFF551200)) { navBar }
+    val headerBg = baseHeaderColor.copy(alpha = if (isDarkMode) 0.9f else alpha + 0.8f)
 
-    val headerBg = darkThemeColor(Color(0xFF551200)) { navBar }.let {
-        if (isDarkMode) it.copy(alpha = 0.9f) else it
-    }
+    val baseYellowishColor = darkThemeColor(Color(0xFFD4C8B0)) { surfaceVariant }
+    val skeletonColor = baseYellowishColor.copy(alpha = if (isDarkMode) alpha * 0.7f else alpha)
 
-    val skeletonColor = if (lightTheme != null) {
-        darkThemeColor(Color(0xFFCCCCCC)) { outline }
-            .copy(alpha = alpha)
-    } else {
-        darkThemeColor(Color(0xFFD4C8B0)) { surfaceVariant }
-            .copy(alpha = if (isDarkMode) alpha * 0.7f else alpha)
-    }
-
-    val sectionHeaderBg = if (lightTheme != null) {
-        darkThemeColor(Color(0xFFE0E0E0)) { surfaceVariant }
-            .copy(alpha = alpha * 0.8f)
-    } else {
-        darkThemeColor(Color(0xFF9E6565)) { tertiary }
-            .copy(alpha = if (isDarkMode) alpha * 0.5f else alpha * 0.8f)
-    }
+    val baseDarkRedColor = darkThemeColor(Color(0xFF9E6565)) { tertiary }
+    val sectionHeaderBg = baseDarkRedColor.copy(alpha = if (isDarkMode) alpha * 0.5f else alpha * 0.8f)
 
     Column(
         modifier = modifier

@@ -253,15 +253,15 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         val urlStr = request?.url?.toString() ?: ""
         val accept = request?.requestHeaders?.get("Accept") ?: ""
 
-        // 主题模式：拦截主框架 HTML，在渲染前注入暗色/亮色 CSS，消除白闪
+        // 夜间模式：拦截主框架 HTML，在渲染前注入暗色 CSS，消除白闪
         if (request?.isForMainFrame == true &&
             request.method == "GET" &&
-            (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) &&
+            GlobalData.isDarkMode.value &&
             urlStr.contains("bbs.yamibo.com")
         ) {
             val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
             if (html != null) {
-                val modified = PageJsScripts.injectThemeCssIntoHtml(html, GlobalData.isDarkMode.value, GlobalData.darkModeTheme.value, GlobalData.lightModeTheme.value)
+                val modified = PageJsScripts.injectDarkModeCssIntoHtml(html, GlobalData.darkModeTheme.value)
                 return WebResourceResponse(
                     "text/html",
                     "utf-8",
@@ -316,9 +316,9 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
         view?.evaluateJavascript(PageJsScripts.SEARCH_DIRECT_NAV_JS, null)
 
-        if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
+        if (GlobalData.isDarkMode.value) {
             view?.evaluateJavascript(
-                PageJsScripts.getThemeSetJs(GlobalData.isDarkMode.value, GlobalData.darkModeTheme.value, GlobalData.lightModeTheme.value), null
+                PageJsScripts.getDarkModeSetJs(true, GlobalData.darkModeTheme.value), null
             )
         }
 
@@ -859,7 +859,8 @@ fun BBSPage(
 
     LaunchedEffect(Unit) {
         bottomNavBarVM.darkModeEvent.collect { _ ->
-            val js = PageJsScripts.getThemeSetJs(GlobalData.isDarkMode.value, GlobalData.darkModeTheme.value, GlobalData.lightModeTheme.value)
+            val enable = GlobalData.isDarkMode.value
+            val js = PageJsScripts.getDarkModeSetJs(enable, GlobalData.darkModeTheme.value)
             webView.evaluateJavascript(js, null)
         }
     }

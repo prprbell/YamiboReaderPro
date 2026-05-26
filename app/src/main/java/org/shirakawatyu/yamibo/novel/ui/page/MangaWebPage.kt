@@ -354,7 +354,8 @@ fun MangaWebPage(
 
     LaunchedEffect(Unit) {
         bottomNavBarVM.darkModeEvent.collect {
-            val js = PageJsScripts.getThemeSetJs(GlobalData.isDarkMode.value, GlobalData.darkModeTheme.value, GlobalData.lightModeTheme.value)
+            val enable = GlobalData.isDarkMode.value
+            val js = PageJsScripts.getDarkModeSetJs(enable, GlobalData.darkModeTheme.value)
             mangaWebView.evaluateJavascript(js, null)
         }
     }
@@ -467,12 +468,12 @@ fun MangaWebPage(
 
                 if (request?.isForMainFrame == true &&
                     request.method == "GET" &&
-                    (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) &&
+                    GlobalData.isDarkMode.value &&
                     urlStr.contains("bbs.yamibo.com")
                 ) {
                     val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
                     if (html != null) {
-                        val modified = PageJsScripts.injectThemeCssIntoHtml(html, GlobalData.isDarkMode.value, GlobalData.darkModeTheme.value, GlobalData.lightModeTheme.value)
+                        val modified = PageJsScripts.injectDarkModeCssIntoHtml(html, GlobalData.darkModeTheme.value)
                         return WebResourceResponse(
                             "text/html",
                             "utf-8",
@@ -581,9 +582,9 @@ fun MangaWebPage(
                 view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
                 view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
 
-                if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
+                if (GlobalData.isDarkMode.value) {
                     view?.evaluateJavascript(
-                        PageJsScripts.getThemeSetJs(GlobalData.isDarkMode.value, GlobalData.darkModeTheme.value, GlobalData.lightModeTheme.value), null
+                        PageJsScripts.getDarkModeSetJs(true, GlobalData.darkModeTheme.value), null
                     )
                 }
 

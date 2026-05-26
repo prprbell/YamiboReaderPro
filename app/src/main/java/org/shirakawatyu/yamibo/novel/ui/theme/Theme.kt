@@ -17,7 +17,6 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.util.DarkThemeColors
-import org.shirakawatyu.yamibo.novel.util.LightThemeColors
 
 private val DefaultDarkColorScheme = darkColorScheme(
     primary = Purple80,
@@ -41,7 +40,6 @@ fun _300文学Theme(
 ) {
     val isForumDark by GlobalData.isDarkMode.collectAsState()
     val darkThemeId by GlobalData.darkModeTheme.collectAsState()
-    val lightThemeId by GlobalData.lightModeTheme.collectAsState()
     val effectiveDark = darkTheme || isForumDark
 
     val colorScheme = when {
@@ -52,7 +50,6 @@ fun _300文学Theme(
 
         isForumDark -> DarkThemeColors.forTheme(darkThemeId).toDarkColorScheme()
         effectiveDark -> DefaultDarkColorScheme
-        lightThemeId > 0 -> LightThemeColors.forTheme(lightThemeId).toLightColorScheme()
         else -> LightColorScheme
     }
     val view = LocalView.current

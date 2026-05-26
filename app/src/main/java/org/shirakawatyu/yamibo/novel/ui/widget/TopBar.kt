@@ -20,12 +20,12 @@ import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 @Preview
 @Composable
 fun TopBar(title: String = "收藏", content: @Composable () -> Unit = {}) {
-    Surface(color = darkThemeColor(YamiboColors.onSurface) { statusBar }) {
+    Surface(color = darkThemeColor(YamiboColors.onSurface) { navBar }) {
         Row(modifier = Modifier.padding(15.dp, 10.dp).fillMaxWidth().height(36.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(color = darkThemeColor(Color.White) { onPrimary }, fontSize = 20.sp, text = title)
+            Text(color = darkThemeColor(Color.Black) { onSurface }, fontSize = 20.sp, text = title)
             content()
         }
     }
