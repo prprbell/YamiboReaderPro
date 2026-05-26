@@ -209,6 +209,8 @@ fun HistoryPage(navController: NavController) {
     val scope = rememberCoroutineScope()
 
     val pageBackground = darkThemeColor(light = Color(0xFFF5F5F5)) { background }
+    val topBarColor = darkThemeColor(light = Color(0xFFF5F5F5)) { statusBar }
+    val topBarContentColor = darkThemeColor(light = Color.Black) { onPrimary }
 
     // 将搜索词按空格分词，实现组合搜索
     val searchTerms = remember(searchQuery) {
@@ -484,7 +486,7 @@ fun HistoryPage(navController: NavController) {
                     Text(
                         "浏览历史",
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = topBarContentColor
                     )
                 },
                 navigationIcon = {
@@ -497,7 +499,7 @@ fun HistoryPage(navController: NavController) {
                         Icon(
                             Icons.Default.ArrowBack,
                             contentDescription = "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
+                            tint = topBarContentColor
                         )
                     }
                 },
@@ -507,24 +509,28 @@ fun HistoryPage(navController: NavController) {
                             isManageMode = false
                             selectedUrls = emptySet()
                         }) {
-                            Text("完成", color = MaterialTheme.colorScheme.primary)
+                            Text("完成", color = topBarContentColor)
                         }
                     } else {
                         if (historyList.isNotEmpty()) {
                             TextButton(onClick = { isManageMode = true }) {
-                                Text("管理", color = MaterialTheme.colorScheme.primary)
+                                Text("管理", color = topBarContentColor)
                             }
                             TextButton(onClick = { showClearDialog = true }) {
                                 Text("清空", color = MaterialTheme.colorScheme.error)
                             }
                         }
                         TextButton(onClick = { showSettingsDialog = true }) {
-                            Text("设置", color = MaterialTheme.colorScheme.primary)
+                            Text("设置", color = topBarContentColor)
                         }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = pageBackground
+                    containerColor = topBarColor,
+                    scrolledContainerColor = topBarColor,
+                    titleContentColor = topBarContentColor,
+                    navigationIconContentColor = topBarContentColor,
+                    actionIconContentColor = topBarContentColor
                 )
             )
         },

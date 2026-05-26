@@ -127,7 +127,7 @@ fun OtherWebPage(
     webChromeClient: WebChromeClient
 ) {
     val isDarkMode by GlobalData.isDarkMode.collectAsState()
-    val statusColor = if (isDarkMode) Color(0xFF1a1a1a) else YamiboColors.primary
+    val statusColor = darkThemeColor(YamiboColors.primary) { statusBar }
     SetStatusBarColor(statusColor)
     val finalUrl = remember(url) {
         if (url.startsWith("http")) url else "${RequestConfig.BASE_URL}/$url"
@@ -268,8 +268,11 @@ fun OtherWebPage(
 
     LaunchedEffect(Unit) {
         bottomNavBarVM.darkModeEvent.collect {
-            val enable = GlobalData.isDarkMode.value
-            val js = PageJsScripts.getDarkModeSetJs(enable, GlobalData.darkModeTheme.value)
+            val js = PageJsScripts.getThemeSetJs(
+                GlobalData.isDarkMode.value,
+                GlobalData.darkModeTheme.value,
+                GlobalData.lightModeTheme.value
+            )
             otherWebView.evaluateJavascript(js, null)
         }
     }
@@ -406,12 +409,17 @@ fun OtherWebPage(
 
                 if (request?.isForMainFrame == true &&
                     request.method == "GET" &&
-                    GlobalData.isDarkMode.value &&
+                    (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) &&
                     urlStr.contains("bbs.yamibo.com")
                 ) {
                     val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
                     if (html != null) {
-                        val modified = PageJsScripts.injectDarkModeCssIntoHtml(html, GlobalData.darkModeTheme.value)
+                        val modified = PageJsScripts.injectThemeCssIntoHtml(
+                            html,
+                            GlobalData.isDarkMode.value,
+                            GlobalData.darkModeTheme.value,
+                            GlobalData.lightModeTheme.value
+                        )
                         return WebResourceResponse(
                             "text/html",
                             "utf-8",
@@ -516,9 +524,13 @@ fun OtherWebPage(
                 view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
                 view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
 
-                if (GlobalData.isDarkMode.value) {
+                if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
                     view?.evaluateJavascript(
-                        PageJsScripts.getDarkModeSetJs(true, GlobalData.darkModeTheme.value), null
+                        PageJsScripts.getThemeSetJs(
+                            GlobalData.isDarkMode.value,
+                            GlobalData.darkModeTheme.value,
+                            GlobalData.lightModeTheme.value
+                        ), null
                     )
                 }
 

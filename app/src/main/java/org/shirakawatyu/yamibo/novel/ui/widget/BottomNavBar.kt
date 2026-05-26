@@ -70,7 +70,6 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.util.HapticUtil
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -96,6 +95,9 @@ data class QuickAction(
 
 // ================= 新增二级菜单的配置 =================
 enum class SubActionSlot(val labelX: Float, val labelYOffset: Float) {
+    Left(-54f, -108f),
+    Center(0f, -108f),
+    Right(54f, -108f),
     FarLeft(-105f, -82f),
     NearLeft(-42f, -108f),
     NearRight(42f, -108f),
@@ -110,12 +112,19 @@ data class ThemeQuickAction(
     val hint: String
 )
 
-val themeActions = listOf(
-    ThemeQuickAction(SubActionSlot.FarLeft, "纯黑", 0, Color(0xFF121212), "暗"),
+val darkThemeActions = listOf(
+    ThemeQuickAction(SubActionSlot.FarLeft, "暗黑", 0, Color(0xFF121212), "暗"),
     ThemeQuickAction(SubActionSlot.NearLeft, "灰蓝", 1, Color(0xFF13191F), "蓝"),
     ThemeQuickAction(SubActionSlot.NearRight, "OLED", 2, Color(0xFF000000), "黑"),
     ThemeQuickAction(SubActionSlot.FarRight, "紫夜", 3, Color(0xFF15151F), "紫")
 )
+
+val lightThemeActions = listOf(
+    ThemeQuickAction(SubActionSlot.Left, "原色", -1, Color(0xFFFCF4CF), "原"),
+    ThemeQuickAction(SubActionSlot.Right, "白色", 11, Color(0xFFFFFFFF), "白")
+)
+
+fun getThemeActions(isDarkMode: Boolean) = if (isDarkMode) darkThemeActions else lightThemeActions
 
 /** 根据当前基础激活页面和用户长按触摸的图标，动态返回对应的快捷操作列表 */
 private fun getQuickActions(baseActiveRoute: String?, touchedRoute: String, isDarkMode: Boolean): List<QuickAction> {
@@ -293,6 +302,14 @@ fun BottomNavBar(
 
     val navBarHeight = 50.dp
     val quickActionLayerHeight = 240.dp
+    val bottomBarContainerColor = darkThemeColor(YamiboColors.onSurface) { navBar }
+    val bottomBarSelectedColor = darkThemeColor(YamiboColors.primary) { onPrimary }
+    val bottomBarUnselectedColor = darkThemeColor(YamiboColors.primary.copy(alpha = 0.62f)) {
+        onPrimary.copy(alpha = 0.68f)
+    }
+    val bottomBarIndicatorColor = darkThemeColor(YamiboColors.tertiary) {
+        onPrimary.copy(alpha = 0.16f)
+    }
 
     Box(modifier = Modifier.fillMaxWidth().height(quickActionLayerHeight)) {
 
@@ -348,6 +365,9 @@ fun BottomNavBar(
                         },
                         animationSpec = tween(durationMillis = 150)
                     )
+                    val quickActionIconColor = darkThemeColor(YamiboColors.primary.copy(alpha = btnAlpha)) {
+                        onPrimary.copy(alpha = btnAlpha)
+                    }
 
                     val iconScale by animateFloatAsState(
                         targetValue = if (isHighlighted) 1.12f else 1f,
@@ -372,7 +392,7 @@ fun BottomNavBar(
                             Icon(
                                 imageVector = action.iconResId?.let { ImageVector.vectorResource(id = it) } ?: action.icon,
                                 contentDescription = action.description,
-                                tint = darkThemeColor(YamiboColors.primary.copy(alpha = btnAlpha)) { primary.copy(alpha = btnAlpha) },
+                                tint = quickActionIconColor,
                                 modifier = Modifier.scale(iconScale).size(24.dp).rotate(if (isThisExecuting && action.kind == ActionKind.Refresh) rotationAnim.value else 0f)
                             )
                         }
@@ -385,7 +405,7 @@ fun BottomNavBar(
                     val centerTy = slotTargetY[ActionSlot.Center]!!
                     val subProgress = subMenuExpansionAnim.value
 
-                    for (subAction in themeActions) {
+                    for (subAction in getThemeActions(isDarkMode)) {
                         val slot = subAction.slot
                         val isThisSubActive = activeSubSlot == slot
                         val subAppearAlpha = subProgress.coerceIn(0f, 1f)
@@ -421,7 +441,7 @@ fun BottomNavBar(
                             ) {
                                 androidx.compose.material3.Text(
                                     text = subAction.hint,
-                                    color = Color.White.copy(alpha = 0.55f),
+                                    color = if (!isDarkMode) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.55f),
                                     fontSize = 14.sp,
                                     modifier = Modifier.align(Alignment.Center)
                                 )
@@ -486,7 +506,7 @@ fun BottomNavBar(
                                     HapticUtil.performTick(view)
                                 } else {
                                     activeSubSlot = null
-                                    for (slot in SubActionSlot.entries) {
+                                    for (slot in getThemeActions(isDarkMode).map { it.slot }) {
                                         val dist = hypot(dragOffsetX - subSlotTargetX[slot]!!, dragOffsetY - subSlotTargetY[slot]!!)
                                         if (dist < snapRadiusPx) {
                                             activeSubSlot = slot
@@ -505,10 +525,8 @@ fun BottomNavBar(
                                     if (dist < snapRadiusPx) {
                                         activeSlot = slot
                                         if (slot == ActionSlot.Center && dragOffsetY < slotTargetY[ActionSlot.Center]!! - 15f) {
-                                            if (isDarkMode) {
-                                                inSubMenuMode = true
-                                                HapticUtil.performTick(view)
-                                            }
+                                            inSubMenuMode = true
+                                            HapticUtil.performTick(view)
                                         }
                                         break
                                     }
@@ -520,7 +538,7 @@ fun BottomNavBar(
                             isNavBarLongPressAccepted = false
 
                             if (inSubMenuMode && activeSubSlot != null) {
-                                val selectedThemeAction = themeActions.first { it.slot == activeSubSlot }
+                                val selectedThemeAction = getThemeActions(isDarkMode).first { it.slot == activeSubSlot }
                                 isExecuting = true
                                 HapticUtil.performLongPress(view)
 
@@ -533,11 +551,18 @@ fun BottomNavBar(
                                     isExecuting = false
                                     resetGestureState()
                                 }
-                            } else if (inSubMenuMode && GlobalData.isDarkMode.value) {
+                            } else if (inSubMenuMode) {
                                 isExecuting = true
                                 HapticUtil.performLongPress(view)
 
-                                baseRoute?.let { navBarVM.applyTheme(it, -1) }
+                                if (isDarkMode) {
+                                    val previousLightTheme = GlobalData.lightModeTheme.value
+                                    baseRoute?.let {
+                                        navBarVM.applyTheme(it, if (previousLightTheme > 0) previousLightTheme + 10 else -1)
+                                    }
+                                } else {
+                                    baseRoute?.let { navBarVM.applyTheme(it, GlobalData.darkModeTheme.value) }
+                                }
 
                                 coroutineScope.launch {
                                     delay(150)
@@ -581,7 +606,10 @@ fun BottomNavBar(
                                     isExecuting = true
                                     executedSlot = slot
                                     HapticUtil.performLongPress(view)
-                                    baseRoute?.let { navBarVM.applyTheme(it, -1) }
+                                    val previousLightTheme = GlobalData.lightModeTheme.value
+                                    baseRoute?.let {
+                                        navBarVM.applyTheme(it, if (previousLightTheme > 0) previousLightTheme + 10 else -1)
+                                    }
                                     coroutineScope.launch { delay(150); showActionSheet = false; delay(450); isExecuting = false; resetGestureState() }
                                 }
                             } else {
@@ -598,14 +626,20 @@ fun BottomNavBar(
                     )
                 },
             windowInsets = WindowInsets(0, 0, 0, 0),
-            containerColor = darkThemeColor(YamiboColors.onSurface) { navBar }
+            containerColor = bottomBarContainerColor
         ) {
             uiState.icons.forEachIndexed { index, item ->
                 val targetRoute = pageList[index]
                 NavigationBarItem(
                     icon = { Icon(item, contentDescription = "") },
                     selected = baseRoute == targetRoute, // 使用归一化的 baseRoute 判断高亮状态
-                    colors = NavigationBarItemDefaults.colors(indicatorColor = darkThemeColor(YamiboColors.tertiary) { tertiary }),
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = bottomBarSelectedColor,
+                        unselectedIconColor = bottomBarUnselectedColor,
+                        selectedTextColor = bottomBarSelectedColor,
+                        unselectedTextColor = bottomBarUnselectedColor,
+                        indicatorColor = bottomBarIndicatorColor
+                    ),
                     onClick = { if (baseRoute != targetRoute) navBarVM.changeSelection(index, navController) }
                 )
             }

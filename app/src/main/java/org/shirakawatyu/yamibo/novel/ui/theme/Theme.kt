@@ -12,11 +12,13 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.util.DarkThemeColors
+import org.shirakawatyu.yamibo.novel.util.LightThemeColors
 
 private val DefaultDarkColorScheme = darkColorScheme(
     primary = Purple80,
@@ -40,6 +42,7 @@ fun _300文学Theme(
 ) {
     val isForumDark by GlobalData.isDarkMode.collectAsState()
     val darkThemeId by GlobalData.darkModeTheme.collectAsState()
+    val lightThemeId by GlobalData.lightModeTheme.collectAsState()
     val effectiveDark = darkTheme || isForumDark
 
     val colorScheme = when {
@@ -50,13 +53,23 @@ fun _300文学Theme(
 
         isForumDark -> DarkThemeColors.forTheme(darkThemeId).toDarkColorScheme()
         effectiveDark -> DefaultDarkColorScheme
+        lightThemeId > 0 -> LightThemeColors.forTheme(lightThemeId).toLightColorScheme()
         else -> LightColorScheme
     }
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = effectiveDark
+            val navigationBarColor = when {
+                isForumDark -> DarkThemeColors.forTheme(darkThemeId).navBar
+                lightThemeId > 0 -> LightThemeColors.forTheme(lightThemeId).navBar
+                else -> YamiboColors.onSurface
+            }
+            window.navigationBarColor = navigationBarColor.toArgb()
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !effectiveDark && lightThemeId <= 0
+                isAppearanceLightNavigationBars = !effectiveDark && lightThemeId <= 0
+            }
         }
     }
 

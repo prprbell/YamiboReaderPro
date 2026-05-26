@@ -49,14 +49,23 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
         label = "skeleton_alpha"
     )
     val isDarkMode by GlobalData.isDarkMode.collectAsState()
-    val baseHeaderColor = darkThemeColor(Color(0xFF551200)) { navBar }
-    val headerBg = baseHeaderColor.copy(alpha = if (isDarkMode) 0.9f else alpha + 0.8f)
+    val lightThemeId by GlobalData.lightModeTheme.collectAsState()
+    val baseHeaderColor = darkThemeColor(Color(0xFF551200)) { statusBar }
+    val headerBg = if (isDarkMode) {
+        baseHeaderColor.copy(alpha = 0.9f)
+    } else {
+        baseHeaderColor
+    }
 
     val baseYellowishColor = darkThemeColor(Color(0xFFD4C8B0)) { surfaceVariant }
-    val skeletonColor = baseYellowishColor.copy(alpha = if (isDarkMode) alpha * 0.7f else alpha)
+    val skeletonColor = baseYellowishColor.copy(alpha = if (isDarkMode) alpha * 0.7f else if (lightThemeId > 0) 1f else alpha)
 
-    val baseDarkRedColor = darkThemeColor(Color(0xFF9E6565)) { tertiary }
-    val sectionHeaderBg = baseDarkRedColor.copy(alpha = if (isDarkMode) alpha * 0.5f else alpha * 0.8f)
+    val baseDarkRedColor = darkThemeColor(Color(0xFF9E6565)) { primary }
+    val sectionHeaderBg = if (lightThemeId > 0 && !isDarkMode) {
+        baseDarkRedColor
+    } else {
+        baseDarkRedColor.copy(alpha = if (isDarkMode) alpha * 0.5f else alpha * 0.8f)
+    }
 
     Column(
         modifier = modifier

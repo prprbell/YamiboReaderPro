@@ -129,7 +129,7 @@ import org.shirakawatyu.yamibo.novel.util.SignTrigger
 import org.shirakawatyu.yamibo.novel.util.UpdateInfo
 import org.shirakawatyu.yamibo.novel.util.UpdateManager
 import org.shirakawatyu.yamibo.novel.util.currentDarkThemeColors
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
+import org.shirakawatyu.yamibo.novel.util.currentLightThemeColors
 import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.util.network.NetworkMonitor
 import java.net.URLDecoder
@@ -208,19 +208,21 @@ class MainActivity : ComponentActivity() {
             }
         }
         GlobalData.homePageRoute.value = initialRoute
-        // 预加载夜间模式设置，避免首帧骨架屏闪现日间样式
-        val (darkMode, darkModeTheme) = runBlocking {
+        // 预加载主题设置，避免首帧骨架屏闪现错误主题
+        val (darkMode, darkModeTheme, lightModeTheme) = runBlocking {
             try {
                 val prefs = applicationContext.dataStore.data.first()
                 val dm = prefs[stringPreferencesKey("dark_mode")]?.toBooleanStrictOrNull() ?: false
                 val dmt = prefs[stringPreferencesKey("dark_mode_theme")]?.toIntOrNull() ?: 0
-                dm to dmt
+                val lmt = prefs[stringPreferencesKey("light_mode_theme")]?.toIntOrNull() ?: 0
+                Triple(dm, dmt, lmt)
             } catch (_: Exception) {
-                false to 0
+                Triple(false, 0, 0)
             }
         }
         GlobalData.isDarkMode.value = darkMode
         GlobalData.darkModeTheme.value = darkModeTheme
+        GlobalData.lightModeTheme.value = lightModeTheme
         super.onCreate(savedInstanceState)
 
         val isRestoring = savedInstanceState != null
@@ -242,10 +244,27 @@ class MainActivity : ComponentActivity() {
                 3 -> "#191925".toColorInt()
                 else -> "#1A1A1A".toColorInt()
             }
+        } else if (lightModeTheme > 0) {
+            "#1F2937".toColorInt()
         } else {
             "#551200".toColorInt()
         }
-        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = !darkMode
+        window.navigationBarColor = if (darkMode) {
+            when (darkModeTheme) {
+                1 -> "#13191F".toColorInt()
+                2 -> "#080808".toColorInt()
+                3 -> "#191925".toColorInt()
+                else -> "#1A1A1A".toColorInt()
+            }
+        } else if (lightModeTheme > 0) {
+            "#1F2937".toColorInt()
+        } else {
+            "#EEE1BE".toColorInt()
+        }
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !darkMode && lightModeTheme <= 0
+            isAppearanceLightNavigationBars = !darkMode && lightModeTheme <= 0
+        }
 
         if (bbsWebViewState == null) {
             bbsWebViewState = createBbsWebView(this, customWebChromeClient)
@@ -662,6 +681,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                 SettingsUtil.getCustomDnsUrl { GlobalData.customDnsUrl.value = it }
                 SettingsUtil.getDarkMode { GlobalData.isDarkMode.value = it }
                 SettingsUtil.getDarkModeTheme { GlobalData.darkModeTheme.value = it }
+                SettingsUtil.getLightModeTheme { GlobalData.lightModeTheme.value = it }
                 SettingsUtil.getHistoryMaxCount { GlobalData.historyMaxCount.value = it }
                 GlobalData.isAppInitialized = true
             }
@@ -905,13 +925,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
 
                         Box(modifier = Modifier.fillMaxSize()) {
                             val darkTheme = currentDarkThemeColors()
-                            val isDark = darkTheme != null
+                            val lightTheme = currentLightThemeColors()
                             val statusBarColor = when {
-                                currentRoute == "FavoritePage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.onSurface
-                                currentRoute == "BBSPage" -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
-                                currentRoute == "MinePage" || currentRoute?.startsWith("MineHistoryPostPage") == true -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
-                                currentRoute?.startsWith("OtherWebPage") == true -> if (isDark) darkTheme!!.statusBar else YamiboColors.primary
-                                currentRoute == "HistoryPage" -> if (isDark) darkTheme!!.statusBar else ComposeColor(0xFFF5F5F5)
+                                currentRoute == "FavoritePage" -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.onSurface
+                                currentRoute == "BBSPage" -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.primary
+                                currentRoute == "MinePage" || currentRoute?.startsWith("MineHistoryPostPage") == true -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.primary
+                                currentRoute?.startsWith("OtherWebPage") == true -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.primary
+                                currentRoute == "HistoryPage" -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: ComposeColor(0xFFF5F5F5)
                                 else -> null
                             }
                             if (statusBarColor != null) {
@@ -1512,12 +1532,13 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                     val lockedTopPadding = maxOf(initStatusHeight, currentTopPadding).dp
 
                     if (homeRoute == "BBSPage" && !isRestoring) {
+                        val splashStatusColor = darkThemeColor(YamiboColors.primary) { statusBar }
                         Box(modifier = Modifier.fillMaxSize()) {
                             Spacer(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(lockedTopPadding)
-                                    .background(YamiboColors.primary)
+                                    .background(splashStatusColor)
                                     .align(Alignment.TopCenter)
                                     .zIndex(1f)
                             )

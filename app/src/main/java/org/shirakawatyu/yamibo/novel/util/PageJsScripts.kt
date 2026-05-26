@@ -4,6 +4,7 @@ import org.shirakawatyu.yamibo.novel.util.theme.DARK_MODE_CSS_RULES_CLASSIC
 import org.shirakawatyu.yamibo.novel.util.theme.DARK_MODE_CSS_RULES_OKLCH
 import org.shirakawatyu.yamibo.novel.util.theme.DARK_MODE_CSS_RULES_OLED
 import org.shirakawatyu.yamibo.novel.util.theme.DARK_MODE_CSS_RULES_TWILIGHT
+import org.shirakawatyu.yamibo.novel.util.theme.LIGHT_MODE_CSS_RULES_MODERN_WHITE
 
 object PageJsScripts {
 
@@ -1011,6 +1012,32 @@ $styleString
         """.trimIndent()
     }
 
+    fun getLightModeSetJs(enable: Boolean, themeId: Int = 0): String {
+        val rulesList = when (themeId) {
+            else -> LIGHT_MODE_CSS_RULES_MODERN_WHITE
+        }
+        val styleString = rulesList.joinToString(",\n") { "                '$it'" }
+
+        return """
+            (function() {
+                var styleId = 'yamibo-light-mode';
+                var existing = document.getElementById(styleId);
+                var enable = $enable;
+                if (!enable) {
+                    if (existing) existing.remove();
+                    return;
+                }
+                if (existing) existing.remove();
+                var style = document.createElement('style');
+                style.id = styleId;
+                style.innerHTML = [
+$styleString
+                ].join('\n');
+                (document.body || document.documentElement).appendChild(style);
+            })();
+        """.trimIndent()
+    }
+
     fun injectDarkModeCssIntoHtml(html: String, themeId: Int = 0): String {
         val rulesList = when (themeId) {
             1 -> DARK_MODE_CSS_RULES_OKLCH
@@ -1026,6 +1053,35 @@ $styleString
             html.contains("<html>") -> html.replace("<html>", "<html><head>$styleTag</head>")
             html.contains("<body") -> html.replace("<body", "$styleTag<body")
             else -> "$styleTag$html"
+        }
+    }
+
+    fun injectLightModeCssIntoHtml(html: String, themeId: Int = 0): String {
+        val rulesList = when (themeId) {
+            else -> LIGHT_MODE_CSS_RULES_MODERN_WHITE
+        }
+        val css = rulesList.joinToString("\n")
+        val styleTag = "<style id=\"yamibo-light-mode\">\n$css\n</style>"
+        return when {
+            html.contains("</head>") -> html.replace("</head>", "$styleTag</head>")
+            html.contains("<head>") -> html.replace("<head>", "<head>$styleTag")
+            html.contains("<html>") -> html.replace("<html>", "<html><head>$styleTag</head>")
+            html.contains("<body") -> html.replace("<body", "$styleTag<body")
+            else -> "$styleTag$html"
+        }
+    }
+
+    fun getThemeSetJs(isDark: Boolean, darkThemeId: Int, lightThemeId: Int): String {
+        val darkJs = getDarkModeSetJs(isDark, darkThemeId)
+        val lightJs = getLightModeSetJs(!isDark && lightThemeId > 0, lightThemeId)
+        return "$darkJs\n$lightJs"
+    }
+
+    fun injectThemeCssIntoHtml(html: String, isDark: Boolean, darkThemeId: Int, lightThemeId: Int): String {
+        return when {
+            isDark -> injectDarkModeCssIntoHtml(html, darkThemeId)
+            lightThemeId > 0 -> injectLightModeCssIntoHtml(html, lightThemeId)
+            else -> html
         }
     }
 

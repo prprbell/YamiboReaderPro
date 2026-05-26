@@ -37,6 +37,7 @@ class GlobalData {
         val homePageRoute = MutableStateFlow("BBSPage")
         val isDarkMode = MutableStateFlow(false)
         val darkModeTheme = MutableStateFlow(0)
+        val lightModeTheme = MutableStateFlow(0)
         val isCustomDnsEnabled = MutableStateFlow(false)
         val isClickToTopEnabled = MutableStateFlow(false)
         val isAutoClearCacheEnabled = MutableStateFlow(false)
