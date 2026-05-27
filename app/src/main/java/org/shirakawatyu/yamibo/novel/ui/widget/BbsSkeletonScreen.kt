@@ -25,7 +25,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,14 +56,23 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
         baseHeaderColor
     }
 
-    val baseYellowishColor = darkThemeColor(Color(0xFFD4C8B0)) { surfaceVariant }
-    val skeletonColor = baseYellowishColor.copy(alpha = if (isDarkMode) alpha * 0.7f else if (lightThemeId > 0) 1f else alpha)
-
-    val baseDarkRedColor = darkThemeColor(Color(0xFF9E6565)) { primary }
-    val sectionHeaderBg = if (lightThemeId > 0 && !isDarkMode) {
-        baseDarkRedColor
+    val baseSkeletonColor = if (!isDarkMode && lightThemeId > 0) {
+        MaterialTheme.colorScheme.outline
     } else {
-        baseDarkRedColor.copy(alpha = if (isDarkMode) alpha * 0.5f else alpha * 0.8f)
+        darkThemeColor(Color(0xFFD4C8B0)) { surfaceVariant }
+    }
+    val skeletonAlpha = when {
+        isDarkMode -> alpha * 0.7f
+        lightThemeId > 0 -> 0.45f + alpha * 0.75f
+        else -> alpha
+    }
+    val skeletonColor = baseSkeletonColor.copy(alpha = skeletonAlpha)
+
+    val baseSectionHeaderColor = darkThemeColor(Color(0xFF9E6565)) { statusBar }
+    val sectionHeaderBg = if (lightThemeId > 0 && !isDarkMode) {
+        baseSectionHeaderColor
+    } else {
+        baseSectionHeaderColor.copy(alpha = if (isDarkMode) alpha * 0.5f else alpha * 0.8f)
     }
 
     Column(

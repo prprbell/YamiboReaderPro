@@ -38,3 +38,5 @@ Pull requests should describe the user-visible change, list affected screens or 
 ## Agent-Specific Instructions
 
 Read `CLAUDE.md` before substantial work; it contains project architecture and release rules. Never discard uncommitted user changes, and never run destructive git commands such as `git checkout -- <file>` or `git reset --hard` without explicit confirmation.
+
+Chinese comments and strings are allowed and should not be rewritten to English just to work around tooling. When reading files that may contain Chinese text, explicitly use UTF-8-aware commands where possible, for example `Get-Content -Encoding UTF8` on PowerShell. When applying patches, avoid using Chinese comment text as the only context anchor; prefer stable code symbols such as function names, variable names, imports, or nearby structural lines so terminal encoding display issues do not cause patch failures.

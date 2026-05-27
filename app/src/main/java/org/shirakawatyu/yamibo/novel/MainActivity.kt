@@ -245,7 +245,7 @@ class MainActivity : ComponentActivity() {
                 else -> "#1A1A1A".toColorInt()
             }
         } else if (lightModeTheme > 0) {
-            "#1F2937".toColorInt()
+            "#747C84".toColorInt()
         } else {
             "#551200".toColorInt()
         }
@@ -257,7 +257,7 @@ class MainActivity : ComponentActivity() {
                 else -> "#1A1A1A".toColorInt()
             }
         } else if (lightModeTheme > 0) {
-            "#1F2937".toColorInt()
+            "#747C84".toColorInt()
         } else {
             "#EEE1BE".toColorInt()
         }

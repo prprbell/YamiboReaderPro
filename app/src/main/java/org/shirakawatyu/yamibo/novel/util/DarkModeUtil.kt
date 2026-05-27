@@ -168,12 +168,12 @@ data class LightThemeColors(
 
     companion object {
         val MODERN_WHITE = LightThemeColors(
-            statusBar = Color(0xFF1F2937),
-            navBar = Color(0xFF1F2937),
+            statusBar = Color(0xFF747C84),
+            navBar = Color(0xFF747C84),
             background = Color(0xFFF6F7F9),
             surface = Color(0xFFFFFFFF),
             surfaceVariant = Color(0xFFF1F3F6),
-            primary = Color(0xFF1F2937),
+            primary = Color(0xFF2B2D31),
             onPrimary = Color(0xFFFFFFFF),
             onBackground = Color(0xFF15171A),
             onSurface = Color(0xFF15171A),

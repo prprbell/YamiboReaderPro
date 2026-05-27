@@ -108,7 +108,6 @@ import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
-import androidx.core.net.toUri
 
 class FullscreenApi {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -155,9 +154,9 @@ class NativeMangaJSInterface {
     }
 }
 
-
 class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient() {
     private val contentImageCount = AtomicInteger(0)
+    private var activeMainFrameUrl: String? = null
 
     companion object {
         const val INDEX_URL = "https://bbs.yamibo.com/forum.php"
@@ -174,14 +173,25 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         webView.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
     }
 
+    private fun isBbsHomeUrl(url: String): Boolean {
+        return url == INDEX_URL ||
+                url == MOBILE_INDEX_URL ||
+                url == BBS_URL ||
+                url == BASE_BBS_URL ||
+                url == "https://bbs.yamibo.com/?mobile=2" ||
+                url == "https://bbs.yamibo.com/?mobile=no"
+    }
+
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         GlobalData.webProgress.value = 0
         contentImageCount.set(0)
         super.onPageStarted(view, url, favicon)
+        view?.evaluateJavascript(PageJsScripts.HIDE_THREAD_ACTION_BAR_JS, null)
         val safeUrl = url ?: ""
         val isHomepage =
-            safeUrl == INDEX_URL || safeUrl == BBS_URL || safeUrl == BASE_BBS_URL || safeUrl == MOBILE_INDEX_URL ||
+            isBbsHomeUrl(safeUrl) ||
                     (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains("mod="))
+        activeMainFrameUrl = safeUrl
         (context as? ComponentActivity)?.let { activity ->
             val navBarVM =
                 androidx.lifecycle.ViewModelProvider(activity)[BottomNavBarVM::class.java]
@@ -198,7 +208,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         super.doUpdateVisitedHistory(view, url, isReload)
         val safeUrl = url ?: ""
         val isHomepage =
-            safeUrl == INDEX_URL || safeUrl == BBS_URL || safeUrl == BASE_BBS_URL || safeUrl == MOBILE_INDEX_URL ||
+            isBbsHomeUrl(safeUrl) ||
                     (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains("mod="))
         (context as? ComponentActivity)?.let { activity ->
             val navBarVM =
@@ -315,6 +325,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
     override fun onPageCommitVisible(view: WebView?, url: String?) {
         super.onPageCommitVisible(view, url)
+        view?.evaluateJavascript(PageJsScripts.HIDE_THREAD_ACTION_BAR_JS, null)
         view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
         view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
         view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
@@ -332,10 +343,6 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         }
 
         BBSPageState.pageTitle = view?.title ?: ""
-        if (!BBSPageState.isErrorState) {
-            BBSPageState.isLoading = false
-            BBSPageState.showLoadError = false
-        }
 
         if (url != null && HistoryUtil.isThreadUrl(url)) {
             view?.evaluateJavascript(PageJsScripts.EXTRACT_THREAD_INFO_JS) { jsonStr ->
@@ -359,8 +366,12 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
     override fun onPageFinished(view: WebView?, url: String?) {
         super.onPageFinished(view, url)
+        if (!url.isNullOrBlank() && activeMainFrameUrl != null && url != activeMainFrameUrl) {
+            return
+        }
 
         view?.let {
+            it.evaluateJavascript(PageJsScripts.SHOW_THREAD_ACTION_BAR_JS, null)
             forceInjectMangaJs(it)
         }
 

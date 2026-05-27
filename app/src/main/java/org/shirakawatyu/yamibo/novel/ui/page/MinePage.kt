@@ -964,6 +964,7 @@ fun MinePage(
                     hasError = false
                 }
                 super.onPageStarted(view, url, favicon)
+                view?.evaluateJavascript(PageJsScripts.HIDE_THREAD_ACTION_BAR_JS, null)
                 currentUrl = url
 
                 canGoBack = evaluateCanGoBack(view)
@@ -1066,9 +1067,9 @@ fun MinePage(
                 if (!isExpectedLoadCallback(url)) return
 
                 pageTitle = view?.title ?: ""
-                finishLoadingIfExpected(view, url)
 
                 // 使用外部提取的特定于 MinePage 的脚本常量
+                view?.evaluateJavascript(PageJsScripts.HIDE_THREAD_ACTION_BAR_JS, null)
                 view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
                 view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
                 view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
@@ -1120,6 +1121,7 @@ fun MinePage(
 
                 super.onPageFinished(view, url)
                 currentUrl = url
+                view?.evaluateJavascript(PageJsScripts.SHOW_THREAD_ACTION_BAR_JS, null)
 
                 // 只有进入自己的主页或登录页时才清空历史
                 if (url != null && (url == mineUrl || url.contains("mycenter=1") || url.contains("mod=logging"))) {

@@ -368,6 +368,11 @@ fun BottomNavBar(
                     val quickActionIconColor = darkThemeColor(YamiboColors.primary.copy(alpha = btnAlpha)) {
                         onPrimary.copy(alpha = btnAlpha)
                     }
+                    val quickActionBackgroundColor = if (!isDarkMode && GlobalData.lightModeTheme.value > 0) {
+                        (if (isHighlighted) Color(0xFF2B2D31) else Color(0xFF5E6670)).copy(alpha = 0.96f)
+                    } else {
+                        darkThemeColor(YamiboColors.onSurface.copy(alpha = 0.94f)) { navBar.copy(alpha = 0.94f) }
+                    }
 
                     val iconScale by animateFloatAsState(
                         targetValue = if (isHighlighted) 1.12f else 1f,
@@ -386,7 +391,7 @@ fun BottomNavBar(
                             modifier = Modifier
                                 .size(48.dp)
                                 .shadow(if (isHighlighted) 12.dp else 5.dp, CircleShape, spotColor = darkThemeColor(YamiboColors.primary) { primary })
-                                .background(darkThemeColor(YamiboColors.onSurface.copy(alpha = 0.94f)) { navBar.copy(alpha = 0.94f) }, CircleShape),
+                                .background(quickActionBackgroundColor, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(

@@ -442,6 +442,21 @@ fun FavoritePage(
                 } else {
                     var menuExpanded by remember { mutableStateOf(false) }
                     var lastMenuClickTime by remember { mutableLongStateOf(0L) }
+                    val activeMenuContainer = MaterialTheme.colorScheme.primary
+                    val activeMenuContent = MaterialTheme.colorScheme.onPrimary
+                    val activeMenuText = darkThemeColor(YamiboColors.primary) { primary }
+                    @Composable
+                    fun ActiveMenuIcon(active: Boolean, content: @Composable (Color) -> Unit) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .then(if (active) Modifier.background(activeMenuContainer) else Modifier),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            content(if (active) activeMenuContent else MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
                     Box {
                         IconButton(
                             onClick = {
@@ -508,7 +523,8 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = if (isFavoriteCollapsed) "关闭折叠" else "折叠模式",
-                                            color = if (isFavoriteCollapsed) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
+                                            color = if (isFavoriteCollapsed) activeMenuText else MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = if (isFavoriteCollapsed) FontWeight.SemiBold else FontWeight.Normal
                                         )
                                     },
                                     onClick = {
@@ -521,12 +537,14 @@ fun FavoritePage(
                                         }
                                     },
                                     leadingIcon = {
-                                        Icon(
-                                            painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
-                                            null,
-                                            Modifier.size(24.dp),
-                                            tint = if (isFavoriteCollapsed) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
-                                        )
+                                        ActiveMenuIcon(isFavoriteCollapsed) { tint ->
+                                            Icon(
+                                                painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
+                                                null,
+                                                Modifier.size(22.dp),
+                                                tint = tint
+                                            )
+                                        }
                                     }
                                 )
                                 DropdownMenuItem(
@@ -550,7 +568,8 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = if (isClickToTopEnabled) "关闭置顶" else "阅后置顶",
-                                            color = if (isClickToTopEnabled) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
+                                            color = if (isClickToTopEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = if (isClickToTopEnabled) FontWeight.SemiBold else FontWeight.Normal
                                         )
                                     },
                                     onClick = {
@@ -564,12 +583,14 @@ fun FavoritePage(
                                         } else showClickToTopDialog = true
                                     },
                                     leadingIcon = {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_align_top),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                            tint = if (isClickToTopEnabled) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
-                                        )
+                                        ActiveMenuIcon(isClickToTopEnabled) { tint ->
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_align_top),
+                                                contentDescription = null,
+                                                modifier = Modifier.size(22.dp),
+                                                tint = tint
+                                            )
+                                        }
                                     }
                                 )
                                 DropdownMenuItem(
@@ -595,7 +616,8 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = "网络优化",
-                                            color = if (isDnsOptimizationEnabled) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
+                                            color = if (isDnsOptimizationEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = if (isDnsOptimizationEnabled) FontWeight.SemiBold else FontWeight.Normal
                                         )
                                     },
                                     onClick = {
@@ -603,12 +625,14 @@ fun FavoritePage(
                                         showCustomDnsDialog = true
                                     },
                                     leadingIcon = {
-                                        Icon(
-                                            Icons.Default.Build,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                            tint = if (isDnsOptimizationEnabled) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
-                                        )
+                                        ActiveMenuIcon(isDnsOptimizationEnabled) { tint ->
+                                            Icon(
+                                                Icons.Default.Build,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(22.dp),
+                                                tint = tint
+                                            )
+                                        }
                                     }
                                 )
                                 DropdownMenuItem(
@@ -638,7 +662,8 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = if (isAutoSignIn) "关闭签到" else "自动签到",
-                                            color = if (isAutoSignIn) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
+                                            color = if (isAutoSignIn) activeMenuText else MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = if (isAutoSignIn) FontWeight.SemiBold else FontWeight.Normal
                                         )
                                     },
                                     onClick = {
@@ -659,13 +684,15 @@ fun FavoritePage(
                                         }
                                     },
                                     leadingIcon = {
-                                        Icon(
-                                            imageVector = if (isAutoSignIn) Icons.Default.Clear
-                                            else Icons.Default.CheckCircle,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                            tint = if (isAutoSignIn) darkThemeColor(YamiboColors.primary) { primary } else MaterialTheme.colorScheme.onSurface
-                                        )
+                                        ActiveMenuIcon(isAutoSignIn) { tint ->
+                                            Icon(
+                                                imageVector = if (isAutoSignIn) Icons.Default.Clear
+                                                else Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(22.dp),
+                                                tint = tint
+                                            )
+                                        }
                                     }
                                 )
                                 DropdownMenuItem(
