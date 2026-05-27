@@ -106,6 +106,7 @@ fun FavoriteItem(
     val isEffectivelyCollapsed = isGlobalCollapsed && !isExpandedLocally
 
     val isDark by GlobalData.isDarkMode.collectAsState()
+    val lightThemeId by GlobalData.lightModeTheme.collectAsState()
     val tagColor = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
 
     val displayTitle = remember(title, isDark) {
@@ -141,7 +142,11 @@ fun FavoriteItem(
     val color by animateColorAsState(
         targetValue = when {
             isDragging -> darkThemeColor(YamiboColors.onSurface) { surface } // 拖拽时
-            isManageMode && isSelected -> darkModeColor(YamiboColors.secondary, YamiboColors.primaryDark.copy(alpha = 0.3f)) // 管理模式 + 选中
+            isManageMode && isSelected -> when {
+                isDark -> YamiboColors.primaryDark.copy(alpha = 0.3f)
+                lightThemeId > 0 -> Color(0xFFB8C0C8)
+                else -> YamiboColors.secondary
+            } // 管理模式 + 选中
             isManageMode && isHidden -> darkModeColor(Color.LightGray, Color(0xFF3a3a3a)) // 管理模式+已隐藏(未选中)
             else -> darkThemeColor(YamiboColors.tertiary) { tertiary } // 默认
         },

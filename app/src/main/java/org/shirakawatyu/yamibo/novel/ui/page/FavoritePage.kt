@@ -449,8 +449,8 @@ fun FavoritePage(
                     fun ActiveMenuIcon(active: Boolean, content: @Composable (Color) -> Unit) {
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                                .size(24.dp)
+                                .clip(RoundedCornerShape(6.dp))
                                 .then(if (active) Modifier.background(activeMenuContainer) else Modifier),
                             contentAlignment = Alignment.Center
                         ) {
@@ -541,7 +541,7 @@ fun FavoritePage(
                                             Icon(
                                                 painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
                                                 null,
-                                                Modifier.size(22.dp),
+                                                Modifier.size(18.dp),
                                                 tint = tint
                                             )
                                         }
@@ -587,7 +587,7 @@ fun FavoritePage(
                                             Icon(
                                                 painter = painterResource(id = R.drawable.ic_align_top),
                                                 contentDescription = null,
-                                                modifier = Modifier.size(22.dp),
+                                                modifier = Modifier.size(18.dp),
                                                 tint = tint
                                             )
                                         }
@@ -629,7 +629,7 @@ fun FavoritePage(
                                             Icon(
                                                 Icons.Default.Build,
                                                 contentDescription = null,
-                                                modifier = Modifier.size(22.dp),
+                                                modifier = Modifier.size(18.dp),
                                                 tint = tint
                                             )
                                         }
@@ -689,7 +689,7 @@ fun FavoritePage(
                                                 imageVector = if (isAutoSignIn) Icons.Default.Clear
                                                 else Icons.Default.CheckCircle,
                                                 contentDescription = null,
-                                                modifier = Modifier.size(22.dp),
+                                                modifier = Modifier.size(18.dp),
                                                 tint = tint
                                             )
                                         }
