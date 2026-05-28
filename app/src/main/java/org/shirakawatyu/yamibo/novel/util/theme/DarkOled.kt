@@ -111,7 +111,7 @@ val DARK_MODE_CSS_RULES_OLED = listOf(
     "hr, .line, .partition { border-color: oklch(20% 0 0) !important; }",
     ".notice, .tip, .alert, .warning, .tips { background: oklch(16% 0 0) !important; color: oklch(75% 0 0) !important; border-color: oklch(25% 0 0) !important; }",
     ".avatar img, .avatar, .my_avatar img { border-color: oklch(20% 0 0) !important; }",
-    ".btn, .button, button, .pn, .pnc { background: oklch(20% 0 0) !important; color: oklch(75% 0 0) !important; border-color: oklch(30% 0 0) !important; }",
+    ".btn, .button, button, .pn, .pnc, .mbtn { background: oklch(20% 0 0) !important; color: oklch(75% 0 0) !important; border-color: oklch(30% 0 0) !important; }",
     "#postform, #fastpostform, .area textarea { background: oklch(12% 0 0) !important; color: oklch(75% 0 0) !important; border-color: oklch(25% 0 0) !important; }",
     ".psth { background: oklch(8% 0 0) !important; color: oklch(75% 0 0) !important; border-color: oklch(20% 0 0) !important; }",
     ".psth .icon_ring { color: oklch(55% 0 0) !important; }",

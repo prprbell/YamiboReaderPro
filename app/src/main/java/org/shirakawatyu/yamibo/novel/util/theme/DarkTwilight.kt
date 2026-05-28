@@ -111,7 +111,7 @@ val DARK_MODE_CSS_RULES_TWILIGHT = listOf(
     "hr, .line, .partition { border-color: oklch(30% 0.02 285) !important; }",
     ".notice, .tip, .alert, .warning, .tips { background: oklch(25% 0.02 285) !important; color: oklch(78% 0.005 285) !important; border-color: oklch(35% 0.02 285) !important; }",
     ".avatar img, .avatar, .my_avatar img { border-color: oklch(30% 0.02 285) !important; }",
-    ".btn, .button, button, .pn, .pnc { background: oklch(30% 0.02 285) !important; color: oklch(78% 0.005 285) !important; border-color: oklch(40% 0.02 285) !important; }",
+    ".btn, .button, button, .pn, .pnc, .mbtn { background: oklch(30% 0.02 285) !important; color: oklch(78% 0.005 285) !important; border-color: oklch(40% 0.02 285) !important; }",
     "#postform, #fastpostform, .area textarea { background: oklch(22% 0.02 285) !important; color: oklch(78% 0.005 285) !important; border-color: oklch(35% 0.02 285) !important; }",
     ".psth { background: oklch(20% 0.02 285) !important; color: oklch(78% 0.005 285) !important; border-color: oklch(30% 0.02 285) !important; }",
     ".psth .icon_ring { color: oklch(58% 0.01 285) !important; }",

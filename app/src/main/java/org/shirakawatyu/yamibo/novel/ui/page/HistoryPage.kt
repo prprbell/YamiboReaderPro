@@ -208,8 +208,8 @@ fun HistoryPage(navController: NavController) {
     val maxCount by GlobalData.historyMaxCount.collectAsState()
     val scope = rememberCoroutineScope()
 
-    val pageBackground = darkThemeColor(light = Color(0xFFF5F5F5)) { background }
-    val topBarColor = darkThemeColor(light = Color(0xFFF5F5F5)) { statusBar }
+    val pageBackground = darkThemeColor(light = Color(0xFFF7F8FA)) { background }
+    val topBarColor = darkThemeColor(light = Color(0xFFF7F8FA)) { statusBar }
     val topBarContentColor = darkThemeColor(light = Color.Black) { onPrimary }
 
     // 将搜索词按空格分词，实现组合搜索

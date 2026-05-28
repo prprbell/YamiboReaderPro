@@ -60,6 +60,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -290,7 +291,7 @@ fun FavoritePage(
         Triple(1, "小说", Color(0xFF4CAF50)),
         Triple(2, "漫画", Color(0xFF2196F3)),
         Triple(3, "其他", Color(0xFFFF9800)),
-        Triple(0, "未定", darkModeColor(Color(0xFF9E9E9E), Color(0xFFAAAAAA)))
+        Triple(0, "未定", darkModeColor(Color(0xFF64748B), Color(0xFFAAAAAA)))
     )
 
     var currentCategoryId by rememberSaveable { mutableIntStateOf(favoriteVM.currentCategory) }
@@ -1202,6 +1203,7 @@ fun CacheManagementDialog(
     val coroutineScope = rememberCoroutineScope()
     var imageCacheSize by remember { mutableLongStateOf(0L) }
     val isAutoClearCache by GlobalData.isAutoClearCacheEnabled.collectAsState()
+    val lightModeTheme by GlobalData.lightModeTheme.collectAsState()
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -1312,7 +1314,11 @@ fun CacheManagementDialog(
                                 onCheckedChange = { newState ->
                                     GlobalData.isAutoClearCacheEnabled.value = newState
                                     SettingsUtil.saveAutoClearCacheMode(newState)
-                                }
+                                },
+                                colors = if (lightModeTheme > 0) SwitchDefaults.colors(
+                                    uncheckedTrackColor = Color(0xFFCBD5E1),
+                                    uncheckedBorderColor = Color(0xFFCBD5E1)
+                                ) else SwitchDefaults.colors()
                             )
                         }
                     }

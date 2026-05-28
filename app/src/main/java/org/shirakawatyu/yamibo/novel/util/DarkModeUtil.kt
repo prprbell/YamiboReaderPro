@@ -168,19 +168,19 @@ data class LightThemeColors(
 
     companion object {
         val MODERN_WHITE = LightThemeColors(
-            statusBar = Color(0xFF747C84),
-            navBar = Color(0xFF747C84),
-            background = Color(0xFFF6F7F9),
+            statusBar = Color(0xFF64748B),
+            navBar = Color(0xFF64748B),
+            background = Color(0xFFF7F8FA),
             surface = Color(0xFFFFFFFF),
-            surfaceVariant = Color(0xFFF1F3F6),
-            primary = Color(0xFF2B2D31),
+            surfaceVariant = Color(0xFFEEF2F6),
+            primary = Color(0xFF64748B),
             onPrimary = Color(0xFFFFFFFF),
-            onBackground = Color(0xFF15171A),
-            onSurface = Color(0xFF15171A),
-            onSurfaceVariant = Color(0xFF667085),
-            outline = Color(0xFFE6E8EC),
-            tertiary = Color(0xFFF1F3F6),
-            onSecondary = Color(0xFF15171A),
+            onBackground = Color(0xFF111827),
+            onSurface = Color(0xFF111827),
+            onSurfaceVariant = Color(0xFF4B5563),
+            outline = Color(0xFFE2E8F0),
+            tertiary = Color(0xFFEEF2F6),
+            onSecondary = Color(0xFF111827),
         )
 
         fun forTheme(themeId: Int) = when (themeId) {

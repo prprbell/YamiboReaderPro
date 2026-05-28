@@ -121,7 +121,7 @@ val darkThemeActions = listOf(
 
 val lightThemeActions = listOf(
     ThemeQuickAction(SubActionSlot.Left, "原色", -1, Color(0xFFFCF4CF), "原"),
-    ThemeQuickAction(SubActionSlot.Right, "白色", 11, Color(0xFFFFFFFF), "白")
+    ThemeQuickAction(SubActionSlot.Right, "白色", 11, Color(0xFF64748B), "白")
 )
 
 fun getThemeActions(isDarkMode: Boolean) = if (isDarkMode) darkThemeActions else lightThemeActions
@@ -369,7 +369,7 @@ fun BottomNavBar(
                         onPrimary.copy(alpha = btnAlpha)
                     }
                     val quickActionBackgroundColor = if (!isDarkMode && GlobalData.lightModeTheme.value > 0) {
-                        (if (isHighlighted) Color(0xFF2B2D31) else Color(0xFF5E6670)).copy(alpha = 0.96f)
+                        (if (isHighlighted) Color(0xFF1E293B) else Color(0xFF334155)).copy(alpha = 0.96f)
                     } else {
                         darkThemeColor(YamiboColors.onSurface.copy(alpha = 0.94f)) { navBar.copy(alpha = 0.94f) }
                     }
@@ -446,7 +446,7 @@ fun BottomNavBar(
                             ) {
                                 androidx.compose.material3.Text(
                                     text = subAction.hint,
-                                    color = if (!isDarkMode) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.55f),
+                                    color = if (!isDarkMode && subAction.themeId >= 10) Color.White else if (!isDarkMode) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.55f),
                                     fontSize = 14.sp,
                                     modifier = Modifier.align(Alignment.Center)
                                 )

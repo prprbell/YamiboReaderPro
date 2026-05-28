@@ -245,7 +245,7 @@ class MainActivity : ComponentActivity() {
                 else -> "#1A1A1A".toColorInt()
             }
         } else if (lightModeTheme > 0) {
-            "#747C84".toColorInt()
+            "#64748B".toColorInt()
         } else {
             "#551200".toColorInt()
         }
@@ -257,7 +257,7 @@ class MainActivity : ComponentActivity() {
                 else -> "#1A1A1A".toColorInt()
             }
         } else if (lightModeTheme > 0) {
-            "#747C84".toColorInt()
+            "#64748B".toColorInt()
         } else {
             "#EEE1BE".toColorInt()
         }
@@ -931,7 +931,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 currentRoute == "BBSPage" -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.primary
                                 currentRoute == "MinePage" || currentRoute?.startsWith("MineHistoryPostPage") == true -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.primary
                                 currentRoute?.startsWith("OtherWebPage") == true -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.primary
-                                currentRoute == "HistoryPage" -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: ComposeColor(0xFFF5F5F5)
+                                currentRoute == "HistoryPage" -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: ComposeColor(0xFFF7F8FA)
                                 else -> null
                             }
                             if (statusBarColor != null) {

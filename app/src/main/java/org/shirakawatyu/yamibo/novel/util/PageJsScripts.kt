@@ -1153,13 +1153,13 @@ $styleString
             for(var i=0; i<imgs.length; i++) {
                 var img = imgs[i];
                 if(!img.complete || typeof img.naturalWidth === 'undefined' || img.naturalWidth === 0 || img.style.opacity === '0') {
-                    img.onload = function() { 
-                        this.style.transition = 'opacity 0.2s ease-in'; 
-                        this.style.opacity = '1'; 
+                    img.onload = function() {
+                        this.style.transition = 'opacity 0.2s ease-in';
+                        this.style.opacity = '1';
                     };
                     var src = img.src;
-                    img.src = ''; 
-                    img.src = src; 
+                    img.src = '';
+                    img.src = src;
                 }
             }
         })();

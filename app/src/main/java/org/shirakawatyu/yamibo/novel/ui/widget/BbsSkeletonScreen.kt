@@ -49,27 +49,37 @@ fun BbsSkeletonScreen(modifier: Modifier = Modifier) {
     )
     val isDarkMode by GlobalData.isDarkMode.collectAsState()
     val lightThemeId by GlobalData.lightModeTheme.collectAsState()
-    val baseHeaderColor = darkThemeColor(Color(0xFF551200)) { statusBar }
+    val isModernWhite = !isDarkMode && lightThemeId > 0
+
+    val baseHeaderColor = if (isModernWhite) {
+        Color(0xFF64748B)
+    } else {
+        darkThemeColor(Color(0xFF551200)) { statusBar }
+    }
     val headerBg = if (isDarkMode) {
         baseHeaderColor.copy(alpha = 0.9f)
     } else {
         baseHeaderColor
     }
 
-    val baseSkeletonColor = if (!isDarkMode && lightThemeId > 0) {
-        MaterialTheme.colorScheme.outline
+    val baseSkeletonColor = if (isModernWhite) {
+        Color(0xFFE2E8F0)
     } else {
         darkThemeColor(Color(0xFFD4C8B0)) { surfaceVariant }
     }
     val skeletonAlpha = when {
         isDarkMode -> alpha * 0.7f
-        lightThemeId > 0 -> 0.45f + alpha * 0.75f
+        isModernWhite -> 0.50f + alpha * 0.55f
         else -> alpha
     }
     val skeletonColor = baseSkeletonColor.copy(alpha = skeletonAlpha)
 
-    val baseSectionHeaderColor = darkThemeColor(Color(0xFF9E6565)) { statusBar }
-    val sectionHeaderBg = if (lightThemeId > 0 && !isDarkMode) {
+    val baseSectionHeaderColor = if (isModernWhite) {
+        Color(0xFF64748B)
+    } else {
+        darkThemeColor(Color(0xFF9E6565)) { statusBar }
+    }
+    val sectionHeaderBg = if (isModernWhite) {
         baseSectionHeaderColor
     } else {
         baseSectionHeaderColor.copy(alpha = if (isDarkMode) alpha * 0.5f else alpha * 0.8f)

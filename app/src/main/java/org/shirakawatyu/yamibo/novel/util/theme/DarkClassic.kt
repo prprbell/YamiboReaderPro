@@ -147,7 +147,7 @@ val DARK_MODE_CSS_RULES_CLASSIC = listOf(
     "/* === 头像边框适配 === */",
     ".avatar img, .avatar, .my_avatar img { border-color: #333 !important; }",
     "/* === 按钮通用 === */",
-    ".btn, .button, button, .pn, .pnc { background: #333 !important; color: #bbbbbb !important; border-color: #555 !important; }",
+    ".btn, .button, button, .pn, .pnc, .mbtn { background: #333 !important; color: #bbbbbb !important; border-color: #555 !important; }",
     "/* === 快速回复框 === */",
     "#postform, #fastpostform, .area textarea { background: #1e1e1e !important; color: #bbbbbb !important; border-color: #444 !important; }",
     "/* === 点评/评分标题 === */",

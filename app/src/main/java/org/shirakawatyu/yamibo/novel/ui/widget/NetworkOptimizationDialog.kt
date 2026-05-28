@@ -40,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -53,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
@@ -84,6 +86,7 @@ fun NetworkOptimizationDialog(onDismiss: () -> Unit) {
     val enabled by GlobalData.isDnsOptimizationEnabled.collectAsState()
     val mode by GlobalData.dnsOptimizationMode.collectAsState()
     val customUrl by GlobalData.customDnsUrl.collectAsState()
+    val lightModeTheme by GlobalData.lightModeTheme.collectAsState()
 
     var tempEnabled by remember { mutableStateOf(enabled) }
     var tempMode by remember { mutableStateOf(mode) }
@@ -155,7 +158,11 @@ fun NetworkOptimizationDialog(onDismiss: () -> Unit) {
                             checked = tempEnabled,
                             onCheckedChange = { checked ->
                                 tempEnabled = checked
-                            }
+                            },
+                            colors = if (lightModeTheme > 0) SwitchDefaults.colors(
+                                uncheckedTrackColor = Color(0xFFCBD5E1),
+                                uncheckedBorderColor = Color(0xFFCBD5E1)
+                            ) else SwitchDefaults.colors()
                         )
                     }
                 }
