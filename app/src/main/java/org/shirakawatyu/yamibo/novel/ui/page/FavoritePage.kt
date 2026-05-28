@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Build
@@ -44,6 +45,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -57,6 +59,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -79,7 +82,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -87,6 +93,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -278,10 +285,22 @@ fun FavoritePage(
             showTopToast = false
         }
     }
+
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var isSearchBarExpanded by rememberSaveable { mutableStateOf(false) }
+    val isSearching = searchQuery.isNotBlank()
+
+    BackHandler(enabled = isSearchBarExpanded && probingUrl == null) {
+        searchQuery = ""
+        isSearchBarExpanded = false
+    }
+
     val reorderableState = rememberReorderableLazyListState(
         lazyListState = lazyListState,
         onMove = { from, to ->
-            if (!isInManageMode) favoriteVM.moveFavorite(from.index, to.index)
+            // 搜索结果是当前列表的子集，过滤态下索引不再等同于 VM 中的收藏列表索引。
+            // 因此搜索中禁用拖拽，避免重排错位。
+            if (!isInManageMode && !isSearching) favoriteVM.moveFavorite(from.index, to.index)
         }
     )
 
@@ -297,6 +316,59 @@ fun FavoritePage(
     var currentCategoryId by rememberSaveable { mutableIntStateOf(favoriteVM.currentCategory) }
     val currentCat = categoryOptions.find { it.first == currentCategoryId } ?: categoryOptions[0]
 
+    val searchTerms = remember(searchQuery) {
+        searchQuery
+            .trim()
+            .split("\\s+".toRegex())
+            .filter { it.isNotBlank() }
+    }
+
+    val searchedFavoriteList = remember(favoriteList, searchTerms) {
+        if (searchTerms.isEmpty()) {
+            favoriteList
+        } else {
+            favoriteList.filter { fav ->
+                val cleanTitle = fav.title
+                    .replace(Regex("^(?:【.*?】|\\[.*?\\]|\\s)+"), "")
+                    .ifBlank { fav.title }
+
+                // 只搜索收藏标题，避免数字、链接、作者 ID、章节名等隐藏/辅助字段造成误命中。
+                searchTerms.all { term ->
+                    fav.title.contains(term, ignoreCase = true) ||
+                            cleanTitle.contains(term, ignoreCase = true)
+                }
+            }
+        }
+    }
+
+    var shouldShowEmptyState by remember { mutableStateOf(false) }
+
+    LaunchedEffect(
+        searchedFavoriteList.isEmpty(),
+        isRefreshing,
+        isSearching,
+        favoriteList.size,
+        currentCategoryId
+    ) {
+        shouldShowEmptyState = false
+        if (searchedFavoriteList.isNotEmpty() || isRefreshing) return@LaunchedEffect
+
+        if (isSearching) {
+            // 搜索结果为空应该及时反馈；非搜索的“暂无收藏”则延迟确认，
+            // 避免进入页面时 DataStore / Flow 初始空列表造成一瞬间闪屏。
+            shouldShowEmptyState = true
+        } else {
+            delay(700L)
+            shouldShowEmptyState = true
+        }
+    }
+
+    LaunchedEffect(searchQuery, currentCategoryId) {
+        if (lazyListState.firstVisibleItemIndex > 0 || lazyListState.firstVisibleItemScrollOffset > 0) {
+            lazyListState.scrollToItem(0)
+        }
+    }
+
     val navBarsPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var lockedNavHeightValue by rememberSaveable { mutableFloatStateOf(0f) }
     if (navBarsPadding.value > lockedNavHeightValue) lockedNavHeightValue = navBarsPadding.value
@@ -309,11 +381,75 @@ fun FavoritePage(
     val lockedStatusHeight = lockedStatusHeightValue.dp
     var showHomePageDialog by remember { mutableStateOf(false) }
     val topBarContentColor = darkThemeColor(Color.Black) { onPrimary }
-
     LaunchedEffect(Unit) {
         favoriteVM.refreshCacheInfo()
         SettingsUtil.getHomePage { GlobalData.homePageRoute.value = it }
     }
+
+    @Composable
+    fun MoreOptionsButton() {
+        FavoriteMoreOptionsButton(
+            topBarContentColor = topBarContentColor,
+            isLoggedIn = isLoggedIn,
+            isRefreshing = isRefreshing,
+            isFavoriteCollapsed = isFavoriteCollapsed,
+            isClickToTopEnabled = isClickToTopEnabled,
+            isDnsOptimizationEnabled = isDnsOptimizationEnabled,
+            onSetHomePage = { showHomePageDialog = true },
+            onManageFavorite = { favoriteVM.toggleManageMode() },
+            onToggleFavoriteCollapsed = {
+                coroutineScope.launch {
+                    delay(250)
+                    val newState = !isFavoriteCollapsed
+                    GlobalData.isFavoriteCollapsed.value = newState
+                    SettingsUtil.saveFavoriteCollapseMode(newState)
+                }
+            },
+            onManageCache = { showCacheManagement = true },
+            onToggleClickToTop = {
+                if (isClickToTopEnabled) {
+                    coroutineScope.launch {
+                        delay(250)
+                        GlobalData.isClickToTopEnabled.value = false
+                        SettingsUtil.saveClickToTopMode(false)
+                    }
+                } else {
+                    showClickToTopDialog = true
+                }
+            },
+            onManageBookmark = { showBookmarkManagement = true },
+            onNetworkOptimization = { showCustomDnsDialog = true },
+            onManageDirectory = {
+                favoriteVM.getDirectoryList { dirs ->
+                    directoryList = dirs
+                    showDirectoryManagement = true
+                }
+            },
+            onToggleAutoSignIn = {
+                coroutineScope.launch {
+                    delay(250)
+                    val newState = !GlobalData.isAutoSignInEnabled.value
+                    GlobalData.isAutoSignInEnabled.value = newState
+                    SettingsUtil.saveAutoSignInMode(newState)
+
+                    if (newState) {
+                        AutoSignManager.resetQuota()
+                        AutoSignManager.checkAndSignIfNeeded(
+                            context,
+                            force = true
+                        )
+                    }
+                }
+            },
+            onRefreshList = {
+                favoriteVM.refreshList(
+                    showLoading = true,
+                    isSmartSync = false
+                )
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .padding(bottom = lockedNavHeight + 50.dp)
@@ -326,394 +462,175 @@ fun FavoritePage(
         )
         TopBar(title = "") {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(end = 4.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 左半部：标题或分类切换
-                if (isInManageMode) {
-                    Text(
-                        text = "管理收藏 (${selectedItems.size})",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = topBarContentColor,
-                        modifier = Modifier.padding(start = 8.dp)
+                if (isSearchBarExpanded) {
+                    FavoriteTopSearchField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        onClose = {
+                            searchQuery = ""
+                            isSearchBarExpanded = false
+                        },
+                        resultText = if (isSearching) "${searchedFavoriteList.size}项" else null,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 6.dp, end = if (isInManageMode) 6.dp else 2.dp)
                     )
-                    Spacer(modifier = Modifier.weight(1f))
-                } else {
-                    var categoryMenuExpanded by remember { mutableStateOf(false) }
-                    val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
-                        targetValue = if (categoryMenuExpanded) 180f else 0f,
-                        animationSpec = tween(
-                            durationMillis = 250,
-                            easing = FastOutSlowInEasing
-                        ),
-                        label = "arrow_rotation_animation"
-                    )
-                    Box(modifier = Modifier.padding(start = 4.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { categoryMenuExpanded = true }
-                                .padding(horizontal = 4.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = "收藏栏/${currentCat.second}",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = topBarContentColor
-                            )
-                            Icon(
-                                painterResource(R.drawable.ic_arrow_down),
-                                contentDescription = if (categoryMenuExpanded) "收起分类" else "展开分类",
-                                tint = topBarContentColor,
-                                modifier = Modifier
-                                    .offset(y = 4.dp)
-                                    .graphicsLayer {
-                                        transformOrigin = TransformOrigin(
-                                            pivotFractionX = 0.5f,
-                                            pivotFractionY = 0.5f
-                                        )
-                                        rotationZ = arrowRotation
-                                    }
-                            )
-                        }
-
-                        // 下拉菜单
-                        DropdownMenu(
-                            expanded = categoryMenuExpanded,
-                            onDismissRequest = { categoryMenuExpanded = false },
-                            offset = DpOffset(x = 0.dp, y = 16.dp),
-                            modifier = Modifier
-                                .width(140.dp)
-                                .background(MaterialTheme.colorScheme.surface)
-                                .clip(RoundedCornerShape(12.dp))
-                        ) {
-                            categoryOptions.forEach { (typeId, name, color) ->
-                                DropdownMenuItem(
-                                    contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
-                                    text = {
-                                        Text(
-                                            text = name,
-                                            fontSize = 16.sp,
-                                            modifier = Modifier.padding(start = 16.dp)
-                                        )
-                                    },
-                                    onClick = {
-                                        currentCategoryId = typeId
-                                        favoriteVM.setCategory(typeId)
-                                        categoryMenuExpanded = false
-                                    },
-                                    leadingIcon = {
-                                        Box(
-                                            modifier = Modifier.size(32.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (typeId == -1) {
-                                                Icon(
-                                                    imageVector = Icons.AutoMirrored.Filled.List,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            } else {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(10.dp)
-                                                        .background(
-                                                            color,
-                                                            androidx.compose.foundation.shape.CircleShape
-                                                        )
-                                                )
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
+                    if (isInManageMode) {
+                        FavoriteManageDoneButton(
+                            onClick = { favoriteVM.toggleManageMode() }
+                        )
+                    } else {
+                        MoreOptionsButton()
                     }
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-
-                // 右半部：操作菜单区域
-                if (isInManageMode) {
-                    Spacer(modifier = Modifier.weight(1f))
-                    Button(onClick = { favoriteVM.toggleManageMode() }) { Text("完成") }
                 } else {
-                    var menuExpanded by remember { mutableStateOf(false) }
-                    var lastMenuClickTime by remember { mutableLongStateOf(0L) }
-                    val activeMenuContainer = MaterialTheme.colorScheme.primary
-                    val activeMenuContent = MaterialTheme.colorScheme.onPrimary
-                    val activeMenuText = darkThemeColor(YamiboColors.primary) { primary }
-                    @Composable
-                    fun ActiveMenuIcon(active: Boolean, content: @Composable (Color) -> Unit) {
+                    // 左半部：标题或分类切换
+                    if (isInManageMode) {
+                        Text(
+                            text = "管理收藏 (${selectedItems.size})",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = topBarContentColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .weight(1f)
+                        )
+                    } else {
+                        var categoryMenuExpanded by remember { mutableStateOf(false) }
+                        val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
+                            targetValue = if (categoryMenuExpanded) 180f else 0f,
+                            animationSpec = tween(
+                                durationMillis = 250,
+                                easing = FastOutSlowInEasing
+                            ),
+                            label = "arrow_rotation_animation"
+                        )
                         Box(
                             modifier = Modifier
-                                .size(24.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .then(if (active) Modifier.background(activeMenuContainer) else Modifier),
-                            contentAlignment = Alignment.Center
+                                .padding(start = 4.dp)
+                                .height(40.dp),
+                            contentAlignment = Alignment.CenterStart
                         ) {
-                            content(if (active) activeMenuContent else MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-                    Box {
-                        IconButton(
-                            onClick = {
-                                val currentTime = System.currentTimeMillis()
-                                if (currentTime - lastMenuClickTime > 250L) {
-                                    lastMenuClickTime = currentTime
-                                    menuExpanded = true
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { categoryMenuExpanded = true }
+                                    .padding(horizontal = 4.dp)
+                            ) {
+                                Text(
+                                    text = "收藏栏/${currentCat.second}",
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = topBarContentColor
+                                )
+                                Icon(
+                                    painterResource(R.drawable.ic_arrow_down),
+                                    contentDescription = if (categoryMenuExpanded) "收起分类" else "展开分类",
+                                    tint = topBarContentColor,
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .offset(y = 2.dp)
+                                        .graphicsLayer {
+                                            transformOrigin = TransformOrigin(
+                                                pivotFractionX = 0.5f,
+                                                pivotFractionY = 0.5f
+                                            )
+                                            rotationZ = arrowRotation
+                                        }
+                                )
+                            }
+
+                            // 下拉菜单
+                            DropdownMenu(
+                                expanded = categoryMenuExpanded,
+                                onDismissRequest = { categoryMenuExpanded = false },
+                                offset = DpOffset(x = 0.dp, y = 16.dp),
+                                modifier = Modifier
+                                    .width(140.dp)
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .clip(RoundedCornerShape(12.dp))
+                            ) {
+                                categoryOptions.forEach { (typeId, name, color) ->
+                                    DropdownMenuItem(
+                                        contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
+                                        text = {
+                                            Text(
+                                                text = name,
+                                                fontSize = 16.sp,
+                                                modifier = Modifier.padding(start = 16.dp)
+                                            )
+                                        },
+                                        onClick = {
+                                            currentCategoryId = typeId
+                                            favoriteVM.setCategory(typeId)
+                                            categoryMenuExpanded = false
+                                        },
+                                        leadingIcon = {
+                                            Box(
+                                                modifier = Modifier.size(32.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (typeId == -1) {
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.List,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                } else {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(10.dp)
+                                                            .background(
+                                                                color,
+                                                                androidx.compose.foundation.shape.CircleShape
+                                                            )
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    )
                                 }
-                            },
+                            }
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+
+                    // 右半部：操作菜单区域
+                    if (isInManageMode) {
+                        IconButton(
+                            onClick = { isSearchBarExpanded = true },
                             modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
-                                painter = painterResource(id = R.drawable.ic_more_horiz),
-                                contentDescription = "更多选项",
-                                modifier = Modifier.size(24.dp),
-                                tint = topBarContentColor
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "搜索收藏",
+                                modifier = Modifier.size(22.dp),
+                                tint = if (isSearching) MaterialTheme.colorScheme.primary else topBarContentColor
                             )
                         }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                            offset = DpOffset(x = 9.dp, y = 16.dp),
-                            modifier = Modifier
-                                .width(256.dp)
-                                .background(MaterialTheme.colorScheme.surface)
-                                .clip(RoundedCornerShape(12.dp))
+                        FavoriteManageDoneButton(
+                            onClick = { favoriteVM.toggleManageMode() }
+                        )
+                    } else {
+                        IconButton(
+                            onClick = { isSearchBarExpanded = true },
+                            modifier = Modifier.size(40.dp)
                         ) {
-                            // 第一排：设置首页 管理缓存
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = { Text("设置首页") },
-                                    onClick = { showHomePageDialog = true; menuExpanded = false },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.Home,
-                                            null,
-                                            Modifier.size(24.dp)
-                                        )
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = { Text("管理收藏") },
-                                    enabled = isLoggedIn,
-                                    onClick = {
-                                        favoriteVM.toggleManageMode(); menuExpanded = false
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            painterResource(R.drawable.ic_visibility),
-                                            null,
-                                            Modifier.size(24.dp),
-                                            tint = if (isLoggedIn) MaterialTheme.colorScheme.onSurface
-                                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                        )
-                                    })
-                            }
-
-                            // 第二排：折叠 管理书签
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = {
-                                        Text(
-                                            text = if (isFavoriteCollapsed) "关闭折叠" else "折叠模式",
-                                            color = if (isFavoriteCollapsed) activeMenuText else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        coroutineScope.launch {
-                                            delay(250)
-                                            val newState = !isFavoriteCollapsed
-                                            GlobalData.isFavoriteCollapsed.value = newState
-                                            SettingsUtil.saveFavoriteCollapseMode(newState)
-                                        }
-                                    },
-                                    leadingIcon = {
-                                        ActiveMenuIcon(isFavoriteCollapsed) { tint ->
-                                            Icon(
-                                                painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
-                                                null,
-                                                Modifier.size(18.dp),
-                                                tint = tint
-                                            )
-                                        }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = { Text("管理缓存") },
-                                    onClick = { showCacheManagement = true; menuExpanded = false },
-                                    leadingIcon = {
-                                        Icon(
-                                            painterResource(R.drawable.ic_download),
-                                            null,
-                                            Modifier.size(24.dp)
-                                        )
-                                    }
-                                )
-                            }
-
-                            // 第三排：置顶 管理收藏
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = {
-                                        Text(
-                                            text = if (isClickToTopEnabled) "关闭置顶" else "阅后置顶",
-                                            color = if (isClickToTopEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        if (isClickToTopEnabled) {
-                                            coroutineScope.launch {
-                                                delay(250)
-                                                GlobalData.isClickToTopEnabled.value = false
-                                                SettingsUtil.saveClickToTopMode(false)
-                                            }
-                                        } else showClickToTopDialog = true
-                                    },
-                                    leadingIcon = {
-                                        ActiveMenuIcon(isClickToTopEnabled) { tint ->
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_align_top),
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp),
-                                                tint = tint
-                                            )
-                                        }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = { Text("管理书签") },
-                                    onClick = {
-                                        showBookmarkManagement = true; menuExpanded = false
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.DateRange,
-                                            null,
-                                            Modifier.size(24.dp)
-                                        )
-                                    }
-                                )
-                            }
-
-                            // 第四排：网络优化 管理目录
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = {
-                                        Text(
-                                            text = "网络优化",
-                                            color = if (isDnsOptimizationEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showCustomDnsDialog = true
-                                    },
-                                    leadingIcon = {
-                                        ActiveMenuIcon(isDnsOptimizationEnabled) { tint ->
-                                            Icon(
-                                                Icons.Default.Build,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp),
-                                                tint = tint
-                                            )
-                                        }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = { Text("管理目录") },
-                                    onClick = {
-                                        favoriteVM.getDirectoryList { dirs ->
-                                            directoryList = dirs; showDirectoryManagement = true
-                                        }
-                                        menuExpanded = false
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.List,
-                                            null,
-                                            Modifier.size(24.dp)
-                                        )
-                                    }
-                                )
-                            }
-
-                            // 第五排：自动签到 刷新
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                val isAutoSignIn = GlobalData.isAutoSignInEnabled.value
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = {
-                                        Text(
-                                            text = if (isAutoSignIn) "关闭签到" else "自动签到",
-                                            color = if (isAutoSignIn) activeMenuText else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        coroutineScope.launch {
-                                            delay(250)
-                                            val newState = !isAutoSignIn
-                                            GlobalData.isAutoSignInEnabled.value = newState
-                                            SettingsUtil.saveAutoSignInMode(newState)
-
-                                            if (newState) {
-                                                AutoSignManager.resetQuota()
-                                                AutoSignManager.checkAndSignIfNeeded(
-                                                    context,
-                                                    force = true
-                                                )
-                                            }
-                                        }
-                                    },
-                                    leadingIcon = {
-                                        ActiveMenuIcon(isAutoSignIn) { tint ->
-                                            Icon(
-                                                imageVector = if (isAutoSignIn) Icons.Default.Clear
-                                                else Icons.Default.CheckCircle,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp),
-                                                tint = tint
-                                            )
-                                        }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    modifier = Modifier.weight(1f),
-                                    text = { Text("刷新列表") },
-                                    onClick = {
-                                        favoriteVM.refreshList(
-                                            showLoading = true,
-                                            isSmartSync = false
-                                        )
-                                        menuExpanded = false
-                                    },
-                                    enabled = !isRefreshing,
-                                    leadingIcon = {
-                                        if (isRefreshing) CircularProgressIndicator(Modifier.size(24.dp)) else Icon(
-                                            androidx.compose.material.icons.Icons.Default.Refresh,
-                                            null,
-                                            Modifier.size(24.dp)
-                                        )
-                                    }
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "搜索收藏",
+                                modifier = Modifier.size(22.dp),
+                                tint = if (isSearching) MaterialTheme.colorScheme.primary else topBarContentColor
+                            )
                         }
+                        MoreOptionsButton()
                     }
+
                 }
             }
         }
@@ -729,7 +646,7 @@ fun FavoritePage(
                     .padding(0.dp, 3.dp)
             ) {
                 itemsIndexed(
-                    items = favoriteList,
+                    items = searchedFavoriteList,
                     key = { _, item -> item.url }
                 ) { _, item ->
                     val currentOnClick = remember(item, isInManageMode, isClickToTopEnabled) {
@@ -825,7 +742,7 @@ fun FavoritePage(
                             modifier = Modifier
                                 .animateItem()
                                 .longPressDraggableHandle(
-                                    enabled = !isInManageMode,
+                                    enabled = !isInManageMode && !isSearching,
                                     onDragStarted = {
                                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                     }
@@ -838,14 +755,47 @@ fun FavoritePage(
                             cacheInfo = cacheInfoMap[item.url],
                             isGlobalCollapsed = isFavoriteCollapsed,
                             dragHandle = {
-                                if (!isInManageMode) {
-                                    Icon(
-                                        Icons.Filled.Menu,
-                                        contentDescription = "Reorder",
-                                        tint = darkThemeColor(YamiboColors.primary) { primary }
-                                    )
-                                }
+                                val canDrag = !isInManageMode && !isSearching
+                                Icon(
+                                    imageVector = Icons.Filled.Menu,
+                                    contentDescription = if (canDrag) "拖动排序" else null,
+                                    tint = if (canDrag) {
+                                        darkThemeColor(YamiboColors.primary) { primary }
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.34f)
+                                    },
+                                    modifier = Modifier.size(22.dp)
+                                )
                             }
+                        )
+                    }
+                }
+            }
+
+            if (shouldShowEmptyState) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 28.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isSearching) Icons.Default.Search else Icons.Default.Favorite,
+                            contentDescription = null,
+                            modifier = Modifier.size(40.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (isSearching) "没有匹配的收藏" else "暂无收藏",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
@@ -1178,6 +1128,388 @@ fun FavoritePage(
                 modifier = Modifier.align(Alignment.Center),
                 color = Color.White
             )
+        }
+    }
+}
+
+
+@Composable
+private fun FavoriteMoreOptionsButton(
+    topBarContentColor: Color,
+    isLoggedIn: Boolean,
+    isRefreshing: Boolean,
+    isFavoriteCollapsed: Boolean,
+    isClickToTopEnabled: Boolean,
+    isDnsOptimizationEnabled: Boolean,
+    onSetHomePage: () -> Unit,
+    onManageFavorite: () -> Unit,
+    onToggleFavoriteCollapsed: () -> Unit,
+    onManageCache: () -> Unit,
+    onToggleClickToTop: () -> Unit,
+    onManageBookmark: () -> Unit,
+    onNetworkOptimization: () -> Unit,
+    onManageDirectory: () -> Unit,
+    onToggleAutoSignIn: () -> Unit,
+    onRefreshList: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    var lastMenuClickTime by remember { mutableLongStateOf(0L) }
+    val activeMenuContainer = MaterialTheme.colorScheme.primary
+    val activeMenuContent = MaterialTheme.colorScheme.onPrimary
+    val activeMenuText = darkThemeColor(YamiboColors.primary) { primary }
+
+    @Composable
+    fun ActiveMenuIcon(active: Boolean, content: @Composable (Color) -> Unit) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .then(if (active) Modifier.background(activeMenuContainer) else Modifier),
+            contentAlignment = Alignment.Center
+        ) {
+            content(if (active) activeMenuContent else MaterialTheme.colorScheme.onSurface)
+        }
+    }
+
+    fun runMenuAction(action: () -> Unit) {
+        menuExpanded = false
+        action()
+    }
+
+    Box(modifier = modifier) {
+        IconButton(
+            onClick = {
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastMenuClickTime > 250L) {
+                    lastMenuClickTime = currentTime
+                    menuExpanded = true
+                }
+            },
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_more_horiz),
+                contentDescription = "更多选项",
+                modifier = Modifier.size(24.dp),
+                tint = topBarContentColor
+            )
+        }
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false },
+            offset = DpOffset(x = 9.dp, y = 16.dp),
+            modifier = Modifier
+                .width(256.dp)
+                .background(MaterialTheme.colorScheme.surface)
+                .clip(RoundedCornerShape(12.dp))
+        ) {
+            // 第一排：设置首页 管理收藏
+            Row(modifier = Modifier.fillMaxWidth()) {
+                DropdownMenuItem(
+                    modifier = Modifier.weight(1f),
+                    text = { Text("设置首页") },
+                    onClick = { runMenuAction(onSetHomePage) },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Home,
+                            null,
+                            Modifier.size(24.dp)
+                        )
+                    }
+                )
+                DropdownMenuItem(
+                    modifier = Modifier.weight(1f),
+                    text = { Text("管理收藏") },
+                    enabled = isLoggedIn,
+                    onClick = { runMenuAction(onManageFavorite) },
+                    leadingIcon = {
+                        Icon(
+                            painterResource(R.drawable.ic_visibility),
+                            null,
+                            Modifier.size(24.dp),
+                            tint = if (isLoggedIn) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        )
+                    })
+            }
+
+            // 第二排：折叠 管理缓存
+            Row(modifier = Modifier.fillMaxWidth()) {
+                DropdownMenuItem(
+                    modifier = Modifier.weight(1f),
+                    text = {
+                        Text(
+                            text = if (isFavoriteCollapsed) "关闭折叠" else "折叠模式",
+                            color = if (isFavoriteCollapsed) activeMenuText else MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    onClick = { runMenuAction(onToggleFavoriteCollapsed) },
+                    leadingIcon = {
+                        ActiveMenuIcon(isFavoriteCollapsed) { tint ->
+                            Icon(
+                                painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
+                                null,
+                                Modifier.size(18.dp),
+                                tint = tint
+                            )
+                        }
+                    }
+                )
+                DropdownMenuItem(
+                    modifier = Modifier.weight(1f),
+                    text = { Text("管理缓存") },
+                    onClick = { runMenuAction(onManageCache) },
+                    leadingIcon = {
+                        Icon(
+                            painterResource(R.drawable.ic_download),
+                            null,
+                            Modifier.size(24.dp)
+                        )
+                    }
+                )
+            }
+
+            // 第三排：阅后置顶 管理书签
+            Row(modifier = Modifier.fillMaxWidth()) {
+                DropdownMenuItem(
+                    modifier = Modifier.weight(1f),
+                    text = {
+                        Text(
+                            text = if (isClickToTopEnabled) "关闭置顶" else "阅后置顶",
+                            color = if (isClickToTopEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    onClick = { runMenuAction(onToggleClickToTop) },
+                    leadingIcon = {
+                        ActiveMenuIcon(isClickToTopEnabled) { tint ->
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_align_top),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = tint
+                            )
+                        }
+                    }
+                )
+                DropdownMenuItem(
+                    modifier = Modifier.weight(1f),
+                    text = { Text("管理书签") },
+                    onClick = { runMenuAction(onManageBookmark) },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.DateRange,
+                            null,
+                            Modifier.size(24.dp)
+                        )
+                    }
+                )
+            }
+
+            // 第四排：网络优化 管理目录
+            Row(modifier = Modifier.fillMaxWidth()) {
+                DropdownMenuItem(
+                    modifier = Modifier.weight(1f),
+                    text = {
+                        Text(
+                            text = "网络优化",
+                            color = if (isDnsOptimizationEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    onClick = { runMenuAction(onNetworkOptimization) },
+                    leadingIcon = {
+                        ActiveMenuIcon(isDnsOptimizationEnabled) { tint ->
+                            Icon(
+                                Icons.Default.Build,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = tint
+                            )
+                        }
+                    }
+                )
+                DropdownMenuItem(
+                    modifier = Modifier.weight(1f),
+                    text = { Text("管理目录") },
+                    onClick = { runMenuAction(onManageDirectory) },
+                    leadingIcon = {
+                        Icon(
+                            Icons.AutoMirrored.Filled.List,
+                            null,
+                            Modifier.size(24.dp)
+                        )
+                    }
+                )
+            }
+
+            // 第五排：自动签到 刷新
+            Row(modifier = Modifier.fillMaxWidth()) {
+                val isAutoSignIn = GlobalData.isAutoSignInEnabled.value
+                DropdownMenuItem(
+                    modifier = Modifier.weight(1f),
+                    text = {
+                        Text(
+                            text = if (isAutoSignIn) "关闭签到" else "自动签到",
+                            color = if (isAutoSignIn) activeMenuText else MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    onClick = { runMenuAction(onToggleAutoSignIn) },
+                    leadingIcon = {
+                        ActiveMenuIcon(isAutoSignIn) { tint ->
+                            Icon(
+                                imageVector = if (isAutoSignIn) Icons.Default.Clear
+                                else Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = tint
+                            )
+                        }
+                    }
+                )
+                DropdownMenuItem(
+                    modifier = Modifier.weight(1f),
+                    text = { Text("刷新列表") },
+                    onClick = { runMenuAction(onRefreshList) },
+                    enabled = !isRefreshing,
+                    leadingIcon = {
+                        if (isRefreshing) CircularProgressIndicator(Modifier.size(24.dp)) else Icon(
+                            Icons.Default.Refresh,
+                            null,
+                            Modifier.size(24.dp)
+                        )
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FavoriteManageDoneButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier
+            .padding(start = 2.dp)
+            .width(68.dp)
+            .height(40.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+            contentColor = MaterialTheme.colorScheme.primary
+        ),
+        elevation = ButtonDefaults.buttonElevation(
+            defaultElevation = 0.dp,
+            pressedElevation = 0.dp,
+            focusedElevation = 0.dp,
+            hoveredElevation = 0.dp,
+            disabledElevation = 0.dp
+        ),
+        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
+    ) {
+        Text(
+            text = "完成",
+            modifier = Modifier.fillMaxWidth(),
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun FavoriteTopSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onClose: () -> Unit,
+    resultText: String? = null,
+    modifier: Modifier = Modifier
+) {
+    val containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+    val borderColor = if (value.isBlank()) {
+        MaterialTheme.colorScheme.outline.copy(alpha = 0.20f)
+    } else {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.60f)
+    }
+    val contentColor = MaterialTheme.colorScheme.onSurface
+    val supportColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    Surface(
+        modifier = modifier.height(40.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = containerColor,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 12.dp, end = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = if (value.isBlank()) supportColor else MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = contentColor,
+                    fontSize = 15.sp
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester),
+                decorationBox = { innerTextField ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (value.isBlank()) {
+                            Text(
+                                text = "搜索标题",
+                                color = supportColor.copy(alpha = 0.72f),
+                                fontSize = 15.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+            if (!resultText.isNullOrBlank()) {
+                Text(
+                    text = resultText,
+                    color = supportColor.copy(alpha = 0.86f),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    modifier = Modifier.padding(start = 8.dp, end = 2.dp)
+                )
+            }
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Clear,
+                    contentDescription = "收起搜索",
+                    modifier = Modifier.size(20.dp),
+                    tint = supportColor
+                )
+            }
         }
     }
 }
@@ -1740,6 +2072,11 @@ fun DirectoryManagementDialog(
                         .fillMaxWidth()
                         .padding(bottom = 8.dp),
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = Color(0xFF94A3B8),
+                        focusedBorderColor = Color(0xFF64748B)
+                    ),
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
                             IconButton(onClick = { searchQuery = "" }) {

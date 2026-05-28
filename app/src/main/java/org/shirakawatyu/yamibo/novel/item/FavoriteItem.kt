@@ -1,8 +1,6 @@
 package org.shirakawatyu.yamibo.novel.item
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -12,9 +10,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,7 +26,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -187,38 +184,24 @@ fun FavoriteItem(
         ) {
             Column(Modifier.weight(1f)) {
 
-                AnimatedContent(
-                    targetState = isEffectivelyCollapsed,
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(250, easing = FastOutSlowInEasing)) togetherWith
-                                fadeOut(animationSpec = tween(250, easing = FastOutSlowInEasing)) using
-                                SizeTransform { _, _ ->
-                                    tween(250, easing = FastOutSlowInEasing)
-                                }
-                    },
-                    label = "title_animated_content",
-                    modifier = Modifier.fillMaxWidth()
-                ) { collapsed ->
-                    Text(
-                        modifier = Modifier.fillMaxWidth(),
-                        fontSize = 16.sp,
-                        color = darkThemeColor(Color.Black) { onSurface },
-                        maxLines = if (collapsed) {
-                            2
-                        } else {
-                            if (isGlobalCollapsed) {
-                                6
-                            } else {
-                                4
-                            }
-                        },
-                        text = displayTitle,
-                        fontWeight = FontWeight.Medium,
-                        style = TextStyle(
-                            lineBreak = LineBreak.Simple
-                        )
-                    )
+                val titleMaxLines = when {
+                    isEffectivelyCollapsed -> 2
+                    isGlobalCollapsed -> 6
+                    else -> 4
                 }
+
+                Text(
+                    modifier = Modifier.fillMaxWidth(),
+                    fontSize = 16.sp,
+                    color = darkThemeColor(Color.Black) { onSurface },
+                    maxLines = titleMaxLines,
+                    overflow = TextOverflow.Clip,
+                    text = displayTitle,
+                    fontWeight = FontWeight.Medium,
+                    style = TextStyle(
+                        lineBreak = LineBreak.Simple
+                    )
+                )
 
                 AnimatedVisibility(
                     visible = !isEffectivelyCollapsed,
@@ -284,24 +267,34 @@ fun FavoriteItem(
                 }
             }
 
-            // 右侧：折叠箭头 / 拖拽手柄
-            Row(
-                modifier = Modifier.padding(start = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            // 右侧：固定宽度的操作区。无论折叠、搜索还是管理，都保持标题列宽不变，避免第一行换行点抖动。
+            Box(
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .size(32.dp),
+                contentAlignment = Alignment.Center
             ) {
                 if (isGlobalCollapsed && !isManageMode) {
-                    IconButton(
-                        onClick = { isExpandedLocally = !isExpandedLocally },
-                        modifier = Modifier.size(32.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clickable { isExpandedLocally = !isExpandedLocally },
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = if (isExpandedLocally) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                             contentDescription = if (isExpandedLocally) "收起" else "展开",
-                            tint = darkThemeColor(YamiboColors.primary) { primary }
+                            tint = darkThemeColor(YamiboColors.primary) { primary },
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 } else {
-                    dragHandle()
+                    Box(
+                        modifier = Modifier.size(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        dragHandle()
+                    }
                 }
             }
         }

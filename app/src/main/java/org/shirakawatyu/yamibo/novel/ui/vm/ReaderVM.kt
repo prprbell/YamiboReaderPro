@@ -3,6 +3,7 @@ package org.shirakawatyu.yamibo.novel.ui.vm
 import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
+import android.util.LruCache
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -116,6 +117,33 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private var currentRawHtml: String? = null
     private var currentCacheSessionShowsProgress: Boolean = true
     private var currentAsciiRatios: FloatArray = FloatArray(128) { 0.5f }
+
+    /**
+     * rawContentList 的版本号。每次 parseHtmlToContent 成功/失败后都会递增。
+     * 布局缓存只认版本号，不直接认 HTML 字符串，避免长文本 key 造成额外内存压力。
+     */
+    private var rawContentListVersion: Long = 0L
+
+    /**
+     * 只缓存“正文分页结果”，不缓存尾部的“正在加载/刷新本页/下一页预览”。
+     * 因为尾部内容依赖 nextHtmlList 和 currentView/maxWebView，是动态状态。
+     */
+    private val layoutCache = LruCache<LayoutCacheKey, List<Content>>(12)
+
+    private data class LayoutCacheKey(
+        val url: String,
+        val rawVersion: Long,
+        val widthPx: Int,
+        val heightPx: Int,
+        val fontSizePx: Int,
+        val lineHeightPx: Int,
+        val letterSpacingPx: Int,
+        val paddingPx: Int,
+        val isVerticalMode: Boolean,
+        val fontFamily: Int,
+        val translationMode: Int,
+        val loadImages: Boolean
+    )
 
     data class CacheProgress(
         val totalPages: Int,
@@ -641,6 +669,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             nextHtmlList = null
             nextChapterList = null
             isPreloading = false
+            layoutCache.evictAll()
             showLoadingScrim = true
             _uiState.value = _uiState.value.copy(isError = false)
             loadJob?.cancel()
@@ -693,8 +722,15 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
                 CacheUtil.saveCache(url, CacheData(cachedPageNum = targetView, htmlContent = combinedHtml, maxPageNum = maxPageCalculated, authorId = authorId))
 
-                parseHtmlToContent(combinedHtml)
-                val (passages, chapters) = paginateContent(isFromCache = false, targetWebPage = targetView)
+                val (passages, chapters) = withContext(Dispatchers.Default) {
+                    val preloadContent = parseHtmlToContentList(combinedHtml)
+                    paginateContent(
+                        isFromCache = false,
+                        targetWebPage = targetView,
+                        contentOverride = preloadContent,
+                        rawVersionOverride = preloadRawVersion(targetView, combinedHtml)
+                    )
+                }
 
                 nextHtmlList = passages
                 nextChapterList = chapters
@@ -719,11 +755,18 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     private fun parseHtmlToContent(html: String) {
         rawContentList.clear()
+        rawContentList.addAll(parseHtmlToContentList(html))
+        // 即使解析为空，也要提升版本，避免复用上一页的布局缓存。
+        rawContentListVersion++
+    }
+
+    private fun parseHtmlToContentList(html: String): List<Content> {
+        val result = ArrayList<Content>()
         val doc = Jsoup.parse(html)
         doc.getElementsByTag("i").forEach { it.remove() }
 
         val messageNodes = doc.getElementsByClass("message")
-        if (messageNodes.isEmpty()) return
+        if (messageNodes.isEmpty()) return result
 
         val rawTexts = messageNodes.map { HTMLUtil.toText(it.html()) }
         val delimiter = "|||YAMIBO_SEP|||"
@@ -752,7 +795,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             currentValidTitle = firstLine.take(30)
 
             if (rawText.isNotBlank()) {
-                rawContentList.add(Content(rawText, ContentType.TEXT, currentValidTitle))
+                result.add(Content(rawText, ContentType.TEXT, currentValidTitle))
             }
 
             if (_uiState.value.loadImages) {
@@ -763,81 +806,121 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     if (src.isBlank() || src.contains("smiley/")) continue
 
                     if (!src.startsWith("http://") && !src.startsWith("https://")) {
-                        rawContentList.add(Content("${RequestConfig.BASE_URL}/${src}", ContentType.IMG, currentValidTitle))
+                        result.add(Content("${RequestConfig.BASE_URL}/${src}", ContentType.IMG, currentValidTitle))
                     } else {
-                        rawContentList.add(Content(src, ContentType.IMG, currentValidTitle))
+                        result.add(Content(src, ContentType.IMG, currentValidTitle))
                     }
                 }
             }
         }
+
+        return result
+    }
+
+    private fun preloadRawVersion(targetView: Int, html: String): Long {
+        return (targetView.toLong() shl 32) xor html.hashCode().toLong()
     }
 
     private fun paginateContent(
         isFromCache: Boolean = false,
-        targetWebPage: Int? = null
+        targetWebPage: Int? = null,
+        contentOverride: List<Content>? = null,
+        rawVersionOverride: Long? = null
     ): Pair<List<Content>, List<ChapterInfo>> {
         updateFontRatios()
-        val contentSnapshot = rawContentList.toList()
+        val contentSnapshot = contentOverride ?: rawContentList.toList()
+        val effectiveRawVersion = rawVersionOverride ?: rawContentListVersion
         val state = _uiState.value
         val webPageNum = targetWebPage ?: state.currentView
-        val passages: List<Content>
 
-        if (state.isVerticalMode) {
-            val pageContentWidth = maxWidth - (state.padding + state.padding)
-            val lines = TextUtil.pagingTextVertical(
+        val pageContentWidth = maxWidth - (state.padding + state.padding)
+        val topPadding = 24.dp
+        val footerHeight = 87.dp
+        val pageContentHeight = maxHeight - topPadding - footerHeight
+
+        val cacheKey = LayoutCacheKey(
+            url = url,
+            rawVersion = effectiveRawVersion,
+            widthPx = ValueUtil.dpToPx(pageContentWidth).toInt(),
+            heightPx = ValueUtil.dpToPx(pageContentHeight).toInt(),
+            fontSizePx = ValueUtil.spToPx(state.fontSize).toInt(),
+            lineHeightPx = ValueUtil.spToPx(state.lineHeight).toInt(),
+            letterSpacingPx = ValueUtil.spToPx(state.letterSpacing).toInt(),
+            paddingPx = ValueUtil.dpToPx(state.padding).toInt(),
+            isVerticalMode = state.isVerticalMode,
+            fontFamily = state.fontFamily,
+            translationMode = state.translationMode,
+            loadImages = state.loadImages
+        )
+
+        val basePassages = layoutCache.get(cacheKey) ?: buildBasePassages(
+            contentSnapshot = contentSnapshot,
+            state = state,
+            pageContentWidth = pageContentWidth,
+            pageContentHeight = pageContentHeight
+        ).also { layoutCache.put(cacheKey, it) }
+
+        val passages = ArrayList<Content>(basePassages.size + 1).apply {
+            addAll(basePassages)
+            addDynamicFooterOrPreview(webPageNum, state)
+        }
+
+        val chapterList = buildChapterList(passages)
+        return Pair(passages, chapterList)
+    }
+
+    private fun buildBasePassages(
+        contentSnapshot: List<Content>,
+        state: ReaderState,
+        pageContentWidth: Dp,
+        pageContentHeight: Dp
+    ): List<Content> {
+        return if (state.isVerticalMode) {
+            TextUtil.pagingTextVertical(
                 rawContentList = contentSnapshot,
                 width = pageContentWidth,
                 fontSize = state.fontSize,
                 letterSpacing = state.letterSpacing,
                 charRatios = currentAsciiRatios,
                 typeface = typefaceFromMode(state.fontFamily)
-            ).toMutableList()
-
-            if (nextHtmlList != null && nextHtmlList!!.isNotEmpty()) {
-                lines.add(nextHtmlList!!.first())
-            } else if (webPageNum < state.maxWebView) {
-                lines.add(Content("正在加载...", ContentType.TEXT, "footer"))
-            } else {
-                lines.add(Content("刷新本页内容", ContentType.TEXT, "footer"))
-            }
-            passages = lines
+            )
         } else {
             val passagesList = ArrayList<Content>()
-            val topPadding = 24.dp
-            val footerHeight = 87.dp
-            val pageContentHeight = maxHeight - topPadding - footerHeight
-            val pageContentWidth = maxWidth - (state.padding + state.padding)
-
             for (content in contentSnapshot) {
-                if (content.type == ContentType.TEXT) {
-                    val pagedText = TextUtil.pagingText(
-                        content.data,
-                        pageContentHeight,
-                        pageContentWidth,
-                        state.fontSize,
-                        state.letterSpacing,
-                        state.lineHeight,
-                        currentAsciiRatios,
-                        typefaceFromMode(state.fontFamily)
-                    )
-                    for (t in pagedText) {
-                        passagesList.add(Content(t, ContentType.TEXT, content.chapterTitle))
+                when (content.type) {
+                    ContentType.TEXT -> {
+                        val pagedText = TextUtil.pagingText(
+                            content.data,
+                            pageContentHeight,
+                            pageContentWidth,
+                            state.fontSize,
+                            state.letterSpacing,
+                            state.lineHeight,
+                            currentAsciiRatios,
+                            typefaceFromMode(state.fontFamily)
+                        )
+                        for (t in pagedText) {
+                            passagesList.add(Content(t, ContentType.TEXT, content.chapterTitle))
+                        }
                     }
-                } else if (content.type == ContentType.IMG) {
-                    passagesList.add(content)
+                    ContentType.IMG -> passagesList.add(content)
                 }
             }
-
-            if (nextHtmlList != null && nextHtmlList!!.isNotEmpty()) {
-                passagesList.add(nextHtmlList!!.first())
-            } else if (webPageNum < state.maxWebView) {
-                passagesList.add(Content("正在加载...", ContentType.TEXT, "footer"))
-            } else {
-                passagesList.add(Content("刷新本页内容", ContentType.TEXT, "footer"))
-            }
-            passages = passagesList
+            passagesList
         }
+    }
 
+    private fun MutableList<Content>.addDynamicFooterOrPreview(webPageNum: Int, state: ReaderState) {
+        if (nextHtmlList != null && nextHtmlList!!.isNotEmpty()) {
+            add(nextHtmlList!!.first())
+        } else if (webPageNum < state.maxWebView) {
+            add(Content("正在加载...", ContentType.TEXT, "footer"))
+        } else {
+            add(Content("刷新本页内容", ContentType.TEXT, "footer"))
+        }
+    }
+
+    private fun buildChapterList(passages: List<Content>): List<ChapterInfo> {
         val chapterList = mutableListOf<ChapterInfo>()
         var lastTitle: String? = null
         passages.forEachIndexed { index, content ->
@@ -846,8 +929,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 lastTitle = content.chapterTitle
             }
         }
-
-        return Pair(passages, chapterList)
+        return chapterList
     }
 
     private fun processPageChange(newPage: Int) {
@@ -1140,6 +1222,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         nextHtmlList = null
         nextChapterList = null
         isPreloading = false
+        layoutCache.evictAll()
         super.onCleared()
     }
 

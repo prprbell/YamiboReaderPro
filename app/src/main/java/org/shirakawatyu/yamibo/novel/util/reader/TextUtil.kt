@@ -6,27 +6,28 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import org.shirakawatyu.yamibo.novel.bean.Content
 import org.shirakawatyu.yamibo.novel.bean.ContentType
-import org.shirakawatyu.yamibo.novel.util.reader.ValueUtil
 
 class TextUtil {
     companion object {
-        // 避头标点集合
+        // 避头标点集合：这些字符不应出现在新行开头。
         private val PUNCTUATION_LINE_START_DENY_SET = BooleanArray(0x10000).apply {
             "，。,、.!？?）」)]}”\"'".forEach { char ->
                 if (char.code < size) this[char.code] = true
             }
         }
 
-        // 避尾标点集合
+        // 避尾标点集合：这些字符不应出现在上一行结尾。
         private val PUNCTUATION_LINE_END_DENY_SET = BooleanArray(0x10000).apply {
             "（(「[{“\"'".forEach { char ->
                 if (char.code < size) this[char.code] = true
             }
         }
 
+        private val TRIM_CHARS = charArrayOf(' ', '　', '\t', '\u00A0', '\u200B')
+
         /**
          * 横屏文本分页
-         */
+         * */
         fun pagingText(
             text: String,
             height: Dp,
@@ -37,26 +38,19 @@ class TextUtil {
             charRatios: FloatArray,
             typeface: Typeface
         ): List<String> {
-            val targetPixelWidth = ValueUtil.Companion.dpToPx(width)
-            val pageContentHeight = ValueUtil.Companion.dpToPx(height)
-            val lineHeightPx = ValueUtil.Companion.spToPx(lineHeight)
+            val targetPixelWidth = ValueUtil.dpToPx(width)
+            val pageContentHeight = ValueUtil.dpToPx(height)
+            val lineHeightPx = ValueUtil.spToPx(lineHeight)
             val maxLine = calculateMaxLines(pageContentHeight, lineHeightPx)
 
             if (maxLine <= 0 || text.isEmpty()) {
                 return emptyList()
             }
 
-            val fontSizePx = ValueUtil.Companion.spToPx(fontSize)
-            val letterSpacingPx = ValueUtil.Companion.spToPx(letterSpacing)
+            val fontSizePx = ValueUtil.spToPx(fontSize)
+            val letterSpacingPx = ValueUtil.spToPx(letterSpacing)
 
-            val measurePaint = Paint().apply {
-                this.isAntiAlias = true
-                this.textSize = fontSizePx
-                this.typeface = typeface
-                this.fontFeatureSettings = "\"palt\""
-                this.isSubpixelText = true
-                this.isLinearText = true
-            }
+            val measurePaint = createMeasurePaint(fontSizePx, typeface)
 
             return performPaging(
                 text = text,
@@ -69,6 +63,17 @@ class TextUtil {
             )
         }
 
+        private fun createMeasurePaint(fontSizePx: Float, typeface: Typeface): Paint {
+            return Paint().apply {
+                isAntiAlias = true
+                textSize = fontSizePx
+                this.typeface = typeface
+                fontFeatureSettings = "\"palt\""
+                isSubpixelText = true
+                isLinearText = true
+            }
+        }
+
         private fun calculateMaxLines(totalHeightPx: Float, lineHeightPx: Float, safeAreaRatio: Float = 1.0f): Int {
             return ((totalHeightPx * safeAreaRatio) / lineHeightPx).toInt().coerceAtLeast(1)
         }
@@ -79,7 +84,7 @@ class TextUtil {
             maxLine: Int,
             fontSizePx: Float,
             letterSpacingPx: Float,
-            charRatios: FloatArray,
+            @Suppress("UNUSED_PARAMETER") charRatios: FloatArray,
             measurePaint: Paint
         ): List<String> {
             val avgCharsPerLine = (targetPixelWidth / (fontSizePx + letterSpacingPx)).toInt().coerceAtLeast(1)
@@ -88,7 +93,7 @@ class TextUtil {
             var isStartOfParagraph = true
 
             text.lineSequence().forEach { rawLine ->
-                val line = rawLine.trimEnd(' ', '　', '\t', '\u00A0', '\u200B')
+                val line = rawLine.trimEnd(*TRIM_CHARS)
 
                 if (line.isBlank()) {
                     if (resultLines.isNotEmpty() && resultLines.last().isNotEmpty()) {
@@ -96,20 +101,18 @@ class TextUtil {
                     }
                     isStartOfParagraph = true
                 } else {
-                    val lineToChunk: String
-                    if (isStartOfParagraph) {
-                        val trimmedLine = line.trimStart(' ', '　', '\t', '\u00A0', '\u200B')
-                        lineToChunk = "　　$trimmedLine"
+                    val lineToChunk = if (isStartOfParagraph) {
+                        val trimmedLine = line.trimStart(*TRIM_CHARS)
                         isStartOfParagraph = false
+                        "　　$trimmedLine"
                     } else {
-                        lineToChunk = line
+                        line
                     }
-                    chunkLineOptimized(
+
+                    chunkLineHorizontalExact(
                         line = lineToChunk,
                         targetPixelWidth = targetPixelWidth,
-                        fontSizePx = fontSizePx,
                         letterSpacingPx = letterSpacingPx,
-                        charRatios = charRatios,
                         measurePaint = measurePaint,
                         output = resultLines
                     )
@@ -150,12 +153,10 @@ class TextUtil {
             return pages
         }
 
-        private fun chunkLineOptimized(
+        private fun chunkLineHorizontalExact(
             line: String,
             targetPixelWidth: Float,
-            fontSizePx: Float,
             letterSpacingPx: Float,
-            charRatios: FloatArray,
             measurePaint: Paint,
             output: MutableList<String>
         ) {
@@ -163,56 +164,26 @@ class TextUtil {
             var startIndex = 0
 
             while (startIndex < lineLength) {
-                var endIndex = startIndex + 1
-                var totalWidth = 0f
+                var endIndex = findMaxEndIndexByBinarySearch(
+                    line = line,
+                    startIndex = startIndex,
+                    targetPixelWidth = targetPixelWidth,
+                    letterSpacingPx = letterSpacingPx,
+                    measurePaint = measurePaint
+                )
 
-                while (endIndex <= lineLength) {
-                    val textWidth = measurePaint.measureText(line, startIndex, endIndex)
-                    totalWidth = textWidth + (endIndex - startIndex) * letterSpacingPx
-
-                    if (totalWidth > targetPixelWidth) {
-                        endIndex--
-                        break
-                    }
-                    endIndex++
-                }
-
-                if (endIndex <= startIndex) {
-                    endIndex = startIndex + 1
-                } else if (endIndex < lineLength) {
-                    var splitIndex = endIndex
-
-                    var currentNextChar = line[splitIndex].code
-                    var isNextStartDeny = currentNextChar < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[currentNextChar]
-
-                    if (isNextStartDeny) {
-                        while (isNextStartDeny) {
-                            splitIndex++
-                            if (splitIndex < lineLength) {
-                                currentNextChar = line[splitIndex].code
-                                isNextStartDeny = currentNextChar < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[currentNextChar]
-                            } else {
-                                break
-                            }
-                        }
-                    } else {
-                        while (splitIndex > startIndex + 1) {
-                            val lastChar = line[splitIndex - 1].code
-                            val isCurrentEndDeny = lastChar < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[lastChar]
-
-                            if (isCurrentEndDeny) {
-                                splitIndex--
-                            } else {
-                                break
-                            }
-                        }
-                    }
-                    endIndex = splitIndex
+                if (endIndex < lineLength) {
+                    endIndex = adjustBreakForHorizontalPunctuation(
+                        line = line,
+                        startIndex = startIndex,
+                        candidateEndIndex = endIndex
+                    )
                 } else {
                     endIndex = lineLength
                 }
 
                 output.add(line.substring(startIndex, endIndex))
+
                 startIndex = endIndex
                 while (startIndex < lineLength && line[startIndex] == ' ') {
                     startIndex++
@@ -221,7 +192,94 @@ class TextUtil {
         }
 
         /**
-         * 竖屏文本分页
+         * 用与旧实现完全相同的宽度判定做二分：
+         * Paint.measureText(substring) + 字符数 * letterSpacingPx <= targetPixelWidth。
+         *
+         * 这不是 charRatios 估算，也不是 Paint.breakText，因此不会改变你原来偏保守的排版边界。
+         */
+        private fun findMaxEndIndexByBinarySearch(
+            line: String,
+            startIndex: Int,
+            targetPixelWidth: Float,
+            letterSpacingPx: Float,
+            measurePaint: Paint
+        ): Int {
+            val lineLength = line.length
+            if (startIndex >= lineLength) return startIndex
+
+            var low = startIndex + 1
+            var high = lineLength
+            var best = startIndex
+
+            while (low <= high) {
+                val mid = (low + high) ushr 1
+                if (fitsInWidth(line, startIndex, mid, targetPixelWidth, letterSpacingPx, measurePaint)) {
+                    best = mid
+                    low = mid + 1
+                } else {
+                    high = mid - 1
+                }
+            }
+
+            return if (best <= startIndex) startIndex + 1 else best
+        }
+
+        private fun fitsInWidth(
+            line: String,
+            startIndex: Int,
+            endIndex: Int,
+            targetPixelWidth: Float,
+            letterSpacingPx: Float,
+            measurePaint: Paint
+        ): Boolean {
+            val charCount = endIndex - startIndex
+            val textWidth = measurePaint.measureText(line, startIndex, endIndex)
+            val totalWidth = textWidth + charCount * letterSpacingPx
+            return totalWidth <= targetPixelWidth
+        }
+
+        private fun adjustBreakForHorizontalPunctuation(
+            line: String,
+            startIndex: Int,
+            candidateEndIndex: Int
+        ): Int {
+            val lineLength = line.length
+            var splitIndex = candidateEndIndex.coerceIn(startIndex + 1, lineLength)
+            if (splitIndex >= lineLength) return lineLength
+
+            var currentNextChar = line[splitIndex].code
+            var isNextStartDeny = isLineStartDenied(currentNextChar)
+
+            if (isNextStartDeny) {
+                // 保持旧横屏逻辑：如果下一行会以避头标点开头，就把连续避头标点并入当前行。
+                // 这可能让当前行略超宽，但能保留原先的中文排版规则。
+                while (isNextStartDeny) {
+                    splitIndex++
+                    if (splitIndex < lineLength) {
+                        currentNextChar = line[splitIndex].code
+                        isNextStartDeny = isLineStartDenied(currentNextChar)
+                    } else {
+                        break
+                    }
+                }
+            } else {
+                // 保持旧横屏逻辑：如果当前行末尾是避尾标点，就回退断点。
+                while (splitIndex > startIndex + 1) {
+                    val lastChar = line[splitIndex - 1].code
+                    if (isLineEndDenied(lastChar)) {
+                        splitIndex--
+                    } else {
+                        break
+                    }
+                }
+            }
+
+            return splitIndex.coerceIn(startIndex + 1, lineLength)
+        }
+
+        /**
+         * 竖屏文本分页。
+         * 图片、空行、段首缩进、章节标题、isParagraphEnd 均保持原行为。
          */
         fun pagingTextVertical(
             rawContentList: List<Content>,
@@ -231,18 +289,10 @@ class TextUtil {
             charRatios: FloatArray,
             typeface: Typeface
         ): List<Content> {
-            val targetPixelWidth = ValueUtil.Companion.dpToPx(width)
-            val fontSizePx = ValueUtil.Companion.spToPx(fontSize)
-            val letterSpacingPx = ValueUtil.Companion.spToPx(letterSpacing)
-
-            val measurePaint = Paint().apply {
-                this.isAntiAlias = true
-                this.textSize = fontSizePx
-                this.typeface = typeface
-                this.fontFeatureSettings = "\"palt\""
-                this.isSubpixelText = true
-                this.isLinearText = true
-            }
+            val targetPixelWidth = ValueUtil.dpToPx(width)
+            val fontSizePx = ValueUtil.spToPx(fontSize)
+            val letterSpacingPx = ValueUtil.spToPx(letterSpacing)
+            val measurePaint = createMeasurePaint(fontSizePx, typeface)
 
             val resultLines = ArrayList<Content>()
             var isStartOfParagraph = true
@@ -259,7 +309,7 @@ class TextUtil {
                     val chapterTitle = content.chapterTitle
 
                     text.lineSequence().forEach { rawLine ->
-                        val line = rawLine.trimEnd(' ', '　', '\t', '\u00A0', '\u200B')
+                        val line = rawLine.trimEnd(*TRIM_CHARS)
 
                         if (line.isBlank()) {
                             if (resultLines.isNotEmpty()) {
@@ -270,19 +320,17 @@ class TextUtil {
                             }
                             isStartOfParagraph = true
                         } else {
-                            val lineToChunk: String
-                            if (isStartOfParagraph) {
-                                val trimmedLine = line.trimStart(' ', '　', '\t', '\u00A0', '\u200B')
-                                lineToChunk = "　　$trimmedLine"
+                            val lineToChunk = if (isStartOfParagraph) {
+                                val trimmedLine = line.trimStart(*TRIM_CHARS)
                                 isStartOfParagraph = false
+                                "　　$trimmedLine"
                             } else {
-                                lineToChunk = line
+                                line
                             }
 
-                            chunkLineOptimizedVertical(
+                            chunkLineVerticalExact(
                                 line = lineToChunk,
                                 targetPixelWidth = targetPixelWidth,
-                                fontSizePx = fontSizePx,
                                 letterSpacingPx = letterSpacingPx,
                                 charRatios = charRatios,
                                 measurePaint = measurePaint,
@@ -296,12 +344,11 @@ class TextUtil {
             return resultLines
         }
 
-        private fun chunkLineOptimizedVertical(
+        private fun chunkLineVerticalExact(
             line: String,
             targetPixelWidth: Float,
-            fontSizePx: Float,
             letterSpacingPx: Float,
-            charRatios: FloatArray,
+            @Suppress("UNUSED_PARAMETER") charRatios: FloatArray,
             measurePaint: Paint,
             chapterTitle: String?,
             output: MutableList<Content>
@@ -311,38 +358,20 @@ class TextUtil {
 
             while (startIndex < lineLength) {
                 val chunkStartIndex = startIndex
-                var endIndex = startIndex + 1
+                var endIndex = findMaxEndIndexByBinarySearch(
+                    line = line,
+                    startIndex = startIndex,
+                    targetPixelWidth = targetPixelWidth,
+                    letterSpacingPx = letterSpacingPx,
+                    measurePaint = measurePaint
+                )
 
-                while (endIndex <= lineLength) {
-                    val textWidth = measurePaint.measureText(line, startIndex, endIndex)
-                    val totalWidth = textWidth + (endIndex - startIndex) * letterSpacingPx
-
-                    if (totalWidth > targetPixelWidth) {
-                        endIndex--
-                        break
-                    }
-                    endIndex++
-                }
-
-                if (endIndex <= startIndex) {
-                    endIndex = startIndex + 1
-                } else if (endIndex < lineLength) {
-                    var splitIndex = endIndex
-
-                    while (splitIndex > startIndex + 1) {
-                        val nextChar = line[splitIndex].code
-                        val lastChar = line[splitIndex - 1].code
-
-                        val isNextStartDeny = nextChar < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[nextChar]
-                        val isCurrentEndDeny = lastChar < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[lastChar]
-
-                        if (isNextStartDeny || isCurrentEndDeny) {
-                            splitIndex--
-                        } else {
-                            break
-                        }
-                    }
-                    endIndex = splitIndex
+                if (endIndex < lineLength) {
+                    endIndex = adjustBreakForVerticalPunctuation(
+                        line = line,
+                        startIndex = startIndex,
+                        candidateEndIndex = endIndex
+                    )
                 } else {
                     endIndex = lineLength
                 }
@@ -361,6 +390,41 @@ class TextUtil {
                     )
                 )
             }
+        }
+
+        private fun adjustBreakForVerticalPunctuation(
+            line: String,
+            startIndex: Int,
+            candidateEndIndex: Int
+        ): Int {
+            val lineLength = line.length
+            var splitIndex = candidateEndIndex.coerceIn(startIndex + 1, lineLength)
+            if (splitIndex >= lineLength) return lineLength
+
+            // 保持旧竖屏逻辑：避头或避尾命中时都向前回退，而不是像横屏一样吞入标点。
+            while (splitIndex > startIndex + 1) {
+                val nextChar = line[splitIndex].code
+                val lastChar = line[splitIndex - 1].code
+
+                val isNextStartDeny = isLineStartDenied(nextChar)
+                val isCurrentEndDeny = isLineEndDenied(lastChar)
+
+                if (isNextStartDeny || isCurrentEndDeny) {
+                    splitIndex--
+                } else {
+                    break
+                }
+            }
+
+            return splitIndex.coerceIn(startIndex + 1, lineLength)
+        }
+
+        private fun isLineStartDenied(charCode: Int): Boolean {
+            return charCode < PUNCTUATION_LINE_START_DENY_SET.size && PUNCTUATION_LINE_START_DENY_SET[charCode]
+        }
+
+        private fun isLineEndDenied(charCode: Int): Boolean {
+            return charCode < PUNCTUATION_LINE_END_DENY_SET.size && PUNCTUATION_LINE_END_DENY_SET[charCode]
         }
     }
 }
