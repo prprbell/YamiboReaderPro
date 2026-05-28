@@ -274,7 +274,7 @@ fun FavoriteItem(
                     .size(32.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (isGlobalCollapsed && !isManageMode) {
+                if (isGlobalCollapsed) {
                     Box(
                         modifier = Modifier
                             .size(32.dp)

@@ -762,7 +762,7 @@ fun FavoritePage(
                                     tint = if (canDrag) {
                                         darkThemeColor(YamiboColors.primary) { primary }
                                     } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.34f)
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
                                     },
                                     modifier = Modifier.size(22.dp)
                                 )

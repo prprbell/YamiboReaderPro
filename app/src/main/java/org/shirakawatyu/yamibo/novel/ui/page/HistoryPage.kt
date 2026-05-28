@@ -73,6 +73,7 @@ import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.bean.HistoryEntry
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
+import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import java.net.URLEncoder
@@ -517,7 +518,7 @@ fun HistoryPage(navController: NavController) {
                                 Text("管理", color = topBarContentColor)
                             }
                             TextButton(onClick = { showClearDialog = true }) {
-                                Text("清空", color = MaterialTheme.colorScheme.error)
+                                Text("清空", color = darkModeColor(light = Color(0xFFFF5252), dark = MaterialTheme.colorScheme.error))
                             }
                         }
                         TextButton(onClick = { showSettingsDialog = true }) {
@@ -829,8 +830,9 @@ fun HistoryPage(navController: NavController) {
                                         Icon(
                                             Icons.Default.Close,
                                             contentDescription = "删除",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                alpha = 0.4f
+                                            tint = darkModeColor(
+                                                light = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                                dark = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                             ),
                                             modifier = Modifier.size(16.dp)
                                         )
