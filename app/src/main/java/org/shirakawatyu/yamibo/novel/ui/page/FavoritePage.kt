@@ -524,8 +524,7 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = if (isFavoriteCollapsed) "关闭折叠" else "折叠模式",
-                                            color = if (isFavoriteCollapsed) activeMenuText else MaterialTheme.colorScheme.onSurface,
-                                            fontWeight = if (isFavoriteCollapsed) FontWeight.SemiBold else FontWeight.Normal
+                                            color = if (isFavoriteCollapsed) activeMenuText else MaterialTheme.colorScheme.onSurface
                                         )
                                     },
                                     onClick = {
@@ -569,8 +568,7 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = if (isClickToTopEnabled) "关闭置顶" else "阅后置顶",
-                                            color = if (isClickToTopEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface,
-                                            fontWeight = if (isClickToTopEnabled) FontWeight.SemiBold else FontWeight.Normal
+                                            color = if (isClickToTopEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface
                                         )
                                     },
                                     onClick = {
@@ -617,8 +615,7 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = "网络优化",
-                                            color = if (isDnsOptimizationEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface,
-                                            fontWeight = if (isDnsOptimizationEnabled) FontWeight.SemiBold else FontWeight.Normal
+                                            color = if (isDnsOptimizationEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface
                                         )
                                     },
                                     onClick = {
@@ -663,8 +660,7 @@ fun FavoritePage(
                                     text = {
                                         Text(
                                             text = if (isAutoSignIn) "关闭签到" else "自动签到",
-                                            color = if (isAutoSignIn) activeMenuText else MaterialTheme.colorScheme.onSurface,
-                                            fontWeight = if (isAutoSignIn) FontWeight.SemiBold else FontWeight.Normal
+                                            color = if (isAutoSignIn) activeMenuText else MaterialTheme.colorScheme.onSurface
                                         )
                                     },
                                     onClick = {
