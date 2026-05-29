@@ -239,7 +239,10 @@ fun FavoritePage(
                     }
 
                     favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.FULL
-                    favoriteVM.getCacheInfo { info -> cacheInfoMap = info }
+
+                    if (!isQuickReturn) {
+                        favoriteVM.getCacheInfo { info -> cacheInfoMap = info }
+                    }
                 }
             }
         }

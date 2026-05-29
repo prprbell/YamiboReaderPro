@@ -1145,18 +1145,27 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             pageToSave
         }
 
+        val currentViewToSave = state.currentView
+        val authorIdToSave = currentAuthorId
+
         viewModelScope.launch(Dispatchers.IO) {
             val map = FavoriteUtil.getFavoriteMapSuspend()
-            map[url]?.let { fav ->
-                FavoriteUtil.updateFavoriteSuspend(
-                    fav.copy(
-                        lastPage = valueToSave,
-                        lastView = uiState.value.currentView,
-                        lastChapter = currentChapter,
-                        authorId = this@ReaderVM.currentAuthorId
-                    )
+            val fav = map[url] ?: return@launch
+
+            if (fav.lastPage == valueToSave &&
+                fav.lastView == currentViewToSave &&
+                fav.lastChapter == currentChapter &&
+                fav.authorId == authorIdToSave
+            ) return@launch
+
+            FavoriteUtil.updateFavoriteSuspend(
+                fav.copy(
+                    lastPage = valueToSave,
+                    lastView = currentViewToSave,
+                    lastChapter = currentChapter,
+                    authorId = authorIdToSave
                 )
-            }
+            )
         }
     }
 
