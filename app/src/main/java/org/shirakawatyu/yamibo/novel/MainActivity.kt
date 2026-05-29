@@ -334,7 +334,7 @@ class MainActivity : ComponentActivity() {
 
         backgroundStopJob?.cancel()
         backgroundStopJob = mainScope.launch {
-            delay(600_000L) // 10分钟
+            delay(900_000L) // 15分钟
             destroyBbsWebView(bbsWebViewState)
             BBSPageState.hasSuccessfullyLoaded = false
             BBSPageState.isLoading = false
