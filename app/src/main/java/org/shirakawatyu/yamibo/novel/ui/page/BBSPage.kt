@@ -185,7 +185,6 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         GlobalData.webProgress.value = 0
         contentImageCount.set(0)
         super.onPageStarted(view, url, favicon)
-        view?.evaluateJavascript(PageJsScripts.HIDE_THREAD_ACTION_BAR_JS, null)
         val safeUrl = url ?: ""
         val isHomepage =
             isBbsHomeUrl(safeUrl) ||
@@ -288,43 +287,45 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
                 urlStr.contains(IMAGE_EXT_REGEX) ||
                 urlStr.contains("attachment")
 
-        if (request?.isForMainFrame == false && request.method == "GET" && urlStr.contains("yamibo.com")) {
-            if (isImage) {
-                if (!urlStr.contains("smiley") && !urlStr.contains("avatar") &&
-                    !urlStr.contains("common") && !urlStr.contains("static/image") &&
-                    !urlStr.contains("template") && !urlStr.contains("block")
-                ) {
-                    contentImageCount.getAndIncrement()
+        if (request?.isForMainFrame == false &&
+            request.method == "GET" &&
+            urlStr.contains("yamibo.com") &&
+            isImage
+        ) {
+            if (!urlStr.contains("smiley") &&
+                !urlStr.contains("avatar") &&
+                !urlStr.contains("common") &&
+                !urlStr.contains("static/image") &&
+                !urlStr.contains("template") &&
+                !urlStr.contains("block")
+            ) {
+                contentImageCount.getAndIncrement()
 
-                    val headers = mutableMapOf<String, String>()
-                    request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
+                val headers = mutableMapOf<String, String>()
+                request.requestHeaders?.forEach { (k, v) -> headers[k] = v }
 
-                    val coilResponse = CoilWebViewProxy.interceptImage(context, urlStr, headers)
-                    if (coilResponse != null) return coilResponse
+                val coilResponse = CoilWebViewProxy.interceptImage(context, urlStr, headers)
+                if (coilResponse != null) return coilResponse
 
-                    val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
-                    if (proxyResponse != null) return proxyResponse
-
-                    return WebResourceResponse(
-                        "image/jpeg",
-                        "utf-8",
-                        404,
-                        "Blocked by Interceptor",
-                        null,
-                        ByteArrayInputStream(ByteArray(0))
-                    )
-                }
-            } else {
                 val proxyResponse = YamiboRetrofit.proxyWebViewResource(request)
                 if (proxyResponse != null) return proxyResponse
+
+                return WebResourceResponse(
+                    "image/jpeg",
+                    "utf-8",
+                    404,
+                    "Blocked by Interceptor",
+                    null,
+                    ByteArrayInputStream(ByteArray(0))
+                )
             }
         }
+
         return super.shouldInterceptRequest(view, request)
     }
 
     override fun onPageCommitVisible(view: WebView?, url: String?) {
         super.onPageCommitVisible(view, url)
-        view?.evaluateJavascript(PageJsScripts.HIDE_THREAD_ACTION_BAR_JS, null)
         view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
         view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
         view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
@@ -370,7 +371,6 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         }
 
         view?.let {
-            it.evaluateJavascript(PageJsScripts.SHOW_THREAD_ACTION_BAR_JS, null)
             forceInjectMangaJs(it)
         }
 

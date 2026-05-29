@@ -9,26 +9,6 @@ import org.shirakawatyu.yamibo.novel.util.theme.LIGHT_MODE_CSS_RULES_MODERN_WHIT
 object PageJsScripts {
 
     // 基础脚本
-
-    val HIDE_THREAD_ACTION_BAR_JS = """
-        (function() {
-            var style = document.getElementById('yamibo-thread-action-loading-style');
-            if (!style) {
-                style = document.createElement('style');
-                style.id = 'yamibo-thread-action-loading-style';
-                style.textContent = '.foot.foot_reply { display: none !important; }';
-                (document.head || document.documentElement).appendChild(style);
-            }
-        })();
-    """.trimIndent()
-
-    val SHOW_THREAD_ACTION_BAR_JS = """
-        (function() {
-            var style = document.getElementById('yamibo-thread-action-loading-style');
-            if (style) style.remove();
-        })();
-    """.trimIndent()
-
     val PJAX_FALLBACK_JS = """
         (function() {
             if (window.__yamiboNavGuardV2) return;
