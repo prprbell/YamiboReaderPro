@@ -544,8 +544,7 @@ fun OtherWebPage(
                 if (commitUrl == "about:blank" || commitUrl?.contains("warmup=true") == true) return
                 super.onPageCommitVisible(view, commitUrl)
 
-                view?.evaluateJavascript(PageJsScripts.OTHER_WEB_INIT_PSWP_JS, null)
-                view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+                view?.evaluateJavascript(PageJsScripts.OTHER_COMMIT_BOOTSTRAP_JS, null)
 
                 if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
                     view?.evaluateJavascript(

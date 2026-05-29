@@ -537,8 +537,7 @@ fun MinePage(
             // 从 NativeMangaPage / ReaderPage 返回时，不重新加载帖子，只恢复 WebView 的定时器与点击脚本。
             mineWebView.evaluateJavascript(PageJsScripts.REMOVE_TRANSITION_STYLE_JS, null)
             mineWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
-            mineWebView.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
-            mineWebView.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
+            mineWebView.evaluateJavascript(PageJsScripts.MINE_MANGA_REINJECT_JS, null)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -1086,9 +1085,7 @@ fun MinePage(
                 pageTitle = view?.title ?: ""
 
                 // 使用外部提取的特定于 MinePage 的脚本常量
-                view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
-                view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
-                view?.evaluateJavascript(PageJsScripts.SEARCH_DIRECT_NAV_JS, null)
+                view?.evaluateJavascript(PageJsScripts.MINE_COMMIT_BOOTSTRAP_JS, null)
 
                 if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
                     view?.evaluateJavascript(

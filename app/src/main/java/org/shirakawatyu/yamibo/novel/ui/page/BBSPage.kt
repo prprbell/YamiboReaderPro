@@ -174,9 +174,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
     }
 
     fun forceInjectMangaJs(webView: WebView) {
-        webView.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
-        webView.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
-        webView.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+        webView.evaluateJavascript(PageJsScripts.BBS_MANGA_REINJECT_JS, null)
     }
 
     private fun isBbsHomeUrl(url: String): Boolean {
@@ -352,10 +350,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
     override fun onPageCommitVisible(view: WebView?, url: String?) {
         super.onPageCommitVisible(view, url)
-        view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
-        view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
-        view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
-        view?.evaluateJavascript(PageJsScripts.SEARCH_DIRECT_NAV_JS, null)
+        view?.evaluateJavascript(PageJsScripts.BBS_COMMIT_BOOTSTRAP_JS, null)
 
         if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
             view?.evaluateJavascript(

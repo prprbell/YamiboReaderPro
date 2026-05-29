@@ -267,8 +267,7 @@ fun MangaWebPage(
             mangaWebView.resumeTimers()
             // 从 NativeMangaPage 返回时，不重新加载帖子，只恢复 WebView 的定时器与点击脚本。
             mangaWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
-            mangaWebView.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
-            mangaWebView.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+            mangaWebView.evaluateJavascript(PageJsScripts.MANGA_BOOTSTRAP_JS, null)
         } catch (e: Throwable) {
             e.printStackTrace()
         }
@@ -582,8 +581,7 @@ fun MangaWebPage(
                 if (commitUrl == "about:blank" || commitUrl?.contains("warmup=true") == true) return
                 super.onPageCommitVisible(view, commitUrl)
 
-                view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
-                view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
+                view?.evaluateJavascript(PageJsScripts.MANGA_BOOTSTRAP_JS, null)
 
                 if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
                     view?.evaluateJavascript(

@@ -8,6 +8,20 @@ import org.shirakawatyu.yamibo.novel.util.theme.LIGHT_MODE_CSS_RULES_MODERN_WHIT
 
 object PageJsScripts {
 
+    private fun combineJs(vararg namedScripts: Pair<String, String>): String {
+        return namedScripts.joinToString("\n;\n") { (name, script) ->
+            """
+                (function() {
+                    try {
+                        $script
+                    } catch (e) {
+                        console.error('[YamiboInject:' + '$name' + ']', e);
+                    }
+                })();
+            """.trimIndent()
+        }
+    }
+
     val FIX_CAROUSEL_LAYOUT_JS = """
         (function() {
             if (document.getElementById('carousel-fix-style')) return;
@@ -971,6 +985,52 @@ $styleString
             }, true);
         })();
     """.trimIndent()
+
+    val BBS_COMMIT_BOOTSTRAP_JS by lazy {
+        combineJs(
+            "INJECT_PSWP_AND_MANGA_JS" to INJECT_PSWP_AND_MANGA_JS,
+            "FIX_CAROUSEL_LAYOUT_JS" to FIX_CAROUSEL_LAYOUT_JS,
+            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS,
+            "SEARCH_DIRECT_NAV_JS" to SEARCH_DIRECT_NAV_JS
+        )
+    }
+
+    val BBS_MANGA_REINJECT_JS by lazy {
+        combineJs(
+            "INJECT_PSWP_AND_MANGA_JS" to INJECT_PSWP_AND_MANGA_JS,
+            "FIX_CAROUSEL_LAYOUT_JS" to FIX_CAROUSEL_LAYOUT_JS,
+            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS
+        )
+    }
+
+    val OTHER_COMMIT_BOOTSTRAP_JS by lazy {
+        combineJs(
+            "OTHER_WEB_INIT_PSWP_JS" to OTHER_WEB_INIT_PSWP_JS,
+            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS
+        )
+    }
+
+    val MINE_COMMIT_BOOTSTRAP_JS by lazy {
+        combineJs(
+            "MINE_INJECT_PSWP_AND_MANGA_JS" to MINE_INJECT_PSWP_AND_MANGA_JS,
+            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS,
+            "SEARCH_DIRECT_NAV_JS" to SEARCH_DIRECT_NAV_JS
+        )
+    }
+
+    val MINE_MANGA_REINJECT_JS by lazy {
+        combineJs(
+            "MINE_INJECT_PSWP_AND_MANGA_JS" to MINE_INJECT_PSWP_AND_MANGA_JS,
+            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS
+        )
+    }
+
+    val MANGA_BOOTSTRAP_JS by lazy {
+        combineJs(
+            "INJECT_PSWP_AND_MANGA_JS" to INJECT_PSWP_AND_MANGA_JS,
+            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS
+        )
+    }
 
     val RELOAD_BROKEN_IMAGES_JS = """
         (function(){
