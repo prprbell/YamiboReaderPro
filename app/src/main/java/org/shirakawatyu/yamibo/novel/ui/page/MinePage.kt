@@ -493,6 +493,7 @@ fun MinePage(
                 displayZoomControls = false
                 textZoom = 100
                 domStorageEnabled = true
+                cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
                 loadsImagesAutomatically = true
                 blockNetworkImage = false
             }

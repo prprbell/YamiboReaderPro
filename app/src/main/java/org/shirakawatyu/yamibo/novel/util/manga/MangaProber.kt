@@ -33,14 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 
 /**
- * 漫画探测工具 (双轨终极版)
- *
- * 核心极客优化：
- * 1. 【API极速轨】优先走 Discuz Mobile API 进行纯内存 O(N) 正则扫描。
- * 2. 【分段锁防击穿】引入 LRU Cache + Striped Mutex(分段锁)，完美防止并发穿透且 0 内存泄漏。
- * 3. 【API脏数据清洗】弥补 Discuz API 绕过页面渲染 Hook 的缺陷，手动修复数据库中 http://data/ 的残缺图片域。
- * 4. 【全楼层楼主追踪】不仅扫描1楼，还能自动追踪楼主占楼连载的后续楼层内容。
- * 5. 【无损降级轨】API 异常或无法提取时，平滑降级回原有的 WebView 无头探针。
+ * 漫画探测工具
  */
 class MangaProber {
 
