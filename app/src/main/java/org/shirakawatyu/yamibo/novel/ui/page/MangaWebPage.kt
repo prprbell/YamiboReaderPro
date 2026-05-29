@@ -268,7 +268,6 @@ fun MangaWebPage(
             // 从 NativeMangaPage 返回时，不重新加载帖子，只恢复 WebView 的定时器与点击脚本。
             mangaWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
             mangaWebView.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
-            mangaWebView.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
             mangaWebView.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
         } catch (e: Throwable) {
             e.printStackTrace()
@@ -584,7 +583,6 @@ fun MangaWebPage(
                 super.onPageCommitVisible(view, commitUrl)
 
                 view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
-                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
                 view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
 
                 if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
@@ -658,27 +656,44 @@ fun MangaWebPage(
                 request: WebResourceRequest?
             ): Boolean {
                 val link = request?.url?.toString() ?: ""
-                if (link.isNotEmpty() && !link.startsWith("http://") && !link.startsWith("https://")) {
-                    try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
-                    } catch (_: Exception) {
-                    }
+                if (link.isBlank()) return false
+
+                if (!link.startsWith("http://") && !link.startsWith("https://")) {
+                    return openExternalUrl(link)
+                }
+
+                if (!BBSGlobalWebViewClient.isYamiboUrl(link)) {
+                    openExternalUrl(link)
                     return true
                 }
+
                 return super.shouldOverrideUrlLoading(view, request)
             }
 
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(view: WebView?, link: String?): Boolean {
                 val safeUrl = link ?: ""
-                if (safeUrl.isNotEmpty() && !safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
-                    try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
-                    } catch (_: Exception) {
-                    }
+                if (safeUrl.isBlank()) return false
+
+                if (!safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
+                    return openExternalUrl(safeUrl)
+                }
+
+                if (!BBSGlobalWebViewClient.isYamiboUrl(safeUrl)) {
+                    openExternalUrl(safeUrl)
                     return true
                 }
-                return super.shouldOverrideUrlLoading(view, link)
+
+                return super.shouldOverrideUrlLoading(view, safeUrl)
+            }
+
+            private fun openExternalUrl(url: String): Boolean {
+                return try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    true
+                } catch (_: Exception) {
+                    false
+                }
             }
 
             override fun onReceivedError(
@@ -687,9 +702,15 @@ fun MangaWebPage(
                 error: WebResourceError?
             ) {
                 if (request?.isForMainFrame == true) {
-                    timeoutJob?.cancel()
-                    isLoading = false
-                    if (retryCount == 0) showLoadError = true
+                    val errorUrl = request?.url?.toString() ?: ""
+                    val currentUrl = view?.url ?: ""
+                    if ((errorUrl.isEmpty() || errorUrl == currentUrl) &&
+                        BBSGlobalWebViewClient.isYamiboUrl(errorUrl)
+                    ) {
+                        timeoutJob?.cancel()
+                        isLoading = false
+                        if (retryCount == 0) showLoadError = true
+                    }
                 }
                 super.onReceivedError(view, request, error)
             }
@@ -700,9 +721,15 @@ fun MangaWebPage(
                 errorResponse: WebResourceResponse?
             ) {
                 if (request?.isForMainFrame == true) {
-                    timeoutJob?.cancel()
-                    isLoading = false
-                    if (retryCount == 0) showLoadError = true
+                    val errorUrl = request?.url?.toString() ?: ""
+                    val currentUrl = view?.url ?: ""
+                    if ((errorUrl.isEmpty() || errorUrl == currentUrl) &&
+                        BBSGlobalWebViewClient.isYamiboUrl(errorUrl)
+                    ) {
+                        timeoutJob?.cancel()
+                        isLoading = false
+                        if (retryCount == 0) showLoadError = true
+                    }
                 }
                 super.onReceivedHttpError(view, request, errorResponse)
             }

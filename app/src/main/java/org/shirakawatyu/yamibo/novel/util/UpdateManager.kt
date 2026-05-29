@@ -168,6 +168,7 @@ object UpdateManager {
                     }
 
                     val apkFile = copyToCache(appContext, uriStr.toUri())
+                    dm.remove(downloadId)
                     if (apkFile != null) {
                         onComplete(apkFile)
                     } else {

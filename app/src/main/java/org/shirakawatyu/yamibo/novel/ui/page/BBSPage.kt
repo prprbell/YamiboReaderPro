@@ -156,6 +156,8 @@ class NativeMangaJSInterface {
 class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient() {
     private val contentImageCount = AtomicInteger(0)
     private var activeMainFrameUrl: String? = null
+    private val mainHandler = android.os.Handler(Looper.getMainLooper())
+    private var mainFrameTimeoutRunnable: Runnable? = null
 
     companion object {
         const val INDEX_URL = "https://bbs.yamibo.com/forum.php"
@@ -163,12 +165,17 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         const val BBS_URL = "https://bbs.yamibo.com/index.php?mobile=2"
         const val BASE_BBS_URL = "https://bbs.yamibo.com/"
         private val IMAGE_EXT_REGEX = Regex("\\.(jpg|jpeg|png|webp|gif)", RegexOption.IGNORE_CASE)
+
+        fun isYamiboUrl(url: String): Boolean {
+            val host = runCatching { Uri.parse(url).host.orEmpty().lowercase() }.getOrDefault("")
+            return host == "bbs.yamibo.com" || host == "m.yamibo.com" ||
+                    host == "www.yamibo.com" || host == "yamibo.com"
+        }
     }
 
     fun forceInjectMangaJs(webView: WebView) {
         webView.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
         webView.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
-        webView.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
         webView.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
     }
 
@@ -200,6 +207,8 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         BBSPageState.isLoading = true
         BBSPageState.showLoadError = false
         BBSPageState.isErrorState = false
+
+        startMainFrameTimeout(view, url)
     }
 
     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
@@ -223,27 +232,44 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         request: WebResourceRequest?
     ): Boolean {
         val url = request?.url?.toString() ?: ""
-        if (url.isNotEmpty() && !url.startsWith("http://") && !url.startsWith("https://")) {
-            try {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-            } catch (_: Exception) {
-            }
+        if (url.isBlank()) return false
+
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return openExternalUrl(url)
+        }
+
+        if (!isYamiboUrl(url)) {
+            openExternalUrl(url)
             return true
         }
+
         return super.shouldOverrideUrlLoading(view, request)
     }
 
     @Deprecated("Deprecated in Java")
     override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
         val safeUrl = url ?: ""
-        if (safeUrl.isNotEmpty() && !safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
-            try {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
-            } catch (_: Exception) {
-            }
+        if (safeUrl.isBlank()) return false
+
+        if (!safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
+            return openExternalUrl(safeUrl)
+        }
+
+        if (!isYamiboUrl(safeUrl)) {
+            openExternalUrl(safeUrl)
             return true
         }
-        return super.shouldOverrideUrlLoading(view, url)
+
+        return super.shouldOverrideUrlLoading(view, safeUrl)
+    }
+
+    private fun openExternalUrl(url: String): Boolean {
+        return try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     override fun onFormResubmission(
@@ -328,7 +354,6 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         super.onPageCommitVisible(view, url)
         view?.evaluateJavascript(PageJsScripts.INJECT_PSWP_AND_MANGA_JS, null)
         view?.evaluateJavascript(PageJsScripts.FIX_CAROUSEL_LAYOUT_JS, null)
-        view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
         view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
         view?.evaluateJavascript(PageJsScripts.SEARCH_DIRECT_NAV_JS, null)
 
@@ -366,6 +391,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
     override fun onPageFinished(view: WebView?, url: String?) {
         super.onPageFinished(view, url)
+        cancelMainFrameTimeout()
         if (!url.isNullOrBlank() && activeMainFrameUrl != null && url != activeMainFrameUrl) {
             return
         }
@@ -384,6 +410,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
         if (!BBSPageState.isErrorState) {
             BBSPageState.showLoadError = false
+            BBSPageState.finishRecoveryBeforeShowingError()
             if (url != null && !url.contains("about:blank")) {
                 BBSPageState.hasSuccessfullyLoaded = true
             }
@@ -409,6 +436,31 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         return true
     }
 
+    private fun isSameUrlIgnoringHash(a: String?, b: String?): Boolean {
+        val aa = a?.substringBefore("#")?.removeSuffix("/") ?: return false
+        val bb = b?.substringBefore("#")?.removeSuffix("/") ?: return false
+        return aa == bb
+    }
+
+    private fun shouldHandleMainFrameError(view: WebView?, failingUrl: String?): Boolean {
+        if (!isYamiboUrl(failingUrl ?: "")) return false
+
+        if (failingUrl.isNullOrBlank()) {
+            return !BBSPageState.hasSuccessfullyLoaded
+        }
+
+        val activeUrl = activeMainFrameUrl
+
+        if (!activeUrl.isNullOrBlank()) {
+            return isSameUrlIgnoringHash(failingUrl, activeUrl)
+        }
+
+        val currentUrl = view?.url
+        return currentUrl.isNullOrBlank() ||
+                currentUrl == "about:blank" ||
+                isSameUrlIgnoringHash(failingUrl, currentUrl)
+    }
+
     override fun onReceivedError(
         view: WebView?,
         request: WebResourceRequest?,
@@ -416,7 +468,13 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
     ) {
         super.onReceivedError(view, request, error)
         if (request?.isForMainFrame == true) {
-            handleErrorState()
+            cancelMainFrameTimeout()
+            val failingUrl = request.url?.toString()
+            if (shouldHandleMainFrameError(view, failingUrl)) {
+                handleErrorState()
+            } else {
+                ignoreMainFrameErrorButFinishLoading()
+            }
         }
     }
 
@@ -428,8 +486,11 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         failingUrl: String?
     ) {
         super.onReceivedError(view, errorCode, description, failingUrl)
-        if (failingUrl != null && failingUrl == view?.url) {
+        cancelMainFrameTimeout()
+        if (shouldHandleMainFrameError(view, failingUrl)) {
             handleErrorState()
+        } else {
+            ignoreMainFrameErrorButFinishLoading()
         }
     }
 
@@ -440,7 +501,13 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
     ) {
         super.onReceivedHttpError(view, request, errorResponse)
         if (request?.isForMainFrame == true) {
-            handleErrorState()
+            cancelMainFrameTimeout()
+            val failingUrl = request.url?.toString()
+            if (shouldHandleMainFrameError(view, failingUrl)) {
+                handleErrorState()
+            } else {
+                ignoreMainFrameErrorButFinishLoading()
+            }
         }
     }
 
@@ -448,8 +515,38 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
         BBSPageState.hasSuccessfullyLoaded = false
         BBSPageState.isErrorState = true
         BBSPageState.isLoading = false
-        BBSPageState.showLoadError = true
-        BBSPageState.requestResumeRecovery()
+        // 不立即显示错误页，先静默自动恢复
+        BBSPageState.showLoadError = false
+        BBSPageState.requestRecoveryBeforeShowingError()
+    }
+
+    private fun ignoreMainFrameErrorButFinishLoading() {
+        BBSPageState.isLoading = false
+        BBSPageState.showLoadError = false
+        BBSPageState.isErrorState = false
+        GlobalData.webProgress.value = 100
+    }
+
+    private fun startMainFrameTimeout(view: WebView?, url: String?) {
+        cancelMainFrameTimeout()
+        mainFrameTimeoutRunnable = Runnable {
+            if (BBSPageState.isLoading && !url.isNullOrBlank()) {
+                view?.stopLoading()
+                if (isYamiboUrl(url)) {
+                    BBSPageState.requestRecoveryBeforeShowingError()
+                } else {
+                    BBSPageState.isLoading = false
+                    BBSPageState.isErrorState = false
+                    BBSPageState.showLoadError = false
+                }
+            }
+        }
+        mainHandler.postDelayed(mainFrameTimeoutRunnable!!, 15_000L)
+    }
+
+    private fun cancelMainFrameTimeout() {
+        mainFrameTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        mainFrameTimeoutRunnable = null
     }
 }
 
@@ -518,6 +615,7 @@ fun BBSPage(
             webView.onResume()
             webView.resumeTimers()
             // 从 NativeMangaPage / ReaderPage 返回时，不重新加载页面，只恢复 WebView 的定时器与点击脚本。
+            webView.evaluateJavascript(PageJsScripts.REMOVE_TRANSITION_STYLE_JS, null)
             webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
             (webView.webViewClient as? BBSGlobalWebViewClient)?.forceInjectMangaJs(webView)
         } catch (e: Throwable) {
@@ -561,6 +659,7 @@ fun BBSPage(
                     // 否则从 NativeMangaPage 返回时，原 WebView 可能停在半冻结状态，表现为 JS / 点击失效。
                     resumeBbsWebViewAfterChildPage()
 
+                    webView.evaluateJavascript(PageJsScripts.REMOVE_TRANSITION_STYLE_JS, null)
                     autoOpenMangaMode = false
                     val passUrl = BBSPageState.currentUrl ?: indexUrl
                     val encodedUrl = URLEncoder.encode(passUrl, "utf-8")
@@ -645,11 +744,16 @@ fun BBSPage(
             delay(10_000L)
             if (BBSPageState.isLoading) {
                 webView.stopLoading()
-                BBSPageState.isErrorState = true
-                BBSPageState.isLoading = false
-                BBSPageState.showLoadError = true
-                BBSPageState.requestResumeRecovery()
                 isPullRefreshing = false
+
+                if (BBSPageState.isAutoRecoveringBeforeError) {
+                    // 自动恢复也失败了，才显示错误页
+                    BBSPageState.failRecoveryBeforeShowingError()
+                } else {
+                    BBSPageState.isErrorState = true
+                    BBSPageState.isLoading = false
+                    BBSPageState.showLoadError = true
+                }
             }
         }
     }
@@ -668,8 +772,8 @@ fun BBSPage(
         } catch (_: Throwable) {
             BBSPageState.isLoading = false
             BBSPageState.isErrorState = true
-            BBSPageState.showLoadError = true
-            BBSPageState.requestResumeRecovery()
+            BBSPageState.showLoadError = false
+            BBSPageState.requestRecoveryBeforeShowingError()
             (context as? org.shirakawatyu.yamibo.novel.MainActivity)
                 ?.recreateBbsWebViewAfterRendererGone(webView)
         }
@@ -739,8 +843,8 @@ fun BBSPage(
         } catch (_: Throwable) {
             BBSPageState.isLoading = false
             BBSPageState.isErrorState = true
-            BBSPageState.showLoadError = true
-            BBSPageState.requestResumeRecovery()
+            BBSPageState.showLoadError = false
+            BBSPageState.requestRecoveryBeforeShowingError()
             (context as? org.shirakawatyu.yamibo.novel.MainActivity)
                 ?.recreateBbsWebViewAfterRendererGone(webView)
         }
@@ -760,9 +864,13 @@ fun BBSPage(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(isNetworkAvailable, BBSPageState.isErrorState, BBSPageState.showLoadError) {
-        if (BBSPageState.isErrorState || BBSPageState.showLoadError) {
-            BBSPageState.requestResumeRecovery()
+    // 网络恢复时，如果错误页正在显示（自动恢复已失败），重新尝试恢复
+    LaunchedEffect(isNetworkAvailable) {
+        if (isNetworkAvailable &&
+            BBSPageState.autoRecoveryFailed &&
+            BBSPageState.showLoadError
+        ) {
+            BBSPageState.requestRecoveryBeforeShowingError()
         }
     }
 
@@ -771,15 +879,10 @@ fun BBSPage(
         isNetworkAvailable,
         BBSPageState.needsResumeRecovery,
         BBSPageState.resumeRecoveryToken,
-        BBSPageState.isErrorState,
-        BBSPageState.showLoadError,
+        BBSPageState.autoRecoveryToken,
         webView
     ) {
-        if (isSelected &&
-            (BBSPageState.needsResumeRecovery ||
-                    BBSPageState.isErrorState ||
-                    BBSPageState.showLoadError)
-        ) {
+        if (isSelected && BBSPageState.needsResumeRecovery) {
             val throttleDelayMs = BBSPageState.resumeRecoveryThrottleDelayMs()
             if (throttleDelayMs > 0L) {
                 delay(throttleDelayMs)
@@ -841,29 +944,34 @@ fun BBSPage(
     }
     LaunchedEffect(Unit) {
         bottomNavBarVM.refreshEvent.collect { route ->
-            isPullRefreshing = true
-            if (route == "BBSPage") {
-                val curl = webView.url
-                if (!curl.isNullOrEmpty() && curl != "about:blank") {
-                    BBSPageState.isLoading = true
-                    BBSPageState.showLoadError = false
-                    retryCount = 0
+            if (route != "BBSPage") return@collect
 
-                    timeoutJob?.cancel()
-                    timeoutJob = scope.launch {
-                        delay(10000)
-                        if (BBSPageState.isLoading) {
-                            webView.stopLoading()
+            isPullRefreshing = true
+            val curl = webView.url
+            if (!curl.isNullOrEmpty() && curl != "about:blank") {
+                BBSPageState.isLoading = true
+                BBSPageState.showLoadError = false
+                retryCount = 0
+
+                timeoutJob?.cancel()
+                timeoutJob = scope.launch {
+                    delay(10_000L)
+                    if (BBSPageState.isLoading) {
+                        webView.stopLoading()
+                        isPullRefreshing = false
+
+                        if (BBSPageState.isAutoRecoveringBeforeError) {
+                            BBSPageState.failRecoveryBeforeShowingError()
+                        } else {
                             BBSPageState.isErrorState = true
                             BBSPageState.isLoading = false
                             BBSPageState.showLoadError = true
-                            isPullRefreshing = false
                         }
                     }
-                    webView.reload()
-                } else {
-                    startLoading(mobileIndexUrl)
                 }
+                webView.reload()
+            } else {
+                startLoading(mobileIndexUrl)
             }
         }
     }
@@ -1097,6 +1205,7 @@ fun BBSPage(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
+                        .zIndex(10f)
                         .background(MaterialTheme.colorScheme.background)
                         .padding(horizontal = 32.dp),
                     verticalArrangement = Arrangement.Center,
@@ -1141,7 +1250,13 @@ fun BBSPage(
                 }
             }
 
-            if (BBSPageState.isLoading && !isPullRefreshing && !BBSPageState.hasSuccessfullyLoaded) {
+            val shouldShowLoadingCover =
+                (BBSPageState.isLoading || BBSPageState.isAutoRecoveringBeforeError) &&
+                        !isPullRefreshing &&
+                        !BBSPageState.hasSuccessfullyLoaded &&
+                        !BBSPageState.showLoadError
+
+            if (shouldShowLoadingCover) {
                 BbsSkeletonScreen(
                     modifier = Modifier
                         .fillMaxSize()

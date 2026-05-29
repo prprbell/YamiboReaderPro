@@ -58,6 +58,7 @@ class YamiboApplication : Application(), ImageLoaderFactory {
                 globalCacheDir.listFiles { _, name -> name.startsWith("coil_trash_") }?.forEach {
                     it.deleteRecursively()
                 }
+                File(externalCacheDir ?: cacheDir, "update").deleteRecursively()
             } catch (_: Exception) {
                 // 忽略极端情况下的文件占用异常
             }

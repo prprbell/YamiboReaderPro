@@ -358,27 +358,51 @@ fun OtherWebPage(
                 request: WebResourceRequest?
             ): Boolean {
                 val link = request?.url?.toString() ?: ""
-                if (link.isNotEmpty() && !link.startsWith("http://") && !link.startsWith("https://")) {
+                if (link.isBlank()) return false
+
+                if (!link.startsWith("http://") && !link.startsWith("https://")) {
+                    return try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                        true
+                    } catch (_: Exception) {
+                        false
+                    }
+                }
+
+                if (!BBSGlobalWebViewClient.isYamiboUrl(link)) {
                     try {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
                     } catch (_: Exception) {
                     }
                     return true
                 }
+
                 return super.shouldOverrideUrlLoading(view, request)
             }
 
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(view: WebView?, link: String?): Boolean {
                 val safeUrl = link ?: ""
-                if (safeUrl.isNotEmpty() && !safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
+                if (safeUrl.isBlank()) return false
+
+                if (!safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
+                    return try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
+                        true
+                    } catch (_: Exception) {
+                        false
+                    }
+                }
+
+                if (!BBSGlobalWebViewClient.isYamiboUrl(safeUrl)) {
                     try {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
                     } catch (_: Exception) {
                     }
                     return true
                 }
-                return super.shouldOverrideUrlLoading(view, link)
+
+                return super.shouldOverrideUrlLoading(view, safeUrl)
             }
 
             override fun onFormResubmission(
@@ -521,7 +545,6 @@ fun OtherWebPage(
                 super.onPageCommitVisible(view, commitUrl)
 
                 view?.evaluateJavascript(PageJsScripts.OTHER_WEB_INIT_PSWP_JS, null)
-                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
                 view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
 
                 if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
@@ -634,9 +657,15 @@ fun OtherWebPage(
                 error: WebResourceError?
             ) {
                 if (request?.isForMainFrame == true) {
-                    timeoutJob?.cancel()
-                    isLoading = false
-                    if (retryCount == 0) showLoadError = true
+                    val errorUrl = request?.url?.toString() ?: ""
+                    val currentUrl = view?.url ?: ""
+                    if ((errorUrl.isEmpty() || errorUrl == currentUrl) &&
+                        BBSGlobalWebViewClient.isYamiboUrl(errorUrl)
+                    ) {
+                        timeoutJob?.cancel()
+                        isLoading = false
+                        if (retryCount == 0) showLoadError = true
+                    }
                 }
                 super.onReceivedError(view, request, error)
             }
@@ -647,9 +676,15 @@ fun OtherWebPage(
                 errorResponse: WebResourceResponse?
             ) {
                 if (request?.isForMainFrame == true) {
-                    timeoutJob?.cancel()
-                    isLoading = false
-                    if (retryCount == 0) showLoadError = true
+                    val errorUrl = request?.url?.toString() ?: ""
+                    val currentUrl = view?.url ?: ""
+                    if ((errorUrl.isEmpty() || errorUrl == currentUrl) &&
+                        BBSGlobalWebViewClient.isYamiboUrl(errorUrl)
+                    ) {
+                        timeoutJob?.cancel()
+                        isLoading = false
+                        if (retryCount == 0) showLoadError = true
+                    }
                 }
                 super.onReceivedHttpError(view, request, errorResponse)
             }

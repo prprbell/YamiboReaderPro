@@ -23,6 +23,31 @@ object BBSPageState {
     var isErrorState by mutableStateOf(false)
     var hasExecutedInitialDelay: Boolean = false
 
+    var isAutoRecoveringBeforeError by mutableStateOf(false)
+    var autoRecoveryFailed by mutableStateOf(false)
+    var autoRecoveryToken by mutableStateOf(0)
+
+    fun requestRecoveryBeforeShowingError() {
+        isAutoRecoveringBeforeError = true
+        autoRecoveryFailed = false
+        showLoadError = false
+        autoRecoveryToken++
+        requestResumeRecovery()
+    }
+
+    fun finishRecoveryBeforeShowingError() {
+        isAutoRecoveringBeforeError = false
+        autoRecoveryFailed = false
+    }
+
+    fun failRecoveryBeforeShowingError() {
+        isAutoRecoveringBeforeError = false
+        autoRecoveryFailed = true
+        isLoading = false
+        isErrorState = true
+        showLoadError = true
+    }
+
     // 短后台：尝试恢复/刷新；长后台：直接重建 WebView，避免复用半死不活的 renderer/surface。
     private const val BACKGROUND_RECOVERY_THRESHOLD_MS = 30_000L
     private const val FORCE_RECREATE_AFTER_LONG_BACKGROUND_MS = 15 * 60 * 1000L
@@ -110,6 +135,12 @@ object BBSPageState {
             webView?.url
         } catch (_: Throwable) {
             null
+        }
+
+        if (isErrorState || isAutoRecoveringBeforeError || autoRecoveryFailed) {
+            return currentUrl?.takeIf { isUsableBbsUrl(it) }
+                ?: viewUrl?.takeIf { isUsableBbsUrl(it) }
+                ?: fallbackUrl
         }
 
         return viewUrl?.takeIf { isUsableBbsUrl(it) }

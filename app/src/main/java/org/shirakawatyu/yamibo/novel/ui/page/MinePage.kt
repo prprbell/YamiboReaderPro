@@ -321,6 +321,7 @@ fun MinePage(
     }
 
     fun markMainFrameErrorIfExpected(url: String?) {
+        if (!BBSGlobalWebViewClient.isYamiboUrl(url ?: "")) return
         if (!isExpectedLoadCallback(url)) return
         timeoutJob?.cancel()
         retryCount = 0
@@ -534,8 +535,8 @@ fun MinePage(
             mineWebView.onResume()
             mineWebView.resumeTimers()
             // 从 NativeMangaPage / ReaderPage 返回时，不重新加载帖子，只恢复 WebView 的定时器与点击脚本。
+            mineWebView.evaluateJavascript(PageJsScripts.REMOVE_TRANSITION_STYLE_JS, null)
             mineWebView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
-            mineWebView.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
             mineWebView.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
             mineWebView.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
         } catch (e: Exception) {
@@ -727,6 +728,7 @@ fun MinePage(
                     // route-scoped 历史 WebView 容易停在半冻结状态，表现为 JS / 点击失效。
                     resumeMineWebViewAfterChildPage()
 
+                    mineWebView.evaluateJavascript(PageJsScripts.REMOVE_TRANSITION_STYLE_JS, null)
                     autoOpenMangaMode = false
                     val passUrl = currentUrl ?: mineWebView.url ?: historyTargetUrl ?: "https://bbs.yamibo.com/forum.php"
 
@@ -891,12 +893,14 @@ fun MinePage(
                 request: WebResourceRequest?
             ): Boolean {
                 val urlStr = request?.url?.toString() ?: ""
+                if (urlStr.isBlank()) return false
 
-                if (urlStr.isNotEmpty() && !urlStr.startsWith("http://") && !urlStr.startsWith("https://")) {
-                    try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(urlStr)))
-                    } catch (_: Exception) {
-                    }
+                if (!urlStr.startsWith("http://") && !urlStr.startsWith("https://")) {
+                    return openExternalUrl(urlStr)
+                }
+
+                if (!BBSGlobalWebViewClient.isYamiboUrl(urlStr)) {
+                    openExternalUrl(urlStr)
                     return true
                 }
 
@@ -918,14 +922,27 @@ fun MinePage(
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 val safeUrl = url ?: ""
-                if (safeUrl.isNotEmpty() && !safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
-                    try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
-                    } catch (_: Exception) {
-                    }
+                if (safeUrl.isBlank()) return false
+
+                if (!safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
+                    return openExternalUrl(safeUrl)
+                }
+
+                if (!BBSGlobalWebViewClient.isYamiboUrl(safeUrl)) {
+                    openExternalUrl(safeUrl)
                     return true
                 }
-                return super.shouldOverrideUrlLoading(view, url)
+
+                return super.shouldOverrideUrlLoading(view, safeUrl)
+            }
+
+            private fun openExternalUrl(url: String): Boolean {
+                return try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    true
+                } catch (_: Exception) {
+                    false
+                }
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -1065,11 +1082,11 @@ fun MinePage(
 
                 if (!isExpectedLoadCallback(url)) return
 
+                finishLoadingIfExpected(view, url)
                 pageTitle = view?.title ?: ""
 
                 // 使用外部提取的特定于 MinePage 的脚本常量
                 view?.evaluateJavascript(PageJsScripts.MINE_INJECT_PSWP_AND_MANGA_JS, null)
-                view?.evaluateJavascript(PageJsScripts.PJAX_FALLBACK_JS, null)
                 view?.evaluateJavascript(PageJsScripts.THREAD_LIST_CLICK_FIX_JS, null)
                 view?.evaluateJavascript(PageJsScripts.SEARCH_DIRECT_NAV_JS, null)
 
@@ -1415,19 +1432,26 @@ fun MinePage(
 
             // 只要当前 WebView 还不是本次目标页面，就用不透明遮罩挡住旧 DOM。
             // 这样从历史帖子返回 MinePage 时，不会在个人主页提交前露出刚才的帖子。
+            // 只有 fromHistory 时需要主动吞掉触摸事件，防止用户点到旧 DOM 的残留交互。
             AnimatedVisibility(
                 visible = shouldBlockOldWebContent,
                 enter = EnterTransition.None,
                 exit = fadeOut()
             ) {
+                val blockModifier = if (fromHistory) {
+                    Modifier.pointerInput(Unit) {
+                        detectTapGestures { }
+                        detectVerticalDragGestures { _, _ -> }
+                    }
+                } else {
+                    Modifier
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.background)
-                        .pointerInput(Unit) {
-                            detectTapGestures { }
-                            detectVerticalDragGestures { _, _ -> }
-                        },
+                        .then(blockModifier),
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)

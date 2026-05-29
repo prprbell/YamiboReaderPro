@@ -8,165 +8,6 @@ import org.shirakawatyu.yamibo.novel.util.theme.LIGHT_MODE_CSS_RULES_MODERN_WHIT
 
 object PageJsScripts {
 
-    // 基础脚本
-    val PJAX_FALLBACK_JS = """
-        (function() {
-            if (window.__yamiboNavGuardV2) return;
-            window.__yamiboNavGuardV2 = true;
-    
-            var pendingTimer = null;
-            var downPoint = null;
-    
-            function clearPendingTimer() {
-                if (pendingTimer) {
-                    clearTimeout(pendingTimer);
-                    pendingTimer = null;
-                }
-            }
-    
-            function closest(el, selector) {
-                while (el && el !== document && el.nodeType === 1) {
-                    if (el.matches && el.matches(selector)) return el;
-                    el = el.parentElement;
-                }
-                return null;
-            }
-    
-            function getPoint(e) {
-                if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0];
-                if (e.touches && e.touches.length > 0) return e.touches[0];
-                return e;
-            }
-    
-            function normalizeUrl(rawUrl) {
-                try {
-                    return new URL(rawUrl, document.baseURI);
-                } catch (err) {
-                    return null;
-                }
-            }
-    
-            // 究极兜底策略：只认“帖子”和“版块”
-            function isSafeBbsNavigation(a, url) {
-                if (!a || !url) return false;
-                
-                var rawHref = String(a.getAttribute('href') || '').trim();
-                if (!rawHref || rawHref === '#' || /^javascript:/i.test(rawHref)) return false;
-    
-                if (url.hostname !== 'bbs.yamibo.com') return false;
-    
-                // 排除带有弹窗类名的元素
-                if (a.classList && a.classList.contains('dialog')) return false;
-                if (a.hasAttribute('data-pswp-width') || closest(a, '.pswp')) return false;
-    
-                var query = String(url.search || '').toLowerCase();
-                var path = String(url.pathname || '').replace(/^\/+/, '').toLowerCase();
-    
-                // 排除明显的异步请求或操作动作
-                if (/(\?|&)(inajax|action|ac|formhash)=/.test(query)) return false;
-    
-                // ==========================================
-                // 核心白名单：只针对下面这两种核心链接执行 800ms 兜底跳转
-                // ==========================================
-                var isThread = /^thread-\d+/.test(path) || (path === 'forum.php' && query.indexOf('mod=viewthread') !== -1);
-                var isForum = /^forum-\d+/.test(path) || (path === 'forum.php' && query.indexOf('mod=forumdisplay') !== -1);
-    
-                if (!isThread && !isForum) {
-                    return false; 
-                }
-    
-                // 纯锚点跳转（楼层跳转）不处理
-                var currentNoHash = location.href.split('#')[0];
-                var targetNoHash = url.href.split('#')[0];
-                if (currentNoHash === targetNoHash) return false;
-    
-                return true;
-            }
-    
-            function scheduleFallback(a, reason) {
-                var url = normalizeUrl(a && a.href);
-                if (!isSafeBbsNavigation(a, url)) return;
-    
-                var before = location.href;
-                var targetUrl = url.href;
-    
-                if (!targetUrl || targetUrl === before) return;
-    
-                clearPendingTimer();
-    
-                pendingTimer = setTimeout(function() {
-                    pendingTimer = null;
-    
-                    if (location.href !== before) return;
-    
-                    try {
-                        console.log('[YamiboNavGuard] fallback navigate by ' + reason + ': ' + targetUrl);
-                    } catch (_) {}
-    
-                    try {
-                        location.assign(targetUrl);
-                    } catch (err) {
-                        location.href = targetUrl;
-                    }
-                }, 800);
-            }
-    
-            document.addEventListener('click', function(e) {
-                if (e.button && e.button !== 0) return;
-                var a = closest(e.target, 'a[href]');
-                if (a) scheduleFallback(a, 'click');
-            }, true);
-    
-            document.addEventListener('pointerdown', function(e) {
-                var p = getPoint(e);
-                if (p) downPoint = { x: p.clientX, y: p.clientY, t: Date.now() };
-            }, true);
-    
-            document.addEventListener('pointerup', function(e) {
-                if (!downPoint) return;
-                var p = getPoint(e);
-                if (!p) return;
-    
-                var dx = Math.abs(p.clientX - downPoint.x);
-                var dy = Math.abs(p.clientY - downPoint.y);
-                var dt = Date.now() - downPoint.t;
-                downPoint = null;
-    
-                if (dx > 16 || dy > 16 || dt > 1000) return;
-    
-                var el = document.elementFromPoint(p.clientX, p.clientY) || e.target;
-                var a = closest(el, 'a[href]');
-                if (a) scheduleFallback(a, 'pointerup');
-            }, true);
-    
-            // 兼容老设备
-            document.addEventListener('touchstart', function(e) {
-                var p = getPoint(e);
-                if (p) downPoint = { x: p.clientX, y: p.clientY, t: Date.now() };
-            }, true);
-    
-            document.addEventListener('touchend', function(e) {
-                if (!downPoint) return;
-                var p = getPoint(e);
-                if (!p) return;
-    
-                var dx = Math.abs(p.clientX - downPoint.x);
-                var dy = Math.abs(p.clientY - downPoint.y);
-                var dt = Date.now() - downPoint.t;
-                downPoint = null;
-    
-                if (dx > 16 || dy > 16 || dt > 1000) return;
-    
-                var el = document.elementFromPoint(p.clientX, p.clientY) || e.target;
-                var a = closest(el, 'a[href]');
-                if (a) scheduleFallback(a, 'touchend');
-            }, true);
-    
-            window.addEventListener('pagehide', clearPendingTimer, true);
-            window.addEventListener('beforeunload', clearPendingTimer, true);
-        })();
-    """.trimIndent()
-
     val FIX_CAROUSEL_LAYOUT_JS = """
         (function() {
             if (document.getElementById('carousel-fix-style')) return;
@@ -208,9 +49,12 @@ object PageJsScripts {
                 if (window.__globalPswpAttached) return;
                 var pswp = document.querySelector('.pswp');
                 if (!pswp) {
+                    if (window.__pswpWaitingObserverAttached) return;
+                    window.__pswpWaitingObserverAttached = true;
                     var bodyObserver = new MutationObserver(function(mutations, obs) {
                         if (document.querySelector('.pswp')) {
                             obs.disconnect();
+                            window.__pswpWaitingObserverAttached = false;
                             window.__pswpInit();
                         }
                     });
@@ -349,9 +193,9 @@ object PageJsScripts {
 
     val THREAD_LIST_CLICK_FIX_JS = """
         (function() {
-            if (window.__threadListClickFixV2) return;
-            window.__threadListClickFixV2 = true;
-    
+            if (window.__threadListClickFixV3) return;
+            window.__threadListClickFixV3 = true;
+
             function closest(el, selector) {
                 while (el && el !== document && el.nodeType === 1) {
                     if (el.matches && el.matches(selector)) return el;
@@ -359,51 +203,46 @@ object PageJsScripts {
                 }
                 return null;
             }
-    
+
+            function isSafeThreadUrl(rawHref) {
+                if (!rawHref || rawHref === '#' || /^javascript:/i.test(rawHref)) return false;
+                try {
+                    var url = new URL(rawHref, document.baseURI);
+                    if (url.hostname !== 'bbs.yamibo.com') return false;
+                    var path = String(url.pathname || '').replace(/^\/+/, '').toLowerCase();
+                    var query = String(url.search || '').toLowerCase();
+                    return /^thread-\d+/.test(path) ||
+                           (path === 'forum.php' && query.indexOf('mod=viewthread') !== -1);
+                } catch (e) {
+                    return false;
+                }
+            }
+
             if (!document.getElementById('yamibo-thread-list-click-style')) {
                 var style = document.createElement('style');
                 style.id = 'yamibo-thread-list-click-style';
                 style.textContent = 'li.list { cursor: pointer; -webkit-tap-highlight-color: rgba(0,0,0,0.08); }';
                 document.head.appendChild(style);
             }
-    
+
             document.addEventListener('click', function(e) {
                 var li = closest(e.target, 'li.list');
                 if (!li) return;
-    
-                // 点到真实链接时不干预
-                if (closest(e.target, 'a[href]')) return;
-    
+
+                if (closest(e.target, 'a[href], button, input, textarea, select, label, .pswp')) return;
+
                 var threadLink =
                     li.querySelector('a[href*="mod=viewthread"]') ||
                     li.querySelector('a[href^="thread-"]');
-    
+
                 if (!threadLink || !threadLink.href) return;
-    
+                if (!isSafeThreadUrl(threadLink.getAttribute('href'))) return;
+
                 e.preventDefault();
                 e.stopPropagation();
-    
-                var before = location.href;
-    
-                try {
-                    threadLink.dispatchEvent(new MouseEvent('click', {
-                        view: window,
-                        bubbles: true,
-                        cancelable: true
-                    }));
-                } catch (err) {
-                    threadLink.click();
-                }
-    
-                setTimeout(function() {
-                    if (location.href !== before) return;
-                    try {
-                        location.assign(threadLink.href);
-                    } catch (err) {
-                        location.href = threadLink.href;
-                    }
-                }, 220);
-            }, false);
+
+                location.href = threadLink.href;
+            }, true);
         })();
     """.trimIndent()
 
@@ -588,9 +427,12 @@ object PageJsScripts {
                 if (window.__globalPswpAttached) return;
                 var pswp = document.querySelector('.pswp');
                 if (!pswp) {
+                    if (window.__pswpWaitingObserverAttached) return;
+                    window.__pswpWaitingObserverAttached = true;
                     var bodyObserver = new MutationObserver(function(mutations, obs) {
                         if (document.querySelector('.pswp')) {
                             obs.disconnect();
+                            window.__pswpWaitingObserverAttached = false;
                             window.__pswpInit();
                         }
                     });
@@ -838,9 +680,12 @@ object PageJsScripts {
                 if (window.__globalPswpAttached) return;
                 var pswp = document.querySelector('.pswp');
                 if (!pswp) {
+                    if (window.__pswpWaitingObserverAttached) return;
+                    window.__pswpWaitingObserverAttached = true;
                     var bodyObserver = new MutationObserver(function(mutations, obs) {
                         if (document.querySelector('.pswp')) {
                             obs.disconnect();
+                            window.__pswpWaitingObserverAttached = false;
                             window.__pswpInit();
                         }
                     });
@@ -1089,7 +934,7 @@ $styleString
             if (window.__yamiboSearchNav) return;
             window.__yamiboSearchNav = true;
 
-            // 事件委托在 document 上，避免 PJAX 导航后 DOM 替换导致监听丢失
+            // 事件委托在 document 上，避免导航后 DOM 替换导致监听丢失
             document.addEventListener('submit', function(e) {
                 var form = e.target;
                 if (!form || !form.classList.contains('searchform')) return;

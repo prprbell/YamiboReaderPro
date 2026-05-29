@@ -852,6 +852,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                         val selectedItemIndex =
                             pageList.indexOf(currentRoute ?: homeRoute).coerceAtLeast(0)
 
+                        // 初始加载 / 网络恢复后，如果 BBSPage 还没成功加载且没有正在恢复，
+                        // 则委托 BBSPageState 启动自动恢复，统一走 BBSPage 的 startLoading + 超时状态机。
                         LaunchedEffect(
                             bbsWebView,
                             isNetworkAvailable,
@@ -861,30 +863,11 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                             if (bbsWebView != null &&
                                 isNetworkAvailable &&
                                 !BBSPageState.hasSuccessfullyLoaded &&
-                                !BBSPageState.needsResumeRecovery
+                                !BBSPageState.needsResumeRecovery &&
+                                !BBSPageState.isAutoRecoveringBeforeError &&
+                                !BBSPageState.showLoadError
                             ) {
-                                try {
-                                    CookieManager.getInstance()
-                                        .setCookie("https://bbs.yamibo.com", GlobalData.currentCookie)
-                                    CookieManager.getInstance().flush()
-                                    val targetUrl =
-                                        BBSPageState.currentUrl?.takeIf { BBSPageState.isUsableBbsUrl(it) }
-                                            ?: "https://bbs.yamibo.com/forum.php?mobile=2"
-                                    bbsWebView.loadUrl(targetUrl)
-                                    BBSPageState.isLoading = true
-                                    launch {
-                                        delay(18000)
-                                        if (BBSPageState.isLoading) {
-                                            bbsWebView.stopLoading()
-                                            BBSPageState.isErrorState = true
-                                            BBSPageState.isLoading = false
-                                            BBSPageState.showLoadError = true
-                                            BBSPageState.requestResumeRecovery()
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
+                                BBSPageState.requestRecoveryBeforeShowingError()
                             }
                         }
 
