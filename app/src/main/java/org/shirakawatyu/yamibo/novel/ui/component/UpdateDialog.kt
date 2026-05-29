@@ -109,8 +109,6 @@ fun UpdateDialog(
                     }
 
                     if (!canInstallApk(context)) {
-                        Toast.makeText(context, "请允许安装未知来源应用，授权后请重新检查更新", Toast.LENGTH_LONG).show()
-                        onDismiss()
                         openInstallPermissionSettings(context)
                         return@Button
                     }

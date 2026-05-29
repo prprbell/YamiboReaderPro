@@ -706,7 +706,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                 val lastCheckTime = suspendCancellableCoroutine<Long> { cont ->
                     SettingsUtil.getLastUpdateCheckTime { cont.resume(it) }
                 }
-                if (System.currentTimeMillis() - lastCheckTime < 12 * 60 * 60 * 1000L) {
+                if (System.currentTimeMillis() - lastCheckTime < 60 * 60 * 1000L) {
                     return@launch
                 }
                 val info = UpdateManager.checkForUpdate()
