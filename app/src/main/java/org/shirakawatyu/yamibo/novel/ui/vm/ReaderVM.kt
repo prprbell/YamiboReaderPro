@@ -60,7 +60,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private val _uiState = MutableStateFlow(ReaderState())
     val uiState = _uiState.asStateFlow()
     private val _currentPercentage = MutableStateFlow(0f)
-    val currentPercentage = _currentPercentage.asStateFlow()
+    val currentPercentage =  _currentPercentage.asStateFlow()
 
     private var pagerState: PagerState? = null
     private var maxHeight = 0.dp
