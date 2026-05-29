@@ -351,11 +351,11 @@ fun ReaderPage(
                     isFirstEnter = false
                 } else {
                     if (isFirstEnter) {
-                        delay(100)
+                        delay(180)
                         isFirstEnter = false
                     }
                     windowController.hide(WindowInsetsCompat.Type.systemBars())
-                    delay(300)
+                    delay(220)
                     window.statusBarColor = android.graphics.Color.BLACK
                     windowController.isAppearanceLightStatusBars = false
                 }
