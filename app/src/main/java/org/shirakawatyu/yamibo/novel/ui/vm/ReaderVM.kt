@@ -20,6 +20,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +50,7 @@ import org.shirakawatyu.yamibo.novel.util.reader.HTMLUtil
 import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
 import org.shirakawatyu.yamibo.novel.util.reader.TextUtil
 import org.shirakawatyu.yamibo.novel.util.reader.ValueUtil
+import java.util.concurrent.Executors
 import kotlin.math.ceil
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -69,6 +71,14 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private var pageEnterTime = 0L
     private var loadJob: Job? = null
     private var loadRequestId = 0
+
+    /**
+     * Reader 的解析 / 简繁转换 / 分页都属于 CPU 密集任务。
+     * 使用单独的单线程 dispatcher，避免在切换简繁或大幅改字体时把 Default 线程池打满，影响动画帧。
+     */
+    private val readerLayoutDispatcher = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "ReaderLayout").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
 
     var url by mutableStateOf("")
         private set
@@ -92,6 +102,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private var viewBeingPreloaded = 0
     private var nextHtmlList: List<Content>? = null
     private var nextChapterList: List<ChapterInfo>? = null
+    private var nextRawHtml: String? = null
 
     // ==================== 缓存相关 ====================
     private val diskCacheRetries = mutableMapOf<Int, Int>()
@@ -119,8 +130,9 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private var currentAsciiRatios: FloatArray = FloatArray(128) { 0.5f }
 
     /**
-     * rawContentList 的版本号。每次 parseHtmlToContent 成功/失败后都会递增。
-     * 布局缓存只认版本号，不直接认 HTML 字符串，避免长文本 key 造成额外内存压力。
+     * rawContentList 的稳定版本号。
+     * 版本号由 HTML、网页页码、简繁模式、图片模式计算，不再每次 parse 都递增。
+     * 这样切回已解析过的简繁模式或图片模式时，layoutCache 才有机会命中。
      */
     private var rawContentListVersion: Long = 0L
 
@@ -129,6 +141,21 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
      * 因为尾部内容依赖 nextHtmlList 和 currentView/maxWebView，是动态状态。
      */
     private val layoutCache = LruCache<LayoutCacheKey, List<Content>>(12)
+
+    /**
+     * 缓存 HTML -> Content 的解析结果。
+     * 这层缓存能跳过 Jsoup、HTMLUtil 和 OpenCC，尤其对“原文/繁体/简体”来回切换很有用。
+     */
+    private val parsedContentCache = LruCache<ParsedContentCacheKey, List<Content>>(12)
+
+    private data class ParsedContentCacheKey(
+        val url: String,
+        val webPage: Int,
+        val htmlLength: Int,
+        val htmlHash: Int,
+        val translationMode: Int,
+        val loadImages: Boolean
+    )
 
     private data class LayoutCacheKey(
         val url: String,
@@ -143,6 +170,19 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         val fontFamily: Int,
         val translationMode: Int,
         val loadImages: Boolean
+    )
+
+    /**
+     * 重新分页时用的阅读位置锚点。
+     * - chapterIndex：用章节序号，而不是章节标题，避免简繁转换后标题变化导致匹配失败。
+     * - charOffsetInChapter / chapterProgress：字体、行高、padding 改变后，按章节内文本进度恢复位置。
+     * - totalProgress：极端情况下的兜底。
+     */
+    private data class PageAnchor(
+        val totalProgress: Float,
+        val chapterIndex: Int?,
+        val chapterProgress: Float,
+        val charOffsetInChapter: Int
     )
 
     data class CacheProgress(
@@ -472,8 +512,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 currentView = view
             )
             _currentPercentage.value = 0f
+            currentRawHtml = nextRawHtml ?: currentRawHtml
             nextHtmlList = null
             nextChapterList = null
+            nextRawHtml = null
             latestPage = 0
             showLoadingScrim = false
             return
@@ -482,6 +524,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         // 清理预加载状态
         nextHtmlList = null
         nextChapterList = null
+        nextRawHtml = null
         isPreloading = false
 
         if (forceReload) CacheUtil.clearCacheEntry(url, view)
@@ -598,8 +641,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 FavoriteUtil.checkAndUpdateTitleSuspend(url, title)
             }
 
-            val (passages, chapters) = withContext(Dispatchers.Default) {
-                parseHtmlToContent(html)
+            val (passages, chapters) = withContext(readerLayoutDispatcher) {
+                parseHtmlToContent(html, targetView)
                 paginateContent(isFromCache, targetView)
             }
 
@@ -616,6 +659,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 }
                 nextHtmlList = passages
                 nextChapterList = chapters
+                nextRawHtml = html
                 val currentList = _uiState.value.htmlList
                 if (currentList.isNotEmpty()) {
                     val modified = currentList.dropLast(1).toMutableList().also {
@@ -668,6 +712,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         viewModelScope.launch {
             nextHtmlList = null
             nextChapterList = null
+            nextRawHtml = null
             isPreloading = false
             layoutCache.evictAll()
             showLoadingScrim = true
@@ -710,6 +755,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         if (isPreloading || targetView > maxView || _isDiskCaching.value) return
         isPreloading = true
         viewBeingPreloaded = targetView
+        nextRawHtml = null
         viewModelScope.launch {
             try {
                 val authorId = currentAuthorId ?: return@launch
@@ -722,8 +768,12 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
                 CacheUtil.saveCache(url, CacheData(cachedPageNum = targetView, htmlContent = combinedHtml, maxPageNum = maxPageCalculated, authorId = authorId))
 
-                val (passages, chapters) = withContext(Dispatchers.Default) {
-                    val preloadContent = parseHtmlToContentList(combinedHtml)
+                val (passages, chapters) = withContext(readerLayoutDispatcher) {
+                    val preloadContent = parseHtmlToContentList(
+                        html = combinedHtml,
+                        translationMode = _uiState.value.translationMode,
+                        loadImages = _uiState.value.loadImages
+                    )
                     paginateContent(
                         isFromCache = false,
                         targetWebPage = targetView,
@@ -734,6 +784,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
                 nextHtmlList = passages
                 nextChapterList = chapters
+                nextRawHtml = combinedHtml
 
                 val currentList = _uiState.value.htmlList
                 if (currentList.isNotEmpty()) {
@@ -753,14 +804,55 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         return url.substringAfter("tid=").substringBefore("&")
     }
 
-    private fun parseHtmlToContent(html: String) {
-        rawContentList.clear()
-        rawContentList.addAll(parseHtmlToContentList(html))
-        // 即使解析为空，也要提升版本，避免复用上一页的布局缓存。
-        rawContentListVersion++
+    private fun parsedRawVersion(
+        targetView: Int,
+        html: String,
+        translationMode: Int,
+        loadImages: Boolean
+    ): Long {
+        var result = targetView.toLong()
+        result = result * 31 + html.length
+        result = result * 31 + html.hashCode()
+        result = result * 31 + translationMode
+        result = result * 31 + if (loadImages) 1 else 0
+        return result
     }
 
-    private fun parseHtmlToContentList(html: String): List<Content> {
+    private fun parseHtmlToContent(
+        html: String,
+        targetView: Int = _uiState.value.currentView
+    ) {
+        val state = _uiState.value
+        val cacheKey = ParsedContentCacheKey(
+            url = url,
+            webPage = targetView,
+            htmlLength = html.length,
+            htmlHash = html.hashCode(),
+            translationMode = state.translationMode,
+            loadImages = state.loadImages
+        )
+
+        val parsed = parsedContentCache.get(cacheKey) ?: parseHtmlToContentList(
+            html = html,
+            translationMode = state.translationMode,
+            loadImages = state.loadImages
+        ).also { parsedContentCache.put(cacheKey, it) }
+
+        rawContentList.clear()
+        rawContentList.addAll(parsed)
+        rawContentListVersion = parsedRawVersion(
+            targetView = targetView,
+            html = html,
+            translationMode = state.translationMode,
+            loadImages = state.loadImages
+        )
+    }
+
+    private fun parseHtmlToContentList(
+        html: String,
+        translationMode: Int,
+        loadImages: Boolean
+    ): List<Content> {
         val result = ArrayList<Content>()
         val doc = Jsoup.parse(html)
         doc.getElementsByTag("i").forEach { it.remove() }
@@ -773,7 +865,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         val combinedText = rawTexts.joinToString(delimiter)
 
         val convertedCombinedText = if (combinedText.isNotBlank()) {
-            when (_uiState.value.translationMode) {
+            when (translationMode) {
                 1 -> ChineseConvertUtil.toSimplified(combinedText, applicationContext)
                 2 -> ChineseConvertUtil.toTraditional(combinedText, applicationContext)
                 else -> combinedText
@@ -798,18 +890,19 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 result.add(Content(rawText, ContentType.TEXT, currentValidTitle))
             }
 
-            if (_uiState.value.loadImages) {
+            if (loadImages) {
                 for (element in node.getElementsByTag("img")) {
                     var src = element.attr("zoomfile")
                     if (src.isBlank()) src = element.attr("file")
                     if (src.isBlank()) src = element.attr("src")
                     if (src.isBlank() || src.contains("smiley/")) continue
 
-                    if (!src.startsWith("http://") && !src.startsWith("https://")) {
-                        result.add(Content("${RequestConfig.BASE_URL}/${src}", ContentType.IMG, currentValidTitle))
+                    val normalizedSrc = if (!src.startsWith("http://") && !src.startsWith("https://")) {
+                        "${RequestConfig.BASE_URL}/${src}"
                     } else {
-                        result.add(Content(src, ContentType.IMG, currentValidTitle))
+                        src
                     }
+                    result.add(Content(normalizedSrc, ContentType.IMG, currentValidTitle))
                 }
             }
         }
@@ -818,7 +911,13 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     }
 
     private fun preloadRawVersion(targetView: Int, html: String): Long {
-        return (targetView.toLong() shl 32) xor html.hashCode().toLong()
+        val state = _uiState.value
+        return parsedRawVersion(
+            targetView = targetView,
+            html = html,
+            translationMode = state.translationMode,
+            loadImages = state.loadImages
+        )
     }
 
     private fun paginateContent(
@@ -958,8 +1057,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 currentView = newCurrentView
             )
             _currentPercentage.value = 0f
+            currentRawHtml = nextRawHtml ?: currentRawHtml
             nextHtmlList = null
             nextChapterList = null
+            nextRawHtml = null
             latestPage = 0
             showLoadingScrim = false
             return
@@ -1069,6 +1170,141 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         return (pageContentHeightPx / lineHeightPx).toInt().coerceAtLeast(1)
     }
 
+    private fun contentCharLength(content: Content): Int {
+        return if (content.type == ContentType.TEXT) {
+            content.data.length.coerceAtLeast(1)
+        } else {
+            // 图片也占一个位置，避免“章节里全是图片”时进度无法前进。
+            1
+        }
+    }
+
+    private fun contentEndExclusive(pages: List<Content>): Int {
+        val footerIndex = pages.indexOfFirst { it.chapterTitle == "footer" }
+        return if (footerIndex >= 0) footerIndex else pages.size
+    }
+
+    private fun capturePageAnchor(currentPage: Int): PageAnchor {
+        val state = _uiState.value
+        val pages = state.htmlList
+        val contentEnd = contentEndExclusive(pages)
+        val totalItems = contentEnd.coerceAtLeast(1)
+        val safePage = currentPage.coerceIn(0, (totalItems - 1).coerceAtLeast(0))
+
+        val chapterIndex = state.chapterList
+            .indexOfLast { it.startIndex <= safePage }
+            .takeIf { it >= 0 }
+
+        if (chapterIndex == null) {
+            return PageAnchor(
+                totalProgress = safePage.toFloat() / totalItems.toFloat(),
+                chapterIndex = null,
+                chapterProgress = 0f,
+                charOffsetInChapter = 0
+            )
+        }
+
+        val chapterStart = state.chapterList[chapterIndex].startIndex
+        val chapterEndExclusive = state.chapterList
+            .getOrNull(chapterIndex + 1)
+            ?.startIndex
+            ?: contentEnd
+
+        val safeChapterStart = chapterStart.coerceIn(0, contentEnd)
+        val safeChapterEnd = chapterEndExclusive.coerceIn(safeChapterStart, contentEnd)
+
+        var totalCharsInChapter = 0
+        var charsBeforeCurrentPage = 0
+
+        for (i in safeChapterStart until safeChapterEnd) {
+            val len = contentCharLength(pages[i])
+            if (i < safePage) charsBeforeCurrentPage += len
+            totalCharsInChapter += len
+        }
+
+        val chapterProgress = if (totalCharsInChapter > 0) {
+            charsBeforeCurrentPage.toFloat() / totalCharsInChapter.toFloat()
+        } else {
+            0f
+        }
+
+        return PageAnchor(
+            totalProgress = safePage.toFloat() / totalItems.toFloat(),
+            chapterIndex = chapterIndex,
+            chapterProgress = chapterProgress.coerceIn(0f, 1f),
+            charOffsetInChapter = charsBeforeCurrentPage
+        )
+    }
+
+    private fun resolvePageAnchor(
+        anchor: PageAnchor,
+        newPages: List<Content>,
+        newChapters: List<ChapterInfo>
+    ): Int {
+        val newPageCount = newPages.size.coerceAtLeast(1)
+        val maxIndex = (newPageCount - 1).coerceAtLeast(0)
+
+        val contentEnd = contentEndExclusive(newPages)
+        val chapterIndex = anchor.chapterIndex
+        if (chapterIndex != null && chapterIndex in newChapters.indices) {
+            val chapterStart = newChapters[chapterIndex].startIndex.coerceIn(0, contentEnd)
+            val chapterEndExclusive = newChapters
+                .getOrNull(chapterIndex + 1)
+                ?.startIndex
+                ?: contentEnd
+            val chapterEnd = chapterEndExclusive.coerceIn(chapterStart, contentEnd)
+
+            var totalCharsInNewChapter = 0
+            for (i in chapterStart until chapterEnd) {
+                totalCharsInNewChapter += contentCharLength(newPages[i])
+            }
+
+            val targetCharOffset = when {
+                anchor.charOffsetInChapter > 0 -> anchor.charOffsetInChapter.coerceAtMost(totalCharsInNewChapter)
+                totalCharsInNewChapter > 0 -> (anchor.chapterProgress * totalCharsInNewChapter).toInt()
+                else -> 0
+            }
+
+            if (targetCharOffset <= 0) return chapterStart.coerceIn(0, maxIndex)
+
+            var accumulated = 0
+            for (i in chapterStart until chapterEnd) {
+                accumulated += contentCharLength(newPages[i])
+                if (accumulated >= targetCharOffset) {
+                    return i.coerceIn(0, maxIndex)
+                }
+            }
+
+            return chapterStart.coerceIn(0, maxIndex)
+        }
+
+        return (anchor.totalProgress * newPageCount)
+            .toInt()
+            .coerceIn(0, maxIndex)
+    }
+
+    private fun applyRepaginatedContent(
+        newPages: List<Content>,
+        newChapters: List<ChapterInfo>,
+        pageToScrollTo: Int
+    ) {
+        val newPageCount = newPages.size.coerceAtLeast(1)
+        val safePage = pageToScrollTo.coerceIn(0, (newPageCount - 1).coerceAtLeast(0))
+        val newPercent = (safePage.toFloat() / newPageCount.toFloat()) * 100f
+
+        ignoreFirstFakeZero = safePage > 0
+        _uiState.value = _uiState.value.copy(
+            htmlList = newPages,
+            chapterList = newChapters,
+            initPage = safePage,
+            isError = false
+        )
+        _currentPercentage.value = newPercent
+        latestPage = safePage
+        showLoadingScrim = false
+        isTransitioning = false
+    }
+
     private fun saveCurrentSettings() {
         val state = _uiState.value
         val backgroundColorString = state.backgroundColor?.let { String.format("#%08X", it.toArgb()) }
@@ -1087,43 +1323,18 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     }
 
     fun saveSettings(currentPage: Int) {
+        val anchor = capturePageAnchor(currentPage)
         saveCurrentSettings()
         viewModelScope.launch {
             showLoadingScrim = true
+            kotlinx.coroutines.yield()
 
-            val realPageCount = _uiState.value.htmlList.size
-            val oldPageCount = realPageCount.coerceAtLeast(1)
-            val oldPercent = currentPage.toFloat() / oldPageCount
-
-            val (oldChapterTitle, oldItemInChapter) = if (currentPage in 0..<realPageCount) {
-                val oldChapterTitle = _uiState.value.htmlList[currentPage].chapterTitle
-                val oldChapterStartIndex = _uiState.value.chapterList.find { it.title == oldChapterTitle }?.startIndex ?: 0
-                val oldItemInChapter = (currentPage - oldChapterStartIndex).coerceAtLeast(0)
-                Pair(oldChapterTitle, oldItemInChapter)
-            } else Pair(null, 0)
-
-            val (newPages, newChapters) = withContext(Dispatchers.Default) {
+            val (newPages, newChapters) = withContext(readerLayoutDispatcher) {
                 paginateContent()
             }
 
-            val newPageCount = newPages.size.coerceAtLeast(1)
-            val pageToScrollTo = if (oldChapterTitle != null) {
-                val newChapterStartIndex = newChapters.find { it.title == oldChapterTitle }?.startIndex ?: 0
-                (newChapterStartIndex + oldItemInChapter).coerceIn(0, (newPageCount - 1).coerceAtLeast(0))
-            } else {
-                (oldPercent * newPageCount).toInt().coerceIn(0, (newPageCount - 1).coerceAtLeast(0))
-            }
-
-            val newPercent = (pageToScrollTo.toFloat() / newPageCount) * 100f
-            _uiState.value = _uiState.value.copy(
-                htmlList = newPages,
-                chapterList = newChapters,
-                initPage = pageToScrollTo,
-                isError = false
-            )
-            _currentPercentage.value = newPercent
-            showLoadingScrim = false
-            isTransitioning = false
+            val pageToScrollTo = resolvePageAnchor(anchor, newPages, newChapters)
+            applyRepaginatedContent(newPages, newChapters, pageToScrollTo)
         }
     }
 
@@ -1165,46 +1376,25 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     fun toggleLoadImages(load: Boolean) {
         if (_uiState.value.loadImages == load) return
+
+        val currentPage = latestPage
+        val anchor = capturePageAnchor(currentPage)
         _uiState.value = _uiState.value.copy(loadImages = load)
         saveCurrentSettings()
 
-        val currentPage = latestPage
         val html = currentRawHtml
         if (html != null) {
             viewModelScope.launch {
                 showLoadingScrim = true
-                val realPageCount = _uiState.value.htmlList.size
-                val oldPageCount = realPageCount.coerceAtLeast(1)
-                val oldPercent = currentPage.toFloat() / oldPageCount
-                val (oldChapterTitle, oldItemInChapter) = if (currentPage in 0..<realPageCount) {
-                    val title = _uiState.value.htmlList[currentPage].chapterTitle
-                    val startIndex = _uiState.value.chapterList.find { it.title == title }?.startIndex ?: 0
-                    Pair(title, (currentPage - startIndex).coerceAtLeast(0))
-                } else Pair(null, 0)
+                kotlinx.coroutines.yield()
 
-                val (newPages, newChapters) = withContext(Dispatchers.Default) {
-                    parseHtmlToContent(html)
+                val (newPages, newChapters) = withContext(readerLayoutDispatcher) {
+                    parseHtmlToContent(html, _uiState.value.currentView)
                     paginateContent()
                 }
 
-                val newPageCount = newPages.size.coerceAtLeast(1)
-                val pageToScrollTo = if (oldChapterTitle != null) {
-                    val newChapterStartIndex = newChapters.find { it.title == oldChapterTitle }?.startIndex ?: 0
-                    (newChapterStartIndex + oldItemInChapter).coerceIn(0, (newPageCount - 1).coerceAtLeast(0))
-                } else {
-                    (oldPercent * newPageCount).toInt().coerceIn(0, (newPageCount - 1).coerceAtLeast(0))
-                }
-
-                val newPercent = (pageToScrollTo.toFloat() / newPageCount) * 100f
-                _uiState.value = _uiState.value.copy(
-                    htmlList = newPages,
-                    chapterList = newChapters,
-                    initPage = pageToScrollTo,
-                    isError = false
-                )
-                _currentPercentage.value = newPercent
-                showLoadingScrim = false
-                isTransitioning = false
+                val pageToScrollTo = resolvePageAnchor(anchor, newPages, newChapters)
+                applyRepaginatedContent(newPages, newChapters, pageToScrollTo)
             }
         } else {
             _uiState.value = _uiState.value.copy(initPage = currentPage)
@@ -1221,13 +1411,18 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         if (initialized) saveHistory(latestPage)
         nextHtmlList = null
         nextChapterList = null
+        nextRawHtml = null
         isPreloading = false
         layoutCache.evictAll()
+        parsedContentCache.evictAll()
+        readerLayoutDispatcher.close()
         super.onCleared()
     }
 
     fun setTranslationMode(mode: Int, currentPage: Int) {
         if (_uiState.value.translationMode == mode) return
+
+        val anchor = capturePageAnchor(currentPage)
         _uiState.value = _uiState.value.copy(translationMode = mode)
         saveCurrentSettings()
 
@@ -1235,38 +1430,15 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         if (html != null) {
             viewModelScope.launch {
                 showLoadingScrim = true
-                val realPageCount = _uiState.value.htmlList.size
-                val oldPageCount = realPageCount.coerceAtLeast(1)
-                val oldPercent = currentPage.toFloat() / oldPageCount
-                val (oldChapterTitle, oldItemInChapter) = if (currentPage in 0..<realPageCount) {
-                    val title = _uiState.value.htmlList[currentPage].chapterTitle
-                    val startIndex = _uiState.value.chapterList.find { it.title == title }?.startIndex ?: 0
-                    Pair(title, (currentPage - startIndex).coerceAtLeast(0))
-                } else Pair(null, 0)
+                kotlinx.coroutines.yield()
 
-                val (newPages, newChapters) = withContext(Dispatchers.Default) {
-                    parseHtmlToContent(html)
+                val (newPages, newChapters) = withContext(readerLayoutDispatcher) {
+                    parseHtmlToContent(html, _uiState.value.currentView)
                     paginateContent()
                 }
 
-                val newPageCount = newPages.size.coerceAtLeast(1)
-                val pageToScrollTo = if (oldChapterTitle != null) {
-                    val newChapterStartIndex = newChapters.find { it.title == oldChapterTitle }?.startIndex ?: 0
-                    (newChapterStartIndex + oldItemInChapter).coerceIn(0, (newPageCount - 1).coerceAtLeast(0))
-                } else {
-                    (oldPercent * newPageCount).toInt().coerceIn(0, (newPageCount - 1).coerceAtLeast(0))
-                }
-
-                val newPercent = (pageToScrollTo.toFloat() / newPageCount) * 100f
-                _uiState.value = _uiState.value.copy(
-                    htmlList = newPages,
-                    chapterList = newChapters,
-                    initPage = pageToScrollTo,
-                    isError = false
-                )
-                _currentPercentage.value = newPercent
-                showLoadingScrim = false
-                isTransitioning = false
+                val pageToScrollTo = resolvePageAnchor(anchor, newPages, newChapters)
+                applyRepaginatedContent(newPages, newChapters, pageToScrollTo)
             }
         }
     }

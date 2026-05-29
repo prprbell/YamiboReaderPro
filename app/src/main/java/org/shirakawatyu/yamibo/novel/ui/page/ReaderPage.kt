@@ -626,27 +626,27 @@ fun ReaderPage(
                             }
                         } else if (hasTriggeredLoad) {
                             if (hasRealContent) {
-                                val dataKey =
-                                    "${uiState.htmlList.hashCode()}_${uiState.initPage}_${uiState.isVerticalMode}"
-                                var isInitialScrollDone by remember(uiState.currentView) {
-                                    mutableStateOf(false)
+                                val scrollTargetKey =
+                                    "${uiState.currentView}_${uiState.initPage}_${uiState.isVerticalMode}_${uiState.htmlList.size}"
+                                var appliedScrollTargetKey by remember {
+                                    mutableStateOf<String?>(null)
                                 }
-                                LaunchedEffect(dataKey) {
-                                    if (!isInitialScrollDone) {
+                                LaunchedEffect(scrollTargetKey, hasRealContent) {
+                                    if (hasRealContent && appliedScrollTargetKey != scrollTargetKey) {
                                         if (uiState.isVerticalMode) {
-                                            if (lazyListState.firstVisibleItemIndex != uiState.initPage) lazyListState.scrollToItem(
-                                                uiState.initPage
-                                            )
+                                            if (lazyListState.firstVisibleItemIndex != uiState.initPage) {
+                                                lazyListState.scrollToItem(uiState.initPage)
+                                            }
                                         } else {
-                                            if (pagerState.pageCount > uiState.initPage && pagerState.currentPage != uiState.initPage) pagerState.scrollToPage(
-                                                uiState.initPage
-                                            )
+                                            if (pagerState.pageCount > uiState.initPage && pagerState.currentPage != uiState.initPage) {
+                                                pagerState.scrollToPage(uiState.initPage)
+                                            }
                                         }
-                                        isInitialScrollDone = true
+                                        appliedScrollTargetKey = scrollTargetKey
                                     }
                                 }
                                 val contentAlpha by animateFloatAsState(
-                                    targetValue = if (isInitialScrollDone) 1f else 0f,
+                                    targetValue = if (appliedScrollTargetKey == scrollTargetKey) 1f else 0f,
                                     animationSpec = tween(durationMillis = 150),
                                     label = "contentAlphaFadeIn"
                                 )
@@ -669,7 +669,7 @@ fun ReaderPage(
                                         ) {
                                             itemsIndexed(
                                                 items = uiState.htmlList,
-                                                key = { index, item -> "${uiState.currentView}_${item.chapterTitle}_$index" }
+                                                key = { index, item -> "${uiState.currentView}_${index}_${item.type}" }
                                             ) { index, content ->
                                                 ContentViewer(
                                                     data = content,
