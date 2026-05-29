@@ -371,10 +371,11 @@ fun ReaderPage(
                 if (window != null && view != null) {
                     isExiting = true
                     view.clearFocus()
-                    navController.navigateUp()
-                } else {
-                    navController.navigateUp()
+                    val windowController = WindowCompat.getInsetsController(window, view!!)
+                    windowController.systemBarsBehavior = originalBehavior.intValue
+                    windowController.show(WindowInsetsCompat.Type.systemBars())
                 }
+                navController.navigateUp()
             }
         }
         val returnToOriginalPost: () -> Unit =
