@@ -254,7 +254,7 @@ fun ReaderPage(
             if (uiState.isVerticalMode) {
                 lazyListState.firstVisibleItemIndex.coerceIn(0, maxIndex)
             } else {
-                pagerState.currentPage.coerceIn(0, maxIndex)
+                pagerState.settledPage.coerceIn(0, maxIndex)
             }
         }
     }

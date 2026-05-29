@@ -1249,7 +1249,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private fun resolvePageAnchor(
         anchor: PageAnchor,
         newPages: List<Content>,
-        newChapters: List<ChapterInfo>
+        newChapters: List<ChapterInfo>,
+        preferChapterProgress: Boolean = false
     ): Int {
         val newPageCount = newPages.size.coerceAtLeast(1)
         val maxIndex = (newPageCount - 1).coerceAtLeast(0)
@@ -1269,23 +1270,34 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 totalCharsInNewChapter += contentCharLength(newPages[i])
             }
 
-            val targetCharOffset = when {
-                anchor.charOffsetInChapter > 0 -> anchor.charOffsetInChapter.coerceAtMost(totalCharsInNewChapter)
-                totalCharsInNewChapter > 0 -> (anchor.chapterProgress * totalCharsInNewChapter).toInt()
-                else -> 0
+            if (totalCharsInNewChapter <= 0) {
+                return chapterStart.coerceIn(0, maxIndex)
             }
 
-            if (targetCharOffset <= 0) return chapterStart.coerceIn(0, maxIndex)
+            val rawTargetCharOffset = when {
+                preferChapterProgress -> {
+                    (anchor.chapterProgress * totalCharsInNewChapter).toInt()
+                }
+                anchor.charOffsetInChapter > 0 -> {
+                    anchor.charOffsetInChapter
+                }
+                else -> {
+                    (anchor.chapterProgress * totalCharsInNewChapter).toInt()
+                }
+            }
+
+            val targetCharOffset = rawTargetCharOffset
+                .coerceIn(0, (totalCharsInNewChapter - 1).coerceAtLeast(0))
 
             var accumulated = 0
             for (i in chapterStart until chapterEnd) {
                 accumulated += contentCharLength(newPages[i])
-                if (accumulated >= targetCharOffset) {
+                if (accumulated > targetCharOffset) {
                     return i.coerceIn(0, maxIndex)
                 }
             }
 
-            return chapterStart.coerceIn(0, maxIndex)
+            return (chapterEnd - 1).coerceIn(0, maxIndex)
         }
 
         return (anchor.totalProgress * newPageCount)
@@ -1447,7 +1459,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     paginateContent()
                 }
 
-                val pageToScrollTo = resolvePageAnchor(anchor, newPages, newChapters)
+                val pageToScrollTo = resolvePageAnchor(anchor, newPages, newChapters, preferChapterProgress = true)
                 applyRepaginatedContent(newPages, newChapters, pageToScrollTo)
             }
         }
