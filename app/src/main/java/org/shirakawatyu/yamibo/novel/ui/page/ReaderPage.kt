@@ -292,7 +292,13 @@ fun ReaderPage(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             onDispose {
                 windowController.systemBarsBehavior = originalBehavior.intValue
-                windowController.show(WindowInsetsCompat.Type.systemBars())
+
+                view.postDelayed({
+                    try {
+                        windowController.show(WindowInsetsCompat.Type.systemBars())
+                    } catch (_: Exception) {
+                    }
+                }, 180L)
             }
         }
     }
@@ -371,9 +377,6 @@ fun ReaderPage(
                 if (window != null && view != null) {
                     isExiting = true
                     view.clearFocus()
-                    val windowController = WindowCompat.getInsetsController(window, view!!)
-                    windowController.systemBarsBehavior = originalBehavior.intValue
-                    windowController.show(WindowInsetsCompat.Type.systemBars())
                 }
                 navController.navigateUp()
             }
