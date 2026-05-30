@@ -5,6 +5,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import java.util.concurrent.atomic.AtomicLong
+import androidx.core.net.toUri
 
 object StaticAssetProxy {
 
@@ -78,7 +79,7 @@ object StaticAssetProxy {
 
     fun isExpectedStaticMime(url: String, mimeType: String?): Boolean {
         val path = runCatching {
-            Uri.parse(url).path.orEmpty().lowercase()
+            url.toUri().path.orEmpty().lowercase()
         }.getOrDefault("")
         val mime = mimeType.orEmpty().lowercase().substringBefore(";").trim()
 
