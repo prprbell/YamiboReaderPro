@@ -484,7 +484,6 @@ fun BottomNavBar(
                             val touchedIndex = (startOffset.x / (size.width / pageList.size.toFloat())).toInt().coerceIn(0, pageList.lastIndex)
                             val targetRoute = pageList[touchedIndex]
 
-                            // 【核心改动】：按下时动态根据当前 baseRoute 与触摸的图标 targetRoute 共同计算可用动作
                             val actionsForTouch = getQuickActions(baseRoute, targetRoute, isDarkMode)
 
                             isNavBarLongPressAccepted = actionsForTouch.isNotEmpty() && targetRoute != "FavoritePage"

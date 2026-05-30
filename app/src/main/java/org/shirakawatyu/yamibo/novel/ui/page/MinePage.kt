@@ -1311,7 +1311,7 @@ fun MinePage(
                 )
         ) {
             AndroidView(
-                modifier = Modifier,
+                modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
                     FrameLayout(ctx).apply {
                         layoutParams = ViewGroup.LayoutParams(
