@@ -95,6 +95,7 @@ import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import java.util.concurrent.atomic.AtomicInteger
+import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 
 class FullscreenApiOther {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -452,6 +453,8 @@ fun OtherWebPage(
                         )
                     }
                 }
+
+                StaticAssetProxy.tryProxySafeStaticAsset(request)?.let { return it }
 
                 val isImage = accept.contains("image/", ignoreCase = true) ||
                         urlStr.contains(

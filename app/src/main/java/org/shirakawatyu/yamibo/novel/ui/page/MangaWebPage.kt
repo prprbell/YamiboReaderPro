@@ -98,6 +98,7 @@ import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
+import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 
 class FullscreenApiManga {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -488,6 +489,8 @@ fun MangaWebPage(
                         )
                     }
                 }
+
+                StaticAssetProxy.tryProxySafeStaticAsset(request)?.let { return it }
 
                 val isImage = accept.contains("image/", ignoreCase = true) ||
                         urlStr.contains(

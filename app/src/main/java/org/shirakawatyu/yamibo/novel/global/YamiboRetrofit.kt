@@ -129,6 +129,9 @@ class YamiboRetrofit {
 
         private val currentPcUa = pcUaList.random()
 
+        private val staticResourceRegex =
+            Regex("\\.(jpg|jpeg|png|webp|gif|js|css|woff2?|ttf|eot|svg|ico)(\\?.*)?\$", RegexOption.IGNORE_CASE)
+
         private val acceptLanguage by lazy {
             val locale = Locale.getDefault()
             "${locale.language}-${locale.country},${locale.language};q=0.9,en-US;q=0.8,en;q=0.7"
@@ -274,9 +277,8 @@ class YamiboRetrofit {
                 val isForumImage = urlStr.contains("attachment/forum", ignoreCase = true)
 
                 if (checkedResponse.isSuccessful) {
-                    val isStaticResource = urlStr.contains(
-                        Regex("\\.(jpg|jpeg|png|webp|gif|js|css|woff2?|ttf|svg|ico)(\\?.*)?\$", RegexOption.IGNORE_CASE)
-                    )
+                    val isStaticResource = urlStr.contains(staticResourceRegex)
+
                     if (isStaticResource) {
                         if (isForumImage) {
                             val maxAge = 60 * 60 * 2

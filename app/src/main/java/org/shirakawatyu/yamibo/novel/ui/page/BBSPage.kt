@@ -107,6 +107,7 @@ import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
+import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 
 class FullscreenApi {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -304,6 +305,8 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
                 )
             }
         }
+
+        StaticAssetProxy.tryProxySafeStaticAsset(request)?.let { return it }
 
         val isImage = accept.contains("image/", ignoreCase = true) ||
                 urlStr.contains(IMAGE_EXT_REGEX) ||

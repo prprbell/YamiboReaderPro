@@ -118,6 +118,7 @@ import java.io.ByteArrayInputStream
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
+import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 
 private var mineWebViewPauseRunnable: Runnable? = null
 private val mineWebViewHandler = Handler(Looper.getMainLooper())
@@ -1014,6 +1015,8 @@ fun MinePage(
                         )
                     }
                 }
+
+                StaticAssetProxy.tryProxySafeStaticAsset(request)?.let { return it }
 
                 val isImage = accept.contains("image/", ignoreCase = true) ||
                         urlStr.contains(
