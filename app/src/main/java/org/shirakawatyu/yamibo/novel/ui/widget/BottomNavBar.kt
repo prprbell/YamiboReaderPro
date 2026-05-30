@@ -481,8 +481,7 @@ fun BottomNavBar(
                     detectDragGesturesAfterLongPress(
                         onDragStart = { startOffset ->
                             if (isExecuting) return@detectDragGesturesAfterLongPress
-                            val tabWidthPx = size.width / pageList.size.toFloat()
-                            val touchedIndex = (startOffset.x / tabWidthPx).toInt().coerceIn(0, pageList.lastIndex)
+                            val touchedIndex = (startOffset.x / (size.width / pageList.size.toFloat())).toInt().coerceIn(0, pageList.lastIndex)
                             val targetRoute = pageList[touchedIndex]
 
                             val actionsForTouch = getQuickActions(baseRoute, targetRoute, isDarkMode)
@@ -490,16 +489,11 @@ fun BottomNavBar(
                             isNavBarLongPressAccepted = actionsForTouch.isNotEmpty() && targetRoute != "FavoritePage"
                             if (!isNavBarLongPressAccepted) return@detectDragGesturesAfterLongPress
 
-                            activeQuickActions = actionsForTouch
+                            activeQuickActions = actionsForTouch // 动态绑定当前动作集
                             cancelPendingReset()
                             HapticUtil.performLongPress(view)
                             pressedItemIndex = touchedIndex
                             resetGestureState()
-
-                            val tabCenterX = tabWidthPx * (touchedIndex + 0.5f)
-                            dragOffsetX = startOffset.x - tabCenterX
-                            dragOffsetY = startOffset.y - size.height
-
                             showActionSheet = true
                             coroutineScope.launch { rotationAnim.snapTo(0f) }
                         },
