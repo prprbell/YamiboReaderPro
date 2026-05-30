@@ -16,6 +16,20 @@ object BBSPageState {
     var currentUrl by mutableStateOf<String?>(null)
     var pageTitle by mutableStateOf("")
 
+    // 首屏骨架屏交接状态：不移除 MainActivity 或 BBSPage 任意一方的骨架屏，
+    // 只确保 MainActivity 首屏骨架在 BBSPage 内部骨架/容器接手后再退出，避免中间空白或闪烁。
+    var isBbsContainerMounted by mutableStateOf(false)
+        private set
+    var isBbsLoadingCoverMounted by mutableStateOf(false)
+        private set
+    var hasMainFrameCommitted by mutableStateOf(false)
+        private set
+    var hasRequestedInitialLoad by mutableStateOf(false)
+
+    val isReadyToTakeInitialSkeleton: Boolean
+        get() = isBbsContainerMounted &&
+                (isBbsLoadingCoverMounted || hasSuccessfullyLoaded || showLoadError)
+
     var lastLoginState: Boolean? = null
     var hasSuccessfullyLoaded by mutableStateOf(false)
     var fullscreenApi: FullscreenApi? = null
@@ -26,6 +40,60 @@ object BBSPageState {
     var isAutoRecoveringBeforeError by mutableStateOf(false)
     var autoRecoveryFailed by mutableStateOf(false)
     var autoRecoveryToken by mutableStateOf(0)
+
+    fun resetForNewBbsWebView() {
+        isLoading = true
+        showLoadError = false
+        currentUrl = null
+        pageTitle = ""
+        hasSuccessfullyLoaded = false
+        isErrorState = false
+        isAutoRecoveringBeforeError = false
+        autoRecoveryFailed = false
+        hasMainFrameCommitted = false
+        hasRequestedInitialLoad = false
+        resetInitialSkeletonHandoff()
+    }
+
+    fun resetInitialSkeletonHandoff() {
+        isBbsContainerMounted = false
+        isBbsLoadingCoverMounted = false
+    }
+
+    fun markBbsContainerMounted() {
+        isBbsContainerMounted = true
+    }
+
+    fun markBbsLoadingCoverMounted() {
+        isBbsLoadingCoverMounted = true
+    }
+
+    fun markMainFrameLoadStarted(url: String?) {
+        currentUrl = url
+        isLoading = true
+        showLoadError = false
+        isErrorState = false
+        hasMainFrameCommitted = false
+    }
+
+    fun markMainFrameCommitted(url: String?, title: String?) {
+        if (isUsableBbsUrl(url)) {
+            currentUrl = url
+        }
+        pageTitle = title.orEmpty()
+        hasMainFrameCommitted = true
+    }
+
+    fun markLoadSucceeded(url: String?) {
+        isLoading = false
+        isErrorState = false
+        showLoadError = false
+        finishRecoveryBeforeShowingError()
+        if (isUsableBbsUrl(url)) {
+            currentUrl = url
+            hasSuccessfullyLoaded = true
+        }
+    }
 
     fun requestRecoveryBeforeShowingError() {
         isAutoRecoveringBeforeError = true

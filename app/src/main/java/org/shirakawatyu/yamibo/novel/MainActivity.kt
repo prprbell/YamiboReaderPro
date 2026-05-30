@@ -164,6 +164,22 @@ class MainActivity : ComponentActivity() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 super.onProgressChanged(view, newProgress)
                 GlobalData.webProgress.value = newProgress
+
+                // BBSPage 的骨架屏不能只依赖 onPageFinished。弱网/重定向下页面已经可见且进度 100，
+                // 但 onPageFinished 可能被旧的 activeMainFrameUrl 判断吞掉，导致骨架屏一直盖住页面。
+                if (view != null &&
+                    view === bbsWebViewState &&
+                    newProgress >= 100 &&
+                    BBSPageState.hasMainFrameCommitted &&
+                    BBSPageState.isLoading &&
+                    !BBSPageState.isErrorState &&
+                    !BBSPageState.showLoadError
+                ) {
+                    val url = try { view.url } catch (_: Throwable) { null }
+                    if (BBSPageState.isUsableBbsUrl(url)) {
+                        BBSPageState.markLoadSucceeded(url)
+                    }
+                }
             }
 
             override fun onShowFileChooser(
@@ -336,10 +352,7 @@ class MainActivity : ComponentActivity() {
         backgroundStopJob = mainScope.launch {
             delay(900_000L) // 15分钟
             destroyBbsWebView(bbsWebViewState)
-            BBSPageState.hasSuccessfullyLoaded = false
-            BBSPageState.isLoading = false
-            BBSPageState.isErrorState = false
-            BBSPageState.showLoadError = false
+            BBSPageState.resetForNewBbsWebView()
         }
     }
 
@@ -363,13 +376,12 @@ class MainActivity : ComponentActivity() {
     private fun recreateBbsWebViewForRecovery(clearErrorState: Boolean) {
         destroyBbsWebView(bbsWebViewState)
         bbsWebViewState = createBbsWebView(this, customWebChromeClient)
-        BBSPageState.hasSuccessfullyLoaded = false
-        BBSPageState.isLoading = false
-        if (clearErrorState) {
-            BBSPageState.isErrorState = false
-            BBSPageState.showLoadError = false
+        BBSPageState.resetForNewBbsWebView()
+        if (!clearErrorState) {
+            BBSPageState.requestRecoveryBeforeShowingError()
+        } else {
+            BBSPageState.requestResumeRecovery()
         }
-        BBSPageState.requestResumeRecovery()
     }
 
     private fun destroyBbsWebView(target: WebView?) {
@@ -404,9 +416,7 @@ class MainActivity : ComponentActivity() {
 
 @SuppressLint("SetJavaScriptEnabled")
 fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): WebView {
-    BBSPageState.hasSuccessfullyLoaded = false
-    BBSPageState.isErrorState = false
-    BBSPageState.showLoadError = false
+    BBSPageState.resetForNewBbsWebView()
 
     return WebView(context).apply {
         layoutParams = ViewGroup.LayoutParams(
@@ -1493,26 +1503,66 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                     }
                                 )
                             }
+
+
+                            val keepBbsInitialSkeletonOverlay = homeRoute == "BBSPage" &&
+                                    !isRestoring &&
+                                    (currentRoute == null || currentRoute == "BBSPage") &&
+                                    !BBSPageState.isReadyToTakeInitialSkeleton
+
+                            if (keepBbsInitialSkeletonOverlay) {
+                                val splashStatusHeight = WindowInsets.statusBars
+                                    .asPaddingValues()
+                                    .calculateTopPadding()
+                                val splashStatusColor = darkThemeColor(YamiboColors.primary) { statusBar }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .zIndex(120f)
+                                ) {
+                                    Spacer(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(splashStatusHeight)
+                                            .background(splashStatusColor)
+                                            .align(Alignment.TopCenter)
+                                            .zIndex(1f)
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(
+                                                top = splashStatusHeight,
+                                                bottom = lockedNavHeight + 50.dp
+                                            )
+                                    ) {
+                                        BbsSkeletonScreen(modifier = Modifier.fillMaxSize())
+                                    }
+                                }
+                            }
                         }
                     }
                 } else {
                     val density = androidx.compose.ui.platform.LocalDensity.current.density
-                    val initStatusHeight = remember(context, density) {
+                    val initInsets = remember(context, density) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                             val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                             val insets =
                                 wm.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
                                     android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
                                 )
-                            insets.top / density
+                            Pair(insets.top / density, insets.bottom / density)
                         } else {
-                            24f
+                            Pair(24f, 0f)
                         }
                     }
 
                     val currentTopPadding =
                         WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
-                    val lockedTopPadding = maxOf(initStatusHeight, currentTopPadding).dp
+                    val currentBottomPadding =
+                        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().value
+                    val lockedTopPadding = maxOf(initInsets.first, currentTopPadding).dp
+                    val lockedBottomPadding = maxOf(initInsets.second, currentBottomPadding).dp
 
                     if (homeRoute == "BBSPage" && !isRestoring) {
                         val splashStatusColor = darkThemeColor(YamiboColors.primary) { statusBar }
@@ -1528,7 +1578,10 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .padding(top = lockedTopPadding)
+                                    .padding(
+                                        top = lockedTopPadding,
+                                        bottom = lockedBottomPadding + 50.dp
+                                    )
                             ) {
                                 BbsSkeletonScreen(modifier = Modifier.fillMaxSize())
                             }
