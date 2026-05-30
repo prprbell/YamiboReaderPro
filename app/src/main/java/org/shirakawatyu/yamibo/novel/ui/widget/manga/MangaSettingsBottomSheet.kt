@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,30 +56,29 @@ fun MangaSettingsPanel(
     onDismiss: () -> Unit
 ) {
     val offsetY = remember { Animatable(1000f) }
-    val scrimAlpha = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     var dragJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(Unit) {
         launch { offsetY.animateTo(0f, animationSpec = tween(250)) }
-        launch { scrimAlpha.animateTo(0.6f, animationSpec = tween(250)) }
     }
 
     fun dismiss() {
         scope.launch {
-            launch { offsetY.animateTo(1000f, tween(250)) }
-            launch { scrimAlpha.animateTo(0f, tween(250)) }.join()
+            offsetY.animateTo(1000f, tween(250))
             onDismiss()
         }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // 背景遮罩
+        // 透明点击层：保留点空白处关闭设置，但不再给漫画额外叠黑色遮罩。
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = scrimAlpha.value))
-                .clickable { dismiss() }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { dismiss() }
         )
 
         // 底部内容面板

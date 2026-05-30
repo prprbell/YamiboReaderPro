@@ -125,7 +125,6 @@ import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 import org.shirakawatyu.yamibo.novel.bean.MangaSettings
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
@@ -146,6 +145,7 @@ import java.net.URLEncoder
 private val SpecialChapterRegex =
     Regex("番外|特典|附录|SP|卷后附|卷彩页|小剧场|小漫画", RegexOption.IGNORE_CASE)
 private val ChapterIndexFormat = java.text.DecimalFormat("0.###")
+private val MangaLoadingIndicatorColor = Color.White
 
 @OptIn(ExperimentalFoundationApi::class, FlowPreview::class, ExperimentalCoilApi::class)
 @Composable
@@ -167,9 +167,10 @@ fun NativeMangaPage(
     )
     val bottomNavBarVM: BottomNavBarVM = viewModel(viewModelStoreOwner = context)
 
-    var readMode by rememberSaveable { mutableIntStateOf(MangaSettings.getSettings(context).readMode) }
+    val initialMangaSettings = remember(context) { MangaSettings.getSettings(context) }
+    var readMode by rememberSaveable { mutableIntStateOf(initialMangaSettings.readMode) }
     val isVerticalMode = readMode == 0
-    var imageBrightness by rememberSaveable { mutableFloatStateOf(1f) }
+    var imageBrightness by rememberSaveable { mutableFloatStateOf(initialMangaSettings.imageBrightness) }
     var showUi by rememberSaveable { mutableStateOf(false) }
     var showChapterList by rememberSaveable { mutableStateOf(false) }
     var showSettingsPanel by rememberSaveable { mutableStateOf(false) }
@@ -949,7 +950,7 @@ fun NativeMangaPage(
                                 )
 
                                 if (isImageLoading || (isImageError && errorCount < 3)) {
-                                    CircularProgressIndicator(color = darkModeColor(YamiboColors.tertiary, YamiboColors.tertiaryDark))
+                                    CircularProgressIndicator(color = MangaLoadingIndicatorColor)
                                 }
 
                                 if (isImageError && errorCount >= 3) {
@@ -1068,7 +1069,7 @@ fun NativeMangaPage(
                                         if (isImageLoading || (isImageError && errorCount < 3)) {
                                             CircularProgressIndicator(
                                                 modifier = Modifier.align(Alignment.Center),
-                                                color = YamiboColors.tertiary
+                                                color = MangaLoadingIndicatorColor
                                             )
                                         }
                                         if (isImageError && errorCount >= 3) {
@@ -1162,7 +1163,7 @@ fun NativeMangaPage(
                             .padding(10.dp)
                     ) {
                         CircularProgressIndicator(
-                            color = YamiboColors.tertiary,
+                            color = MangaLoadingIndicatorColor,
                             modifier = Modifier.size(24.dp),
                             strokeWidth = 2.5.dp
                         )
@@ -1492,7 +1493,11 @@ fun NativeMangaPage(
                             )
                         }
                     },
-                    onBrightnessChange = { imageBrightness = it },
+                    onBrightnessChange = { brightness ->
+                        val safeBrightness = brightness.coerceIn(0.20f, 1f)
+                        imageBrightness = safeBrightness
+                        MangaSettings.saveImageBrightness(context, safeBrightness)
+                    },
                     onDismiss = { showSettingsPanel = false; showUi = false },
                 )
             }
@@ -1561,7 +1566,7 @@ fun NativeMangaPage(
         } else {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
-                color = YamiboColors.primary
+                color = MangaLoadingIndicatorColor
             )
         }
     }
