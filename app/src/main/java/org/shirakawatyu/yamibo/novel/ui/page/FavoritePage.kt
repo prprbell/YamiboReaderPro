@@ -607,12 +607,14 @@ fun FavoritePage(
                     if (isInManageMode) {
                         IconButton(
                             onClick = { isSearchBarExpanded = true },
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier
+                                .size(44.dp)
+                                .padding(end = 4.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Search,
                                 contentDescription = "搜索收藏",
-                                modifier = Modifier.size(22.dp),
+                                modifier = Modifier.size(24.dp),
                                 tint = if (isSearching) MaterialTheme.colorScheme.primary else topBarContentColor
                             )
                         }
@@ -622,12 +624,14 @@ fun FavoritePage(
                     } else {
                         IconButton(
                             onClick = { isSearchBarExpanded = true },
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier
+                                .size(44.dp)
+                                .padding(end = 4.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Search,
                                 contentDescription = "搜索收藏",
-                                modifier = Modifier.size(22.dp),
+                                modifier = Modifier.size(24.dp),
                                 tint = if (isSearching) MaterialTheme.colorScheme.primary else topBarContentColor
                             )
                         }
