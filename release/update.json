@@ -1,6 +1,6 @@
 {
   "tag_name": "v1.11.5",
-  "body": "- 修复「我的」页面底部栏长按导致网页触摸事件异常的问题\n- 优化底部导航栏交互：点击和长按图标时增加动画反馈，状态栏图标指示更清晰\n- 优化日间/夜间模式切换按钮：图标显示当前主题状态，切换时图标即时更新\n- 修复「我的」页面长按刷新按钮时误触发主题切换菜单的问题",
+  "body": "修复并调整底部栏UI",
   "apkName": "yamibo_v1.11.5.apk",
   "apkDownloadUrl": "https://yamibo-reader-pro-release.oss-cn-chengdu.aliyuncs.com/yamibo_v1.11.5.zip"
 }
