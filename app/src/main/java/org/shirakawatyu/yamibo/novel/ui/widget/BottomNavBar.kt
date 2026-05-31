@@ -13,14 +13,18 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
@@ -30,8 +34,6 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +54,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -138,7 +145,7 @@ private fun getQuickActions(baseActiveRoute: String?, touchedRoute: String, isDa
                         Icons.Default.Settings,
                         "夜间模式",
                         ActionKind.DarkMode,
-                        iconResId = if (isDarkMode) R.drawable.ic_sun else R.drawable.ic_moon
+                        iconResId = if (isDarkMode) R.drawable.ic_moon else R.drawable.ic_sun
                     ),
                     QuickAction(ActionSlot.Right, Icons.Default.Refresh, "刷新", ActionKind.Refresh)
                 )
@@ -150,7 +157,7 @@ private fun getQuickActions(baseActiveRoute: String?, touchedRoute: String, isDa
                         Icons.Default.Settings,
                         "夜间模式",
                         ActionKind.DarkMode,
-                        iconResId = if (isDarkMode) R.drawable.ic_sun else R.drawable.ic_moon
+                        iconResId = if (isDarkMode) R.drawable.ic_moon else R.drawable.ic_sun
                     )
                 )
             }
@@ -183,6 +190,7 @@ fun BottomNavBar(
 
     val animatedProgress = remember { Animatable(0f) }
     val isDarkMode by GlobalData.isDarkMode.collectAsState()
+    val lightModeTheme by GlobalData.lightModeTheme.collectAsState()
 
     // 1. 规范化路由：将历史帖子详情强制映射回 MinePage，恢复底栏图标高亮与事件焦点
     val baseRoute = if (currentRoute?.startsWith("MineHistoryPostPage") == true) "MinePage" else currentRoute
@@ -197,6 +205,9 @@ fun BottomNavBar(
     LaunchedEffect(showActionSheet) {
         onQuickActionSheetVisibleChange(showActionSheet)
     }
+
+    var pressedVisualIndex by remember { mutableStateOf<Int?>(null) }
+    var longPressVisualIndex by remember { mutableStateOf<Int?>(null) }
 
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
@@ -225,6 +236,8 @@ fun BottomNavBar(
         dragOffsetX = 0f
         dragOffsetY = 0f
         lastVibratedSlot = null
+        pressedVisualIndex = null
+        longPressVisualIndex = null
     }
 
     fun scheduleGestureReset(delayMillis: Long) {
@@ -368,7 +381,7 @@ fun BottomNavBar(
                     val quickActionIconColor = darkThemeColor(YamiboColors.primary.copy(alpha = btnAlpha)) {
                         onPrimary.copy(alpha = btnAlpha)
                     }
-                    val quickActionBackgroundColor = if (!isDarkMode && GlobalData.lightModeTheme.value > 0) {
+                    val quickActionBackgroundColor = if (!isDarkMode && lightModeTheme > 0) {
                         (if (isHighlighted) Color(0xFF1E293B) else Color(0xFF334155)).copy(alpha = 0.96f)
                     } else {
                         darkThemeColor(YamiboColors.onSurface.copy(alpha = 0.94f)) { navBar.copy(alpha = 0.94f) }
@@ -395,7 +408,7 @@ fun BottomNavBar(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = action.iconResId?.let { ImageVector.vectorResource(id = it) } ?: action.icon,
+                                imageVector = if (action.kind == ActionKind.DarkMode) ImageVector.vectorResource(id = if (isDarkMode) R.drawable.ic_moon else R.drawable.ic_sun) else (action.iconResId?.let { ImageVector.vectorResource(id = it) } ?: action.icon),
                                 contentDescription = action.description,
                                 tint = quickActionIconColor,
                                 modifier = Modifier.scale(iconScale).size(24.dp).rotate(if (isThisExecuting && action.kind == ActionKind.Refresh) rotationAnim.value else 0f)
@@ -476,29 +489,55 @@ fun BottomNavBar(
         // ================= 底部导航栏及触摸检测 =================
         NavigationBar(
             Modifier.fillMaxWidth().height(navBarHeight).align(Alignment.BottomCenter).zIndex(5f)
+                .pointerInput(baseRoute) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        val tabWidthPx = size.width / pageList.size.toFloat()
+                        val touchedIndex = (down.position.x / tabWidthPx).toInt().coerceIn(0, pageList.lastIndex)
+                        pressedVisualIndex = touchedIndex
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Final)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull() ?: continue
+                            if (change.changedToUpIgnoreConsumed()) {
+                                pressedVisualIndex = null
+                                longPressVisualIndex = null
+                                break
+                            }
+                        }
+                    }
+                }
                 .pointerInput(baseRoute, isDarkMode) {
                     var isNavBarLongPressAccepted = false
                     detectDragGesturesAfterLongPress(
                         onDragStart = { startOffset ->
                             if (isExecuting) return@detectDragGesturesAfterLongPress
-                            val touchedIndex = (startOffset.x / (size.width / pageList.size.toFloat())).toInt().coerceIn(0, pageList.lastIndex)
-                            val targetRoute = pageList[touchedIndex]
 
+                            val tabWidthPx = size.width / pageList.size.toFloat()
+                            val touchedIndex = (startOffset.x / tabWidthPx)
+                                .toInt()
+                                .coerceIn(0, pageList.lastIndex)
+
+                            val targetRoute = pageList[touchedIndex]
                             val actionsForTouch = getQuickActions(baseRoute, targetRoute, isDarkMode)
 
                             isNavBarLongPressAccepted = actionsForTouch.isNotEmpty() && targetRoute != "FavoritePage"
+
                             if (!isNavBarLongPressAccepted) return@detectDragGesturesAfterLongPress
 
-                            activeQuickActions = actionsForTouch // 动态绑定当前动作集
+                            activeQuickActions = actionsForTouch
                             cancelPendingReset()
                             HapticUtil.performLongPress(view)
                             pressedItemIndex = touchedIndex
                             resetGestureState()
+                            longPressVisualIndex = touchedIndex
+                            pressedVisualIndex = null
                             showActionSheet = true
+
                             coroutineScope.launch { rotationAnim.snapTo(0f) }
                         },
                         onDrag = { change, dragAmount ->
                             if (!isNavBarLongPressAccepted || isExecuting) return@detectDragGesturesAfterLongPress
+
                             change.consume()
                             dragOffsetX += dragAmount.x
                             dragOffsetY += dragAmount.y
@@ -528,7 +567,8 @@ fun BottomNavBar(
                                     val dist = hypot(dragOffsetX - slotTargetX[slot]!!, dragOffsetY - slotTargetY[slot]!!)
                                     if (dist < snapRadiusPx) {
                                         activeSlot = slot
-                                        if (slot == ActionSlot.Center && dragOffsetY < slotTargetY[ActionSlot.Center]!! - 15f) {
+                                        if (slot == ActionSlot.Center && dragOffsetY < slotTargetY[ActionSlot.Center]!! - 15f
+                                            && activeQuickActions.firstOrNull { it.slot == ActionSlot.Center }?.kind == ActionKind.DarkMode) {
                                             inSubMenuMode = true
                                             HapticUtil.performTick(view)
                                         }
@@ -536,6 +576,7 @@ fun BottomNavBar(
                                     }
                                 }
                             }
+
                         },
                         onDragEnd = {
                             if (!isNavBarLongPressAccepted || isExecuting) return@detectDragGesturesAfterLongPress
@@ -560,7 +601,7 @@ fun BottomNavBar(
                                 HapticUtil.performLongPress(view)
 
                                 if (isDarkMode) {
-                                    val previousLightTheme = GlobalData.lightModeTheme.value
+                                    val previousLightTheme = lightModeTheme
                                     baseRoute?.let {
                                         navBarVM.applyTheme(it, if (previousLightTheme > 0) previousLightTheme + 10 else -1)
                                     }
@@ -606,11 +647,10 @@ fun BottomNavBar(
                                         }
                                     }
                                 } else {
-                                    // 夜间模式下直接松手 -> 回到日间模式
                                     isExecuting = true
                                     executedSlot = slot
                                     HapticUtil.performLongPress(view)
-                                    val previousLightTheme = GlobalData.lightModeTheme.value
+                                    val previousLightTheme = lightModeTheme
                                     baseRoute?.let {
                                         navBarVM.applyTheme(it, if (previousLightTheme > 0) previousLightTheme + 10 else -1)
                                     }
@@ -634,18 +674,38 @@ fun BottomNavBar(
         ) {
             uiState.icons.forEachIndexed { index, item ->
                 val targetRoute = pageList[index]
-                NavigationBarItem(
-                    icon = { Icon(item, contentDescription = "") },
-                    selected = baseRoute == targetRoute, // 使用归一化的 baseRoute 判断高亮状态
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = bottomBarSelectedColor,
-                        unselectedIconColor = bottomBarUnselectedColor,
-                        selectedTextColor = bottomBarSelectedColor,
-                        unselectedTextColor = bottomBarUnselectedColor,
-                        indicatorColor = bottomBarIndicatorColor
-                    ),
-                    onClick = { if (baseRoute != targetRoute) navBarVM.changeSelection(index, navController) }
-                )
+                val selected = baseRoute == targetRoute
+                val pressed = pressedVisualIndex == index || longPressVisualIndex == index
+                val iconScale by animateFloatAsState(targetValue = if (pressed) 0.86f else 1f, animationSpec = tween(durationMillis = 90))
+                val indicatorAlpha by animateFloatAsState(targetValue = if (selected || pressed) 1f else 0f, animationSpec = tween(durationMillis = 90))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            if (baseRoute != targetRoute) navBarVM.changeSelection(index, navController)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(64.dp)
+                            .height(32.dp)
+                            .alpha(indicatorAlpha)
+                            .background(bottomBarIndicatorColor, RoundedCornerShape(999.dp))
+                    )
+                    Icon(
+                        imageVector = item,
+                        contentDescription = "",
+                        tint = if (selected) bottomBarSelectedColor else bottomBarUnselectedColor,
+                        modifier = Modifier
+                            .scale(iconScale)
+                            .size(24.dp)
+                    )
+                }
             }
         }
 
