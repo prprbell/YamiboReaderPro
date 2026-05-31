@@ -808,6 +808,7 @@ fun BBSPage(
         BBSPageState.isLoading = true
         BBSPageState.isErrorState = false
         BBSPageState.showLoadError = false
+        BBSPageState.hasSuccessfullyLoaded = false
         retryCount = 0
         CookieManager.getInstance().setCookie(targetUrl, GlobalData.currentCookie)
         CookieManager.getInstance().flush()
