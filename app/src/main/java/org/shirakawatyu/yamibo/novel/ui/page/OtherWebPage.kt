@@ -311,11 +311,14 @@ fun OtherWebPage(
 
     DisposableEffect(Unit) {
         onDispose {
-            activity?.window?.let { window ->
-                WindowCompat.getInsetsController(window, view)
-                    .show(WindowInsetsCompat.Type.systemBars())
+            val currentRoute = navController.currentDestination?.route ?: ""
+            if (!currentRoute.startsWith("NativeMangaPage") && !currentRoute.startsWith("ReaderPage")) {
+                activity?.window?.let { window ->
+                    WindowCompat.getInsetsController(window, view)
+                        .show(WindowInsetsCompat.Type.systemBars())
+                }
+                bottomNavBarVM.setBottomNavBarVisibility(true)
             }
-            bottomNavBarVM.setBottomNavBarVisibility(true)
         }
     }
     val fullscreenApi = remember {
@@ -422,6 +425,14 @@ fun OtherWebPage(
             pid = if (probe?.isAuthorOnly == true) probe.pid else null,
             chapterTitleHint = if (probe?.isAuthorOnly == true) probe.chapterTitleHint else bridge?.chapterTitle
         )
+
+        activity?.window?.let { window ->
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+        bottomNavBarVM.setBottomNavBarVisibility(false)
 
         if (shouldReturnToExistingReader) {
             navController.navigateUp()
