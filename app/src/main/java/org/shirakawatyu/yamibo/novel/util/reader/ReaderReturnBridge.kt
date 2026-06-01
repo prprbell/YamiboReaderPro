@@ -7,12 +7,6 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * ReaderPage <-> 原贴 WebView 的一次性桥接状态。
- *
- * 这里保存的是"从阅读器出来看原贴"的上下文，而不是通用历史记录：
- * - ReaderPage 点"原贴"时写入 context/originalPostRequest。
- * - OtherWebPage 的 FAB 根据当前网页状态决定是跳回这个 reader，还是作为普通小说帖进入 reader。
- * - 如果 OtherWebPage 只是 ReaderPage 下方的上一页，ReaderPage 可以发一个 originalPostRequest，
- *   让 OtherWebPage 露出后先校正到阅读器当前网页页码/只看楼主模式。
  */
 object ReaderReturnBridge {
     data class ReaderContext(
@@ -21,7 +15,7 @@ object ReaderReturnBridge {
         val authorId: String?,
         val readerWebPage: Int,
         val readerPageIndex: Int,
-        val chapterTitle: String?,
+        val cacheTitle: String?,
         val originalPostUrl: String
     )
 
@@ -37,8 +31,8 @@ object ReaderReturnBridge {
         val readerUrl: String,
         val webPage: Int,
         val readerPageIndex: Int?,
-        val pid: String?,
-        val chapterTitleHint: String?
+        val allowCache: Boolean,
+        val cacheTitle: String?
     )
 
     private val idGenerator = AtomicLong(0L)
@@ -69,7 +63,7 @@ object ReaderReturnBridge {
         authorId: String?,
         currentView: Int,
         readerPageIndex: Int,
-        chapterTitle: String?
+        cacheTitle: String? = null
     ): ReaderContext {
         val baseReaderUrl = stripReaderTransientParams(toAbsoluteBbsUrl(readerUrl))
         val tid = extractTid(baseReaderUrl)
@@ -80,7 +74,7 @@ object ReaderReturnBridge {
             authorId = authorId,
             readerWebPage = currentView.coerceAtLeast(1),
             readerPageIndex = readerPageIndex.coerceAtLeast(0),
-            chapterTitle = chapterTitle,
+            cacheTitle = normalizeCacheTitle(cacheTitle),
             originalPostUrl = targetUrl
         ).also { context = it }
     }
@@ -102,8 +96,8 @@ object ReaderReturnBridge {
         readerUrl: String,
         webPage: Int,
         readerPageIndex: Int?,
-        pid: String?,
-        chapterTitleHint: String?
+        allowCache: Boolean = false,
+        cacheTitle: String? = null
     ) {
         pendingJump = ReaderJump(
             id = idGenerator.incrementAndGet(),
@@ -111,8 +105,8 @@ object ReaderReturnBridge {
             readerUrl = stripReaderTransientParams(toAbsoluteBbsUrl(readerUrl)),
             webPage = webPage.coerceAtLeast(1),
             readerPageIndex = readerPageIndex?.coerceAtLeast(0),
-            pid = pid,
-            chapterTitleHint = chapterTitleHint?.takeIf { it.isNotBlank() }
+            allowCache = allowCache,
+            cacheTitle = normalizeCacheTitle(cacheTitle)
         )
     }
 
@@ -181,6 +175,13 @@ object ReaderReturnBridge {
     }
 
     fun encodeRouteArg(value: String): String = URLEncoder.encode(value, "utf-8")
+
+    private fun normalizeCacheTitle(title: String?): String? {
+        return title
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+    }
 
     private fun appendQuery(url: String, key: String, value: String): String {
         val sep = if (url.contains("?")) "&" else "?"

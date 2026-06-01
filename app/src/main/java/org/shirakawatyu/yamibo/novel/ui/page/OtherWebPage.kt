@@ -221,9 +221,7 @@ fun OtherWebPage(
         val tid: String?,
         val page: Int,
         val authorId: String?,
-        val isAuthorOnly: Boolean,
-        val pid: String?,
-        val chapterTitleHint: String?
+        val isAuthorOnly: Boolean
     )
 
     fun parseReaderWebProbe(jsonStr: String?): ReaderWebProbe? {
@@ -235,9 +233,7 @@ fun OtherWebPage(
                 tid = obj.getString("tid") ?: ReaderReturnBridge.extractTid(currentUrl ?: finalUrl),
                 page = obj.getIntValue("page").takeIf { it > 0 } ?: ReaderReturnBridge.extractPage(currentUrl ?: finalUrl),
                 authorId = obj.getString("authorId") ?: ReaderReturnBridge.extractAuthorId(currentUrl ?: finalUrl),
-                isAuthorOnly = obj.getBooleanValue("authorOnly"),
-                pid = obj.getString("pid"),
-                chapterTitleHint = obj.getString("chapterTitleHint")
+                isAuthorOnly = obj.getBooleanValue("authorOnly")
             )
         } catch (_: Exception) {
             null
@@ -259,39 +255,6 @@ fun OtherWebPage(
                 var m = /[?&]page=(\d+)/.exec(url) || /thread-\d+-(\d+)-/.exec(url);
                 return m ? Math.max(1, parseInt(m[1], 10) || 1) : 1;
             }
-            function cleanChapterHint(text) {
-                if (!text) return null;
-                var lines = text.split(/\n+/).map(function(line) {
-                    return line.replace(/\s+/g, ' ').trim();
-                }).filter(Boolean);
-                for (var i = 0; i < lines.length; i++) {
-                    var line = lines[i];
-                    if (/^本帖最后由/.test(line)) continue;
-                    if (/^回复/.test(line)) continue;
-                    if (line.length > 80) continue;
-                    return line;
-                }
-                return null;
-            }
-            var centerY = window.scrollY + window.innerHeight * 0.42;
-            var nodes = Array.prototype.slice.call(document.querySelectorAll('[id^="post_"], table[id^="pid"]'));
-            var best = null;
-            var bestDistance = Number.MAX_VALUE;
-            nodes.forEach(function(node) {
-                var match = /(?:post_|pid)(\d+)/.exec(node.id || '');
-                if (!match) return;
-                var rect = node.getBoundingClientRect();
-                if (rect.height <= 0) return;
-                var top = rect.top + window.scrollY;
-                var bottom = rect.bottom + window.scrollY;
-                var distance = centerY >= top && centerY <= bottom ? 0 : Math.min(Math.abs(centerY - top), Math.abs(centerY - bottom));
-                if (distance < bestDistance) {
-                    bestDistance = distance;
-                    best = { pid: match[1], node: node };
-                }
-            });
-            var pid = best ? best.pid : null;
-            var message = pid ? document.getElementById('postmessage_' + pid) : null;
             var hasShowAllFloorsLink = !!document.querySelector('a[rel="nofollow"][href^="thread-"], a[href*="显示全部楼层"]');
             var authorId = queryParam('authorid');
             return JSON.stringify({
@@ -299,9 +262,7 @@ fun OtherWebPage(
                 tid: extractTid(location.href),
                 page: extractPage(location.href),
                 authorId: authorId,
-                authorOnly: !!authorId || hasShowAllFloorsLink,
-                pid: pid,
-                chapterTitleHint: cleanChapterHint(message ? message.innerText : '')
+                authorOnly: !!authorId || hasShowAllFloorsLink
             });
         })();
         """
@@ -311,6 +272,8 @@ fun OtherWebPage(
 
     DisposableEffect(Unit) {
         onDispose {
+            // 和 BBSPage 保持一致：如果 OtherWebPage 是被 ReaderPage / NativeMangaPage 覆盖，
+            // 不要在 dispose 时恢复系统栏。否则会把 ReaderPage 刚隐藏的顶部系统栏重新拉出来。
             val currentRoute = navController.currentDestination?.route ?: ""
             if (!currentRoute.startsWith("NativeMangaPage") && !currentRoute.startsWith("ReaderPage")) {
                 activity?.window?.let { window ->
@@ -422,10 +385,14 @@ fun OtherWebPage(
             readerUrl = targetReaderUrl,
             webPage = targetWebPage,
             readerPageIndex = targetReaderPageIndex,
-            pid = if (probe?.isAuthorOnly == true) probe.pid else null,
-            chapterTitleHint = if (probe?.isAuthorOnly == true) probe.chapterTitleHint else bridge?.chapterTitle
+            // 只有命中同一个 Reader 上下文时，才复用旧 Reader 的缓存身份。
+            // 普通 OtherWebPage FAB 入口仍然只阅读，不开放磁盘缓存，避免产生难管理的无标题缓存。
+            allowCache = sameAsReaderContext,
+            cacheTitle = if (sameAsReaderContext) bridge?.cacheTitle else null
         )
 
+        // 进入 ReaderPage 前先把系统栏/底栏切到阅读器期望状态，
+        // 避免 OtherWebPage 的普通网页状态在转场期间闪回。
         activity?.window?.let { window ->
             val controller = WindowCompat.getInsetsController(window, view)
             controller.hide(WindowInsetsCompat.Type.systemBars())
@@ -437,7 +404,13 @@ fun OtherWebPage(
         if (shouldReturnToExistingReader) {
             navController.navigateUp()
         } else {
-            navController.navigate("ReaderPage/${ReaderReturnBridge.encodeRouteArg(targetReaderUrl)}")
+            navController.navigate("ReaderPage/${ReaderReturnBridge.encodeRouteArg(targetReaderUrl)}") {
+                navController.currentDestination?.id?.let { currentId ->
+                    popUpTo(currentId) {
+                        inclusive = true
+                    }
+                }
+            }
         }
     }
 

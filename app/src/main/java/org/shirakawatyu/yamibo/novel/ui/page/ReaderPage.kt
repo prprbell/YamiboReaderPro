@@ -274,6 +274,7 @@ fun ReaderPage(
         }
     }
     var showCacheDialog by remember { mutableStateOf(false) }
+    var allowReaderReturnCache by remember(url) { mutableStateOf(false) }
     val onShowCacheDialogAction = remember(readerVM) {
         {
             if (isDiskCaching) readerVM.showCacheProgress() else showCacheDialog = true
@@ -344,6 +345,16 @@ fun ReaderPage(
         var pendingReaderReturnJump by remember(url) {
             mutableStateOf(ReaderReturnBridge.takePendingJumpForUrl(url))
         }
+        LaunchedEffect(pendingReaderReturnJump?.id) {
+            val jump = pendingReaderReturnJump
+            if (jump?.allowCache == true) {
+                allowReaderReturnCache = true
+                readerVM.setExternalCacheIdentity(
+                    enabled = true,
+                    title = jump.cacheTitle
+                )
+            }
+        }
         val lifecycleOwner = LocalLifecycleOwner.current
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
         val isAnimationFinished = lifecycleState == Lifecycle.State.RESUMED
@@ -355,7 +366,6 @@ fun ReaderPage(
             hasRealContent,
             uiState.currentView,
             uiState.htmlList.size,
-            uiState.chapterList,
             uiState.isVerticalMode
         ) {
             val jump = pendingReaderReturnJump ?: return@LaunchedEffect
@@ -366,18 +376,7 @@ fun ReaderPage(
                 return@LaunchedEffect
             }
 
-            val titleHint = jump.chapterTitleHint
-                ?.replace(Regex("\\s+"), " ")
-                ?.trim()
-            val chapterTargetIndex = if (!titleHint.isNullOrBlank()) {
-                uiState.chapterList.firstOrNull { chapter ->
-                    val title = chapter.title.replace(Regex("\\s+"), " ").trim()
-                    title.contains(titleHint, ignoreCase = true) || titleHint.contains(title, ignoreCase = true)
-                }?.startIndex
-            } else {
-                null
-            }
-            val targetIndex = (chapterTargetIndex ?: jump.readerPageIndex ?: 0)
+            val targetIndex = (jump.readerPageIndex ?: 0)
                 .coerceIn(0, (uiState.htmlList.size - 1).coerceAtLeast(0))
 
             awaitFrame()
@@ -427,7 +426,7 @@ fun ReaderPage(
             }
         }
         val returnToOriginalPost: () -> Unit =
-            remember(window, view, navController, favoriteVM, readerVM, currentPageIndex, currentChapterTitle, url) {
+            remember(window, view, navController, favoriteVM, readerVM, currentPageIndex, url) {
                 {
                     if (window != null && view != null) {
                         isExiting = true
@@ -440,7 +439,7 @@ fun ReaderPage(
                         authorId = currentState.authorId,
                         currentView = currentState.currentView,
                         readerPageIndex = currentPageIndex,
-                        chapterTitle = currentChapterTitle
+                        cacheTitle = bookTitle.ifBlank { null }
                     )
                     val previousRoute = navController.previousBackStackEntry?.destination?.route
                     val navigateAction = {
@@ -1178,7 +1177,8 @@ fun ReaderPage(
                         onShowChapters = onShowChaptersAction,
                         onSetBackgroundColor = onSetBackgroundColorAction,
                         onSetReadingMode = onSetReadingModeAction,
-                        onShowCacheDialog = onShowCacheDialogAction
+                        onShowCacheDialog = onShowCacheDialogAction,
+                        canUseCache = uiState.isFavorited || allowReaderReturnCache
                     )
                 }
             }
@@ -1245,7 +1245,8 @@ fun ReaderSettingsBar(
     onShowChapters: () -> Unit,
     onSetBackgroundColor: (color: Color?) -> Unit,
     onSetReadingMode: (isVertical: Boolean) -> Unit,
-    onShowCacheDialog: () -> Unit
+    onShowCacheDialog: () -> Unit,
+    canUseCache: Boolean
 ) {
     var showSpacingMenu by remember { mutableStateOf(false) }
     var chapterPillVisible by remember { mutableStateOf(false) }
@@ -1315,6 +1316,7 @@ fun ReaderSettingsBar(
                         onShowChapters = onShowChapters,
                         onSetBackgroundColor = onSetBackgroundColor,
                         onShowCacheDialog = onShowCacheDialog,
+                        canUseCache = canUseCache,
                         onPillStateChange = { visible, title ->
                             chapterPillVisible = visible
                             dynamicChapterTitle = title
@@ -1408,8 +1410,9 @@ private fun MainSettingsMenu(
     onShowChapters: () -> Unit,
     onSetBackgroundColor: (color: Color?) -> Unit,
     onShowCacheDialog: () -> Unit,
+    canUseCache: Boolean,
     onPillStateChange: (Boolean, String) -> Unit = { _, _ -> }
-) {
+){
     // 模式判断
     val isVerticalMode = uiState.isVerticalMode
 
@@ -1646,7 +1649,7 @@ private fun MainSettingsMenu(
             // 左侧：缓存按钮
             Button(
                 onClick = onShowCacheDialog,
-                enabled = uiState.isFavorited,
+                enabled = canUseCache,
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
                 modifier = Modifier
                     .weight(1f)

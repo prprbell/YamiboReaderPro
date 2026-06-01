@@ -199,7 +199,8 @@ class LocalCacheUtil(private val context: Context) {
         novelUrl: String,
         pageNum: Int,
         data: CacheData,
-        hasImages: Boolean
+        hasImages: Boolean,
+        title: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             val fileName = getCacheFileName(novelUrl, pageNum)
@@ -224,7 +225,15 @@ class LocalCacheUtil(private val context: Context) {
                 fileSize = fileSize
             )
 
-            newIndex[novelUrl] = novelCache.copy(pages = newPages)
+            val normalizedTitle = title
+                ?.replace(Regex("\\s+"), " ")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+
+            newIndex[novelUrl] = novelCache.copy(
+                title = normalizedTitle ?: novelCache.title,
+                pages = newPages
+            )
 
             writeIndex(newIndex)
             true

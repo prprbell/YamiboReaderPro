@@ -126,6 +126,18 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private var diskCacheTotalPages: Int = 0
     private var diskCacheCurrentPage: Int = 0
     private var currentRawHtml: String? = null
+
+    /**
+     * 非普通收藏入口的缓存身份。
+     *
+     * 普通 OtherWebPage FAB 进入 ReaderPage 时不开放磁盘缓存，
+     * 因为缓存管理缺少稳定标题/归属。
+     * 但如果 OtherWebPage 命中了 ReaderReturnBridge 的同 tid 上下文，
+     * 就可以复用原 ReaderPage 的稳定 URL 和标题，让缓存仍然能在管理页被识别。
+     */
+    private var externalCacheIdentityEnabled: Boolean = false
+    private var externalCacheTitle: String? = null
+
     private var currentCacheSessionShowsProgress: Boolean = true
     private var currentAsciiRatios: FloatArray = FloatArray(128) { 0.5f }
 
@@ -211,7 +223,19 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         }
     }
 
-    // ==================== 磁盘缓存功能（保持不变） ====================
+    fun setExternalCacheIdentity(enabled: Boolean, title: String?) {
+        externalCacheIdentityEnabled = enabled
+        externalCacheTitle = title
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun cacheTitleForDisk(): String? {
+        return if (externalCacheIdentityEnabled) externalCacheTitle else null
+    }
+
+    // ==================== 磁盘缓存功能 ====================
     fun startCaching(
         pagesToCache: Set<Int>,
         includeImages: Boolean = false,
@@ -299,7 +323,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         diskCacheRetries.remove(pageNum)
 
         val cacheData = CacheData(cachedPageNum = pageNum, htmlContent = html, maxPageNum = maxPage, authorId = currentAuthorId)
-        withContext(Dispatchers.IO) { localCache.savePage(url, pageNum, cacheData, diskCacheIncludeImages) }
+        withContext(Dispatchers.IO) { localCache.savePage(url, pageNum, cacheData, diskCacheIncludeImages, cacheTitleForDisk()) }
         CacheUtil.saveCache(url, cacheData)
 
         withContext(Dispatchers.Main) {
@@ -333,7 +357,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         CacheUtil.getCache(url, pageNum) { memoryCacheData ->
             if (memoryCacheData != null) {
                 viewModelScope.launch(Dispatchers.IO) {
-                    localCache.savePage(url, pageNum, memoryCacheData, diskCacheIncludeImages)
+                    localCache.savePage(url, pageNum, memoryCacheData, diskCacheIncludeImages, cacheTitleForDisk())
                     withContext(Dispatchers.Main) {
                         _cachedPages.value += pageNum
                         diskCacheQueue.remove(pageNum)
@@ -655,7 +679,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 val cacheData = CacheData(cachedPageNum = targetView, htmlContent = html, maxPageNum = maxPage, authorId = currentAuthorId)
                 CacheUtil.saveCache(url, cacheData)
                 if (_cachedPages.value.contains(targetView)) {
-                    launch(Dispatchers.IO) { localCache.savePage(url, targetView, cacheData, false) }
+                    launch(Dispatchers.IO) { localCache.savePage(url, targetView, cacheData, false, cacheTitleForDisk()) }
                 }
                 nextHtmlList = passages
                 nextChapterList = chapters
@@ -673,7 +697,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     val cacheData = CacheData(cachedPageNum = targetView, htmlContent = html, maxPageNum = maxPage, authorId = currentAuthorId)
                     CacheUtil.saveCache(url, cacheData)
                     if (_cachedPages.value.contains(targetView)) {
-                        launch(Dispatchers.IO) { localCache.savePage(url, targetView, cacheData, false) }
+                        launch(Dispatchers.IO) { localCache.savePage(url, targetView, cacheData, false, cacheTitleForDisk()) }
                     }
                 }
 
