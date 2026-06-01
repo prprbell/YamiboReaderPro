@@ -522,7 +522,14 @@ fun BottomNavBar(
 
                             isNavBarLongPressAccepted = actionsForTouch.isNotEmpty() && targetRoute != "FavoritePage"
 
-                            if (!isNavBarLongPressAccepted) return@detectDragGesturesAfterLongPress
+                            if (!isNavBarLongPressAccepted) {
+                                activeQuickActions = emptyList()
+                                activeSlot = null
+                                activeSubSlot = null
+                                showActionSheet = false
+                                resetGestureState()
+                                return@detectDragGesturesAfterLongPress
+                            }
 
                             activeQuickActions = actionsForTouch
                             cancelPendingReset()
@@ -563,7 +570,13 @@ fun BottomNavBar(
                                     return@detectDragGesturesAfterLongPress
                                 }
                                 activeSlot = null
-                                for (slot in ActionSlot.entries) {
+
+                                // 只允许吸附到当前实际显示出来的功能球。
+                                // BBSPage 本页是 Left / Center / Right 三个；
+                                // MinePage 本页是 Left / Center 两个；
+                                // 跨页长按 BBS 时只有 Center 一个。
+                                // 不能遍历 ActionSlot.entries，否则隐藏槽位也会被吸附。
+                                for (slot in activeQuickActions.map { it.slot }.distinct()) {
                                     val dist = hypot(dragOffsetX - slotTargetX[slot]!!, dragOffsetY - slotTargetY[slot]!!)
                                     if (dist < snapRadiusPx) {
                                         activeSlot = slot
@@ -583,7 +596,15 @@ fun BottomNavBar(
                             isNavBarLongPressAccepted = false
 
                             if (inSubMenuMode && activeSubSlot != null) {
-                                val selectedThemeAction = getThemeActions(isDarkMode).first { it.slot == activeSubSlot }
+                                val selectedThemeAction = getThemeActions(isDarkMode).firstOrNull { it.slot == activeSubSlot }
+
+                                if (selectedThemeAction == null) {
+                                    activeSubSlot = null
+                                    activeSlot = null
+                                    showActionSheet = false
+                                    scheduleGestureReset(400)
+                                    return@detectDragGesturesAfterLongPress
+                                }
                                 isExecuting = true
                                 HapticUtil.performLongPress(view)
 
@@ -618,7 +639,15 @@ fun BottomNavBar(
                                 }
                             } else if (!inSubMenuMode && activeSlot != null) {
                                 val slot = activeSlot!!
-                                val action = activeQuickActions.first { it.slot == slot }
+                                val action = activeQuickActions.firstOrNull { it.slot == slot }
+
+                                if (action == null) {
+                                    activeSlot = null
+                                    activeSubSlot = null
+                                    showActionSheet = false
+                                    scheduleGestureReset(400)
+                                    return@detectDragGesturesAfterLongPress
+                                }
 
                                 if (action.kind != ActionKind.DarkMode || !isDarkMode) {
                                     isExecuting = true

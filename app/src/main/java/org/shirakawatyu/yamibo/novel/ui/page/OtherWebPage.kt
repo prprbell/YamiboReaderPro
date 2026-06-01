@@ -49,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -86,6 +87,7 @@ import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
+import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
@@ -93,6 +95,8 @@ import kotlin.text.Charsets
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
+import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
+import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import java.util.concurrent.atomic.AtomicInteger
 import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
@@ -141,6 +145,7 @@ fun OtherWebPage(
     var timeoutJob by remember { mutableStateOf<Job?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
+    var pageTitle by remember { mutableStateOf("") }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
 
     val mangaDirVM: MangaDirectoryVM = viewModel(
@@ -209,6 +214,97 @@ fun OtherWebPage(
             webView.reload()
         }
         webView.loadUrl(loadUrl)
+    }
+
+    data class ReaderWebProbe(
+        val url: String,
+        val tid: String?,
+        val page: Int,
+        val authorId: String?,
+        val isAuthorOnly: Boolean,
+        val pid: String?,
+        val chapterTitleHint: String?
+    )
+
+    fun parseReaderWebProbe(jsonStr: String?): ReaderWebProbe? {
+        return try {
+            val cleanJson = if (jsonStr?.startsWith("\"") == true) JSON.parse(jsonStr) as String else jsonStr
+            val obj = JSON.parseObject(cleanJson)
+            ReaderWebProbe(
+                url = obj.getString("url") ?: currentUrl ?: finalUrl,
+                tid = obj.getString("tid") ?: ReaderReturnBridge.extractTid(currentUrl ?: finalUrl),
+                page = obj.getIntValue("page").takeIf { it > 0 } ?: ReaderReturnBridge.extractPage(currentUrl ?: finalUrl),
+                authorId = obj.getString("authorId") ?: ReaderReturnBridge.extractAuthorId(currentUrl ?: finalUrl),
+                isAuthorOnly = obj.getBooleanValue("authorOnly"),
+                pid = obj.getString("pid"),
+                chapterTitleHint = obj.getString("chapterTitleHint")
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    val readerWebProbeJs = remember {
+        """
+        (function() {
+            function queryParam(name) {
+                var m = new RegExp('[?&]' + name + '=([^&#]+)').exec(location.href);
+                return m ? decodeURIComponent(m[1]) : null;
+            }
+            function extractTid(url) {
+                var m = /[?&](?:tid|ptid)=(\d+)/.exec(url) || /thread-(\d+)-/.exec(url);
+                return m ? m[1] : null;
+            }
+            function extractPage(url) {
+                var m = /[?&]page=(\d+)/.exec(url) || /thread-\d+-(\d+)-/.exec(url);
+                return m ? Math.max(1, parseInt(m[1], 10) || 1) : 1;
+            }
+            function cleanChapterHint(text) {
+                if (!text) return null;
+                var lines = text.split(/\n+/).map(function(line) {
+                    return line.replace(/\s+/g, ' ').trim();
+                }).filter(Boolean);
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i];
+                    if (/^本帖最后由/.test(line)) continue;
+                    if (/^回复/.test(line)) continue;
+                    if (line.length > 80) continue;
+                    return line;
+                }
+                return null;
+            }
+            var centerY = window.scrollY + window.innerHeight * 0.42;
+            var nodes = Array.prototype.slice.call(document.querySelectorAll('[id^="post_"], table[id^="pid"]'));
+            var best = null;
+            var bestDistance = Number.MAX_VALUE;
+            nodes.forEach(function(node) {
+                var match = /(?:post_|pid)(\d+)/.exec(node.id || '');
+                if (!match) return;
+                var rect = node.getBoundingClientRect();
+                if (rect.height <= 0) return;
+                var top = rect.top + window.scrollY;
+                var bottom = rect.bottom + window.scrollY;
+                var distance = centerY >= top && centerY <= bottom ? 0 : Math.min(Math.abs(centerY - top), Math.abs(centerY - bottom));
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    best = { pid: match[1], node: node };
+                }
+            });
+            var pid = best ? best.pid : null;
+            var message = pid ? document.getElementById('postmessage_' + pid) : null;
+            var hasShowAllFloorsLink = !!document.querySelector('a[rel="nofollow"][href^="thread-"], a[href*="显示全部楼层"]');
+            var authorId = queryParam('authorid');
+            return JSON.stringify({
+                url: location.href,
+                tid: extractTid(location.href),
+                page: extractPage(location.href),
+                authorId: authorId,
+                authorOnly: !!authorId || hasShowAllFloorsLink,
+                pid: pid,
+                chapterTitleHint: cleanChapterHint(message ? message.innerText : '')
+            });
+        })();
+        """
     }
 
     val isFullscreenState = remember { mutableStateOf(false) }
@@ -280,6 +376,71 @@ fun OtherWebPage(
     }
 
     ActivityWebViewLifecycleObserver(otherWebView)
+
+    val canConvertToReader by remember(currentUrl, pageTitle) {
+        derivedStateOf {
+            ReaderModeDetector.canConvertToReaderMode(currentUrl ?: otherWebView.url, pageTitle.ifBlank { otherWebView.title })
+        }
+    }
+
+    fun openReaderFromOtherWeb(probe: ReaderWebProbe?) {
+        val cleanUrl = (probe?.url ?: currentUrl ?: otherWebView.url ?: finalUrl).substringBefore("#")
+        val currentTid = probe?.tid ?: ReaderReturnBridge.extractTid(cleanUrl)
+        val bridge = ReaderReturnBridge.context
+        val sameAsReaderContext = bridge != null &&
+                currentTid != null &&
+                bridge.tid != null &&
+                bridge.tid == currentTid
+
+        val targetWebPage = when {
+            sameAsReaderContext && probe?.isAuthorOnly == true -> probe.page
+            sameAsReaderContext -> bridge!!.readerWebPage
+            else -> probe?.page ?: ReaderReturnBridge.extractPage(cleanUrl)
+        }.coerceAtLeast(1)
+
+        val readerBaseUrl = if (sameAsReaderContext) {
+            bridge!!.readerUrl
+        } else {
+            ReaderModeDetector.extractThreadPath(cleanUrl) ?: cleanUrl
+        }
+        val targetAuthorId = if (sameAsReaderContext) bridge!!.authorId else probe?.authorId
+        val targetReaderUrl = ReaderReturnBridge.buildReaderUrl(readerBaseUrl, targetWebPage, targetAuthorId)
+
+        val shouldReturnToExistingReader = sameAsReaderContext &&
+                navController.previousBackStackEntry?.destination?.route?.startsWith("ReaderPage") == true
+        val targetReaderPageIndex = when {
+            sameAsReaderContext && probe?.isAuthorOnly == true -> null
+            sameAsReaderContext -> bridge!!.readerPageIndex
+            else -> null
+        }
+
+        ReaderReturnBridge.requestReaderJump(
+            tid = currentTid,
+            readerUrl = targetReaderUrl,
+            webPage = targetWebPage,
+            readerPageIndex = targetReaderPageIndex,
+            pid = if (probe?.isAuthorOnly == true) probe.pid else null,
+            chapterTitleHint = if (probe?.isAuthorOnly == true) probe.chapterTitleHint else bridge?.chapterTitle
+        )
+
+        if (shouldReturnToExistingReader) {
+            navController.navigateUp()
+        } else {
+            navController.navigate("ReaderPage/${ReaderReturnBridge.encodeRouteArg(targetReaderUrl)}")
+        }
+    }
+
+    val pendingOriginalPostRequest = ReaderReturnBridge.originalPostRequest
+    LaunchedEffect(pendingOriginalPostRequest?.id, otherWebView) {
+        val request = pendingOriginalPostRequest ?: return@LaunchedEffect
+        val currentTid = ReaderReturnBridge.extractTid(otherWebView.url ?: currentUrl ?: finalUrl)
+        if (request.tid == null || currentTid == null || request.tid == currentTid) {
+            if (!ReaderReturnBridge.sameUrlIgnoringHashAndTrailingSlash(otherWebView.url, request.targetUrl)) {
+                startLoading(otherWebView, request.targetUrl)
+            }
+            ReaderReturnBridge.clearOriginalPostRequest(request.id)
+        }
+    }
 
     LaunchedEffect(isFullscreenState.value, autoOpenMangaMode) {
         val window = activity?.window ?: return@LaunchedEffect
@@ -511,6 +672,7 @@ fun OtherWebPage(
                 contentImageCount.set(0)
                 isLoading = true
                 currentUrl = pageUrl
+                pageTitle = view?.title ?: pageTitle
 
                 if (view != null) {
                     val list = view.copyBackForwardList()
@@ -593,6 +755,7 @@ fun OtherWebPage(
                     isHistoryCleared = true
                 }
                 isLoading = false
+                pageTitle = view?.title ?: pageTitle
 
                 canGoBack = view?.let {
                     val list = it.copyBackForwardList()
@@ -776,6 +939,7 @@ fun OtherWebPage(
                     }
                     canGoBack = baseIndex != -1 && list.currentIndex > baseIndex
                     currentUrl = it.url
+                    pageTitle = it.title ?: pageTitle
                 },
                 onRelease = {
                     timeoutJob?.cancel()
@@ -788,6 +952,18 @@ fun OtherWebPage(
                     }
                 }
 
+            )
+
+            ReaderModeFAB(
+                visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value && !autoOpenMangaMode,
+                onClick = {
+                    otherWebView.evaluateJavascript(readerWebProbeJs) { result ->
+                        openReaderFromOtherWeb(parseReaderWebProbe(result))
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 86.dp)
             )
 
             if (showLoadError) {

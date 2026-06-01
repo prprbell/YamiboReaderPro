@@ -148,6 +148,7 @@ import org.shirakawatyu.yamibo.novel.ui.widget.reader.ContentViewer
 import org.shirakawatyu.yamibo.novel.ui.widget.reader.CustomStatusBar
 import org.shirakawatyu.yamibo.novel.ui.widget.reader.DayNightLottieSwitch
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
+import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
 import org.shirakawatyu.yamibo.novel.util.reader.rememberScreenCorner
 import kotlin.math.roundToInt
 
@@ -334,11 +335,61 @@ fun ReaderPage(
                 showSettings = false
             }
         }
+        val currentChapterTitle =
+            if (uiState.htmlList.isNotEmpty() && currentPageIndex < uiState.htmlList.size) {
+                uiState.htmlList[currentPageIndex].chapterTitle
+            } else {
+                null
+            }
+        var pendingReaderReturnJump by remember(url) {
+            mutableStateOf(ReaderReturnBridge.takePendingJumpForUrl(url))
+        }
         val lifecycleOwner = LocalLifecycleOwner.current
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
         val isAnimationFinished = lifecycleState == Lifecycle.State.RESUMED
         val hasRealContent = remember(uiState.htmlList) {
             uiState.htmlList.size > 1 || uiState.htmlList.any { it.chapterTitle != "footer" }
+        }
+        LaunchedEffect(
+            pendingReaderReturnJump?.id,
+            hasRealContent,
+            uiState.currentView,
+            uiState.htmlList.size,
+            uiState.chapterList,
+            uiState.isVerticalMode
+        ) {
+            val jump = pendingReaderReturnJump ?: return@LaunchedEffect
+            if (!hasRealContent) return@LaunchedEffect
+
+            if (uiState.currentView != jump.webPage) {
+                readerVM.onSetView(jump.webPage)
+                return@LaunchedEffect
+            }
+
+            val titleHint = jump.chapterTitleHint
+                ?.replace(Regex("\\s+"), " ")
+                ?.trim()
+            val chapterTargetIndex = if (!titleHint.isNullOrBlank()) {
+                uiState.chapterList.firstOrNull { chapter ->
+                    val title = chapter.title.replace(Regex("\\s+"), " ").trim()
+                    title.contains(titleHint, ignoreCase = true) || titleHint.contains(title, ignoreCase = true)
+                }?.startIndex
+            } else {
+                null
+            }
+            val targetIndex = (chapterTargetIndex ?: jump.readerPageIndex ?: 0)
+                .coerceIn(0, (uiState.htmlList.size - 1).coerceAtLeast(0))
+
+            awaitFrame()
+            awaitFrame()
+            if (uiState.isVerticalMode) {
+                lazyListState.scrollToItem(targetIndex)
+                readerVM.onVerticalPageSettled(targetIndex)
+            } else if (pagerState.pageCount > targetIndex) {
+                pagerState.scrollToPage(targetIndex)
+                readerVM.onPageChange(pagerState, scope)
+            }
+            pendingReaderReturnJump = null
         }
         LaunchedEffect(showSettings, uiState.nightMode) {
             if (isExiting) return@LaunchedEffect
@@ -361,12 +412,6 @@ fun ReaderPage(
                 }
             }
         }
-        val currentChapterTitle =
-            if (uiState.htmlList.isNotEmpty() && currentPageIndex < uiState.htmlList.size) {
-                uiState.htmlList[currentPageIndex].chapterTitle
-            } else {
-                null
-            }
         var settingsOnOpen by remember {
             mutableStateOf<Triple<TextUnit, TextUnit, Dp>?>(null)
         }
@@ -382,35 +427,32 @@ fun ReaderPage(
             }
         }
         val returnToOriginalPost: () -> Unit =
-            remember(window, view, navController, favoriteVM, readerVM) {
+            remember(window, view, navController, favoriteVM, readerVM, currentPageIndex, currentChapterTitle, url) {
                 {
                     if (window != null && view != null) {
                         isExiting = true
                         view.clearFocus()
                     }
                     favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.SMART
+                    val currentState = readerVM.uiState.value
+                    val returnContext = ReaderReturnBridge.captureFromReader(
+                        readerUrl = readerVM.url.ifBlank { url },
+                        authorId = currentState.authorId,
+                        currentView = currentState.currentView,
+                        readerPageIndex = currentPageIndex,
+                        chapterTitle = currentChapterTitle
+                    )
                     val previousRoute = navController.previousBackStackEntry?.destination?.route
                     val navigateAction = {
-                        if (previousRoute == "BBSPage" || previousRoute == "MinePage" || previousRoute?.startsWith(
-                                "OtherWebPage"
-                            ) == true
-                        ) {
+                        if (previousRoute == "BBSPage" || previousRoute == "MinePage") {
+                            navController.navigateUp()
+                        } else if (previousRoute?.startsWith("OtherWebPage") == true) {
+                            // OtherWebPage 可能已经停在别的页/取消了只看楼主。
+                            // 先发一次校正请求，再露出已有 WebView，这样“原贴”看到的是阅读器当前网页页码。
+                            ReaderReturnBridge.requestOriginalPost(returnContext.originalPostUrl)
                             navController.navigateUp()
                         } else {
-                            val currentUrl = readerVM.url
-                            val currentState = readerVM.uiState.value
-                            val baseUrl =
-                                if (currentUrl.startsWith("http")) currentUrl else "https://bbs.yamibo.com/$currentUrl"
-                            var targetUrl = baseUrl.replace(Regex("(?<=[?&])page=\\d+&?"), "")
-                            targetUrl = targetUrl.removeSuffix("&").removeSuffix("?")
-                            if (currentState.authorId != null && !targetUrl.contains("authorid=")) {
-                                val sep = if (targetUrl.contains("?")) "&" else "?"
-                                targetUrl = "$targetUrl${sep}authorid=${currentState.authorId}"
-                            }
-                            val separator = if (targetUrl.contains("?")) "&" else "?"
-                            targetUrl = "$targetUrl${separator}page=${currentState.currentView}"
-                            val encodedTargetUrl = java.net.URLEncoder.encode(targetUrl, "utf-8")
-                            navController.navigate("OtherWebPage/$encodedTargetUrl") {
+                            navController.navigate("OtherWebPage/${ReaderReturnBridge.encodeRouteArg(returnContext.originalPostUrl)}") {
                                 navController.currentDestination?.id?.let { currentId ->
                                     popUpTo(currentId) { inclusive = true }
                                 }
