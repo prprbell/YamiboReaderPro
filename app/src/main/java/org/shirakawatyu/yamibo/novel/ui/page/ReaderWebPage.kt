@@ -8,7 +8,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
+
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -221,12 +221,10 @@ fun ReaderWebPage(
         CookieManager.getInstance().flush()
 
         runTimeout(webView) {
-            Log.w("OtherWebPage", "WebView loading timed out. Retrying...")
             webView.stopLoading()
             retryCount++
 
             runTimeout(webView) {
-                Log.e("OtherWebPage", "Retry timed out. Giving up.")
                 isLoading = false
                 showLoadError = true
                 webView.stopLoading()
@@ -501,11 +499,6 @@ fun ReaderWebPage(
                                     mangaDirVM.initDirectoryFromWeb(threadUrl, cleanHtml, pageTitle)
                                 }
                             }
-                        } else {
-                            Log.i(
-                                "OtherWebPage",
-                                "非图区帖子(${sectionName})，跳过本地目录生成与缓存"
-                            )
                         }
                     }
                 }
