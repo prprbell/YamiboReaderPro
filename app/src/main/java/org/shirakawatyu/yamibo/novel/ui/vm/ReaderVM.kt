@@ -485,7 +485,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             )
             viewModelScope.launch {
                 FavoriteUtil.getFavoriteFlow().collect { favorites ->
-                    val isFavorited = favorites.any { it.url == url }
+                    val normalizedUrl = FavoriteUtil.normalizeUrl(url)
+                    val isFavorited = favorites.any { it.url == normalizedUrl }
                     _uiState.value = _uiState.value.copy(isFavorited = isFavorited)
                 }
             }
@@ -1194,7 +1195,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
         val currentViewToSave = state.currentView
         val authorIdToSave = currentAuthorId
-        val urlToSave = url
+        val urlToSave = FavoriteUtil.normalizeUrl(url)
 
         viewModelScope.launch(Dispatchers.IO) {
             val map = FavoriteUtil.getFavoriteMapSuspend()
