@@ -1,6 +1,5 @@
 package org.shirakawatyu.yamibo.novel.ui.state
 
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit

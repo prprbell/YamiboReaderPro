@@ -108,6 +108,7 @@ import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
+import androidx.core.net.toUri
 
 class FullscreenApi {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -157,7 +158,7 @@ class NativeMangaJSInterface {
 class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient() {
     private val contentImageCount = AtomicInteger(0)
     private var activeMainFrameUrl: String? = null
-    private val mainHandler = android.os.Handler(Looper.getMainLooper())
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var mainFrameTimeoutRunnable: Runnable? = null
     private var commitVisibleFallbackRunnable: Runnable? = null
 
@@ -262,7 +263,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
     private fun openExternalUrl(url: String): Boolean {
         return try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
             true
         } catch (_: Exception) {
             false
@@ -650,7 +651,7 @@ fun BBSPage(
     }
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         webView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
-            scope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            scope.launch(Dispatchers.Default) {
                 val cleanHtml = try {
                     JSON.parse(htmlResult) as? String ?: ""
                 } catch (_: Exception) {
@@ -671,7 +672,7 @@ fun BBSPage(
                     clickedIndex = safeClickedIndex
                 )
 
-                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     GlobalData.tempMangaUrls = urls
                     GlobalData.tempMangaIndex = safeClickedIndex
                     GlobalData.tempHtml = cleanHtml

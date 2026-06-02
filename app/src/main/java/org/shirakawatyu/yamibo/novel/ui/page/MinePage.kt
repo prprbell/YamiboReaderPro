@@ -3,7 +3,6 @@ package org.shirakawatyu.yamibo.novel.ui.page
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -78,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
+import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -106,6 +106,7 @@ import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
+import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 import org.shirakawatyu.yamibo.novel.util.UpdateInfo
 import org.shirakawatyu.yamibo.novel.util.UpdateManager
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
@@ -118,7 +119,6 @@ import java.io.ByteArrayInputStream
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
-import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 
 private var mineWebViewPauseRunnable: Runnable? = null
 private val mineWebViewHandler = Handler(Looper.getMainLooper())
@@ -717,15 +717,12 @@ fun MinePage(
                     clickedIndex = safeClickedIndex
                 )
 
-                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     GlobalData.tempMangaUrls = urls
                     GlobalData.tempMangaIndex = safeClickedIndex
                     GlobalData.tempHtml = cleanHtml
                     GlobalData.tempTitle = title
 
-                    // 老版本返回原帖很快，是因为没有把帖子 WebView 冻住后再恢复。
-                    // 这里不要 window.stop()/stopLoading()/onPause()，否则从 NativeMangaPage 返回时
-                    // route-scoped 历史 WebView 容易停在半冻结状态，表现为 JS / 点击失效。
                     resumeMineWebViewAfterChildPage()
 
                     mineWebView.evaluateJavascript(PageJsScripts.REMOVE_TRANSITION_STYLE_JS, null)
@@ -938,7 +935,7 @@ fun MinePage(
 
             private fun openExternalUrl(url: String): Boolean {
                 return try {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
                     true
                 } catch (_: Exception) {
                     false

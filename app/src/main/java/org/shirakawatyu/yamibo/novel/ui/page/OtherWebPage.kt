@@ -100,6 +100,7 @@ import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import java.util.concurrent.atomic.AtomicInteger
 import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
+import androidx.core.net.toUri
 
 class FullscreenApiOther {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -453,7 +454,7 @@ fun OtherWebPage(
                 if (threadUrl.contains("mod=viewthread") && threadUrl.contains("tid=")) {
                     otherWebView.evaluateJavascript(PageJsScripts.CHECK_SECTION_JS) { result ->
                         val sectionName = try {
-                            com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
+                            JSON.parse(result) as? String ?: ""
                         } catch (_: Exception) {
                             result?.replace("\"", "") ?: ""
                         }
@@ -473,7 +474,7 @@ fun OtherWebPage(
                             val pageTitle = otherWebView.title ?: ""
                             otherWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
                                 val cleanHtml = try {
-                                    com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+                                    JSON.parse(htmlResult) as? String ?: ""
                                 } catch (_: Exception) {
                                     htmlResult
                                 }
@@ -508,7 +509,7 @@ fun OtherWebPage(
 
                 if (!link.startsWith("http://") && !link.startsWith("https://")) {
                     return try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                        context.startActivity(Intent(Intent.ACTION_VIEW, link.toUri()))
                         true
                     } catch (_: Exception) {
                         false
@@ -517,7 +518,7 @@ fun OtherWebPage(
 
                 if (!BBSGlobalWebViewClient.isYamiboUrl(link)) {
                     try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                        context.startActivity(Intent(Intent.ACTION_VIEW, link.toUri()))
                     } catch (_: Exception) {
                     }
                     return true
@@ -533,7 +534,7 @@ fun OtherWebPage(
 
                 if (!safeUrl.startsWith("http://") && !safeUrl.startsWith("https://")) {
                     return try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
+                        context.startActivity(Intent(Intent.ACTION_VIEW, safeUrl.toUri()))
                         true
                     } catch (_: Exception) {
                         false
@@ -542,7 +543,7 @@ fun OtherWebPage(
 
                 if (!BBSGlobalWebViewClient.isYamiboUrl(safeUrl)) {
                     try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
+                        context.startActivity(Intent(Intent.ACTION_VIEW, safeUrl.toUri()))
                     } catch (_: Exception) {
                     }
                     return true
@@ -806,7 +807,7 @@ fun OtherWebPage(
                 error: WebResourceError?
             ) {
                 if (request?.isForMainFrame == true) {
-                    val errorUrl = request?.url?.toString() ?: ""
+                    val errorUrl = request.url?.toString() ?: ""
                     val currentUrl = view?.url ?: ""
                     if ((errorUrl.isEmpty() || errorUrl == currentUrl) &&
                         BBSGlobalWebViewClient.isYamiboUrl(errorUrl)
@@ -825,7 +826,7 @@ fun OtherWebPage(
                 errorResponse: WebResourceResponse?
             ) {
                 if (request?.isForMainFrame == true) {
-                    val errorUrl = request?.url?.toString() ?: ""
+                    val errorUrl = request.url?.toString() ?: ""
                     val currentUrl = view?.url ?: ""
                     if ((errorUrl.isEmpty() || errorUrl == currentUrl) &&
                         BBSGlobalWebViewClient.isYamiboUrl(errorUrl)

@@ -5,6 +5,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.webkit.WebView
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import org.shirakawatyu.yamibo.novel.ui.page.FullscreenApi
@@ -39,7 +40,7 @@ object BBSPageState {
 
     var isAutoRecoveringBeforeError by mutableStateOf(false)
     var autoRecoveryFailed by mutableStateOf(false)
-    var autoRecoveryToken by mutableStateOf(0)
+    var autoRecoveryToken by mutableIntStateOf(0)
 
     fun resetForNewBbsWebView() {
         isLoading = true
@@ -128,7 +129,7 @@ object BBSPageState {
         private set
 
     // Boolean 已经是 true 时再次 request 不会触发 LaunchedEffect；token 用来保证每次请求都能被消费。
-    var resumeRecoveryToken by mutableStateOf(0)
+    var resumeRecoveryToken by mutableIntStateOf(0)
         private set
 
     private var lastResumeRecoveryElapsedRealtime: Long = 0L

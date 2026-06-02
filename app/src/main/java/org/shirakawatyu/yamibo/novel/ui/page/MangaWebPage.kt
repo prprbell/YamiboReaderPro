@@ -5,7 +5,6 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Bitmap
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -67,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
+import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -80,25 +80,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
-import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
-import kotlin.text.Charsets
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
-import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
+import org.shirakawatyu.yamibo.novel.util.PageJsScripts
+import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
+import org.shirakawatyu.yamibo.novel.util.darkThemeColor
+import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
-import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 
 class FullscreenApiManga {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -303,7 +301,7 @@ fun MangaWebPage(
     nativeMangaApi.onTriggerManga = { urlsJoined, clickedIndex, title ->
         mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })();") { htmlResult ->
             val cleanHtml = try {
-                com.alibaba.fastjson2.JSON.parse(htmlResult) as? String ?: ""
+                JSON.parse(htmlResult) as? String ?: ""
             } catch (_: Exception) {
                 htmlResult?.trim('"')?.replace("\\u003C", "<")?.replace("\\\"", "\"") ?: ""
             }
@@ -393,7 +391,7 @@ fun MangaWebPage(
                 if (MangaTitleCleaner.extractTidFromUrl(threadUrl) != null) {
                     mangaWebView.evaluateJavascript(PageJsScripts.CHECK_SECTION_JS) { result ->
                         val sectionName = try {
-                            com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
+                            JSON.parse(result) as? String ?: ""
                         } catch (_: Exception) {
                             result?.replace("\"", "") ?: ""
                         }
@@ -415,7 +413,7 @@ fun MangaWebPage(
                             mangaWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
                                 scope.launch(Dispatchers.Default) {
                                     val cleanHtml = try {
-                                        com.alibaba.fastjson2.JSON.parse(htmlResult) as? String
+                                        JSON.parse(htmlResult) as? String
                                             ?: ""
                                     } catch (_: Exception) {
                                         htmlResult
@@ -522,7 +520,7 @@ fun MangaWebPage(
                         if (coilResponse != null) return coilResponse
 
                         val proxyResponse =
-                            org.shirakawatyu.yamibo.novel.global.YamiboRetrofit.proxyWebViewResource(
+                            YamiboRetrofit.proxyWebViewResource(
                                 request
                             )
                         if (proxyResponse != null) return proxyResponse
@@ -690,7 +688,7 @@ fun MangaWebPage(
 
             private fun openExternalUrl(url: String): Boolean {
                 return try {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
                     true
                 } catch (_: Exception) {
                     false
@@ -703,7 +701,7 @@ fun MangaWebPage(
                 error: WebResourceError?
             ) {
                 if (request?.isForMainFrame == true) {
-                    val errorUrl = request?.url?.toString() ?: ""
+                    val errorUrl = request.url?.toString() ?: ""
                     val currentUrl = view?.url ?: ""
                     if ((errorUrl.isEmpty() || errorUrl == currentUrl) &&
                         BBSGlobalWebViewClient.isYamiboUrl(errorUrl)
@@ -722,7 +720,7 @@ fun MangaWebPage(
                 errorResponse: WebResourceResponse?
             ) {
                 if (request?.isForMainFrame == true) {
-                    val errorUrl = request?.url?.toString() ?: ""
+                    val errorUrl = request.url?.toString() ?: ""
                     val currentUrl = view?.url ?: ""
                     if ((errorUrl.isEmpty() || errorUrl == currentUrl) &&
                         BBSGlobalWebViewClient.isYamiboUrl(errorUrl)
@@ -775,7 +773,7 @@ fun MangaWebPage(
         if (currentChapter != null) {
             mangaWebView.evaluateJavascript(PageJsScripts.CHECK_SECTION_JS) { result ->
                 val sectionName = try {
-                    com.alibaba.fastjson2.JSON.parse(result) as? String ?: ""
+                    JSON.parse(result) as? String ?: ""
                 } catch (_: Exception) {
                     result?.replace("\"", "") ?: ""
                 }

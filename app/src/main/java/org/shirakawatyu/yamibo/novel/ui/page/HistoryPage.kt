@@ -54,6 +54,7 @@ import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -396,7 +397,7 @@ fun HistoryPage(navController: NavController) {
 
     // 设置上限 Dialog
     if (showSettingsDialog) {
-        var sliderValue by remember { mutableStateOf(maxCount.toFloat()) }
+        var sliderValue by remember { mutableFloatStateOf(maxCount.toFloat()) }
         AlertDialog(
             onDismissRequest = { showSettingsDialog = false },
             title = { Text("历史记录上限") },
