@@ -646,7 +646,15 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     fun onSetView(view: Int, forceReload: Boolean = false) {
         if (view == _uiState.value.currentView && !isTransitioning && !forceReload) return
 
-        if (initialized) saveHistory(latestPage)
+        val previousView = _uiState.value.currentView
+        val previousPage = latestPage
+
+        if (initialized) {
+            saveHistory(
+                pageToSave = previousPage,
+                webViewToSave = previousView
+            )
+        }
 
         loadJob?.cancel()
         loadRequestId++
@@ -668,6 +676,12 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             nextRawHtml = null
             latestPage = 0
             showLoadingScrim = false
+
+            saveHistory(
+                pageToSave = 0,
+                webViewToSave = view
+            )
+
             return
         }
 
@@ -884,6 +898,13 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 latestPage = safeInitPage
                 showLoadingScrim = false
                 isTransitioning = false
+
+                if (initialized) {
+                    saveHistory(
+                        pageToSave = safeInitPage,
+                        webViewToSave = targetView
+                    )
+                }
             }
         }
     }
@@ -1320,30 +1341,46 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         processPageChange(newPage)
     }
 
-    private fun saveHistory(pageToSave: Int) {
-        val currentList = _uiState.value.htmlList
-        var currentChapter: String? = null
-        if (pageToSave in 0 until currentList.size) {
-            currentChapter = currentList[pageToSave].chapterTitle
+    fun saveCurrentHistory() {
+        if (initialized) {
+            saveHistory(
+                pageToSave = latestPage,
+                webViewToSave = _uiState.value.currentView
+            )
         }
+    }
+
+    private fun saveHistory(
+        pageToSave: Int,
+        webViewToSave: Int = _uiState.value.currentView
+    ) {
+        if (url.isBlank()) return
+
         val state = _uiState.value
+        val currentList = state.htmlList
+        val safePage = pageToSave.coerceIn(0, (currentList.size - 1).coerceAtLeast(0))
+
+        val currentChapter = currentList
+            .getOrNull(safePage)
+            ?.chapterTitle
+            ?.takeIf { it != "footer" }
+
         val valueToSave: Int = if (state.isVerticalMode) {
             val avgItemsPerPage = getAvgItemsPerHorizontalPage()
-            (pageToSave.toFloat() / avgItemsPerPage.toFloat()).toInt()
+            (safePage.toFloat() / avgItemsPerPage.toFloat()).toInt()
         } else {
-            pageToSave
+            safePage
         }
 
-        val currentViewToSave = state.currentView
-        val authorIdToSave = currentAuthorId
         val urlToSave = FavoriteUtil.normalizeUrl(url)
+        val authorIdToSave = currentAuthorId
 
         viewModelScope.launch(Dispatchers.IO) {
             val map = FavoriteUtil.getFavoriteMapSuspend()
             val fav = map[urlToSave] ?: return@launch
 
             if (fav.lastPage == valueToSave &&
-                fav.lastView == currentViewToSave &&
+                fav.lastView == webViewToSave &&
                 fav.lastChapter == currentChapter &&
                 fav.authorId == authorIdToSave
             ) return@launch
@@ -1351,7 +1388,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             FavoriteUtil.updateFavoriteSuspend(
                 fav.copy(
                     lastPage = valueToSave,
-                    lastView = currentViewToSave,
+                    lastView = webViewToSave,
                     lastChapter = currentChapter,
                     authorId = authorIdToSave
                 )

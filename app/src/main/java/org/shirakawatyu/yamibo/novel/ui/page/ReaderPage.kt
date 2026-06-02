@@ -411,8 +411,9 @@ fun ReaderPage(
         }
         val isLoading = readerVM.showLoadingScrim
         var showImageWarning by remember { mutableStateOf(false) }
-        val exitReader: () -> Unit = remember(window, view, navController) {
+        val exitReader: () -> Unit = remember(window, view, navController, readerVM) {
             {
+                readerVM.saveCurrentHistory()
                 if (window != null && view != null) {
                     isExiting = true
                     view.clearFocus()
@@ -423,6 +424,7 @@ fun ReaderPage(
         val returnToOriginalPost: () -> Unit =
             remember(window, view, navController, favoriteVM, readerVM, currentPageIndex, url) {
                 {
+                    readerVM.saveCurrentHistory()
                     if (window != null && view != null) {
                         isExiting = true
                         view.clearFocus()
