@@ -875,7 +875,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 !BBSPageState.hasSuccessfullyLoaded &&
                                 !BBSPageState.needsResumeRecovery &&
                                 !BBSPageState.isAutoRecoveringBeforeError &&
-                                !BBSPageState.showLoadError
+                                !BBSPageState.showLoadError &&
+                                !BBSPageState.isLoading
                             ) {
                                 BBSPageState.requestRecoveryBeforeShowingError()
                             }

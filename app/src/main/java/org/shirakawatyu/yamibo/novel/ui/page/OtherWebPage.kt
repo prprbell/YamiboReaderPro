@@ -81,6 +81,9 @@ import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
+import org.shirakawatyu.yamibo.novel.network.NovelApi
+import org.shirakawatyu.yamibo.novel.util.reader.CacheData
+import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.util.darkThemeColor
@@ -756,6 +759,43 @@ fun OtherWebPage(
                 if (currentTid != null && originalTid != null && currentTid != originalTid) {
                     return
                 }
+
+                // 后台刷新磁盘缓存：阅读器退出时调度，等 OtherWebPage 加载完成后执行
+                val pendingRefresh = ReaderReturnBridge.pendingCacheRefresh
+                if (pendingRefresh != null) {
+                    ReaderReturnBridge.pendingCacheRefresh = null
+                    scope.launch(Dispatchers.IO) {
+                        // 等 WebView 加载完毕、网络空闲后再开始刷新缓存
+                        delay(3000)
+                        val tid = ReaderReturnBridge.extractTid(pendingRefresh.url)
+                            ?: pendingRefresh.url.substringAfter("tid=").substringBefore("&")
+                        if (tid.isBlank() || pendingRefresh.authorId == null) return@launch
+                        try {
+                            val api = YamiboRetrofit.getInstance().create(NovelApi::class.java)
+                            val resp = api.getThreadPageByAuthor(tid, pendingRefresh.pageNum, pendingRefresh.authorId)
+                            val json = JSON.parseObject(resp.string())
+                            val variables = json.getJSONObject("Variables")
+                            val postlist = variables.getJSONArray("postlist")
+                            val messages = (0 until postlist.size).map { i ->
+                                postlist.getJSONObject(i).getString("message")
+                            }
+                            val combinedHtml = messages.joinToString("") {
+                                "<div class=\"message\">$it</div>"
+                            }
+                            val cacheData = CacheData(
+                                cachedPageNum = pendingRefresh.pageNum,
+                                htmlContent = combinedHtml,
+                                maxPageNum = 1,
+                                authorId = pendingRefresh.authorId
+                            )
+                            LocalCacheUtil.getInstance(context).savePage(
+                                pendingRefresh.url, pendingRefresh.pageNum, cacheData,
+                                false, pendingRefresh.cacheTitle
+                            )
+                        } catch (_: Exception) { }
+                    }
+                }
+
                 val extractPage = { urlStr: String? ->
                     var page = 1
                     if (urlStr != null) {
@@ -948,7 +988,7 @@ fun OtherWebPage(
                 },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(bottom = 86.dp)
+                    .padding(bottom = 150.dp)
             )
 
             if (showLoadError) {

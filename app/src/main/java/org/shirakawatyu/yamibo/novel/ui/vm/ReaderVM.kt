@@ -41,6 +41,7 @@ import org.shirakawatyu.yamibo.novel.ui.page.typefaceFromMode
 import org.shirakawatyu.yamibo.novel.ui.state.ChapterInfo
 import org.shirakawatyu.yamibo.novel.ui.state.ReaderState
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
+import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.reader.CacheData
 import org.shirakawatyu.yamibo.novel.util.reader.CacheUtil
@@ -229,6 +230,16 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             ?.replace(Regex("\\s+"), " ")
             ?.trim()
             ?.takeIf { it.isNotBlank() }
+    }
+
+    fun scheduleDiskCacheRefresh() {
+        if (url.isBlank() || currentAuthorId == null) return
+        ReaderReturnBridge.pendingCacheRefresh = ReaderReturnBridge.PendingCacheRefresh(
+            url = url,
+            pageNum = _uiState.value.currentView,
+            authorId = currentAuthorId,
+            cacheTitle = cacheTitleForDisk()
+        )
     }
 
     private fun cacheTitleForDisk(): String? {
@@ -432,9 +443,17 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 currentAuthorId = authorIdMatch.groupValues[1]
             }
 
-            var cleanUrl = initUrl.replace(Regex("(?<=[?&])page=\\d+&?"), "")
-            cleanUrl = cleanUrl.replace(Regex("(?<=[?&])authorid=\\d+&?"), "")
-            cleanUrl = cleanUrl.removeSuffix("&").removeSuffix("?")
+            var cleanUrl = initUrl.substringBefore("?")
+            val queryString = initUrl.substringAfter("?", "")
+            if (queryString.isNotEmpty()) {
+                val keptParams = queryString.split("&").filter { param ->
+                    val key = param.substringBefore("=")
+                    key != "page" && key != "authorid"
+                }
+                if (keptParams.isNotEmpty()) {
+                    cleanUrl += "?" + keptParams.joinToString("&")
+                }
+            }
             url = cleanUrl
             maxWidth = initWidth
             maxHeight = initHeight
@@ -488,15 +507,17 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 favorite?.lastPage ?: 0
             }
 
-            // 检查本地缓存
-            val localData = withContext(Dispatchers.IO) { localCache.loadPage(url, targetView) }
-            if (localData != null) {
-                if (currentAuthorId == null && localData.authorId != null) currentAuthorId = localData.authorId
-                _uiState.value = _uiState.value.copy(currentView = targetView, maxWebView = localData.maxPageNum)
-                loadFinished(success = true, html = localData.htmlContent, loadedUrl = null,
-                    maxPage = localData.maxPageNum, isFromCache = true, cacheTargetIndex = targetIndex,
-                    targetView = targetView)
-                return@launch
+            // FAB 返回时跳过磁盘缓存：内存缓存更近，没有命中就走网络拉最新内容
+            if (!externalCacheIdentityEnabled) {
+                val localData = withContext(Dispatchers.IO) { localCache.loadPage(url, targetView) }
+                if (localData != null) {
+                    if (currentAuthorId == null && localData.authorId != null) currentAuthorId = localData.authorId
+                    _uiState.value = _uiState.value.copy(currentView = targetView, maxWebView = localData.maxPageNum)
+                    loadFinished(success = true, html = localData.htmlContent, loadedUrl = null,
+                        maxPage = localData.maxPageNum, isFromCache = true, cacheTargetIndex = targetIndex,
+                        targetView = targetView)
+                    return@launch
+                }
             }
 
             // 内存缓存
@@ -560,15 +581,17 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         showLoadingScrim = true
 
         loadJob = viewModelScope.launch(Dispatchers.Main) {
-            // 优先尝试缓存
-            val localData = withContext(Dispatchers.IO) { localCache.loadPage(url, view) }
-            if (thisRequestId != loadRequestId) return@launch
-            if (localData != null && localData.authorId == currentAuthorId) {
-                _uiState.value = _uiState.value.copy(initPage = 0, maxWebView = localData.maxPageNum)
-                loadFinished(success = true, html = localData.htmlContent, loadedUrl = null,
-                    maxPage = localData.maxPageNum, isFromCache = true, cacheTargetIndex = 0,
-                    targetView = view)
-                return@launch
+            // FAB 返回时跳过磁盘缓存
+            if (!externalCacheIdentityEnabled) {
+                val localData = withContext(Dispatchers.IO) { localCache.loadPage(url, view) }
+                if (thisRequestId != loadRequestId) return@launch
+                if (localData != null && localData.authorId == currentAuthorId) {
+                    _uiState.value = _uiState.value.copy(initPage = 0, maxWebView = localData.maxPageNum)
+                    loadFinished(success = true, html = localData.htmlContent, loadedUrl = null,
+                        maxPage = localData.maxPageNum, isFromCache = true, cacheTargetIndex = 0,
+                        targetView = view)
+                    return@launch
+                }
             }
 
             val memData = suspendCoroutine<CacheData?> { cont ->

@@ -35,6 +35,20 @@ object ReaderReturnBridge {
         val cacheTitle: String?
     )
 
+    data class PendingCacheRefresh(
+        val url: String,
+        val pageNum: Int,
+        val authorId: String?,
+        val cacheTitle: String?
+    )
+
+    private val pendingCacheRefreshState = mutableStateOf<PendingCacheRefresh?>(null)
+    var pendingCacheRefresh: PendingCacheRefresh?
+        get() = pendingCacheRefreshState.value
+        set(value) {
+            pendingCacheRefreshState.value = value
+        }
+
     private val idGenerator = AtomicLong(0L)
 
     private val contextState = mutableStateOf<ReaderContext?>(null)

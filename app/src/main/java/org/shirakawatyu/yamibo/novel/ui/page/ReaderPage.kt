@@ -345,16 +345,6 @@ fun ReaderPage(
         var pendingReaderReturnJump by remember(url) {
             mutableStateOf(ReaderReturnBridge.takePendingJumpForUrl(url))
         }
-        LaunchedEffect(pendingReaderReturnJump?.id) {
-            val jump = pendingReaderReturnJump
-            if (jump?.allowCache == true) {
-                allowReaderReturnCache = true
-                readerVM.setExternalCacheIdentity(
-                    enabled = true,
-                    title = jump.cacheTitle
-                )
-            }
-        }
         val lifecycleOwner = LocalLifecycleOwner.current
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
         val isAnimationFinished = lifecycleState == Lifecycle.State.RESUMED
@@ -434,6 +424,7 @@ fun ReaderPage(
                     }
                     favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.SMART
                     val currentState = readerVM.uiState.value
+                    readerVM.scheduleDiskCacheRefresh()
                     val returnContext = ReaderReturnBridge.captureFromReader(
                         readerUrl = readerVM.url.ifBlank { url },
                         authorId = currentState.authorId,
@@ -636,6 +627,14 @@ fun ReaderPage(
                     val availableHeightDp = configuration.screenHeightDp.dp - statusBarHeight
                     LaunchedEffect(url, screenWidthDp, availableHeightDp) {
                         if (!hasTriggeredLoad && screenWidthDp > 0.dp && availableHeightDp > 0.dp) {
+                            val jump = pendingReaderReturnJump
+                            if (jump?.allowCache == true) {
+                                allowReaderReturnCache = true
+                                readerVM.setExternalCacheIdentity(
+                                    enabled = true,
+                                    title = jump.cacheTitle
+                                )
+                            }
                             readerVM.firstLoad(url, availableHeightDp, screenWidthDp)
                             hasTriggeredLoad = true
                         }

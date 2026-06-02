@@ -108,7 +108,6 @@ import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
-import androidx.core.net.toUri
 
 class FullscreenApi {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -158,7 +157,7 @@ class NativeMangaJSInterface {
 class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient() {
     private val contentImageCount = AtomicInteger(0)
     private var activeMainFrameUrl: String? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainHandler = android.os.Handler(Looper.getMainLooper())
     private var mainFrameTimeoutRunnable: Runnable? = null
     private var commitVisibleFallbackRunnable: Runnable? = null
 
@@ -263,7 +262,7 @@ class BBSGlobalWebViewClient(private val context: Context) : YamiboWebViewClient
 
     private fun openExternalUrl(url: String): Boolean {
         return try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             true
         } catch (_: Exception) {
             false
