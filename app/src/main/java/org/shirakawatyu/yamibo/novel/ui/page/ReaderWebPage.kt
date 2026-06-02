@@ -167,6 +167,8 @@ fun ReaderWebPage(
     var currentUrl by remember { mutableStateOf<String?>(null) }
     var pageTitle by remember { mutableStateOf("") }
     var autoOpenMangaMode by remember { mutableStateOf(false) }
+    var pendingOriginalPostRequestId by remember { mutableStateOf<Long?>(null) }
+    var pendingOriginalPostTargetUrl by remember { mutableStateOf<String?>(null) }
 
     val mangaDirVM: MangaDirectoryVM = viewModel(
         factory = ViewModelFactory(LocalContext.current.applicationContext)
@@ -188,16 +190,6 @@ fun ReaderWebPage(
         view.post { navController.navigateUp() }
     }
 
-    fun runTimeout(webView: WebView, onTimeout: () -> Unit) {
-        timeoutJob?.cancel()
-        timeoutJob = scope.launch {
-            delay(10000)
-            if (isLoading) {
-                onTimeout()
-            }
-        }
-    }
-
     fun getPagedUrl(baseUrl: String, page: Int): String {
         if (page <= 1) return baseUrl
         return if (baseUrl.contains("thread-")) {
@@ -213,25 +205,42 @@ fun ReaderWebPage(
     }
 
     val startLoading: (webView: WebView, loadUrl: String) -> Unit = { webView, loadUrl ->
+        val targetUrl = loadUrl.substringBefore("#")
+
+        timeoutJob?.cancel()
         isLoading = true
         showLoadError = false
         retryCount = 0
+        currentUrl = targetUrl
 
-        CookieManager.getInstance().setCookie(loadUrl, GlobalData.currentCookie)
+        CookieManager.getInstance().setCookie(targetUrl, GlobalData.currentCookie)
         CookieManager.getInstance().flush()
 
-        runTimeout(webView) {
-            webView.stopLoading()
-            retryCount++
-
-            runTimeout(webView) {
-                isLoading = false
-                showLoadError = true
-                webView.stopLoading()
+        fun retryTargetOnce() {
+            timeoutJob?.cancel()
+            timeoutJob = scope.launch {
+                delay(10000)
+                if (isLoading) {
+                    webView.stopLoading()
+                    isLoading = false
+                    showLoadError = true
+                }
             }
-            webView.reload()
+
+            webView.loadUrl(targetUrl)
         }
-        webView.loadUrl(loadUrl)
+
+        timeoutJob = scope.launch {
+            delay(10000)
+            if (isLoading) {
+                webView.stopLoading()
+                retryCount++
+
+                retryTargetOnce()
+            }
+        }
+
+        webView.loadUrl(targetUrl)
     }
 
     data class ReaderWebProbe(
@@ -376,11 +385,7 @@ fun ReaderWebPage(
                 bridge.tid != null &&
                 bridge.tid == currentTid
 
-        val targetWebPage = when {
-            sameAsReaderContext && probe?.isAuthorOnly == true -> probe.page
-            sameAsReaderContext -> bridge!!.readerWebPage
-            else -> probe?.page ?: ReaderReturnBridge.extractPage(cleanUrl)
-        }.coerceAtLeast(1)
+        val targetWebPage = (probe?.page ?: ReaderReturnBridge.extractPage(cleanUrl)).coerceAtLeast(1)
 
         val readerBaseUrl = if (sameAsReaderContext) {
             bridge!!.readerUrl
@@ -393,8 +398,7 @@ fun ReaderWebPage(
         val shouldReturnToExistingReader = sameAsReaderContext &&
                 navController.previousBackStackEntry?.destination?.route?.startsWith("ReaderPage") == true
         val targetReaderPageIndex = when {
-            sameAsReaderContext && probe?.isAuthorOnly == true -> null
-            sameAsReaderContext -> bridge!!.readerPageIndex
+            sameAsReaderContext && targetWebPage == bridge!!.readerWebPage -> bridge.readerPageIndex
             else -> null
         }
 
@@ -437,10 +441,18 @@ fun ReaderWebPage(
         val request = pendingOriginalPostRequest ?: return@LaunchedEffect
         val currentTid = ReaderReturnBridge.extractTid(otherWebView.url ?: currentUrl ?: finalUrl)
         if (request.tid == null || currentTid == null || request.tid == currentTid) {
+            pendingOriginalPostRequestId = request.id
+            pendingOriginalPostTargetUrl = request.targetUrl
+
             if (!ReaderReturnBridge.sameUrlIgnoringHashAndTrailingSlash(otherWebView.url, request.targetUrl)) {
                 startLoading(otherWebView, request.targetUrl)
+            } else {
+                ReaderReturnBridge.clearOriginalPostRequest(request.id)
+                pendingOriginalPostRequestId = null
+                pendingOriginalPostTargetUrl = null
+                isLoading = false
+                showLoadError = false
             }
-            ReaderReturnBridge.clearOriginalPostRequest(request.id)
         }
     }
 
@@ -705,6 +717,16 @@ fun ReaderWebPage(
             override fun onPageCommitVisible(view: WebView?, commitUrl: String?) {
                 if (commitUrl == "about:blank" || commitUrl?.contains("warmup=true") == true) return
                 super.onPageCommitVisible(view, commitUrl)
+
+                val target = pendingOriginalPostTargetUrl
+                val requestId = pendingOriginalPostRequestId
+                if (requestId != null && target != null &&
+                    ReaderReturnBridge.sameUrlIgnoringHashAndTrailingSlash(commitUrl, target)
+                ) {
+                    ReaderReturnBridge.clearOriginalPostRequest(requestId)
+                    pendingOriginalPostRequestId = null
+                    pendingOriginalPostTargetUrl = null
+                }
 
                 view?.evaluateJavascript(PageJsScripts.OTHER_COMMIT_BOOTSTRAP_JS, null)
 
