@@ -66,7 +66,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -87,7 +86,6 @@ import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
-import org.shirakawatyu.yamibo.novel.ui.widget.ReaderModeFAB
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
@@ -95,12 +93,12 @@ import kotlin.text.Charsets
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
-import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import java.util.concurrent.atomic.AtomicInteger
 import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 import androidx.core.net.toUri
+import androidx.core.view.WindowInsetsCompat
 
 class FullscreenApiOther {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -217,58 +215,6 @@ fun OtherWebPage(
         webView.loadUrl(loadUrl)
     }
 
-    data class ReaderWebProbe(
-        val url: String,
-        val tid: String?,
-        val page: Int,
-        val authorId: String?,
-        val isAuthorOnly: Boolean
-    )
-
-    fun parseReaderWebProbe(jsonStr: String?): ReaderWebProbe? {
-        return try {
-            val cleanJson = if (jsonStr?.startsWith("\"") == true) JSON.parse(jsonStr) as String else jsonStr
-            val obj = JSON.parseObject(cleanJson)
-            ReaderWebProbe(
-                url = obj.getString("url") ?: currentUrl ?: finalUrl,
-                tid = obj.getString("tid") ?: ReaderReturnBridge.extractTid(currentUrl ?: finalUrl),
-                page = obj.getIntValue("page").takeIf { it > 0 } ?: ReaderReturnBridge.extractPage(currentUrl ?: finalUrl),
-                authorId = obj.getString("authorId") ?: ReaderReturnBridge.extractAuthorId(currentUrl ?: finalUrl),
-                isAuthorOnly = obj.getBooleanValue("authorOnly")
-            )
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    val readerWebProbeJs = remember {
-        """
-        (function() {
-            function queryParam(name) {
-                var m = new RegExp('[?&]' + name + '=([^&#]+)').exec(location.href);
-                return m ? decodeURIComponent(m[1]) : null;
-            }
-            function extractTid(url) {
-                var m = /[?&](?:tid|ptid)=(\d+)/.exec(url) || /thread-(\d+)-/.exec(url);
-                return m ? m[1] : null;
-            }
-            function extractPage(url) {
-                var m = /[?&]page=(\d+)/.exec(url) || /thread-\d+-(\d+)-/.exec(url);
-                return m ? Math.max(1, parseInt(m[1], 10) || 1) : 1;
-            }
-            var hasShowAllFloorsLink = !!document.querySelector('a[rel="nofollow"][href^="thread-"], a[href*="显示全部楼层"]');
-            var authorId = queryParam('authorid');
-            return JSON.stringify({
-                url: location.href,
-                tid: extractTid(location.href),
-                page: extractPage(location.href),
-                authorId: authorId,
-                authorOnly: !!authorId || hasShowAllFloorsLink
-            });
-        })();
-        """
-    }
-
     val isFullscreenState = remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
@@ -343,77 +289,6 @@ fun OtherWebPage(
     }
 
     ActivityWebViewLifecycleObserver(otherWebView)
-
-    val canConvertToReader by remember(currentUrl, pageTitle) {
-        derivedStateOf {
-            ReaderModeDetector.canConvertToReaderMode(currentUrl ?: otherWebView.url, pageTitle.ifBlank { otherWebView.title })
-        }
-    }
-
-    fun openReaderFromOtherWeb(probe: ReaderWebProbe?) {
-        val cleanUrl = (probe?.url ?: currentUrl ?: otherWebView.url ?: finalUrl).substringBefore("#")
-        val currentTid = probe?.tid ?: ReaderReturnBridge.extractTid(cleanUrl)
-        val bridge = ReaderReturnBridge.context
-        val sameAsReaderContext = bridge != null &&
-                currentTid != null &&
-                bridge.tid != null &&
-                bridge.tid == currentTid
-
-        val targetWebPage = when {
-            sameAsReaderContext && probe?.isAuthorOnly == true -> probe.page
-            sameAsReaderContext -> bridge!!.readerWebPage
-            else -> probe?.page ?: ReaderReturnBridge.extractPage(cleanUrl)
-        }.coerceAtLeast(1)
-
-        val readerBaseUrl = if (sameAsReaderContext) {
-            bridge!!.readerUrl
-        } else {
-            ReaderModeDetector.extractThreadPath(cleanUrl) ?: cleanUrl
-        }
-        val targetAuthorId = if (sameAsReaderContext) bridge!!.authorId else probe?.authorId
-        val targetReaderUrl = ReaderReturnBridge.buildReaderUrl(readerBaseUrl, targetWebPage, targetAuthorId)
-
-        val shouldReturnToExistingReader = sameAsReaderContext &&
-                navController.previousBackStackEntry?.destination?.route?.startsWith("ReaderPage") == true
-        val targetReaderPageIndex = when {
-            sameAsReaderContext && probe?.isAuthorOnly == true -> null
-            sameAsReaderContext -> bridge!!.readerPageIndex
-            else -> null
-        }
-
-        ReaderReturnBridge.requestReaderJump(
-            tid = currentTid,
-            readerUrl = targetReaderUrl,
-            webPage = targetWebPage,
-            readerPageIndex = targetReaderPageIndex,
-            // 只有命中同一个 Reader 上下文时，才复用旧 Reader 的缓存身份。
-            // 普通 OtherWebPage FAB 入口仍然只阅读，不开放磁盘缓存，避免产生难管理的无标题缓存。
-            allowCache = sameAsReaderContext,
-            cacheTitle = if (sameAsReaderContext) bridge?.cacheTitle else null
-        )
-
-        // 进入 ReaderPage 前先把系统栏/底栏切到阅读器期望状态，
-        // 避免 OtherWebPage 的普通网页状态在转场期间闪回。
-        activity?.window?.let { window ->
-            val controller = WindowCompat.getInsetsController(window, view)
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
-        bottomNavBarVM.setBottomNavBarVisibility(false)
-
-        if (shouldReturnToExistingReader) {
-            navController.navigateUp()
-        } else {
-            navController.navigate("ReaderPage/${ReaderReturnBridge.encodeRouteArg(targetReaderUrl)}") {
-                navController.currentDestination?.id?.let { currentId ->
-                    popUpTo(currentId) {
-                        inclusive = true
-                    }
-                }
-            }
-        }
-    }
 
     val pendingOriginalPostRequest = ReaderReturnBridge.originalPostRequest
     LaunchedEffect(pendingOriginalPostRequest?.id, otherWebView) {
@@ -937,18 +812,6 @@ fun OtherWebPage(
                     }
                 }
 
-            )
-
-            ReaderModeFAB(
-                visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value && !autoOpenMangaMode,
-                onClick = {
-                    otherWebView.evaluateJavascript(readerWebProbeJs) { result ->
-                        openReaderFromOtherWeb(parseReaderWebProbe(result))
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(bottom = 86.dp)
             )
 
             if (showLoadError) {
