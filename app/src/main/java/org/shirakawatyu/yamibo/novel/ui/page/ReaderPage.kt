@@ -227,11 +227,16 @@ fun ReaderPage(
     var isExiting by remember { mutableStateOf(false) }
     var isFirstEnter by remember { mutableStateOf(true) }
     val favoritesState = FavoriteUtil.getFavoriteFlow().collectAsState(initial = emptyList())
-    val bookTitle by remember(url) {
+    val readerIdentityUrl = remember(url) {
+        FavoriteUtil.normalizeUrl(url)
+    }
+
+    val bookTitle by remember(readerIdentityUrl, favoritesState.value) {
         derivedStateOf {
-            val rawTitle = favoritesState.value.find { it.url == url }?.title ?: ""
+            val rawTitle = favoritesState.value.find { it.url == readerIdentityUrl }?.title ?: ""
             rawTitle.replace(Regex("(\\[.*?]|【.*?】|\\(.*?\\)|（.*?）)"), "")
-                .replace(Regex("\\s+"), " ").trim()
+                .replace(Regex("\\s+"), " ")
+                .trim()
         }
     }
     val onRefreshAction = remember(readerVM) { { readerVM.forceRefreshCurrentPage() } }

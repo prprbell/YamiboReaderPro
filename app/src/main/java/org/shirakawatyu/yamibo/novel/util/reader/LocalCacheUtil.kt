@@ -392,4 +392,301 @@ class LocalCacheUtil(private val context: Context) {
             writeIndex(newIndex)
         }
     }
+
+    private fun buildCompatKeys(primaryUrl: String, aliasUrls: List<String>): List<String> {
+        return buildList {
+            add(primaryUrl)
+            aliasUrls.forEach { alias ->
+                if (alias.isNotBlank()) add(alias)
+            }
+        }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
+    private fun normalizedCacheTitle(title: String?): String? {
+        return title
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun removePageFromIndex(
+        index: MutableMap<String, CacheIndex>,
+        novelUrl: String,
+        pageNum: Int
+    ) {
+        val oldCache = index[novelUrl] ?: return
+        val oldPages = oldCache.pages.toMutableMap()
+        oldPages.remove(pageNum)
+
+        if (oldPages.isEmpty()) {
+            index.remove(novelUrl)
+        } else {
+            index[novelUrl] = oldCache.copy(pages = oldPages)
+        }
+    }
+
+    /**
+     * 把旧 key 的单页缓存迁移到 primaryUrl。
+     *
+     * 成功写入新文件后，删除旧文件和旧索引。
+     * 如果旧文件删除失败，不强行移除旧索引，避免 index 指向状态不一致。
+     */
+    private suspend fun migratePageToPrimaryAndDeleteOld(
+        primaryUrl: String,
+        oldUrl: String,
+        pageNum: Int,
+        data: CacheData
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (primaryUrl == oldUrl) return@withContext true
+
+        try {
+            val oldIndex = _index.value[oldUrl]
+            val oldPageInfo = oldIndex?.pages?.get(pageNum)
+
+            val jsonBytes = JSON.toJSONString(data).toByteArray(Charsets.UTF_8)
+            val newFile = File(getCacheDir(), getCacheFileName(primaryUrl, pageNum))
+            newFile.writeBytes(jsonBytes)
+
+            val oldFile = File(getCacheDir(), getCacheFileName(oldUrl, pageNum))
+            val oldDeleted = if (oldFile.exists()) oldFile.delete() else true
+            if (!oldDeleted) {
+                Log.w(LOG_TAG, "旧缓存文件删除失败，保留旧索引: $oldUrl page=$pageNum")
+                return@withContext false
+            }
+
+            val currentIndex = _index.value
+            val newIndex = currentIndex.toMutableMap()
+
+            val primaryCache = newIndex[primaryUrl] ?: CacheIndex()
+            val primaryPages = primaryCache.pages.toMutableMap()
+            primaryPages[pageNum] = CachePageInfo(
+                pageNum = pageNum,
+                hasImages = oldPageInfo?.hasImages ?: false,
+                timestamp = oldPageInfo?.timestamp ?: System.currentTimeMillis(),
+                fileSize = jsonBytes.size.toLong()
+            )
+
+            newIndex[primaryUrl] = primaryCache.copy(
+                title = normalizedCacheTitle(oldIndex?.title) ?: primaryCache.title,
+                pages = primaryPages
+            )
+
+            removePageFromIndex(newIndex, oldUrl, pageNum)
+
+            writeIndex(newIndex)
+            true
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "迁移旧缓存失败: $oldUrl -> $primaryUrl page=$pageNum", e)
+            false
+        }
+    }
+
+    /**
+     * 主 key 已经命中时，顺手清理同页旧 key。
+     * 用于处理之前"只复制不删除"的版本残留。
+     */
+    private suspend fun cleanupAliasPageFiles(
+        primaryUrl: String,
+        pageNum: Int,
+        aliasUrls: List<String>
+    ) = withContext(Dispatchers.IO) {
+        val currentIndex = _index.value
+        val newIndex = currentIndex.toMutableMap()
+        var changed = false
+
+        aliasUrls
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it != primaryUrl }
+            .distinct()
+            .forEach { oldUrl ->
+                val oldCache = newIndex[oldUrl] ?: return@forEach
+                if (!oldCache.pages.containsKey(pageNum)) return@forEach
+
+                val oldFile = File(getCacheDir(), getCacheFileName(oldUrl, pageNum))
+                val deleted = if (oldFile.exists()) oldFile.delete() else true
+
+                if (deleted) {
+                    removePageFromIndex(newIndex, oldUrl, pageNum)
+                    changed = true
+                } else {
+                    Log.w(LOG_TAG, "清理旧缓存文件失败，保留旧索引: $oldUrl page=$pageNum")
+                }
+            }
+
+        if (changed) {
+            writeIndex(newIndex)
+        }
+    }
+
+    private suspend fun ensurePrimaryPageIndexed(
+        primaryUrl: String,
+        pageNum: Int,
+        data: CacheData,
+        fallbackTitle: String? = null,
+        fallbackHasImages: Boolean = false
+    ) = withContext(Dispatchers.IO) {
+        val currentIndex = _index.value
+        val currentCache = currentIndex[primaryUrl]
+        if (currentCache?.pages?.containsKey(pageNum) == true) return@withContext
+
+        val cacheFile = File(getCacheDir(), getCacheFileName(primaryUrl, pageNum))
+        val fileSize = if (cacheFile.exists()) {
+            cacheFile.length().takeIf { it > 0L } ?: JSON.toJSONString(data).toByteArray(Charsets.UTF_8).size.toLong()
+        } else {
+            JSON.toJSONString(data).toByteArray(Charsets.UTF_8).size.toLong()
+        }
+
+        val newIndex = currentIndex.toMutableMap()
+        val primaryCache = newIndex[primaryUrl] ?: CacheIndex()
+        val primaryPages = primaryCache.pages.toMutableMap()
+
+        primaryPages[pageNum] = CachePageInfo(
+            pageNum = pageNum,
+            hasImages = fallbackHasImages,
+            timestamp = System.currentTimeMillis(),
+            fileSize = fileSize
+        )
+
+        newIndex[primaryUrl] = primaryCache.copy(
+            title = normalizedCacheTitle(fallbackTitle) ?: primaryCache.title,
+            pages = primaryPages
+        )
+
+        writeIndex(newIndex)
+    }
+
+    /**
+     * 兼容读取页面缓存。
+     *
+     * 1. 优先读取 primaryUrl。
+     * 2. primaryUrl 命中时，顺手清理同页 alias 旧缓存。
+     * 3. primaryUrl 未命中时，尝试 aliasUrls。
+     * 4. alias 命中后，迁移到 primaryUrl，并在新文件写入成功后删除旧文件和旧索引。
+     */
+    suspend fun loadPageCompat(
+        primaryUrl: String,
+        pageNum: Int,
+        aliasUrls: List<String> = emptyList()
+    ): CacheData? = withContext(Dispatchers.IO) {
+        val keys = buildCompatKeys(primaryUrl, aliasUrls)
+        val aliases = keys.drop(1)
+
+        // 1. 主 key 优先
+        val primaryData = loadPage(primaryUrl, pageNum)
+        if (primaryData != null) {
+            val aliasWithIndex = aliases.firstNotNullOfOrNull { alias ->
+                index.value[alias]?.pages?.get(pageNum)?.let { alias to it }
+            }
+
+            ensurePrimaryPageIndexed(
+                primaryUrl = primaryUrl,
+                pageNum = pageNum,
+                data = primaryData,
+                fallbackTitle = aliasWithIndex?.first?.let { index.value[it]?.title },
+                fallbackHasImages = aliasWithIndex?.second?.hasImages ?: false
+            )
+
+            cleanupAliasPageFiles(primaryUrl, pageNum, aliases)
+            return@withContext primaryData
+        }
+
+        // 2. fallback 旧 key；命中后迁移并删除旧文件
+        for (oldUrl in aliases) {
+            val data = loadPage(oldUrl, pageNum) ?: continue
+
+            migratePageToPrimaryAndDeleteOld(
+                primaryUrl = primaryUrl,
+                oldUrl = oldUrl,
+                pageNum = pageNum,
+                data = data
+            )
+
+            return@withContext data
+        }
+
+        null
+    }
+
+    /**
+     * 合并主 key 和旧 key 下的缓存页列表。
+     * 用于 ReaderPage 的 cachedPages 显示。
+     */
+    fun getCachedPageNumsCompat(
+        primaryUrl: String,
+        aliasUrls: List<String> = emptyList()
+    ): Set<Int> {
+        val result = linkedSetOf<Int>()
+
+        buildCompatKeys(primaryUrl, aliasUrls).forEach { key ->
+            index.value[key]?.pages?.keys?.let { result.addAll(it) }
+        }
+
+        return result
+    }
+
+    /**
+     * 删除主 key 和旧 key 下的同一页缓存。
+     */
+    suspend fun deletePageCompat(
+        primaryUrl: String,
+        pageNum: Int,
+        aliasUrls: List<String> = emptyList()
+    ): Boolean = withContext(Dispatchers.IO) {
+        var success = true
+
+        buildCompatKeys(primaryUrl, aliasUrls).forEach { key ->
+            success = deletePage(key, pageNum) && success
+        }
+
+        success
+    }
+
+    /**
+     * 删除主 key 和旧 key 下的整本缓存。
+     */
+    suspend fun deleteNovelCompat(
+        primaryUrl: String,
+        aliasUrls: List<String> = emptyList()
+    ): Boolean = withContext(Dispatchers.IO) {
+        var success = true
+
+        buildCompatKeys(primaryUrl, aliasUrls).forEach { key ->
+            success = deleteNovel(key) && success
+        }
+
+        success
+    }
+
+    /**
+     * 按 normalized key 更新缓存标题。
+     * 这样旧 key 下的缓存也能显示收藏标题。
+     */
+    fun updateCacheTitlesCompat(
+        titlesMap: Map<String, String>,
+        normalizeUrl: (String) -> String
+    ) {
+        val currentIndex = _index.value
+        var changed = false
+        val newIndex = currentIndex.toMutableMap()
+
+        currentIndex.keys.forEach { cacheUrl ->
+            val normalizedCacheUrl = normalizeUrl(cacheUrl)
+            val title = titlesMap[cacheUrl] ?: titlesMap[normalizedCacheUrl]
+
+            if (title != null) {
+                val cache = newIndex[cacheUrl]
+                if (cache != null && cache.title != title) {
+                    newIndex[cacheUrl] = cache.copy(title = title)
+                    changed = true
+                }
+            }
+        }
+
+        if (changed) {
+            writeIndex(newIndex)
+        }
+    }
 }

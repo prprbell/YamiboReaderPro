@@ -845,32 +845,17 @@ fun ReaderWebPage(
                 }
                 val currentPageNum = extractPage(finishedUrl)
 
-                view?.evaluateJavascript(PageJsScripts.OTHER_WEB_CHECK_TYPE_JS) { result ->
-                    val typeCode = result?.toIntOrNull() ?: 3
-
-                    scope.launch(Dispatchers.IO) {
-                        val map = FavoriteUtil.getFavoriteMapSuspend()
-                        map[url]?.let { fav ->
-                            var changed = false
-                            var newFav = fav
-
-                            if (fav.type != typeCode) {
-                                newFav = newFav.copy(type = typeCode)
-                                changed = true
-                            }
-
-                            if (fav.lastView != currentPageNum) {
-                                newFav = newFav.copy(lastView = currentPageNum)
-                                changed = true
-                            }
-
-                            if (changed) {
-                                map[url] = newFav
-                                FavoriteUtil.saveFavoriteOrder(map.values.toList())
-                            }
+                scope.launch(Dispatchers.IO) {
+                    val map = FavoriteUtil.getFavoriteMapSuspend()
+                    val identityUrl = FavoriteUtil.normalizeUrl(url)
+                    map[identityUrl]?.let { fav ->
+                        if (fav.lastView != currentPageNum) {
+                            map[identityUrl] = fav.copy(lastView = currentPageNum)
+                            FavoriteUtil.saveFavoriteOrder(map.values.toList())
                         }
                     }
                 }
+
             }
 
             override fun onReceivedError(
@@ -919,7 +904,8 @@ fun ReaderWebPage(
 
             scope.launch(Dispatchers.IO) {
                 val map = FavoriteUtil.getFavoriteMapSuspend()
-                val lastSavedPage = map[url]?.lastView ?: 1
+                val identityUrl = FavoriteUtil.normalizeUrl(url)
+                val lastSavedPage = map[identityUrl]?.lastView ?: 1
                 val startUrl = getPagedUrl(finalUrl, lastSavedPage)
 
                 withContext(Dispatchers.Main) {

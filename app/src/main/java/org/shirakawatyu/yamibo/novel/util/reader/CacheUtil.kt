@@ -120,5 +120,77 @@ class CacheUtil {
             inMemoryCache.remove(key)
         }
 
+        /**
+         * 根据主 key + 兼容 key 读取内存缓存。
+         *
+         * 主 key 命中：顺手清理同页旧 key。
+         * 旧 key 命中：迁移到主 key，然后删除旧 key。
+         */
+        fun getCacheCompat(
+            primaryUrl: String,
+            pageNum: Int,
+            aliasUrls: List<String> = emptyList(),
+            callback: (data: CacheData?) -> Unit
+        ) {
+            val keys = buildList {
+                add(primaryUrl)
+                aliasUrls.forEach { alias ->
+                    if (alias.isNotBlank()) add(alias)
+                }
+            }
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+
+            val primaryKey = generateKey(primaryUrl, pageNum)
+
+            // 1. 主 key 优先
+            inMemoryCache[primaryKey]?.let { data ->
+                // 主 key 已经存在时，清掉同页旧 key，避免内存里继续保留双份身份。
+                keys.drop(1).forEach { alias ->
+                    inMemoryCache.remove(generateKey(alias, pageNum))
+                }
+                callback(data)
+                return
+            }
+
+            // 2. fallback 旧 key；命中后迁移并删除旧 key
+            for (keyUrl in keys.drop(1)) {
+                val oldKey = generateKey(keyUrl, pageNum)
+                val data = inMemoryCache[oldKey]
+                if (data != null) {
+                    saveCache(primaryUrl, data)
+                    inMemoryCache.remove(oldKey)
+                    callback(data)
+                    return
+                }
+            }
+
+            callback(null)
+        }
+
+        /**
+         * 清理主 key 和旧 key 下的同一页内存缓存。
+         */
+        fun clearCacheEntryCompat(
+            primaryUrl: String,
+            pageNum: Int,
+            aliasUrls: List<String> = emptyList()
+        ) {
+            val keys = buildList {
+                add(primaryUrl)
+                aliasUrls.forEach { alias ->
+                    if (alias.isNotBlank()) add(alias)
+                }
+            }
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+
+            keys.forEach { keyUrl ->
+                clearCacheEntry(keyUrl, pageNum)
+            }
+        }
+
     }
 }

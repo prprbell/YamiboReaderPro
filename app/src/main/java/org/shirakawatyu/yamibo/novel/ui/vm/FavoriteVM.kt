@@ -96,7 +96,10 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                             .ifBlank { it.title }
                         it.url to cleanTitle
                     }
-                    localCache.updateCacheTitles(titleMap)
+                    localCache.updateCacheTitlesCompat(
+                        titlesMap = titleMap,
+                        normalizeUrl = { FavoriteUtil.normalizeUrl(it) }
+                    )
                 }
         }
 
@@ -498,7 +501,12 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 TombstoneQueueUtil.removeUrls(itemsToDeleteUrls)
                 itemsToDeleteUrls.forEach { url ->
                     try {
-                        localCache.deleteNovel(url)
+                        val normalizedUrl = FavoriteUtil.normalizeUrl(url)
+
+                        localCache.deleteNovelCompat(
+                            primaryUrl = normalizedUrl,
+                            aliasUrls = cacheAliasesForNormalizedUrl(normalizedUrl, url)
+                        )
                     } catch (e: Exception) {
                     }
                 }
@@ -520,15 +528,34 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private fun refreshCacheInfo(index: Map<String, LocalCacheUtil.CacheIndex>) {
         try {
             val cacheInfoMap = mutableMapOf<String, CacheInfo>()
-            index.forEach { (url, novelCache) ->
-                if (novelCache.pages.isNotEmpty()) {
-                    val totalPages = novelCache.pages.size
-                    val totalSize = novelCache.pages.values.sumOf { it.fileSize }
-                    val pagesWithImages = novelCache.pages.values.count { it.hasImages }
-                    cacheInfoMap[url] =
-                        CacheInfo(url, totalPages, totalSize, pagesWithImages, novelCache.title)
+
+            index.forEach { (rawUrl, novelCache) ->
+                if (novelCache.pages.isEmpty()) return@forEach
+
+                val normalizedUrl = FavoriteUtil.normalizeUrl(rawUrl)
+                val totalPages = novelCache.pages.size
+                val totalSize = novelCache.pages.values.sumOf { it.fileSize }
+                val pagesWithImages = novelCache.pages.values.count { it.hasImages }
+
+                val old = cacheInfoMap[normalizedUrl]
+                cacheInfoMap[normalizedUrl] = if (old == null) {
+                    CacheInfo(
+                        url = normalizedUrl,
+                        totalPages = totalPages,
+                        totalSize = totalSize,
+                        pagesWithImages = pagesWithImages,
+                        title = novelCache.title
+                    )
+                } else {
+                    old.copy(
+                        totalPages = old.totalPages + totalPages,
+                        totalSize = old.totalSize + totalSize,
+                        pagesWithImages = old.pagesWithImages + pagesWithImages,
+                        title = old.title ?: novelCache.title
+                    )
                 }
             }
+
             _uiState.value = _uiState.value.copy(cacheInfoMap = cacheInfoMap)
         } catch (e: Exception) {
             Log.e(logTag, "从内存索引刷新缓存信息失败", e)
@@ -554,11 +581,36 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     fun deleteFavoriteCache(url: String) {
         viewModelScope.launch {
             try {
-                localCache.deleteNovel(url)
+                val normalizedUrl = FavoriteUtil.normalizeUrl(url)
+
+                localCache.deleteNovelCompat(
+                    primaryUrl = normalizedUrl,
+                    aliasUrls = cacheAliasesForNormalizedUrl(normalizedUrl, url)
+                )
+
+                refreshCacheInfo()
             } catch (e: Exception) {
                 Log.e(logTag, "删除 $url 的缓存失败", e)
             }
         }
+    }
+
+    private fun cacheAliasesForNormalizedUrl(normalizedUrl: String, originalUrl: String): List<String> {
+        val absoluteUrl = org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
+            .toAbsoluteBbsUrl(normalizedUrl)
+
+        val aliasesFromIndex = localCache.index.value.keys.filter { rawKey ->
+            rawKey != normalizedUrl && FavoriteUtil.normalizeUrl(rawKey) == normalizedUrl
+        }
+
+        return buildList {
+            add(originalUrl)
+            add(absoluteUrl)
+            addAll(aliasesFromIndex)
+        }
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it != normalizedUrl }
+            .distinct()
     }
 
     fun clearAllCache() {

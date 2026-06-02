@@ -83,6 +83,46 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
     var url by mutableStateOf("")
         private set
+    // 原始入口 URL，只用于兼容旧版本缓存 key。
+    // ReaderVM.url 本身会统一为 FavoriteUtil.normalizeUrl(cleanUrl)。
+    private var rawReaderUrl: String = ""
+
+    private fun readerIdentityAliases(): List<String> {
+        val aliases = mutableListOf<String>()
+
+        if (rawReaderUrl.isNotBlank()) {
+            aliases += rawReaderUrl
+            aliases += ReaderReturnBridge.toAbsoluteBbsUrl(rawReaderUrl)
+            aliases += ReaderReturnBridge.stripReaderTransientParams(
+                ReaderReturnBridge.toAbsoluteBbsUrl(rawReaderUrl)
+            )
+        }
+
+        if (url.isNotBlank()) {
+            aliases += ReaderReturnBridge.toAbsoluteBbsUrl(url)
+            aliases += ReaderReturnBridge.stripReaderTransientParams(
+                ReaderReturnBridge.toAbsoluteBbsUrl(url)
+            )
+        }
+
+        return aliases
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it != url }
+            .distinct()
+    }
+
+    private suspend fun getMemoryCacheCompat(pageNum: Int): CacheData? {
+        return suspendCoroutine { cont ->
+            CacheUtil.getCacheCompat(
+                primaryUrl = url,
+                pageNum = pageNum,
+                aliasUrls = readerIdentityAliases()
+            ) { data ->
+                cont.resume(data)
+            }
+        }
+    }
+
     var isTransitioning by mutableStateOf(false)
     var showLoadingScrim by mutableStateOf(false)
         private set
@@ -216,12 +256,10 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     }
 
     private fun updateCachedPagesFromIndex(index: Map<String, LocalCacheUtil.CacheIndex>) {
-        val novelCache = index[url]
-        if (novelCache != null && novelCache.pages.isNotEmpty()) {
-            _cachedPages.value = novelCache.pages.keys
-        } else {
-            _cachedPages.value = emptySet()
-        }
+        _cachedPages.value = localCache.getCachedPageNumsCompat(
+            primaryUrl = url,
+            aliasUrls = readerIdentityAliases()
+        )
     }
 
     fun setExternalCacheIdentity(enabled: Boolean, title: String?) {
@@ -365,16 +403,23 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             }
         }
 
-        CacheUtil.getCache(url, pageNum) { memoryCacheData ->
+        viewModelScope.launch {
+            val memoryCacheData = getMemoryCacheCompat(pageNum)
+
             if (memoryCacheData != null) {
-                viewModelScope.launch(Dispatchers.IO) {
-                    localCache.savePage(url, pageNum, memoryCacheData, diskCacheIncludeImages, cacheTitleForDisk())
-                    withContext(Dispatchers.Main) {
-                        _cachedPages.value += pageNum
-                        diskCacheQueue.remove(pageNum)
-                        loadNextPageForDiskCache(false)
-                    }
+                withContext(Dispatchers.IO) {
+                    localCache.savePage(
+                        novelUrl = url,
+                        pageNum = pageNum,
+                        data = memoryCacheData,
+                        hasImages = diskCacheIncludeImages,
+                        title = cacheTitleForDisk()
+                    )
                 }
+
+                _cachedPages.value += pageNum
+                diskCacheQueue.remove(pageNum)
+                loadNextPageForDiskCache(false)
             } else {
                 loadPageForDiskCache(pageNum)
             }
@@ -384,7 +429,20 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     fun deleteCachedPages(pagesToDelete: Set<Int>) {
         viewModelScope.launch {
             try {
-                pagesToDelete.forEach { pageNum -> localCache.deletePage(url, pageNum) }
+                pagesToDelete.forEach { pageNum ->
+                    localCache.deletePageCompat(
+                        primaryUrl = url,
+                        pageNum = pageNum,
+                        aliasUrls = readerIdentityAliases()
+                    )
+
+                    CacheUtil.clearCacheEntryCompat(
+                        primaryUrl = url,
+                        pageNum = pageNum,
+                        aliasUrls = readerIdentityAliases()
+                    )
+                }
+
                 _cachedPages.value -= pagesToDelete
             } catch (e: Exception) {
                 Log.e(logTag, "Failed to delete cached pages", e)
@@ -395,7 +453,20 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     fun updateCachedPages(pagesToUpdate: Set<Int>, includeImages: Boolean, showProgressDialog: Boolean = true) {
         viewModelScope.launch {
             try {
-                pagesToUpdate.forEach { pageNum -> localCache.deletePage(url, pageNum) }
+                pagesToUpdate.forEach { pageNum ->
+                    localCache.deletePageCompat(
+                        primaryUrl = url,
+                        pageNum = pageNum,
+                        aliasUrls = readerIdentityAliases()
+                    )
+
+                    CacheUtil.clearCacheEntryCompat(
+                        primaryUrl = url,
+                        pageNum = pageNum,
+                        aliasUrls = readerIdentityAliases()
+                    )
+                }
+
                 _cachedPages.value -= pagesToUpdate
                 startCaching(pagesToUpdate, includeImages, showProgressDialog)
             } catch (e: Exception) {
@@ -454,7 +525,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                     cleanUrl += "?" + keptParams.joinToString("&")
                 }
             }
-            url = cleanUrl
+            rawReaderUrl = cleanUrl
+            url = FavoriteUtil.normalizeUrl(cleanUrl)
             maxWidth = initWidth
             maxHeight = initHeight
 
@@ -508,29 +580,59 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 favorite?.lastPage ?: 0
             }
 
-            // FAB 返回时跳过磁盘缓存：内存缓存更近，没有命中就走网络拉最新内容
-            if (!externalCacheIdentityEnabled) {
-                val localData = withContext(Dispatchers.IO) { localCache.loadPage(url, targetView) }
-                if (localData != null) {
-                    if (currentAuthorId == null && localData.authorId != null) currentAuthorId = localData.authorId
-                    _uiState.value = _uiState.value.copy(currentView = targetView, maxWebView = localData.maxPageNum)
-                    loadFinished(success = true, html = localData.htmlContent, loadedUrl = null,
-                        maxPage = localData.maxPageNum, isFromCache = true, cacheTargetIndex = targetIndex,
-                        targetView = targetView)
+            val localData = withContext(Dispatchers.IO) {
+                localCache.loadPageCompat(
+                    primaryUrl = url,
+                    pageNum = targetView,
+                    aliasUrls = readerIdentityAliases()
+                )
+            }
+
+            if (localData != null) {
+                if (localData.authorId == currentAuthorId || currentAuthorId == null) {
+                    if (currentAuthorId == null && localData.authorId != null) {
+                        currentAuthorId = localData.authorId
+                    }
+
+                    _uiState.value = _uiState.value.copy(
+                        currentView = targetView,
+                        maxWebView = localData.maxPageNum
+                    )
+
+                    loadFinished(
+                        success = true,
+                        html = localData.htmlContent,
+                        loadedUrl = null,
+                        maxPage = localData.maxPageNum,
+                        isFromCache = true,
+                        cacheTargetIndex = targetIndex,
+                        targetView = targetView
+                    )
                     return@launch
                 }
             }
 
             // 内存缓存
-            val memData = suspendCoroutine<CacheData?> { cont ->
-                CacheUtil.getCache(url, targetView) { cont.resume(it) }
-            }
-            if (memData != null && memData.authorId == currentAuthorId) {
-                if (currentAuthorId == null && memData.authorId != null) currentAuthorId = memData.authorId
-                _uiState.value = _uiState.value.copy(currentView = targetView, maxWebView = memData.maxPageNum)
-                loadFinished(success = true, html = memData.htmlContent, loadedUrl = null,
-                    maxPage = memData.maxPageNum, isFromCache = true, cacheTargetIndex = targetIndex,
-                    targetView = targetView)
+            val memData = getMemoryCacheCompat(targetView)
+            if (memData != null && (memData.authorId == currentAuthorId || currentAuthorId == null)) {
+                if (currentAuthorId == null && memData.authorId != null) {
+                    currentAuthorId = memData.authorId
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    currentView = targetView,
+                    maxWebView = memData.maxPageNum
+                )
+
+                loadFinished(
+                    success = true,
+                    html = memData.htmlContent,
+                    loadedUrl = null,
+                    maxPage = memData.maxPageNum,
+                    isFromCache = true,
+                    cacheTargetIndex = targetIndex,
+                    targetView = targetView
+                )
                 return@launch
             }
 
@@ -543,6 +645,8 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     // ==================== 页面切换 (onSetView) ====================
     fun onSetView(view: Int, forceReload: Boolean = false) {
         if (view == _uiState.value.currentView && !isTransitioning && !forceReload) return
+
+        if (initialized) saveHistory(latestPage)
 
         loadJob?.cancel()
         loadRequestId++
@@ -573,7 +677,13 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         nextRawHtml = null
         isPreloading = false
 
-        if (forceReload) CacheUtil.clearCacheEntry(url, view)
+        if (forceReload) {
+            CacheUtil.clearCacheEntryCompat(
+                primaryUrl = url,
+                pageNum = view,
+                aliasUrls = readerIdentityAliases()
+            )
+        }
 
         // 立即更新 currentView 并显示遮罩
         _uiState.value = _uiState.value.copy(currentView = view, isError = false)
@@ -582,28 +692,59 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         showLoadingScrim = true
 
         loadJob = viewModelScope.launch(Dispatchers.Main) {
-            // FAB 返回时跳过磁盘缓存
-            if (!externalCacheIdentityEnabled) {
-                val localData = withContext(Dispatchers.IO) { localCache.loadPage(url, view) }
-                if (thisRequestId != loadRequestId) return@launch
-                if (localData != null && localData.authorId == currentAuthorId) {
-                    _uiState.value = _uiState.value.copy(initPage = 0, maxWebView = localData.maxPageNum)
-                    loadFinished(success = true, html = localData.htmlContent, loadedUrl = null,
-                        maxPage = localData.maxPageNum, isFromCache = true, cacheTargetIndex = 0,
-                        targetView = view)
-                    return@launch
-                }
+            val localData = withContext(Dispatchers.IO) {
+                localCache.loadPageCompat(
+                    primaryUrl = url,
+                    pageNum = view,
+                    aliasUrls = readerIdentityAliases()
+                )
             }
 
-            val memData = suspendCoroutine<CacheData?> { cont ->
-                CacheUtil.getCache(url, view) { cont.resume(it) }
-            }
             if (thisRequestId != loadRequestId) return@launch
-            if (memData != null && memData.authorId == currentAuthorId) {
-                _uiState.value = _uiState.value.copy(initPage = 0, maxWebView = memData.maxPageNum)
-                loadFinished(success = true, html = memData.htmlContent, loadedUrl = null,
-                    maxPage = memData.maxPageNum, isFromCache = true, cacheTargetIndex = 0,
-                    targetView = view)
+
+            if (localData != null && (localData.authorId == currentAuthorId || currentAuthorId == null)) {
+                if (currentAuthorId == null && localData.authorId != null) {
+                    currentAuthorId = localData.authorId
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    initPage = 0,
+                    maxWebView = localData.maxPageNum
+                )
+
+                loadFinished(
+                    success = true,
+                    html = localData.htmlContent,
+                    loadedUrl = null,
+                    maxPage = localData.maxPageNum,
+                    isFromCache = true,
+                    cacheTargetIndex = 0,
+                    targetView = view
+                )
+                return@launch
+            }
+
+            val memData = getMemoryCacheCompat(view)
+            if (thisRequestId != loadRequestId) return@launch
+            if (memData != null && (memData.authorId == currentAuthorId || currentAuthorId == null)) {
+                if (currentAuthorId == null && memData.authorId != null) {
+                    currentAuthorId = memData.authorId
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    initPage = 0,
+                    maxWebView = memData.maxPageNum
+                )
+
+                loadFinished(
+                    success = true,
+                    html = memData.htmlContent,
+                    loadedUrl = null,
+                    maxPage = memData.maxPageNum,
+                    isFromCache = true,
+                    cacheTargetIndex = 0,
+                    targetView = view
+                )
                 return@launch
             }
 
