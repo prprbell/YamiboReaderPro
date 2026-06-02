@@ -113,6 +113,7 @@ import org.shirakawatyu.yamibo.novel.ui.page.HistoryPage
 import org.shirakawatyu.yamibo.novel.ui.page.OtherWebPage
 import org.shirakawatyu.yamibo.novel.ui.page.ProbingPage
 import org.shirakawatyu.yamibo.novel.ui.page.ReaderPage
+import org.shirakawatyu.yamibo.novel.ui.page.ReaderWebPage
 import org.shirakawatyu.yamibo.novel.ui.state.BBSPageState
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
@@ -924,7 +925,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 currentRoute == "FavoritePage" -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.onSurface
                                 currentRoute == "BBSPage" -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.primary
                                 currentRoute == "MinePage" || currentRoute?.startsWith("MineHistoryPostPage") == true -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.primary
-                                currentRoute?.startsWith("OtherWebPage") == true -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.primary
+                                currentRoute?.startsWith("OtherWebPage") == true || currentRoute?.startsWith("ReaderWebPage") == true -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: YamiboColors.primary
                                 currentRoute == "HistoryPage" -> darkTheme?.statusBar ?: lightTheme?.statusBar ?: ComposeColor(0xFFF7F8FA)
                                 else -> null
                             }
@@ -995,7 +996,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                         val isContentPage = currentRoute?.run {
                                             startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith(
                                                 "MangaWebPage"
-                                            ) || startsWith("OtherWebPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage")
+                                            ) || startsWith("OtherWebPage") || startsWith("ReaderWebPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage")
                                         } == true
                                         val maskAlpha by animateFloatAsState(
                                             targetValue = if (isContentPage) 0.5f else 0f,
@@ -1078,7 +1079,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                             val isContentPage = currentRoute?.run {
                                                 startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith(
                                                     "MangaWebPage"
-                                                ) || startsWith("OtherWebPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage")
+                                                ) || startsWith("OtherWebPage") || startsWith("ReaderWebPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage")
                                             } == true
                                             val maskAlpha by animateFloatAsState(
                                                 targetValue = if (isContentPage) 0.5f else 0f,
@@ -1173,7 +1174,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                         val isContentPage = currentRoute?.run {
                                             startsWith("ReaderPage") || startsWith("NativeMangaPage") || startsWith(
                                                 "MangaWebPage"
-                                            ) || startsWith("OtherWebPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage")
+                                            ) || startsWith("OtherWebPage") || startsWith("ReaderWebPage") || this == "HistoryPage" || startsWith("MineHistoryPostPage")
                                         } == true
                                         val maskAlpha by animateFloatAsState(
                                             targetValue = if (isContentPage) 0.5f else 0f,
@@ -1275,6 +1276,18 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                 ) {
                                     it.arguments?.getString("url")?.let { url ->
                                         OtherWebPage(
+                                            url = URLDecoder.decode(url, "utf-8"),
+                                            navController = navController,
+                                            webChromeClient = webChromeClient
+                                        )
+                                    }
+                                }
+                                composable(
+                                    "ReaderWebPage/{url}",
+                                    arguments = listOf(navArgument("url") { type = NavType.StringType })
+                                ) {
+                                    it.arguments?.getString("url")?.let { url ->
+                                        ReaderWebPage(
                                             url = URLDecoder.decode(url, "utf-8"),
                                             navController = navController,
                                             webChromeClient = webChromeClient

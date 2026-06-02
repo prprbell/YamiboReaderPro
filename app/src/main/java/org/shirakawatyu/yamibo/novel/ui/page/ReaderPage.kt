@@ -424,7 +424,6 @@ fun ReaderPage(
                     }
                     favoriteVM.nextResumeStrategy = FavoriteVM.RefreshStrategy.SMART
                     val currentState = readerVM.uiState.value
-                    readerVM.scheduleDiskCacheRefresh()
                     val returnContext = ReaderReturnBridge.captureFromReader(
                         readerUrl = readerVM.url.ifBlank { url },
                         authorId = currentState.authorId,
@@ -436,13 +435,15 @@ fun ReaderPage(
                     val navigateAction = {
                         if (previousRoute == "BBSPage" || previousRoute == "MinePage") {
                             navController.navigateUp()
-                        } else if (previousRoute?.startsWith("OtherWebPage") == true) {
-                            // OtherWebPage 可能已经停在别的页/取消了只看楼主。
-                            // 先发一次校正请求，再露出已有 WebView，这样“原贴”看到的是阅读器当前网页页码。
+                        } else if (previousRoute?.startsWith("ReaderWebPage") == true) {
+                            // ReaderWebPage 可能已经停在别的页/取消了只看楼主。
+                            // 先发一次校正请求，再露出已有 WebView，这样"原贴"看到的是阅读器当前网页页码。
+                            readerVM.scheduleDiskCacheRefresh()
                             ReaderReturnBridge.requestOriginalPost(returnContext.originalPostUrl)
                             navController.navigateUp()
                         } else {
-                            navController.navigate("OtherWebPage/${ReaderReturnBridge.encodeRouteArg(returnContext.originalPostUrl)}") {
+                            readerVM.scheduleDiskCacheRefresh()
+                            navController.navigate("ReaderWebPage/${ReaderReturnBridge.encodeRouteArg(returnContext.originalPostUrl)}") {
                                 navController.currentDestination?.id?.let { currentId ->
                                     popUpTo(currentId) { inclusive = true }
                                 }

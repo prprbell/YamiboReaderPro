@@ -81,6 +81,9 @@ import org.shirakawatyu.yamibo.novel.util.history.HistoryUtil
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
+import org.shirakawatyu.yamibo.novel.network.NovelApi
+import org.shirakawatyu.yamibo.novel.util.reader.CacheData
+import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.util.darkThemeColor
@@ -98,11 +101,27 @@ import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 import androidx.core.net.toUri
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
-class FullscreenApiOther {
+private val pstatusFormat = SimpleDateFormat("yyyy-M-d HH:mm", Locale.getDefault())
+
+private fun parsePstatusTime(text: String?): Long? {
+    if (text.isNullOrBlank()) return null
+    return try {
+        pstatusFormat.parse(text.trim())?.time
+    } catch (_: Exception) {
+        null
+    }
+}
+
+class FullscreenApiReader {
     var onStateChange: ((Boolean) -> Unit)? = null
     var onMangaActionDone: (() -> Unit)? = null
     var onSaveImage: ((String) -> Unit)? = null
@@ -123,11 +142,11 @@ class FullscreenApiOther {
     }
 }
 
-private var cachedFullscreenApiOther: FullscreenApiOther? = null
+private var cachedFullscreenApiReader: FullscreenApiReader? = null
 
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
-fun OtherWebPage(
+fun ReaderWebPage(
     url: String,
     navController: NavController,
     webChromeClient: WebChromeClient
@@ -286,8 +305,8 @@ fun OtherWebPage(
         }
     }
     val fullscreenApi = remember {
-        if (cachedFullscreenApiOther == null) cachedFullscreenApiOther = FullscreenApiOther()
-        cachedFullscreenApiOther!!
+        if (cachedFullscreenApiReader == null) cachedFullscreenApiReader = FullscreenApiReader()
+        cachedFullscreenApiReader!!
     }
     fullscreenApi.onStateChange = { isFullscreen -> isFullscreenState.value = isFullscreen }
     fullscreenApi.onMangaActionDone = { autoOpenMangaMode = false }
@@ -756,6 +775,66 @@ fun OtherWebPage(
                 if (currentTid != null && originalTid != null && currentTid != originalTid) {
                     return
                 }
+
+                // 后台刷新磁盘缓存：对比帖子最后编辑时间，只在有更新时才拉取
+                val pendingRefresh = ReaderReturnBridge.pendingCacheRefresh
+                if (pendingRefresh != null && view != null) {
+                    ReaderReturnBridge.pendingCacheRefresh = null
+                    scope.launch(Dispatchers.IO) {
+                        val cachedPage = LocalCacheUtil.getInstance(context)
+                            .getCachedPages(pendingRefresh.url)
+                            .find { it.pageNum == pendingRefresh.pageNum }
+                        if (cachedPage == null) return@launch
+
+                        delay(3000)
+                        val pstatusTime = withContext(Dispatchers.Main) {
+                            suspendCancellableCoroutine { cont ->
+                                view.evaluateJavascript(
+                                    "(function(){var els=document.querySelectorAll('i.pstatus');var times=[];for(var i=0;i<els.length;i++){var m=els[i].textContent.match(/(\\d{4}-\\d{1,2}-\\d{1,2}\\s*\\d{1,2}:\\d{2})/);if(m)times.push(m[1])}return times.join('|')})();"
+                                ) { result ->
+                                    val raw = try {
+                                        JSON.parse(result) as? String ?: ""
+                                    } catch (_: Exception) {
+                                        result?.trim('"') ?: ""
+                                    }
+                                    cont.resume(raw)
+                                }
+                            }
+                        }
+                        val latestEditTime = pstatusTime.split("|")
+                            .mapNotNull { parsePstatusTime(it) }
+                            .maxOrNull()
+                        if (latestEditTime == null || cachedPage.timestamp >= latestEditTime) return@launch
+
+                        val tid = ReaderReturnBridge.extractTid(pendingRefresh.url)
+                            ?: pendingRefresh.url.substringAfter("tid=").substringBefore("&")
+                        if (tid.isBlank() || pendingRefresh.authorId == null) return@launch
+                        try {
+                            val api = YamiboRetrofit.getInstance().create(NovelApi::class.java)
+                            val resp = api.getThreadPageByAuthor(tid, pendingRefresh.pageNum, pendingRefresh.authorId)
+                            val json = JSON.parseObject(resp.string())
+                            val variables = json.getJSONObject("Variables")
+                            val postlist = variables.getJSONArray("postlist")
+                            val messages = (0 until postlist.size).map { i ->
+                                postlist.getJSONObject(i).getString("message")
+                            }
+                            val combinedHtml = messages.joinToString("") {
+                                "<div class=\"message\">$it</div>"
+                            }
+                            val cacheData = CacheData(
+                                cachedPageNum = pendingRefresh.pageNum,
+                                htmlContent = combinedHtml,
+                                maxPageNum = 1,
+                                authorId = pendingRefresh.authorId
+                            )
+                            LocalCacheUtil.getInstance(context).savePage(
+                                pendingRefresh.url, pendingRefresh.pageNum, cacheData,
+                                false, pendingRefresh.cacheTitle
+                            )
+                        } catch (_: Exception) { }
+                    }
+                }
+
                 val extractPage = { urlStr: String? ->
                     var page = 1
                     if (urlStr != null) {
@@ -948,7 +1027,7 @@ fun OtherWebPage(
                 },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(bottom = 86.dp)
+                    .padding(bottom = 150.dp)
             )
 
             if (showLoadError) {
