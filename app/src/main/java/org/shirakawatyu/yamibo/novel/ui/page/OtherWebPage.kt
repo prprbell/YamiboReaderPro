@@ -101,9 +101,25 @@ import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 import org.shirakawatyu.yamibo.novel.util.StaticAssetProxy
 import androidx.core.net.toUri
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+
+private val pstatusFormat = SimpleDateFormat("yyyy-M-d HH:mm", Locale.getDefault())
+
+private fun parsePstatusTime(text: String?): Long? {
+    if (text.isNullOrBlank()) return null
+    return try {
+        pstatusFormat.parse(text.trim())?.time
+    } catch (_: Exception) {
+        null
+    }
+}
 
 class FullscreenApiOther {
     var onStateChange: ((Boolean) -> Unit)? = null
@@ -760,13 +776,36 @@ fun OtherWebPage(
                     return
                 }
 
-                // 后台刷新磁盘缓存：阅读器退出时调度，等 OtherWebPage 加载完成后执行
+                // 后台刷新磁盘缓存：对比帖子最后编辑时间，只在有更新时才拉取
                 val pendingRefresh = ReaderReturnBridge.pendingCacheRefresh
-                if (pendingRefresh != null) {
+                if (pendingRefresh != null && view != null) {
                     ReaderReturnBridge.pendingCacheRefresh = null
                     scope.launch(Dispatchers.IO) {
-                        // 等 WebView 加载完毕、网络空闲后再开始刷新缓存
+                        val cachedPage = LocalCacheUtil.getInstance(context)
+                            .getCachedPages(pendingRefresh.url)
+                            .find { it.pageNum == pendingRefresh.pageNum }
+                        if (cachedPage == null) return@launch
+
                         delay(3000)
+                        val pstatusTime = withContext(Dispatchers.Main) {
+                            suspendCancellableCoroutine { cont ->
+                                view.evaluateJavascript(
+                                    "(function(){var els=document.querySelectorAll('i.pstatus');var times=[];for(var i=0;i<els.length;i++){var m=els[i].textContent.match(/(\\d{4}-\\d{1,2}-\\d{1,2}\\s*\\d{1,2}:\\d{2})/);if(m)times.push(m[1])}return times.join('|')})();"
+                                ) { result ->
+                                    val raw = try {
+                                        JSON.parse(result) as? String ?: ""
+                                    } catch (_: Exception) {
+                                        result?.trim('"') ?: ""
+                                    }
+                                    cont.resume(raw)
+                                }
+                            }
+                        }
+                        val latestEditTime = pstatusTime.split("|")
+                            .mapNotNull { parsePstatusTime(it) }
+                            .maxOrNull()
+                        if (latestEditTime == null || cachedPage.timestamp >= latestEditTime) return@launch
+
                         val tid = ReaderReturnBridge.extractTid(pendingRefresh.url)
                             ?: pendingRefresh.url.substringAfter("tid=").substringBefore("&")
                         if (tid.isBlank() || pendingRefresh.authorId == null) return@launch
