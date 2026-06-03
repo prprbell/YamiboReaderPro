@@ -58,7 +58,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private var pendingSyncJob: Job? = null
     private var fetchJob: Job? = null
     private var lastNavigateTime = 0L
-    private val SMART_SYNC_TIMEOUT = 60 * 60 * 1000L
+    private val SMART_SYNC_TIMEOUT = 20 * 60 * 1000L
 
     // 记录正在删除过程中的URL
     private val pendingDeleteUrls = mutableSetOf<String>()

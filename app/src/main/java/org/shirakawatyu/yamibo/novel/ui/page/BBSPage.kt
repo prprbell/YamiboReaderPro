@@ -1063,7 +1063,7 @@ fun BBSPage(
                         ))
 
                 if (isHomepage) {
-                    for (i in 0 until 4) {
+                    for (i in 0 until 10) {
                         val cookieManager = CookieManager.getInstance()
                         val currentCookie = cookieManager.getCookie("https://bbs.yamibo.com") ?: ""
                         val currentLoginState = isLoggedIn(currentCookie)
@@ -1077,7 +1077,7 @@ fun BBSPage(
                         } else {
                             BBSPageState.lastLoginState = currentLoginState
                         }
-                        delay(800)
+                        delay(500)
                     }
                 }
             }
