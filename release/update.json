@@ -1,6 +1,6 @@
 {
-  "tag_name": "v1.11.5",
-  "body": "修复并调整底部栏UI",
-  "apkName": "yamibo_v1.11.5.apk",
-  "apkDownloadUrl": "https://yamibo-reader-pro-release.oss-cn-chengdu.aliyuncs.com/yamibo_v1.11.5.zip"
+  "tag_name": "v1.11.6",
+  "body": "从阅读器去往原帖后，可点击悬浮按钮返回阅读器。\n修复悬浮球崩溃问题。\n其他优化。",
+  "apkName": "yamibo_v1.11.6.apk",
+  "apkDownloadUrl": "https://yamibo-reader-pro-release.oss-cn-chengdu.aliyuncs.com/yamibo_v1.11.6.zip"
 }

@@ -162,7 +162,6 @@ object WebViewPool {
             holder.isDirty = false
         }
 
-        holder.webView.stopLoading()
         holder.contextWrapper.baseContext = context
         holder.useCount++
 
