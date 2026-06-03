@@ -398,11 +398,18 @@ fun HistoryPage(navController: NavController) {
     // 设置上限 Dialog
     if (showSettingsDialog) {
         var sliderValue by remember { mutableFloatStateOf(maxCount.toFloat()) }
+        val currentCount = historyList.size
         AlertDialog(
             onDismissRequest = { showSettingsDialog = false },
             title = { Text("历史记录上限") },
             text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "当前 $currentCount 条",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         "${sliderValue.toInt()} 条",
                         fontSize = 18.sp,
@@ -413,7 +420,7 @@ fun HistoryPage(navController: NavController) {
                     Slider(
                         value = sliderValue,
                         onValueChange = { sliderValue = (it / 100f).roundToInt() * 100f },
-                        valueRange = 100f..2000f,
+                        valueRange = 100f..5000f,
                         steps = 0,
                         modifier = Modifier.fillMaxWidth(),
                         colors = SliderDefaults.colors(
@@ -432,7 +439,7 @@ fun HistoryPage(navController: NavController) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            "2000",
+                            "5000",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -441,7 +448,7 @@ fun HistoryPage(navController: NavController) {
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val newCount = sliderValue.toInt().coerceIn(100, 2000)
+                    val newCount = sliderValue.toInt().coerceIn(100, 5000)
                     GlobalData.historyMaxCount.value = newCount
                     SettingsUtil.saveHistoryMaxCount(newCount)
                     showSettingsDialog = false

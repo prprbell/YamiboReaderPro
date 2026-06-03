@@ -157,7 +157,7 @@ class YamiboRetrofit {
         val okHttpClient: OkHttpClient by lazy {
             createOkHttpClient(
                 "http_cache_default",
-                100L * 1024 * 1024,
+                128L * 1024 * 1024,
                 enableCache = true,
                 enableImageChecker = false
             )

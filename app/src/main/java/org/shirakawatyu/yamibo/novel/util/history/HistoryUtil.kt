@@ -68,7 +68,7 @@ object HistoryUtil {
             map.remove(normalizedUrl)
             map[normalizedUrl] = entry
 
-            val maxCount = GlobalData.historyMaxCount.value.coerceIn(100, 2000)
+            val maxCount = GlobalData.historyMaxCount.value.coerceIn(100, 5000)
             while (map.size > maxCount) {
                 val oldestKey = map.keys.first()
                 map.remove(oldestKey)

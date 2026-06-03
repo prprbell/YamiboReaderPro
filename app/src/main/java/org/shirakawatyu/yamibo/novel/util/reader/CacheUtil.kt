@@ -28,8 +28,7 @@ class CacheUtil {
     companion object {
         private const val logTag = "CacheUtil"
 
-        // 定义缓存的总大小50mb
-        private const val CACHE_SIZE_IN_MIB = 50
+        private const val CACHE_SIZE_IN_MIB = 64
         private val cacheSizeInBytes = CACHE_SIZE_IN_MIB * 1024 * 1024
 
         /**
