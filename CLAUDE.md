@@ -52,7 +52,7 @@ Content routes:
 ### Networking (`global/YamiboRetrofit.kt`)
 
 Two OkHttp clients:
-- `okHttpClient` — General use, 50MB disk cache, default connection pool.
+- `okHttpClient` — General use, 128MB disk cache, default connection pool.
 - `threadOkHttpClient` — For forum image loading, no cache, 6 max requests per host, with `RateLimitInterceptor` (100ms) and `ImageCheckerUtil`.
 
 Custom `DynamicDns` races AliDNS and TencentDNS DoH resolvers (1.5s timeout), falls back to system DNS. Supports manual custom DNS URL. All requests get cookie, User-Agent, Accept-Language headers injected via application interceptor. `proxyWebViewResource()` allows OkHttp to proxy WebView resource requests (bypassing WebView's own networking).
@@ -83,6 +83,47 @@ Custom `DynamicDns` races AliDNS and TencentDNS DoH resolvers (1.5s timeout), fa
 
 When the user requests a release upload, first check if `app/build.gradle.kts` versionName matches the latest git tag (`git describe --tags --abbrev=0`). If they are the same, warn the user to bump the version before proceeding. Then run `git log <lastTag>..HEAD` and `git diff <lastTag>..HEAD` to analyze changes and generate Chinese release notes. Release notes must be written in plain, user-facing language — do NOT use technical jargon (e.g. DNS cache, renderer), internal file names (e.g. MinePage, BBSPage), or variable/parameter names (e.g. mycenter, authorid). Describe changes from the user's perspective. Focus on the end result: what feature was delivered, not the incremental fixes along the way. If a feature took multiple commits (including bug fixes), write only that the feature was completed — never list intermediate bug fixes as separate items. Write `release_notes.txt` to the project root and `update.json` to `release/update.json`.
 
+#### GitHub Release
+
+We push git tags and create GitHub releases directly via the GitHub API. No `gh` CLI or PowerShell script needed.
+
+**Get a GitHub token** from the git credential manager:
+```bash
+echo "protocol=https
+host=github.com" | git credential fill
+```
+Extract the `password` field — this is the GitHub token.
+
+**Create the release**:
+```bash
+curl -s -X POST \
+  -H "Authorization: token <TOKEN>" \
+  -H "Accept: application/vnd.github+json" \
+  -H "Content-Type: application/json" \
+  -d "{\"tag_name\":\"vX.X.X\",\"name\":\"vX.X.X\",\"body\":\"$(cat release_notes.txt | sed ':a;N;$!ba;s/\n/\\n/g')\"}" \
+  https://api.github.com/repos/prprbell/YamiboReaderPro/releases
+```
+
+**Upload APK** (use `application/vnd.android.package-archive` MIME type):
+```bash
+curl -s -X POST \
+  -H "Authorization: token <TOKEN>" \
+  -H "Accept: application/vnd.github+json" \
+  -H "Content-Type: application/vnd.android.package-archive" \
+  "https://uploads.github.com/repos/prprbell/YamiboReaderPro/releases/<RELEASE_ID>/assets?name=yamibo_vX.X.X.apk" \
+  --data-binary "@release/app-release.apk"
+```
+
+Steps:
+1. Write `update.json` and `release_notes.txt` based on changes
+2. Copy APK to release folder: `cp app/release/app-release.apk release/app-release.apk`
+3. If APK not found, instruct user to build first
+4. Tag and push: `git tag vX.X.X && git push origin vX.X.X`
+5. Create GitHub release via API and upload APK
+6. Also upload to OSS (see below)
+
+#### OSS Upload (for in-app updates)
+
 APK is distributed via Alibaba Cloud OSS. Aliyun blocks `.apk` download on default domains, so the APK **must be renamed to `.zip`** before uploading.
 
 **`update.json`** on OSS bucket `yamibo-reader-pro-release` (oss-cn-chengdu):
@@ -95,17 +136,7 @@ APK is distributed via Alibaba Cloud OSS. Aliyun blocks `.apk` download on defau
 }
 ```
 
-Place the generated `update.json` and the renamed APK (`.zip`) into the `release/` folder so they are ready for upload. After writing release notes:
-
-1. Auto-copy the release APK: `cp app/release/app-release.apk release/yamibo_vX.X.X.zip`
-2. If `app/release/app-release.apk` not found, instruct user to build the APK and then rename/move it manually
-3. Upload both files (`release/update.json` + `release/yamibo_vX.X.X.zip`) to OSS bucket root
+Rename to zip for OSS: `cp app/release/app-release.apk release/yamibo_vX.X.X.zip`
+Upload `release/update.json` and `release/yamibo_vX.X.X.zip` to OSS bucket root.
 
 The client `DownloadManager` uses `setMimeType("application/vnd.android.package-archive")` so the system treats downloaded `.zip` files as APKs regardless of URL extension.
-
-```powershell
-# Push git tag to GitHub only（upload_github.ps1 未纳入版本控制，需自行准备）
-powershell -ExecutionPolicy Bypass -File .\upload_github.ps1 -NotesFile .\release_notes.txt
-```
-
-Prerequisite: `gh` CLI installed and authenticated (GitHub). `upload_github.ps1` is not tracked in git — obtain it separately.
