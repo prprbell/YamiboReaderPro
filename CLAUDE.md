@@ -82,15 +82,16 @@ Custom `DynamicDns` races AliDNS and TencentDNS DoH resolvers (1.5s timeout), fa
 ### Release Upload
 
 1. Verify `app/build.gradle.kts` `versionName` > latest git tag. If equal, warn to bump.
-2. Analyze changes: `git log <lastTag>..HEAD` and `git diff <lastTag>..HEAD`, then write user-facing Chinese release notes. Write `release_notes.txt` (project root) and `release/update.json` (`release/update.json`).
-3. Copy APK: `cp app/release/app-release.apk release/app-release.apk` (warn user to build if missing).
-4. Create tag and push.
+2. Analyze changes: `git log <lastTag>..HEAD` and `git diff <lastTag>..HEAD`, then write user-facing Chinese release notes. Write `release_notes.txt` (project root) and `release/update.json`.
+3. Check `app/release/app-release.apk` exists (warn user to build if missing).
+4. Tag and push: `git tag vX.X.X && git push origin vX.X.X`.
 
 ```bash
 VERSION="1.11.6"
 TOKEN=$(echo -e "protocol=https\nhost=github.com" | git credential fill | grep password | cut -d= -f2)
+APK="app/release/app-release.apk"
 
-# Create GitHub release
+# Create GitHub release (body from release/update.json)
 RELEASE_ID=$(curl -s -X POST \
   -H "Authorization: token $TOKEN" \
   -H "Accept: application/vnd.github+json" \
@@ -98,16 +99,16 @@ RELEASE_ID=$(curl -s -X POST \
   -d @release/update.json \
   https://api.github.com/repos/prprbell/YamiboReaderPro/releases | grep -o '"id": [0-9]*' | head -1 | grep -o '[0-9]*')
 
-# Upload APK to GitHub release (MUST be .apk, NOT .zip)
+# Upload APK to GitHub release (MUST be .apk)
 curl -s -X POST \
   -H "Authorization: token $TOKEN" \
   -H "Accept: application/vnd.github+json" \
   -H "Content-Type: application/vnd.android.package-archive" \
   "https://uploads.github.com/repos/prprbell/YamiboReaderPro/releases/$RELEASE_ID/assets?name=yamibo_v$VERSION.apk" \
-  --data-binary "@release/app-release.apk"
+  --data-binary "@$APK"
 
 # OSS (in-app update): rename to .zip (Aliyun blocks .apk), upload update.json + .zip
-cp release/app-release.apk "release/yamibo_v$VERSION.zip"
+cp "$APK" "release/yamibo_v$VERSION.zip"
 ```
 
 **OSS upload**: `release/update.json` + `release/yamibo_vX.X.X.zip` to bucket `yamibo-reader-pro-release` (oss-cn-chengdu). The client uses `application/vnd.android.package-archive` MIME so `.zip` extension is fine.
