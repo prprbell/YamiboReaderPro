@@ -81,62 +81,43 @@ Custom `DynamicDns` races AliDNS and TencentDNS DoH resolvers (1.5s timeout), fa
 
 ### Release Upload
 
-When the user requests a release upload, first check if `app/build.gradle.kts` versionName matches the latest git tag (`git describe --tags --abbrev=0`). If they are the same, warn the user to bump the version before proceeding. Then run `git log <lastTag>..HEAD` and `git diff <lastTag>..HEAD` to analyze changes and generate Chinese release notes. Release notes must be written in plain, user-facing language — do NOT use technical jargon (e.g. DNS cache, renderer), internal file names (e.g. MinePage, BBSPage), or variable/parameter names (e.g. mycenter, authorid). Describe changes from the user's perspective. Focus on the end result: what feature was delivered, not the incremental fixes along the way. If a feature took multiple commits (including bug fixes), write only that the feature was completed — never list intermediate bug fixes as separate items. Write `release_notes.txt` to the project root and `update.json` to `release/update.json`.
+1. Verify `app/build.gradle.kts` `versionName` > latest git tag. If equal, warn to bump.
+2. Analyze changes: `git log <lastTag>..HEAD` and `git diff <lastTag>..HEAD`, then write user-facing Chinese release notes. Write `release_notes.txt` (project root) and `release/update.json` (`release/update.json`).
+3. Copy APK: `cp app/release/app-release.apk release/app-release.apk` (warn user to build if missing).
+4. Create tag and push.
 
-#### GitHub Release
-
-We push git tags and create GitHub releases directly via the GitHub API. No `gh` CLI or PowerShell script needed.
-
-**Get a GitHub token** from the git credential manager:
 ```bash
-echo "protocol=https
-host=github.com" | git credential fill
-```
-Extract the `password` field — this is the GitHub token.
+VERSION="1.11.6"
+TOKEN=$(echo -e "protocol=https\nhost=github.com" | git credential fill | grep password | cut -d= -f2)
 
-**Create the release**:
-```bash
-curl -s -X POST \
-  -H "Authorization: token <TOKEN>" \
+# Create GitHub release
+RELEASE_ID=$(curl -s -X POST \
+  -H "Authorization: token $TOKEN" \
   -H "Accept: application/vnd.github+json" \
   -H "Content-Type: application/json" \
-  -d "{\"tag_name\":\"vX.X.X\",\"name\":\"vX.X.X\",\"body\":\"$(cat release_notes.txt | sed ':a;N;$!ba;s/\n/\\n/g')\"}" \
-  https://api.github.com/repos/prprbell/YamiboReaderPro/releases
-```
+  -d @release/update.json \
+  https://api.github.com/repos/prprbell/YamiboReaderPro/releases | grep -o '"id": [0-9]*' | head -1 | grep -o '[0-9]*')
 
-**Upload APK** (use `application/vnd.android.package-archive` MIME type):
-```bash
+# Upload APK to GitHub release (MUST be .apk, NOT .zip)
 curl -s -X POST \
-  -H "Authorization: token <TOKEN>" \
+  -H "Authorization: token $TOKEN" \
   -H "Accept: application/vnd.github+json" \
   -H "Content-Type: application/vnd.android.package-archive" \
-  "https://uploads.github.com/repos/prprbell/YamiboReaderPro/releases/<RELEASE_ID>/assets?name=yamibo_vX.X.X.apk" \
+  "https://uploads.github.com/repos/prprbell/YamiboReaderPro/releases/$RELEASE_ID/assets?name=yamibo_v$VERSION.apk" \
   --data-binary "@release/app-release.apk"
+
+# OSS (in-app update): rename to .zip (Aliyun blocks .apk), upload update.json + .zip
+cp release/app-release.apk "release/yamibo_v$VERSION.zip"
 ```
 
-Steps:
-1. Write `update.json` and `release_notes.txt` based on changes
-2. Copy APK to release folder: `cp app/release/app-release.apk release/app-release.apk`
-3. If APK not found, instruct user to build first
-4. Tag and push: `git tag vX.X.X && git push origin vX.X.X`
-5. Create GitHub release via API and upload APK
-6. Also upload to OSS (see below)
+**OSS upload**: `release/update.json` + `release/yamibo_vX.X.X.zip` to bucket `yamibo-reader-pro-release` (oss-cn-chengdu). The client uses `application/vnd.android.package-archive` MIME so `.zip` extension is fine.
 
-#### OSS Upload (for in-app updates)
-
-APK is distributed via Alibaba Cloud OSS. Aliyun blocks `.apk` download on default domains, so the APK **must be renamed to `.zip`** before uploading.
-
-**`update.json`** on OSS bucket `yamibo-reader-pro-release` (oss-cn-chengdu):
+**`update.json` format**:
 ```json
 {
-  "tag_name": "v1.11.0",
-  "body": "更新内容说明",
-  "apkName": "yamibo_v1.11.0.apk",
-  "apkDownloadUrl": "https://yamibo-reader-pro-release.oss-cn-chengdu.aliyuncs.com/yamibo_v1.11.0.zip"
+  "tag_name": "v1.11.6",
+  "body": "...",
+  "apkName": "yamibo_v1.11.6.apk",
+  "apkDownloadUrl": "https://yamibo-reader-pro-release.oss-cn-chengdu.aliyuncs.com/yamibo_v1.11.6.zip"
 }
 ```
-
-Rename to zip for OSS: `cp app/release/app-release.apk release/yamibo_vX.X.X.zip`
-Upload `release/update.json` and `release/yamibo_vX.X.X.zip` to OSS bucket root.
-
-The client `DownloadManager` uses `setMimeType("application/vnd.android.package-archive")` so the system treats downloaded `.zip` files as APKs regardless of URL extension.
