@@ -26,3 +26,4 @@ release_notes.txt
 .env*
 .gitee_token
 upload_github.ps1
+plan.txt

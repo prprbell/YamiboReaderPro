@@ -23,11 +23,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.shirakawatyu.yamibo.novel.bean.Content
@@ -42,6 +44,7 @@ import org.shirakawatyu.yamibo.novel.ui.state.ChapterInfo
 import org.shirakawatyu.yamibo.novel.ui.state.ReaderState
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
+import org.shirakawatyu.yamibo.novel.util.reader.ReaderMemoryPrewarmManager
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.reader.CacheData
 import org.shirakawatyu.yamibo.novel.util.reader.CacheUtil
@@ -51,6 +54,7 @@ import org.shirakawatyu.yamibo.novel.util.reader.HTMLUtil
 import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
 import org.shirakawatyu.yamibo.novel.util.reader.TextUtil
 import org.shirakawatyu.yamibo.novel.util.reader.ValueUtil
+import java.io.IOException
 import java.util.concurrent.Executors
 import kotlin.math.ceil
 import kotlin.coroutines.resume
@@ -72,6 +76,12 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
     private var pageEnterTime = 0L
     private var loadJob: Job? = null
     private var loadRequestId = 0
+
+    private companion object {
+        private const val READER_API_TIMEOUT_MS = 15_000L
+        private const val READER_API_MAX_ATTEMPTS = 2
+        private const val READER_API_RETRY_DELAY_MS = 800L
+    }
 
     /**
      * Reader 的解析 / 简繁转换 / 分页都属于 CPU 密集任务。
@@ -121,6 +131,27 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 cont.resume(data)
             }
         }
+    }
+
+    private fun buildReaderMemoryPrewarmTarget(pageNum: Int): ReaderMemoryPrewarmManager.Target? {
+        val tid = ReaderReturnBridge.extractTid(url) ?: return null
+        val authorId = currentAuthorId
+            ?: _uiState.value.authorId
+            ?: ReaderReturnBridge.extractAuthorId(url)
+            ?: return null
+
+        return ReaderMemoryPrewarmManager.Target(
+            primaryUrl = ReaderMemoryPrewarmManager.canonicalReaderUrl(url),
+            tid = tid,
+            page = pageNum,
+            authorId = authorId,
+            aliasUrls = readerIdentityAliases()
+        )
+    }
+
+    private suspend fun awaitInFlightMemoryPrewarm(pageNum: Int): CacheData? {
+        val target = buildReaderMemoryPrewarmTarget(pageNum) ?: return null
+        return ReaderMemoryPrewarmManager.awaitInFlightDataOrNull(target)
     }
 
     var isTransitioning by mutableStateOf(false)
@@ -636,6 +667,30 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 return@launch
             }
 
+            // 如果 ReaderWebPage 已经在静默预热同一页，继承那次发射结果，避免 FAB 返回后再开第二个网络请求。
+            val prewarmData = awaitInFlightMemoryPrewarm(targetView)
+            if (prewarmData != null && (prewarmData.authorId == currentAuthorId || currentAuthorId == null)) {
+                if (currentAuthorId == null && prewarmData.authorId != null) {
+                    currentAuthorId = prewarmData.authorId
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    currentView = targetView,
+                    maxWebView = prewarmData.maxPageNum
+                )
+
+                loadFinished(
+                    success = true,
+                    html = prewarmData.htmlContent,
+                    loadedUrl = null,
+                    maxPage = prewarmData.maxPageNum,
+                    isFromCache = true,
+                    cacheTargetIndex = targetIndex,
+                    targetView = targetView
+                )
+                return@launch
+            }
+
             // 网络加载
             _uiState.value = _uiState.value.copy(currentView = targetView, initPage = targetIndex)
             startNetworkLoad(targetView)
@@ -762,10 +817,42 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
                 return@launch
             }
 
-            // 网络加载
+            // 如果 ReaderWebPage 的静默预热还在进行中，等待并复用它的结果。
+            val prewarmData = awaitInFlightMemoryPrewarm(view)
             if (thisRequestId != loadRequestId) return@launch
+            if (prewarmData != null && (prewarmData.authorId == currentAuthorId || currentAuthorId == null)) {
+                if (currentAuthorId == null && prewarmData.authorId != null) {
+                    currentAuthorId = prewarmData.authorId
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    initPage = 0,
+                    maxWebView = prewarmData.maxPageNum
+                )
+
+                loadFinished(
+                    success = true,
+                    html = prewarmData.htmlContent,
+                    loadedUrl = null,
+                    maxPage = prewarmData.maxPageNum,
+                    isFromCache = true,
+                    cacheTargetIndex = 0,
+                    targetView = view
+                )
+                return@launch
+            }
+
+            // 网络加载前清空旧正文，避免弱网下"旧页内容 + loading"误导用户。
+            if (thisRequestId != loadRequestId) return@launch
+            _uiState.value = _uiState.value.copy(
+                htmlList = emptyList(),
+                chapterList = emptyList(),
+                initPage = 0,
+                isError = false
+            )
+
             try {
-                val (html, maxPage, title) = loadFromApi(view)
+                val (html, maxPage, title) = loadFromApiBounded(view)
                 if (thisRequestId != loadRequestId) return@launch
                 loadFinished(success = true, html = html, loadedUrl = null, maxPage = maxPage,
                     title = title, isFromCache = false, targetView = view)
@@ -812,6 +899,32 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
         CacheUtil.saveCache(url, CacheData(cachedPageNum = view, htmlContent = combinedHtml, maxPageNum = maxPageCalculated, authorId = authorId))
         val title = thread.getString("subject")
         return Triple(combinedHtml, maxPageCalculated, title)
+    }
+
+    private suspend fun loadFromApiBounded(view: Int): Triple<String, Int, String?> {
+        var lastError: Throwable? = null
+
+        repeat(READER_API_MAX_ATTEMPTS) { attempt ->
+            try {
+                return withTimeout(READER_API_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) {
+                        loadFromApi(view)
+                    }
+                }
+            } catch (e: TimeoutCancellationException) {
+                lastError = e
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e
+            }
+
+            if (attempt < READER_API_MAX_ATTEMPTS - 1) {
+                delay(READER_API_RETRY_DELAY_MS)
+            }
+        }
+
+        throw IOException("Reader API load failed or timed out: page=$view", lastError)
     }
 
     fun loadFinished(
@@ -931,7 +1044,7 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
             loadJob = viewModelScope.launch {
                 delay(10)
                 try {
-                    val (html, maxPage, title) = loadFromApi(pageToRefresh)
+                    val (html, maxPage, title) = loadFromApiBounded(pageToRefresh)
                     loadFinished(true, html, null, maxPage, title, targetView = pageToRefresh)
                 } catch (e: Exception) {
                     loadFinished(false, "", null, 1, targetView = pageToRefresh)
@@ -948,7 +1061,26 @@ class ReaderVM(private val applicationContext: Context) : ViewModel() {
 
         loadJob = viewModelScope.launch {
             try {
-                val (html, maxPage, title) = loadFromApi(view)
+                val prewarmData = awaitInFlightMemoryPrewarm(view)
+                if (thisRequestId != loadRequestId) return@launch
+                if (prewarmData != null && (prewarmData.authorId == currentAuthorId || currentAuthorId == null)) {
+                    if (currentAuthorId == null && prewarmData.authorId != null) {
+                        currentAuthorId = prewarmData.authorId
+                    }
+                    _uiState.value = _uiState.value.copy(maxWebView = prewarmData.maxPageNum)
+                    loadFinished(
+                        success = true,
+                        html = prewarmData.htmlContent,
+                        loadedUrl = null,
+                        maxPage = prewarmData.maxPageNum,
+                        isFromCache = true,
+                        cacheTargetIndex = 0,
+                        targetView = view
+                    )
+                    return@launch
+                }
+
+                val (html, maxPage, title) = loadFromApiBounded(view)
                 if (thisRequestId != loadRequestId) return@launch
                 loadFinished(success = true, html = html, loadedUrl = null, maxPage = maxPage,
                     title = title, targetView = view)

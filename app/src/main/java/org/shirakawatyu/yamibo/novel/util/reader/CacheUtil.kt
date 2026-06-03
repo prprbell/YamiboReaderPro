@@ -170,6 +170,31 @@ class CacheUtil {
         }
 
         /**
+         * 只读取主 key + 兼容 key 下的内存缓存，不迁移、不删除。
+         * 用于后台预热前的"是否已有缓存"判断，避免为了判断而产生副作用。
+         */
+        fun peekCacheCompat(
+            primaryUrl: String,
+            pageNum: Int,
+            aliasUrls: List<String> = emptyList()
+        ): CacheData? {
+            val keys = buildList {
+                add(primaryUrl)
+                aliasUrls.forEach { alias ->
+                    if (alias.isNotBlank()) add(alias)
+                }
+            }
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+
+            for (keyUrl in keys) {
+                inMemoryCache[generateKey(keyUrl, pageNum)]?.let { return it }
+            }
+            return null
+        }
+
+        /**
          * 清理主 key 和旧 key 下的同一页内存缓存。
          */
         fun clearCacheEntryCompat(

@@ -100,6 +100,7 @@ import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderModeDetector
 import org.shirakawatyu.yamibo.novel.util.reader.ReaderReturnBridge
+import org.shirakawatyu.yamibo.novel.util.reader.ReaderMemoryPrewarmManager
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -329,7 +330,7 @@ fun ReaderWebPage(
             .setNegativeButton("取消", null)
             .show()
     }
-    val otherWebView = remember {
+    val readerWebView = remember {
         WebViewPool.acquire(context).apply {
             settings.apply {
                 javaScriptEnabled = true
@@ -350,8 +351,8 @@ fun ReaderWebPage(
     }
     LaunchedEffect(Unit) {
         try {
-            otherWebView.onResume()
-            otherWebView.resumeTimers()
+            readerWebView.onResume()
+            readerWebView.resumeTimers()
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -364,20 +365,63 @@ fun ReaderWebPage(
                 GlobalData.darkModeTheme.value,
                 GlobalData.lightModeTheme.value
             )
-            otherWebView.evaluateJavascript(js, null)
+            readerWebView.evaluateJavascript(js, null)
         }
     }
 
-    ActivityWebViewLifecycleObserver(otherWebView)
+    ActivityWebViewLifecycleObserver(readerWebView)
 
     val canConvertToReader by remember(currentUrl, pageTitle) {
         derivedStateOf {
-            ReaderModeDetector.canConvertToReaderMode(currentUrl ?: otherWebView.url, pageTitle.ifBlank { otherWebView.title })
+            ReaderModeDetector.canConvertToReaderMode(currentUrl ?: readerWebView.url, pageTitle.ifBlank { readerWebView.title })
         }
     }
 
+    fun buildReaderMemoryPrewarmTarget(probe: ReaderWebProbe?): ReaderMemoryPrewarmManager.Target? {
+        val bridge = ReaderReturnBridge.context ?: return null
+        val pageUrl = (probe?.url ?: currentUrl ?: readerWebView.url ?: finalUrl).substringBefore("#")
+        val currentTid = probe?.tid ?: ReaderReturnBridge.extractTid(pageUrl) ?: return null
+        val bridgeTid = bridge.tid ?: ReaderReturnBridge.extractTid(bridge.readerUrl)
+        if (bridgeTid != null && bridgeTid != currentTid) return null
+
+        // 用户在看全部帖子（退出了只看楼主），此时 ReaderPage 已有当前页的内存缓存，无需预热。
+        if (bridge.authorId != null && probe?.isAuthorOnly == false) return null
+
+        val page = (probe?.page ?: ReaderReturnBridge.extractPage(pageUrl)).coerceAtLeast(1)
+        val authorId = bridge.authorId
+            ?: probe?.authorId
+            ?: ReaderReturnBridge.extractAuthorId(pageUrl)
+            ?: return null
+
+        val primaryUrl = ReaderMemoryPrewarmManager.canonicalReaderUrl(bridge.readerUrl)
+        val aliasUrls = listOf(
+            bridge.readerUrl,
+            ReaderReturnBridge.toAbsoluteBbsUrl(bridge.readerUrl),
+            pageUrl,
+            ReaderReturnBridge.toAbsoluteBbsUrl(pageUrl),
+            ReaderMemoryPrewarmManager.canonicalReaderUrl(pageUrl)
+        )
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it != primaryUrl }
+            .distinct()
+
+        return ReaderMemoryPrewarmManager.Target(
+            primaryUrl = primaryUrl,
+            tid = currentTid,
+            page = page,
+            authorId = authorId,
+            aliasUrls = aliasUrls
+        )
+    }
+
+    @Suppress("UNUSED_VARIABLE", "UnusedReturnValue")
+    fun prewarmReaderMemoryCacheIfNeeded(probe: ReaderWebProbe?) {
+        val target = buildReaderMemoryPrewarmTarget(probe) ?: return
+        ReaderMemoryPrewarmManager.prewarmIfNeeded(context.applicationContext, target)
+    }
+
     fun openReaderFromOtherWeb(probe: ReaderWebProbe?) {
-        val cleanUrl = (probe?.url ?: currentUrl ?: otherWebView.url ?: finalUrl).substringBefore("#")
+        val cleanUrl = (probe?.url ?: currentUrl ?: readerWebView.url ?: finalUrl).substringBefore("#")
         val currentTid = probe?.tid ?: ReaderReturnBridge.extractTid(cleanUrl)
         val bridge = ReaderReturnBridge.context
         val sameAsReaderContext = bridge != null &&
@@ -437,15 +481,15 @@ fun ReaderWebPage(
     }
 
     val pendingOriginalPostRequest = ReaderReturnBridge.originalPostRequest
-    LaunchedEffect(pendingOriginalPostRequest?.id, otherWebView) {
+    LaunchedEffect(pendingOriginalPostRequest?.id, readerWebView) {
         val request = pendingOriginalPostRequest ?: return@LaunchedEffect
-        val currentTid = ReaderReturnBridge.extractTid(otherWebView.url ?: currentUrl ?: finalUrl)
+        val currentTid = ReaderReturnBridge.extractTid(readerWebView.url ?: currentUrl ?: finalUrl)
         if (request.tid == null || currentTid == null || request.tid == currentTid) {
             pendingOriginalPostRequestId = request.id
             pendingOriginalPostTargetUrl = request.targetUrl
 
-            if (!ReaderReturnBridge.sameUrlIgnoringHashAndTrailingSlash(otherWebView.url, request.targetUrl)) {
-                startLoading(otherWebView, request.targetUrl)
+            if (!ReaderReturnBridge.sameUrlIgnoringHashAndTrailingSlash(readerWebView.url, request.targetUrl)) {
+                startLoading(readerWebView, request.targetUrl)
             } else {
                 ReaderReturnBridge.clearOriginalPostRequest(request.id)
                 pendingOriginalPostRequestId = null
@@ -474,14 +518,14 @@ fun ReaderWebPage(
 
     LaunchedEffect(isFullscreenState.value) {
         if (!isFullscreenState.value) {
-            otherWebView.evaluateJavascript(PageJsScripts.CLEANUP_FULLSCREEN_JS, null)
+            readerWebView.evaluateJavascript(PageJsScripts.CLEANUP_FULLSCREEN_JS, null)
             GlobalData.webProgress.value = 100
         } else {
             if (autoOpenMangaMode) autoOpenMangaMode = false
 
             currentUrl?.let { threadUrl ->
                 if (threadUrl.contains("mod=viewthread") && threadUrl.contains("tid=")) {
-                    otherWebView.evaluateJavascript(PageJsScripts.CHECK_SECTION_JS) { result ->
+                    readerWebView.evaluateJavascript(PageJsScripts.CHECK_SECTION_JS) { result ->
                         val sectionName = try {
                             JSON.parse(result) as? String ?: ""
                         } catch (_: Exception) {
@@ -500,8 +544,8 @@ fun ReaderWebPage(
                         }
 
                         if (!isCrossForum) {
-                            val pageTitle = otherWebView.title ?: ""
-                            otherWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
+                            val pageTitle = readerWebView.title ?: ""
+                            readerWebView.evaluateJavascript("(function() { return document.documentElement.outerHTML; })()") { htmlResult ->
                                 val cleanHtml = try {
                                     JSON.parse(htmlResult) as? String ?: ""
                                 } catch (_: Exception) {
@@ -520,8 +564,8 @@ fun ReaderWebPage(
 
     var isHistoryCleared by remember { mutableStateOf(false) }
 
-    LaunchedEffect(otherWebView) {
-        otherWebView.webViewClient = object : YamiboWebViewClient() {
+    LaunchedEffect(readerWebView) {
+        readerWebView.webViewClient = object : YamiboWebViewClient() {
             val contentImageCount = AtomicInteger(0)
 
             override fun shouldOverrideUrlLoading(
@@ -791,6 +835,18 @@ fun ReaderWebPage(
                     return
                 }
 
+                // 静默预热内存缓存
+                scope.launch {
+                    delay(1000)
+                    if (view != null) {
+                        view.evaluateJavascript(readerWebProbeJs) { result ->
+                            prewarmReaderMemoryCacheIfNeeded(parseReaderWebProbe(result))
+                        }
+                    } else {
+                        prewarmReaderMemoryCacheIfNeeded(null)
+                    }
+                }
+
                 // 后台刷新磁盘缓存：对比帖子最后编辑时间，只在有更新时才拉取
                 val pendingRefresh = ReaderReturnBridge.pendingCacheRefresh
                 if (pendingRefresh != null && view != null) {
@@ -919,10 +975,10 @@ fun ReaderWebPage(
             }
         }
 
-        if (otherWebView.url == null || otherWebView.tag?.toString()
-                ?.startsWith("recycled") == true || otherWebView.url == "about:blank"
+        if (readerWebView.url == null || readerWebView.tag?.toString()
+                ?.startsWith("recycled") == true || readerWebView.url == "about:blank"
         ) {
-            otherWebView.tag = null
+            readerWebView.tag = null
 
             scope.launch(Dispatchers.IO) {
                 val map = FavoriteUtil.getFavoriteMapSuspend()
@@ -931,7 +987,7 @@ fun ReaderWebPage(
                 val startUrl = getPagedUrl(finalUrl, lastSavedPage)
 
                 withContext(Dispatchers.Main) {
-                    startLoading(otherWebView, startUrl)
+                    startLoading(readerWebView, startUrl)
                 }
             }
         }
@@ -939,18 +995,18 @@ fun ReaderWebPage(
 
     LaunchedEffect(isLoading) {
         if (!isLoading && autoOpenMangaMode) {
-            otherWebView.evaluateJavascript(PageJsScripts.OTHER_WEB_AUTO_OPEN_JS, null)
+            readerWebView.evaluateJavascript(PageJsScripts.OTHER_WEB_AUTO_OPEN_JS, null)
             delay(6000)
             if (autoOpenMangaMode) {
                 autoOpenMangaMode = false
-                otherWebView.evaluateJavascript(PageJsScripts.REMOVE_TRANSITION_STYLE_JS, null)
+                readerWebView.evaluateJavascript(PageJsScripts.REMOVE_TRANSITION_STYLE_JS, null)
             }
         }
     }
 
     BackHandler(enabled = true) {
         if (canGoBack) {
-            otherWebView.goBack()
+            readerWebView.goBack()
         } else {
             performExit()
         }
@@ -994,8 +1050,8 @@ fun ReaderWebPage(
         ) {
             AndroidView(
                 factory = {
-                    (otherWebView.parent as? ViewGroup)?.removeView(otherWebView)
-                    otherWebView
+                    (readerWebView.parent as? ViewGroup)?.removeView(readerWebView)
+                    readerWebView
                 },
                 update = {
                     val list = it.copyBackForwardList()
@@ -1022,7 +1078,7 @@ fun ReaderWebPage(
             ReaderModeFAB(
                 visible = canConvertToReader && !isLoading && !showLoadError && !isFullscreenState.value && !autoOpenMangaMode,
                 onClick = {
-                    otherWebView.evaluateJavascript(readerWebProbeJs) { result ->
+                    readerWebView.evaluateJavascript(readerWebProbeJs) { result ->
                         openReaderFromOtherWeb(parseReaderWebProbe(result))
                     }
                 },
@@ -1045,8 +1101,8 @@ fun ReaderWebPage(
                     Spacer(Modifier.height(24.dp))
                     Button(onClick = {
                         startLoading(
-                            otherWebView,
-                            otherWebView.url ?: url
+                            readerWebView,
+                            readerWebView.url ?: url
                         )
                     }) { Text("重试") }
                 }
