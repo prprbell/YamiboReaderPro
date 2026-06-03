@@ -289,7 +289,6 @@ fun Modifier.verticalMangaZoomGesture(
                         if (handler.isZoomed && !wasMultiTouch) {
                             val velocity = velocityTracker.calculateVelocity()
                             scope.launch {
-                                // 修改点 4：在这里将 density 传入 flingX，以确保动画能够使用正确的物理特性
                                 handler.flingX(velocity.x, density)
                             }
                         } else if (wasMultiTouch) {

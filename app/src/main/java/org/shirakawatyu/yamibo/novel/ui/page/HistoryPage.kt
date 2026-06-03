@@ -747,7 +747,6 @@ fun HistoryPage(navController: NavController) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(bgColor)
-                                    // 【修改点】移除了原先复杂的 then(if(isExiting)) 逻辑，还原最干净的高性能可点击区域
                                     .clickable {
                                         if (isManageMode) {
                                             selectedUrls = if (isSelected) {

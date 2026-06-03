@@ -302,7 +302,7 @@ fun CacheProgressDialog(
 
                 Spacer(Modifier.height(16.dp))
 
-                // [MODIFIED] 根据是否完成显示不同文本
+                // 根据是否完成显示不同文本
                 if (isComplete) {
                     Text(
                         "已完成 $totalPages / $totalPages 页",
