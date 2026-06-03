@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,11 +21,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -96,7 +100,11 @@ fun FavoriteItem(
     isHidden: Boolean = false,
     type: Int = 0,
     cacheInfo: FavoriteVM.CacheInfo? = null,
-    isGlobalCollapsed: Boolean = false
+    isGlobalCollapsed: Boolean = false,
+    hasUpdate: Boolean = false,
+    isUpdateCheckConfigured: Boolean = false,
+    isCheckingUpdate: Boolean = false,
+    onUpdateCheckClick: (() -> Unit)? = null
 ) {
     var isExpandedLocally by remember(isGlobalCollapsed) { mutableStateOf(false) }
 
@@ -190,18 +198,24 @@ fun FavoriteItem(
                     else -> 4
                 }
 
-                Text(
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    fontSize = 16.sp,
-                    color = darkThemeColor(Color.Black) { onSurface },
-                    maxLines = titleMaxLines,
-                    overflow = TextOverflow.Clip,
-                    text = displayTitle,
-                    fontWeight = FontWeight.Medium,
-                    style = TextStyle(
-                        lineBreak = LineBreak.Simple
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        modifier = Modifier.weight(1f),
+                        fontSize = 16.sp,
+                        color = darkThemeColor(Color.Black) { onSurface },
+                        maxLines = titleMaxLines,
+                        overflow = TextOverflow.Clip,
+                        text = displayTitle,
+                        fontWeight = FontWeight.Medium,
+                        style = TextStyle(
+                            lineBreak = LineBreak.Simple
+                        )
                     )
-                )
+
+                }
 
                 AnimatedVisibility(
                     visible = !isEffectivelyCollapsed,
@@ -267,32 +281,69 @@ fun FavoriteItem(
                 }
             }
 
-            // 右侧：固定宽度的操作区。无论折叠、搜索还是管理，都保持标题列宽不变，避免第一行换行点抖动。
-            Box(
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .size(32.dp),
-                contentAlignment = Alignment.Center
+            // 右侧操作区
+            Row(
+                modifier = Modifier.padding(start = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (isGlobalCollapsed) {
+                // 更新查询按钮（仅非管理模式 + 小说/漫画）
+                if (!isManageMode && (type == 1 || type == 2)) {
                     Box(
                         modifier = Modifier
                             .size(32.dp)
-                            .clickable { isExpandedLocally = !isExpandedLocally },
+                            .clickable(enabled = !isCheckingUpdate) { onUpdateCheckClick?.invoke() },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = if (isExpandedLocally) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            contentDescription = if (isExpandedLocally) "收起" else "展开",
-                            tint = darkThemeColor(YamiboColors.primary) { primary },
-                            modifier = Modifier.size(22.dp)
-                        )
+                        if (isCheckingUpdate) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = darkThemeColor(YamiboColors.primary) { primary }
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "查询更新",
+                                tint = when {
+                                    hasUpdate -> Color(0xFFE53935)
+                                    isUpdateCheckConfigured -> darkThemeColor(YamiboColors.primary) { primary }
+                                    else -> darkThemeColor(YamiboColors.primary) { primary }.copy(alpha = 0.4f)
+                                },
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        if (hasUpdate) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 2.dp, end = 2.dp)
+                                    .size(8.dp)
+                                    .background(Color(0xFFE53935), CircleShape)
+                            )
+                        }
                     }
-                } else {
-                    Box(
-                        modifier = Modifier.size(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+                }
+
+                // 折叠箭头 / 拖拽手柄（恢复原始行为：管理模式也显示拖拽手柄）
+                Box(
+                    modifier = Modifier.size(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isGlobalCollapsed) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clickable { isExpandedLocally = !isExpandedLocally },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isExpandedLocally) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (isExpandedLocally) "收起" else "展开",
+                                tint = darkThemeColor(YamiboColors.primary) { primary },
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    } else {
                         dragHandle()
                     }
                 }

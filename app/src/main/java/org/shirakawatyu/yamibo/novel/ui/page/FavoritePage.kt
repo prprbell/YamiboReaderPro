@@ -116,6 +116,7 @@ import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.R
 import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
+import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckStrategy
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
@@ -153,6 +154,8 @@ fun FavoritePage(
     val isDnsOptimizationEnabled by GlobalData.isDnsOptimizationEnabled.collectAsState()
     val isClickToTopEnabled by GlobalData.isClickToTopEnabled.collectAsState()
     val selectedItems = uiState.selectedItems
+    val updateCheckNovels = uiState.updateCheckNovels
+    val updateCheckMangas = uiState.updateCheckMangas
     var cacheInfoMap = uiState.cacheInfoMap
     val currentHomePage by GlobalData.homePageRoute.collectAsState()
     var showCacheManagement by remember { mutableStateOf(false) }
@@ -178,6 +181,11 @@ fun FavoritePage(
     var showDirectoryManagement by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var directoryList by remember { mutableStateOf<List<MangaDirectory>>(emptyList()) }
+    var mangaUpdateCheckTarget by remember { mutableStateOf<Favorite?>(null) }
+    var showMangaConfigDialog by remember { mutableStateOf(false) }
+    var mangaConfigPresetStrategy by remember { mutableStateOf(MangaUpdateCheckStrategy.TAG) }
+    var mangaConfigPresetKeyword by remember { mutableStateOf("") }
+    var mangaConfigPresetBookName by remember { mutableStateOf("") }
     val context = LocalContext.current
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
@@ -676,6 +684,10 @@ fun FavoritePage(
                                         }
                                     }
                                 }
+                                when (item.type) {
+                                    1 -> favoriteVM.clearNovelUpdateCheckFlag(item.url)
+                                    2 -> favoriteVM.clearMangaUpdateCheckFlag(item.url)
+                                }
                                 favoriteVM.updateStrategyBeforeNavigation(item.type)
                                 val encodedUrl = java.net.URLEncoder.encode(item.url, "utf-8")
                                 when (item.type) {
@@ -740,6 +752,11 @@ fun FavoritePage(
                         key = item.url,
                     ) { isDragging ->
                         val isSelected = selectedItems.contains(item.url)
+                        val novelUpdateProfile = updateCheckNovels.find { it.url == item.url }
+                        val mangaUpdateProfile = updateCheckMangas.find { it.url == item.url }
+                        val isUpdateCheckConfigured = novelUpdateProfile != null || mangaUpdateProfile != null
+                        val hasUpdate = novelUpdateProfile?.hasUpdate == true || mangaUpdateProfile?.hasUpdate == true
+                        val isCheckingUpdate = uiState.checkingUpdateUrls.contains(item.url)
                         FavoriteItem(
                             item.title,
                             item.lastView,
@@ -761,6 +778,35 @@ fun FavoritePage(
                             type = item.type,
                             cacheInfo = cacheInfoMap[item.url],
                             isGlobalCollapsed = isFavoriteCollapsed,
+                            hasUpdate = hasUpdate,
+                            isUpdateCheckConfigured = isUpdateCheckConfigured,
+                            isCheckingUpdate = isCheckingUpdate,
+                            onUpdateCheckClick = {
+                                when (item.type) {
+                                    1 -> favoriteVM.checkNovelUpdate(item)
+                                    2 -> {
+                                        mangaUpdateCheckTarget = item
+                                        val existing = updateCheckMangas.find { it.url == item.url }
+                                        if (existing != null) {
+                                            mangaConfigPresetStrategy = existing.strategy
+                                            mangaConfigPresetKeyword = existing.searchKeyword ?: ""
+                                            mangaConfigPresetBookName = existing.cleanBookName
+                                            showMangaConfigDialog = true
+                                        } else {
+                                            favoriteVM.getDirectoryList { dirs ->
+                                                val tid = Regex("tid=(\\d+)").find(item.url)?.groupValues?.get(1)
+                                                val matchedDir = dirs.find { dir -> dir.chapters.any { it.tid == tid } }
+                                                mangaConfigPresetStrategy = if (matchedDir?.strategy == org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy.TAG)
+                                                    MangaUpdateCheckStrategy.TAG else MangaUpdateCheckStrategy.SEARCH
+                                                mangaConfigPresetKeyword = matchedDir?.searchKeyword ?: ""
+                                                mangaConfigPresetBookName = matchedDir?.cleanBookName ?: ""
+                                                showMangaConfigDialog = true
+                                            }
+                                        }
+                                    }
+                                    else -> favoriteVM.showUnsupportedUpdateCheckType()
+                                }
+                            },
                             dragHandle = {
                                 val canDrag = !isInManageMode && !isSearching
                                 Icon(
@@ -1104,6 +1150,126 @@ fun FavoritePage(
                 },
                 dismissButton = {
                     TextButton(onClick = { showDeleteConfirmDialog = false }) { Text("取消") }
+                }
+            )
+        }
+        // 漫画手动更新检查配置对话框
+        if (showMangaConfigDialog && mangaUpdateCheckTarget != null) {
+            val fav = mangaUpdateCheckTarget!!
+            val initStrategy = mangaConfigPresetStrategy
+            val initKeyword = mangaConfigPresetKeyword
+            val initBookName = mangaConfigPresetBookName
+            var selectedStrategy by remember(fav.url, initStrategy) { mutableStateOf(initStrategy) }
+            var bookName by remember(fav.url, initBookName) { mutableStateOf(initBookName) }
+            var keyword1 by remember(fav.url, initKeyword) { mutableStateOf(initKeyword) }
+            var keyword2 by remember(fav.url) { mutableStateOf("") }
+            var showKeyword2 by remember(fav.url) { mutableStateOf(false) }
+            var searchCooldownSec by remember { mutableIntStateOf(0) }
+
+            LaunchedEffect(selectedStrategy, showMangaConfigDialog) {
+                while (selectedStrategy == MangaUpdateCheckStrategy.SEARCH && showMangaConfigDialog) {
+                    val remaining = favoriteVM.getSearchCooldownRemainingMs()
+                    searchCooldownSec = if (remaining > 0) ((remaining + 999) / 1000).toInt() else 0
+                    if (searchCooldownSec == 0) break
+                    delay(1000)
+                }
+                searchCooldownSec = 0
+            }
+
+            val searchOnCooldown = selectedStrategy == MangaUpdateCheckStrategy.SEARCH && searchCooldownSec > 0
+
+            AlertDialog(
+                onDismissRequest = { showMangaConfigDialog = false; mangaUpdateCheckTarget = null },
+                title = { Text("漫画更新检查") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("更新策略", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = selectedStrategy == MangaUpdateCheckStrategy.TAG,
+                                onClick = { selectedStrategy = MangaUpdateCheckStrategy.TAG }
+                            )
+                            Text("TAG（标签页拉取）", modifier = Modifier.clickable { selectedStrategy = MangaUpdateCheckStrategy.TAG })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = selectedStrategy == MangaUpdateCheckStrategy.SEARCH,
+                                onClick = { selectedStrategy = MangaUpdateCheckStrategy.SEARCH }
+                            )
+                            Text("搜索", modifier = Modifier.clickable { selectedStrategy = MangaUpdateCheckStrategy.SEARCH })
+                        }
+                        if (selectedStrategy == MangaUpdateCheckStrategy.SEARCH) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = keyword1,
+                                    onValueChange = { keyword1 = it },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    label = { Text("关键词 1") }
+                                )
+                                if (showKeyword2) {
+                                    OutlinedTextField(
+                                        value = keyword2,
+                                        onValueChange = { keyword2 = it },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                        label = { Text("关键词 2") }
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { showKeyword2 = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("+", fontSize = 24.sp, fontWeight = FontWeight.Light)
+                                    }
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = bookName,
+                            onValueChange = { bookName = it },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("漫画名称") }
+                        )
+                        if (searchOnCooldown) {
+                            Text(
+                                "搜索冷却中，请等待 ${searchCooldownSec} 秒",
+                                color = MaterialTheme.colorScheme.error,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                        showMangaConfigDialog = false
+                        mangaUpdateCheckTarget?.let { target ->
+                            val combinedKeyword = listOf(keyword1.trim(), keyword2.trim())
+                                .filter { it.isNotEmpty() }
+                                .joinToString(" ")
+                            favoriteVM.checkMangaUpdate(
+                                target,
+                                overrideStrategy = selectedStrategy,
+                                overrideSearchKeyword = combinedKeyword.ifBlank { null },
+                                overrideCleanBookName = bookName.ifBlank { null }
+                            )
+                        }
+                        mangaUpdateCheckTarget = null
+                    }, enabled = !searchOnCooldown) { Text(if (searchOnCooldown) "冷却中..." else "开始查询") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showMangaConfigDialog = false; mangaUpdateCheckTarget = null
+                    }) { Text("取消") }
                 }
             )
         }

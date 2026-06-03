@@ -1,6 +1,8 @@
 package org.shirakawatyu.yamibo.novel.ui.state
 
 import org.shirakawatyu.yamibo.novel.bean.Favorite
+import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckProfile
+import org.shirakawatyu.yamibo.novel.bean.NovelUpdateCheckProfile
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 
 data class FavoriteState(
@@ -8,5 +10,8 @@ data class FavoriteState(
     var isRefreshing: Boolean = false,
     var isInManageMode: Boolean = false,
     var selectedItems: Set<String> = emptySet(),
-    var cacheInfoMap: Map<String, FavoriteVM.CacheInfo> = emptyMap()
+    var cacheInfoMap: Map<String, FavoriteVM.CacheInfo> = emptyMap(),
+    var updateCheckNovels: List<NovelUpdateCheckProfile> = listOf(),
+    var updateCheckMangas: List<MangaUpdateCheckProfile> = listOf(),
+    var checkingUpdateUrls: Set<String> = emptySet()
 )

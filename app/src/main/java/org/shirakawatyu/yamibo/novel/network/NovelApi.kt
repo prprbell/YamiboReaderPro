@@ -19,4 +19,13 @@ interface NovelApi {
         @Query("page") page: Int,
         @Query("authorid") authorid: String
     ): ResponseBody
+
+    // 仅获取帖子元信息（用于特别关注检查 replies 数，ppp=1 最小化响应）
+    @Headers("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    @GET("api/mobile/index.php?module=viewthread&version=1")
+    suspend fun getThreadMeta(
+        @Query("tid") tid: String,
+        @Query("authorid") authorid: String,
+        @Query("ppp") ppp: Int = 1
+    ): ResponseBody
 }

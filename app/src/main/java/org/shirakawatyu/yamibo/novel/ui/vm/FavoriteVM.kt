@@ -6,8 +6,10 @@ import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alibaba.fastjson2.JSON
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,20 +21,36 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.bean.Favorite
+import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckProfile
+import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckStrategy
+import org.shirakawatyu.yamibo.novel.bean.NovelUpdateCheckProfile
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.FavoriteApi
+import org.shirakawatyu.yamibo.novel.network.MangaApi
+import org.shirakawatyu.yamibo.novel.network.NovelApi
+import org.shirakawatyu.yamibo.novel.repository.DirectoryRepository
 import org.shirakawatyu.yamibo.novel.ui.state.FavoriteState
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteDeleteUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.TombstoneQueueUtil
 import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
+import org.shirakawatyu.yamibo.novel.util.updateCheck.MangaUpdateCheckUtil
+import org.shirakawatyu.yamibo.novel.util.updateCheck.NovelUpdateCheckUtil
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 enum class FetchState { IDLE, BACKGROUND, MANUAL }
 
 class FavoriteVM(private val applicationContext: Context) : ViewModel() {
+    companion object {
+        private val updateCheckScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val novelMetaRequestMutex = Mutex()
+
+        private const val NOVEL_META_REQUEST_INTERVAL_MS = 1_200L
+        private var lastNovelMetaRequestStartedAt = 0L
+    }
+
     private val _uiState = MutableStateFlow(FavoriteState())
     val uiState = _uiState.asStateFlow()
     private val stateMutex = Mutex()
@@ -44,6 +62,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private val fetchGeneration = AtomicLong(0)
     private val logTag = "FavoriteVM"
     private var allFavorites: List<Favorite> = listOf()
+    private var updateCheckNovels: List<NovelUpdateCheckProfile> = listOf()
+    private var updateCheckMangas: List<MangaUpdateCheckProfile> = listOf()
 
     // 预加载的表单校验码
     private var prefetchFormHash: String? = null
@@ -57,8 +77,11 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     // 等待队列：保存正在倒计时的那个任务
     private var pendingSyncJob: Job? = null
     private var fetchJob: Job? = null
+    private val updateCheckMutationMutex = Mutex()
     private var lastNavigateTime = 0L
     private val SMART_SYNC_TIMEOUT = 20 * 60 * 1000L
+
+    private val UPDATE_CHECK_INTERVAL = 60L * 60L * 1000L
 
     // 记录正在删除过程中的URL
     private val pendingDeleteUrls = mutableSetOf<String>()
@@ -107,6 +130,28 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             localCache.index.collect { index ->
                 refreshCacheInfo(index)
             }
+        }
+
+        viewModelScope.launch {
+            NovelUpdateCheckUtil.getUpdateCheckFlow()
+                .flowOn(Dispatchers.IO)
+                .collect { list ->
+                    stateMutex.withLock {
+                        updateCheckNovels = list
+                    }
+                    _uiState.value = _uiState.value.copy(updateCheckNovels = list)
+                }
+        }
+
+        viewModelScope.launch {
+            MangaUpdateCheckUtil.getUpdateCheckFlow()
+                .flowOn(Dispatchers.IO)
+                .collect { list ->
+                    stateMutex.withLock {
+                        updateCheckMangas = list
+                    }
+                    _uiState.value = _uiState.value.copy(updateCheckMangas = list)
+                }
         }
     }
 
@@ -706,4 +751,319 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             }
         }
     }
+
+    private fun extractTid(url: String): String? = Regex("tid=(\\d+)").find(url)?.groupValues?.get(1)
+
+    private suspend fun showShortToast(message: String) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun isCheckTooFrequent(lastCheckTime: Long, now: Long): Boolean {
+        return lastCheckTime > 0L && now - lastCheckTime < UPDATE_CHECK_INTERVAL
+    }
+
+    private fun remainingCheckCooldownText(lastCheckTime: Long, now: Long): String {
+        val remaining = (UPDATE_CHECK_INTERVAL - (now - lastCheckTime)).coerceAtLeast(0L)
+        val minutes = ((remaining + 59_999L) / 60_000L).coerceAtLeast(1L)
+        return "1小时内已检查过，约 ${minutes} 分钟后再试"
+    }
+
+    private fun setUpdateChecking(url: String, checking: Boolean) {
+        val current = _uiState.value.checkingUpdateUrls
+        val next = if (checking) current + url else current - url
+        if (next != current) {
+            _uiState.value = _uiState.value.copy(checkingUpdateUrls = next)
+        }
+    }
+
+    private fun isUpdateChecking(url: String): Boolean =
+        _uiState.value.checkingUpdateUrls.contains(url)
+
+    private suspend fun fetchNovelRepliesQueued(tid: String, authorId: String): Int? {
+        return novelMetaRequestMutex.withLock {
+            val now = System.currentTimeMillis()
+            val elapsed = now - lastNovelMetaRequestStartedAt
+            if (elapsed in 0L..<NOVEL_META_REQUEST_INTERVAL_MS) {
+                delay(NOVEL_META_REQUEST_INTERVAL_MS - elapsed)
+            }
+            lastNovelMetaRequestStartedAt = System.currentTimeMillis()
+
+            val novelApi = YamiboRetrofit.getInstance().create(NovelApi::class.java)
+            val resp = novelApi.getThreadMeta(tid, authorId).string()
+            val json = JSON.parseObject(resp)
+            val thread = json.getJSONObject("Variables")?.getJSONObject("thread")
+            thread?.getString("replies")?.toIntOrNull()
+        }
+    }
+
+    fun checkFavoriteUpdate(
+        favorite: Favorite,
+        mangaStrategy: MangaUpdateCheckStrategy? = null,
+        mangaSearchKeyword: String? = null
+    ) {
+        when (favorite.type) {
+            1 -> checkNovelUpdate(favorite)
+            2 -> checkMangaUpdate(favorite, mangaStrategy, mangaSearchKeyword)
+            else -> showUnsupportedUpdateCheckType()
+        }
+    }
+
+    fun checkNovelUpdate(favorite: Favorite) {
+        if (favorite.type != 1) {
+            showUnsupportedUpdateCheckType()
+            return
+        }
+        if (isUpdateChecking(favorite.url)) {
+            viewModelScope.launch { showShortToast("正在查询更新") }
+            return
+        }
+        setUpdateChecking(favorite.url, true)
+        updateCheckScope.launch {
+            try {
+                runNovelUpdateCheck(favorite)
+            } finally {
+                setUpdateChecking(favorite.url, false)
+            }
+        }
+    }
+
+    private suspend fun runNovelUpdateCheck(favorite: Favorite) {
+        val tid = extractTid(favorite.url)
+        if (tid == null) {
+            showShortToast("无法识别帖子ID，不能查询更新")
+            return
+        }
+        val authorId = favorite.authorId
+        if (authorId.isNullOrBlank()) {
+            showShortToast("缺少作者ID，不能查询小说更新")
+            return
+        }
+
+        updateCheckMutationMutex.withLock {
+            val profile = NovelUpdateCheckUtil.getMapSuspend()[favorite.url]
+            val now = System.currentTimeMillis()
+            if (profile != null && isCheckTooFrequent(profile.lastCheckTime, now)) {
+                showShortToast(remainingCheckCooldownText(profile.lastCheckTime, now))
+                return@withLock
+            }
+
+            try {
+                val currentReplies = fetchNovelRepliesQueued(tid, authorId)
+                if (currentReplies == null) {
+                    showShortToast("查询失败：没有读取到回复数")
+                    profile?.let { NovelUpdateCheckUtil.updateCheckTimeSuspend(favorite.url, System.currentTimeMillis()) }
+                    return@withLock
+                }
+
+                val checkedAt = System.currentTimeMillis()
+                if (profile == null) {
+                    NovelUpdateCheckUtil.saveProfileSuspend(
+                        NovelUpdateCheckProfile(
+                            title = favorite.title,
+                            url = favorite.url,
+                            authorId = authorId,
+                            savedReplies = currentReplies,
+                            hasUpdate = false,
+                            lastCheckTime = checkedAt
+                        )
+                    )
+                    return@withLock
+                }
+
+                val detectedUpdate = currentReplies > profile.savedReplies
+                NovelUpdateCheckUtil.updateRepliesSuspend(
+                    url = favorite.url,
+                    newReplies = currentReplies,
+                    hasUpdate = detectedUpdate,
+                    lastCheckTime = checkedAt
+                )
+                showShortToast(if (detectedUpdate) "检测到小说更新" else "没有检测到小说更新")
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                profile?.let { NovelUpdateCheckUtil.updateCheckTimeSuspend(favorite.url, System.currentTimeMillis()) }
+                showShortToast("查询小说更新失败")
+            }
+        }
+    }
+
+    fun clearNovelUpdateCheckFlag(url: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            NovelUpdateCheckUtil.clearUpdateFlagSuspend(url)
+        }
+    }
+
+    fun checkMangaUpdate(
+        favorite: Favorite,
+        overrideStrategy: MangaUpdateCheckStrategy? = null,
+        overrideSearchKeyword: String? = null,
+        overrideCleanBookName: String? = null
+    ) {
+        if (favorite.type != 2) {
+            showUnsupportedUpdateCheckType()
+            return
+        }
+        if (isUpdateChecking(favorite.url)) {
+            viewModelScope.launch { showShortToast("正在查询更新") }
+            return
+        }
+        setUpdateChecking(favorite.url, true)
+        updateCheckScope.launch {
+            try {
+                runMangaUpdateCheck(favorite, overrideStrategy, overrideSearchKeyword, overrideCleanBookName)
+            } finally {
+                setUpdateChecking(favorite.url, false)
+            }
+        }
+    }
+
+    private suspend fun runMangaUpdateCheck(
+        favorite: Favorite,
+        overrideStrategy: MangaUpdateCheckStrategy? = null,
+        overrideSearchKeyword: String? = null,
+        overrideCleanBookName: String? = null
+    ) {
+        val tid = extractTid(favorite.url)
+        if (tid == null) {
+            showShortToast("无法识别帖子ID，不能查询更新")
+            return
+        }
+
+        updateCheckMutationMutex.withLock {
+            val repo = DirectoryRepository.getInstance(applicationContext)
+            val oldProfile = MangaUpdateCheckUtil.getMapSuspend()[favorite.url]
+            val now = System.currentTimeMillis()
+            if (oldProfile != null && isCheckTooFrequent(oldProfile.lastCheckTime, now)) {
+                showShortToast(remainingCheckCooldownText(oldProfile.lastCheckTime, now))
+                return@withLock
+            }
+
+            try {
+                val allDirs = repo.getAllDirectories()
+                var mangaDir = if (oldProfile != null) {
+                    allDirs.find { it.cleanBookName == oldProfile.cleanBookName }
+                } else {
+                    allDirs.find { dir -> dir.chapters.any { it.tid == tid } }
+                }
+
+                if (mangaDir == null) {
+                    val mangaApi = YamiboRetrofit.getInstance().create(MangaApi::class.java)
+                    val resp = mangaApi.getThreadDetailApi(tid).string()
+                    val json = JSON.parseObject(resp)
+                    val postlist = json.getJSONObject("Variables")?.getJSONArray("postlist")
+                    val message = postlist?.getJSONObject(0)?.getString("message")
+                    if (message.isNullOrBlank()) {
+                        showShortToast("初始化漫画目录失败")
+                        return@withLock
+                    }
+                    val html = "<div class=\"message\">$message</div>"
+                    mangaDir = repo.initDirectoryForThread(tid, favorite.url, favorite.title, html)
+                }
+
+                // 如果用户修改了漫画名称，合并/重命名目录
+                if (overrideCleanBookName != null && overrideCleanBookName.isNotBlank() && overrideCleanBookName != mangaDir.cleanBookName) {
+                    val newKeyword = overrideSearchKeyword ?: mangaDir.searchKeyword ?: ""
+                    mangaDir = repo.renameAndMergeDirectory(mangaDir, overrideCleanBookName, newKeyword)
+                }
+
+                val strategy = overrideStrategy
+                    ?: oldProfile?.strategy
+                    ?: if (mangaDir.strategy == org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy.TAG)
+                        MangaUpdateCheckStrategy.TAG else MangaUpdateCheckStrategy.SEARCH
+
+                val keyword = overrideSearchKeyword ?: oldProfile?.searchKeyword ?: mangaDir.searchKeyword
+                val cleanBookName = overrideCleanBookName ?: oldProfile?.cleanBookName ?: mangaDir.cleanBookName
+                val baseChapterCount = oldProfile?.savedChapterCount ?: mangaDir.chapters.size
+                val baseLatestTid = oldProfile?.savedLatestTid ?: (mangaDir.chapters.lastOrNull()?.tid ?: "")
+
+                val isFirstCheck = oldProfile == null
+                if (isFirstCheck) {
+                    MangaUpdateCheckUtil.saveProfileSuspend(
+                        MangaUpdateCheckProfile(
+                            title = favorite.title,
+                            url = favorite.url,
+                            cleanBookName = cleanBookName,
+                            searchKeyword = keyword,
+                            strategy = strategy,
+                            savedChapterCount = baseChapterCount,
+                            savedLatestTid = baseLatestTid,
+                            hasUpdate = false,
+                            lastCheckTime = 0L
+                        )
+                    )
+                } else {
+                    val existing = oldProfile!!
+                    if (existing.searchKeyword != keyword || existing.strategy != strategy) {
+                        MangaUpdateCheckUtil.saveProfileSuspend(
+                            existing.copy(
+                                title = favorite.title,
+                                searchKeyword = keyword,
+                                strategy = strategy
+                            )
+                        )
+                    }
+                }
+
+                val dirForUpdate = if (keyword != mangaDir.searchKeyword) {
+                    mangaDir.copy(searchKeyword = keyword)
+                } else mangaDir
+
+                val forceSearch = strategy == MangaUpdateCheckStrategy.SEARCH
+                val result = repo.manuallyUpdateDirectory(dirForUpdate, forceSearch = forceSearch, currentTid = tid)
+                if (result.isFailure) {
+                    MangaUpdateCheckUtil.updateCheckTimeSuspend(favorite.url, System.currentTimeMillis())
+                    val errorMessage = result.exceptionOrNull()?.message ?: "未知错误"
+                    showShortToast("查询漫画更新失败：$errorMessage")
+                    return@withLock
+                }
+
+                val updatedDir = result.getOrThrow().directory
+                val newCount = updatedDir.chapters.size
+                val newLatestTid = updatedDir.chapters.lastOrNull()?.tid ?: ""
+                val snapshotCount = if (newCount > 0) newCount else baseChapterCount
+                val snapshotLatestTid = newLatestTid.ifEmpty { baseLatestTid }
+                val detectedUpdate = newCount > baseChapterCount ||
+                        (newLatestTid.isNotEmpty() && baseLatestTid.isNotEmpty() && newLatestTid != baseLatestTid)
+
+                MangaUpdateCheckUtil.updateSnapshotSuspend(
+                    url = favorite.url,
+                    chapterCount = snapshotCount,
+                    latestTid = snapshotLatestTid,
+                    hasUpdate = detectedUpdate,
+                    lastCheckTime = System.currentTimeMillis(),
+                    searchKeyword = keyword,
+                    strategy = strategy
+                )
+                if (!isFirstCheck) {
+                    showShortToast(if (detectedUpdate) "检测到漫画更新" else "没有检测到漫画更新")
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                MangaUpdateCheckUtil.getMapSuspend()[favorite.url]?.let {
+                    MangaUpdateCheckUtil.updateCheckTimeSuspend(favorite.url, System.currentTimeMillis())
+                }
+                showShortToast("查询漫画更新失败")
+            }
+        }
+    }
+
+    fun clearMangaUpdateCheckFlag(url: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            MangaUpdateCheckUtil.clearUpdateFlagSuspend(url)
+        }
+    }
+
+    fun showUnsupportedUpdateCheckType() {
+        viewModelScope.launch {
+            showShortToast("只有小说和漫画可以查询更新")
+        }
+    }
+
+    fun getSearchCooldownRemainingMs(): Long {
+        val elapsed = System.currentTimeMillis() - org.shirakawatyu.yamibo.novel.global.GlobalData.lastSearchTimestamp.get()
+        val remaining = 20_000L - elapsed
+        return remaining.coerceAtLeast(0L)
+    }
+
 }
