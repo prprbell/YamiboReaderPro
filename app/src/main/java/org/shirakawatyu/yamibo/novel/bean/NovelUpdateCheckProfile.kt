@@ -14,5 +14,7 @@ data class NovelUpdateCheckProfile(
     val authorId: String,
     val savedReplies: Int,
     val hasUpdate: Boolean = false,
-    val lastCheckTime: Long = 0L
+    val lastCheckTime: Long = 0L,
+    val autoCheckEnabled: Boolean = false,
+    val autoCheckIntervalHours: Int = 24
 )

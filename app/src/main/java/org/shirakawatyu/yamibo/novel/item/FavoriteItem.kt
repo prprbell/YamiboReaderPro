@@ -12,7 +12,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,13 +24,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -102,9 +103,7 @@ fun FavoriteItem(
     cacheInfo: FavoriteVM.CacheInfo? = null,
     isGlobalCollapsed: Boolean = false,
     hasUpdate: Boolean = false,
-    isUpdateCheckConfigured: Boolean = false,
-    isCheckingUpdate: Boolean = false,
-    onUpdateCheckClick: (() -> Unit)? = null
+    isCheckingUpdate: Boolean = false
 ) {
     var isExpandedLocally by remember(isGlobalCollapsed) { mutableStateOf(false) }
 
@@ -281,58 +280,17 @@ fun FavoriteItem(
                 }
             }
 
-            // 右侧操作区
-            Row(
-                modifier = Modifier.padding(start = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 更新查询按钮（仅非管理模式 + 小说/漫画）
-                if (!isManageMode && (type == 1 || type == 2)) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clickable(enabled = !isCheckingUpdate) { onUpdateCheckClick?.invoke() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isCheckingUpdate) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = darkThemeColor(YamiboColors.primary) { primary }
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "查询更新",
-                                tint = when {
-                                    hasUpdate -> Color(0xFFE53935)
-                                    isUpdateCheckConfigured -> darkThemeColor(YamiboColors.primary) { primary }
-                                    else -> darkThemeColor(YamiboColors.primary) { primary }.copy(alpha = 0.4f)
-                                },
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        if (hasUpdate) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(top = 2.dp, end = 2.dp)
-                                    .size(8.dp)
-                                    .background(Color(0xFFE53935), CircleShape)
-                            )
-                        }
-                    }
-                }
-
-                // 折叠箭头 / 拖拽手柄（恢复原始行为：管理模式也显示拖拽手柄）
+            // 右侧：折叠箭头 / 拖拽手柄（叠加更新状态角标）
+            val handle = @Composable {
                 Box(
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(40.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     if (isGlobalCollapsed) {
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(40.dp)
+                                .clip(CircleShape)
                                 .clickable { isExpandedLocally = !isExpandedLocally },
                             contentAlignment = Alignment.Center
                         ) {
@@ -347,6 +305,25 @@ fun FavoriteItem(
                         dragHandle()
                     }
                 }
+            }
+
+            if (isCheckingUpdate || hasUpdate) {
+                BadgedBox(
+                    modifier = Modifier.padding(start = 8.dp),
+                    badge = {
+                        if (isCheckingUpdate) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                strokeWidth = 1.5.dp,
+                                color = darkThemeColor(YamiboColors.primary) { primary }
+                            )
+                        } else {
+                            Badge(containerColor = Color(0xFFE53935))
+                        }
+                    }
+                ) { handle() }
+            } else {
+                Box(Modifier.padding(start = 8.dp)) { handle() }
             }
         }
     }

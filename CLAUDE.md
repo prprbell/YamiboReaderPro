@@ -4,7 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **IMPORTANT**: Do NOT attempt to build, compile, or run tests locally. The development machine does not have Java/Android SDK installed. Rely on code review and static analysis to verify correctness.
 
-**IMPORTANT**: NEVER run `git checkout -- <file>` or any other destructive/irreversible git command without explicit user confirmation. These commands discard uncommitted changes permanently with no recovery. Always show `git diff` first and ask before reverting. Use `git stash` if a reversible alternative is needed.
+**CRITICAL — DO NOT DESTROY UNCOMMITTED WORK**:
+
+The following commands are **ABSOLUTELY FORBIDDEN** under any circumstances unless the user has explicitly, word-for-word asked you to run that exact command:
+
+- `git checkout -- <file>` — **NEVER run this.** It permanently discards ALL uncommitted changes to the file. There is NO git-based recovery. git reflog does NOT track uncommitted changes. The ONLY possible recovery is Android Studio Local History (which may or may not have a snapshot).
+- `git reset --hard` — Destroys uncommitted changes across all files.
+- `git restore <file>` — Same effect as `git checkout -- <file>`.
+- `git clean -f` or `git clean -fd` — Deletes untracked files permanently.
+
+If you need to revert your OWN changes from the current session:
+1. Use `Edit` tool to undo your edits, OR
+2. Ask the user "I want to revert my changes to X. Can I run `git checkout -- X`?" and wait for explicit approval.
+
+If the user tells you to revert your changes and you're unsure whether the file had pre-existing uncommitted work:
+- First run `git diff <file>` and show it to the user
+- Ask explicitly: "This will also discard these pre-existing changes (shown above). OK?"
+- Only proceed if the user confirms
+
+**Violating this rule will result in permanent data loss.** If you previously backed up the files somewhere (e.g. a temp directory), check there first.
 
 ## 技术栈
 

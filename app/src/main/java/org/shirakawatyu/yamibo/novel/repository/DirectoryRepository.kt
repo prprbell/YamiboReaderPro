@@ -423,6 +423,8 @@ class DirectoryRepository private constructor(private val context: Context) {
         return Result.success(allItems)
     }
 
+    suspend fun getDirectoryByCleanName(cleanName: String): MangaDirectory? = loadDirectory(cleanName)
+
     suspend fun getAllDirectories(): List<MangaDirectory> = withContext(Dispatchers.IO) {
         val dir = File(context.filesDir, DIRECTORY_DIR)
         if (!dir.exists()) return@withContext emptyList()

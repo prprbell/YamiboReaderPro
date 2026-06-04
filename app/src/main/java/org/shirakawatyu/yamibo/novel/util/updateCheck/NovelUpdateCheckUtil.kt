@@ -81,6 +81,23 @@ class NovelUpdateCheckUtil {
             }
         }
 
+        suspend fun updateAutoCheckSuspend(
+            url: String,
+            enabled: Boolean,
+            intervalHours: Int
+        ) {
+            writeMutex.withLock {
+                val map = getMapSuspend()
+                map[url]?.let {
+                    map[url] = it.copy(
+                        autoCheckEnabled = enabled,
+                        autoCheckIntervalHours = intervalHours
+                    )
+                    saveMapSuspend(map)
+                }
+            }
+        }
+
         suspend fun clearUpdateFlagSuspend(url: String) {
             writeMutex.withLock {
                 val map = getMapSuspend()
@@ -133,7 +150,10 @@ class NovelUpdateCheckUtil {
                     authorId = obj.getString("authorId") ?: "",
                     savedReplies = obj.getIntValue("savedReplies"),
                     hasUpdate = obj.getBooleanValue("hasUpdate"),
-                    lastCheckTime = obj.getLongValue("lastCheckTime")
+                    lastCheckTime = obj.getLongValue("lastCheckTime"),
+                    autoCheckEnabled = obj.getBooleanValue("autoCheckEnabled"),
+                    autoCheckIntervalHours = obj.getIntValue("autoCheckIntervalHours")
+                        .takeIf { it > 0 } ?: 24
                 )
                 map[profile.url] = profile
             }

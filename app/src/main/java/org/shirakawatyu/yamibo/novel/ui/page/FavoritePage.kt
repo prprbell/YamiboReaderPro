@@ -4,11 +4,21 @@ import android.webkit.CookieManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +28,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,6 +45,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Build
@@ -88,10 +101,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -108,6 +126,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -156,6 +175,8 @@ fun FavoritePage(
     val selectedItems = uiState.selectedItems
     val updateCheckNovels = uiState.updateCheckNovels
     val updateCheckMangas = uiState.updateCheckMangas
+    val novelCheckMap = remember(updateCheckNovels) { updateCheckNovels.associateBy { it.url } }
+    val mangaCheckMap = remember(updateCheckMangas) { updateCheckMangas.associateBy { it.url } }
     var cacheInfoMap = uiState.cacheInfoMap
     val currentHomePage by GlobalData.homePageRoute.collectAsState()
     var showCacheManagement by remember { mutableStateOf(false) }
@@ -186,6 +207,37 @@ fun FavoritePage(
     var mangaConfigPresetStrategy by remember { mutableStateOf(MangaUpdateCheckStrategy.TAG) }
     var mangaConfigPresetKeyword by remember { mutableStateOf("") }
     var mangaConfigPresetBookName by remember { mutableStateOf("") }
+    var mangaConfigTagAvailable by remember { mutableStateOf(false) }
+    var novelUpdateCheckTarget by remember { mutableStateOf<Favorite?>(null) }
+    var showNovelConfigDialog by remember { mutableStateOf(false) }
+    var novelConfigAutoCheck by remember { mutableStateOf(false) }
+    var novelConfigInterval by remember { mutableIntStateOf(24) }
+    val openMangaConfig: (Favorite) -> Unit = { fav ->
+        mangaUpdateCheckTarget = fav
+        favoriteVM.getDirectoryList { dirs ->
+            val t = Regex("tid=(\\d+)").find(fav.url)?.groupValues?.get(1)
+            val existing = mangaCheckMap[fav.url]
+            val matchedDir = if (existing != null) {
+                dirs.find { it.cleanBookName == existing.cleanBookName }
+                    ?: dirs.find { dir -> dir.chapters.any { it.tid == t } }
+            } else {
+                dirs.find { dir -> dir.chapters.any { it.tid == t } }
+            }
+
+            val tagAvailable =
+                matchedDir?.strategy == org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy.TAG
+            mangaConfigTagAvailable = tagAvailable
+
+            mangaConfigPresetStrategy = when {
+                !tagAvailable -> MangaUpdateCheckStrategy.SEARCH
+                existing != null -> existing.strategy
+                else -> MangaUpdateCheckStrategy.TAG
+            }
+            mangaConfigPresetKeyword = existing?.searchKeyword ?: matchedDir?.searchKeyword ?: ""
+            mangaConfigPresetBookName = existing?.cleanBookName ?: matchedDir?.cleanBookName ?: ""
+            showMangaConfigDialog = true
+        }
+    }
     val context = LocalContext.current
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
@@ -752,75 +804,71 @@ fun FavoritePage(
                         key = item.url,
                     ) { isDragging ->
                         val isSelected = selectedItems.contains(item.url)
-                        val novelUpdateProfile = updateCheckNovels.find { it.url == item.url }
-                        val mangaUpdateProfile = updateCheckMangas.find { it.url == item.url }
-                        val isUpdateCheckConfigured = novelUpdateProfile != null || mangaUpdateProfile != null
-                        val hasUpdate = novelUpdateProfile?.hasUpdate == true || mangaUpdateProfile?.hasUpdate == true
+                        val hasUpdate = novelCheckMap[item.url]?.hasUpdate == true ||
+                                mangaCheckMap[item.url]?.hasUpdate == true
                         val isCheckingUpdate = uiState.checkingUpdateUrls.contains(item.url)
-                        FavoriteItem(
-                            item.title,
-                            item.lastView,
-                            item.lastPage,
-                            item.lastChapter,
-                            onClick = currentOnClick,
-                            modifier = Modifier
-                                .animateItem()
-                                .longPressDraggableHandle(
+                        val isManga = item.type == 2
+                        val canSwipeCheck = !isInManageMode && (item.type == 1 || item.type == 2)
+
+                        SwipeToCheckRow(
+                            enabled = canSwipeCheck,
+                            canConfigure = canSwipeCheck,
+                            modifier = Modifier.animateItem(),
+                            onCheck = {
+                                when (item.type) {
+                                    1 -> favoriteVM.checkNovelUpdate(item)
+                                    2 -> if (mangaCheckMap[item.url] != null)
+                                        favoriteVM.checkMangaUpdate(item)
+                                    else openMangaConfig(item)
+                                }
+                            },
+                            onConfigure = {
+                                if (isManga) openMangaConfig(item)
+                                else {
+                                    val profile = novelCheckMap[item.url]
+                                    novelUpdateCheckTarget = item
+                                    novelConfigAutoCheck = profile?.autoCheckEnabled ?: false
+                                    novelConfigInterval = profile?.autoCheckIntervalHours ?: 24
+                                    showNovelConfigDialog = true
+                                }
+                            }
+                        ) {
+                            FavoriteItem(
+                                item.title,
+                                item.lastView,
+                                item.lastPage,
+                                item.lastChapter,
+                                onClick = currentOnClick,
+                                modifier = Modifier.longPressDraggableHandle(
                                     enabled = !isInManageMode && !isSearching,
                                     onDragStarted = {
                                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                     }
                                 ),
-                            isDragging = isDragging,
-                            isManageMode = isInManageMode,
-                            isSelected = isSelected,
-                            isHidden = item.isHidden,
-                            type = item.type,
-                            cacheInfo = cacheInfoMap[item.url],
-                            isGlobalCollapsed = isFavoriteCollapsed,
-                            hasUpdate = hasUpdate,
-                            isUpdateCheckConfigured = isUpdateCheckConfigured,
-                            isCheckingUpdate = isCheckingUpdate,
-                            onUpdateCheckClick = {
-                                when (item.type) {
-                                    1 -> favoriteVM.checkNovelUpdate(item)
-                                    2 -> {
-                                        mangaUpdateCheckTarget = item
-                                        val existing = updateCheckMangas.find { it.url == item.url }
-                                        if (existing != null) {
-                                            mangaConfigPresetStrategy = existing.strategy
-                                            mangaConfigPresetKeyword = existing.searchKeyword ?: ""
-                                            mangaConfigPresetBookName = existing.cleanBookName
-                                            showMangaConfigDialog = true
+                                isDragging = isDragging,
+                                isManageMode = isInManageMode,
+                                isSelected = isSelected,
+                                isHidden = item.isHidden,
+                                type = item.type,
+                                cacheInfo = cacheInfoMap[item.url],
+                                isGlobalCollapsed = isFavoriteCollapsed,
+                                hasUpdate = hasUpdate,
+                                isCheckingUpdate = isCheckingUpdate,
+                                dragHandle = {
+                                    val canDrag = !isInManageMode && !isSearching
+                                    Icon(
+                                        imageVector = Icons.Filled.Menu,
+                                        contentDescription = if (canDrag) "拖动排序" else null,
+                                        tint = if (canDrag) {
+                                            darkThemeColor(YamiboColors.primary) { primary }
                                         } else {
-                                            favoriteVM.getDirectoryList { dirs ->
-                                                val tid = Regex("tid=(\\d+)").find(item.url)?.groupValues?.get(1)
-                                                val matchedDir = dirs.find { dir -> dir.chapters.any { it.tid == tid } }
-                                                mangaConfigPresetStrategy = if (matchedDir?.strategy == org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy.TAG)
-                                                    MangaUpdateCheckStrategy.TAG else MangaUpdateCheckStrategy.SEARCH
-                                                mangaConfigPresetKeyword = matchedDir?.searchKeyword ?: ""
-                                                mangaConfigPresetBookName = matchedDir?.cleanBookName ?: ""
-                                                showMangaConfigDialog = true
-                                            }
-                                        }
-                                    }
-                                    else -> favoriteVM.showUnsupportedUpdateCheckType()
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
+                                        },
+                                        modifier = Modifier.size(22.dp)
+                                    )
                                 }
-                            },
-                            dragHandle = {
-                                val canDrag = !isInManageMode && !isSearching
-                                Icon(
-                                    imageVector = Icons.Filled.Menu,
-                                    contentDescription = if (canDrag) "拖动排序" else null,
-                                    tint = if (canDrag) {
-                                        darkThemeColor(YamiboColors.primary) { primary }
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
-                                    },
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }
@@ -1164,6 +1212,9 @@ fun FavoritePage(
             var keyword1 by remember(fav.url, initKeyword) { mutableStateOf(initKeyword) }
             var keyword2 by remember(fav.url) { mutableStateOf("") }
             var showKeyword2 by remember(fav.url) { mutableStateOf(false) }
+            val existingManga = mangaCheckMap[fav.url]
+            var mangaConfigAutoCheck by remember(fav.url, existingManga) { mutableStateOf(existingManga?.autoCheckEnabled ?: false) }
+            var mangaConfigInterval by remember(fav.url, existingManga) { mutableIntStateOf(existingManga?.autoCheckIntervalHours ?: 24) }
             var searchCooldownSec by remember { mutableIntStateOf(0) }
 
             LaunchedEffect(selectedStrategy, showMangaConfigDialog) {
@@ -1182,22 +1233,36 @@ fun FavoritePage(
                 onDismissRequest = { showMangaConfigDialog = false; mangaUpdateCheckTarget = null },
                 title = { Text("漫画更新检查") },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("更新策略", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(
-                                selected = selectedStrategy == MangaUpdateCheckStrategy.TAG,
-                                onClick = { selectedStrategy = MangaUpdateCheckStrategy.TAG }
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    ) {
+                        val tagAvailable = mangaConfigTagAvailable
+
+                        if (tagAvailable) {
+                            Text("更新策略", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(
+                                    selected = selectedStrategy == MangaUpdateCheckStrategy.TAG,
+                                    onClick = { selectedStrategy = MangaUpdateCheckStrategy.TAG }
+                                )
+                                Text("标签页拉取", modifier = Modifier.clickable { selectedStrategy = MangaUpdateCheckStrategy.TAG })
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(
+                                    selected = selectedStrategy == MangaUpdateCheckStrategy.SEARCH,
+                                    onClick = { selectedStrategy = MangaUpdateCheckStrategy.SEARCH }
+                                )
+                                Text("全局搜索", modifier = Modifier.clickable { selectedStrategy = MangaUpdateCheckStrategy.SEARCH })
+                            }
+                        } else {
+                            Text(
+                                "此漫画无标签，将使用「搜索」方式检查更新",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp
                             )
-                            Text("TAG（标签页拉取）", modifier = Modifier.clickable { selectedStrategy = MangaUpdateCheckStrategy.TAG })
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(
-                                selected = selectedStrategy == MangaUpdateCheckStrategy.SEARCH,
-                                onClick = { selectedStrategy = MangaUpdateCheckStrategy.SEARCH }
-                            )
-                            Text("搜索", modifier = Modifier.clickable { selectedStrategy = MangaUpdateCheckStrategy.SEARCH })
-                        }
+
                         if (selectedStrategy == MangaUpdateCheckStrategy.SEARCH) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1231,14 +1296,15 @@ fun FavoritePage(
                                     }
                                 }
                             }
+                            OutlinedTextField(
+                                value = bookName,
+                                onValueChange = { bookName = it },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("漫画名称") }
+                            )
                         }
-                        OutlinedTextField(
-                            value = bookName,
-                            onValueChange = { bookName = it },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("漫画名称") }
-                        )
+
                         if (searchOnCooldown) {
                             Text(
                                 "搜索冷却中，请等待 ${searchCooldownSec} 秒",
@@ -1246,29 +1312,75 @@ fun FavoritePage(
                                 fontSize = 12.sp
                             )
                         }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        AutoCheckSection(
+                            enabled = mangaConfigAutoCheck,
+                            intervalHours = mangaConfigInterval,
+                            onEnabledChange = { mangaConfigAutoCheck = it },
+                            onIntervalChange = { mangaConfigInterval = it }
+                        )
                     }
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                        showMangaConfigDialog = false
-                        mangaUpdateCheckTarget?.let { target ->
-                            val combinedKeyword = listOf(keyword1.trim(), keyword2.trim())
-                                .filter { it.isNotEmpty() }
-                                .joinToString(" ")
-                            favoriteVM.checkMangaUpdate(
-                                target,
-                                overrideStrategy = selectedStrategy,
-                                overrideSearchKeyword = combinedKeyword.ifBlank { null },
-                                overrideCleanBookName = bookName.ifBlank { null }
-                            )
-                        }
-                        mangaUpdateCheckTarget = null
-                    }, enabled = !searchOnCooldown) { Text(if (searchOnCooldown) "冷却中..." else "开始查询") }
+                            showMangaConfigDialog = false
+                            mangaUpdateCheckTarget?.let { target ->
+                                val isSearch = selectedStrategy == MangaUpdateCheckStrategy.SEARCH
+                                val combinedKeyword = if (isSearch) {
+                                    listOf(keyword1.trim(), keyword2.trim())
+                                        .filter { it.isNotEmpty() }
+                                        .joinToString(" ")
+                                } else ""
+                                favoriteVM.checkMangaUpdate(
+                                    target,
+                                    overrideStrategy = selectedStrategy,
+                                    overrideSearchKeyword = combinedKeyword.ifBlank { null },
+                                    overrideCleanBookName = if (isSearch) bookName.ifBlank { null } else null
+                                )
+                                favoriteVM.saveMangaAutoCheck(target.url, mangaConfigAutoCheck, mangaConfigInterval)
+                            }
+                            mangaUpdateCheckTarget = null
+                        },
+                        enabled = !searchOnCooldown
+                    ) { Text(if (searchOnCooldown) "冷却中..." else "开始查询") }
                 },
                 dismissButton = {
                     TextButton(onClick = {
                         showMangaConfigDialog = false; mangaUpdateCheckTarget = null
+                    }) { Text("取消") }
+                }
+            )
+        }
+        // 小说自动检查配置对话框
+        if (showNovelConfigDialog && novelUpdateCheckTarget != null) {
+            val fav = novelUpdateCheckTarget!!
+            AlertDialog(
+                onDismissRequest = { showNovelConfigDialog = false; novelUpdateCheckTarget = null },
+                title = { Text("小说更新检查") },
+                text = {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        AutoCheckSection(
+                            enabled = novelConfigAutoCheck,
+                            intervalHours = novelConfigInterval,
+                            onEnabledChange = { novelConfigAutoCheck = it },
+                            onIntervalChange = { novelConfigInterval = it }
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showNovelConfigDialog = false
+                        novelUpdateCheckTarget?.let { target ->
+                            favoriteVM.saveNovelAutoCheck(target.url, novelConfigAutoCheck, novelConfigInterval)
+                        }
+                        novelUpdateCheckTarget = null
+                    }) { Text("保存") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showNovelConfigDialog = false; novelUpdateCheckTarget = null
                     }) { Text("取消") }
                 }
             )
@@ -1305,6 +1417,267 @@ fun FavoritePage(
     }
 }
 
+
+@Composable
+private fun AutoCheckSection(
+    enabled: Boolean,
+    intervalHours: Int,
+    onEnabledChange: (Boolean) -> Unit,
+    onIntervalChange: (Int) -> Unit
+) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("自动检查更新", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Switch(checked = enabled, onCheckedChange = onEnabledChange)
+        }
+        val sizeSpec = tween<IntSize>(
+            durationMillis = 300,
+            easing = FastOutSlowInEasing
+        )
+        AnimatedVisibility(
+            visible = enabled,
+            enter = fadeIn(
+                animationSpec = tween(300, easing = FastOutSlowInEasing)
+            ) + expandVertically(
+                animationSpec = sizeSpec,
+                expandFrom = Alignment.Top
+            ),
+            exit = fadeOut(
+                animationSpec = tween(300, easing = FastOutSlowInEasing)
+            ) + shrinkVertically(
+                animationSpec = sizeSpec,
+                shrinkTowards = Alignment.Top
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("检查间隔", fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val intervals = listOf(6, 12, 24, 48, 72)
+                var expanded by remember { mutableStateOf(false) }
+                Box {
+                    Text(
+                        "${intervalHours}小时",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { expanded = true }
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        intervals.forEach { h ->
+                            DropdownMenuItem(
+                                text = { Text("${h}小时") },
+                                onClick = { onIntervalChange(h); expanded = false }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SwipeToCheckRow(
+    enabled: Boolean,
+    canConfigure: Boolean,
+    onCheck: () -> Unit,
+    onConfigure: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    if (!enabled) {
+        Box(modifier) { content() }
+        return
+    }
+    val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val offsetX = remember { Animatable(0f) }
+
+    // 触发阈值与最大可滑动距离
+    val triggerPx = with(density) { 64.dp.toPx() }
+    val maxLeftPx = with(density) { 96.dp.toPx() }
+    val maxRightPx = if (canConfigure) with(density) { 96.dp.toPx() } else 0f
+    var wasArmed by remember { mutableStateOf(false) }
+
+    val accent = darkThemeColor(YamiboColors.primary) { primary }
+
+    Box(modifier) {
+        // 随滑动实时计算两侧揭示宽度与进度
+        val leftRevealPx = (-offsetX.value).coerceAtLeast(0f)
+        val rightRevealPx = if (canConfigure) offsetX.value.coerceAtLeast(0f) else 0f
+        val leftProgress = (leftRevealPx / triggerPx).coerceIn(0f, 1f)
+        val rightProgress = (rightRevealPx / triggerPx).coerceIn(0f, 1f)
+        val leftArmed = offsetX.value <= -triggerPx
+        val rightArmed = canConfigure && offsetX.value >= triggerPx
+        // 面板比揭示宽度多延伸 12dp 伸到卡片圆角下面，消除缝隙
+        val cornerOverlapPx = with(density) { 12.dp.toPx() }
+
+        // 背后揭示的操作面板：与卡片同样内缩 5dp、同样 12dp 圆角，保证整体感
+        Box(
+            Modifier
+                .matchParentSize()
+                .padding(5.dp)
+                .clip(RoundedCornerShape(12.dp))
+        ) {
+            if (leftRevealPx > 0.5f) {
+                SwipeActionPanel(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    revealPx = leftRevealPx + cornerOverlapPx,
+                    progress = leftProgress,
+                    armed = leftArmed,
+                    icon = Icons.Default.Refresh,
+                    label = "检查更新",
+                    accent = accent,
+                    iconRotation = leftProgress * 180f
+                )
+            }
+            if (rightRevealPx > 0.5f) {
+                SwipeActionPanel(
+                    modifier = Modifier.align(Alignment.CenterStart),
+                    revealPx = rightRevealPx + cornerOverlapPx,
+                    progress = rightProgress,
+                    armed = rightArmed,
+                    icon = Icons.Default.Build,
+                    label = "配置",
+                    accent = accent,
+                    iconRotation = 0f
+                )
+            }
+        }
+
+        // 前景：可横向拖动的收藏卡片
+        Box(
+            Modifier
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .pointerInput(canConfigure) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { wasArmed = false },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            val target =
+                                (offsetX.value + dragAmount).coerceIn(-maxLeftPx, maxRightPx)
+                            scope.launch { offsetX.snapTo(target) }
+                            val armed =
+                                target <= -triggerPx || (canConfigure && target >= triggerPx)
+                            if (armed && !wasArmed) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                            wasArmed = armed
+                        },
+                        onDragEnd = {
+                            val x = offsetX.value
+                            scope.launch {
+                                offsetX.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
+                            }
+                            when {
+                                x <= -triggerPx -> onCheck()
+                                canConfigure && x >= triggerPx -> onConfigure()
+                            }
+                        },
+                        onDragCancel = {
+                            scope.launch {
+                                offsetX.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
+                            }
+                        }
+                    )
+                }
+        ) {
+            content()
+        }
+    }
+}
+
+/**
+ * 左/右滑动揭示的操作面板。
+ *
+ * 设计目标：与收藏卡片同高、同圆角；背景由「浅色着色 -> 实色强调色」平滑过渡，
+ * 跨过触发阈值(armed)时图标弹性放大、配色翻转，给出清晰的「即将触发」反馈。
+ */
+@Composable
+private fun SwipeActionPanel(
+    revealPx: Float,
+    progress: Float,
+    armed: Boolean,
+    icon: ImageVector,
+    label: String,
+    accent: Color,
+    iconRotation: Float,
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val widthDp = with(density) { revealPx.toDp() }
+
+    // armed 的弹性过渡，带一点回弹让「触发就绪」更有手感
+    val arm by animateFloatAsState(
+        targetValue = if (armed) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = 0.5f,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "swipe_action_arm"
+    )
+
+    // 依据强调色亮度挑选对比色，避免浅色主题下白色图标看不清
+    val accentLuma = 0.299f * accent.red + 0.587f * accent.green + 0.114f * accent.blue
+    val onAccent = if (accentLuma > 0.6f) Color(0xFF1A1A1A) else Color.White
+
+    val panelColor = lerp(accent.copy(alpha = 0.16f), accent, arm)
+    val contentColor = lerp(accent, onAccent, arm)
+    val iconScale = (0.72f + 0.28f * progress) * (1f + 0.14f * arm)
+    val contentAlpha = (0.15f + progress).coerceIn(0f, 1f)
+    val labelAlpha = ((widthDp.value - 46f) / 20f).coerceIn(0f, 1f)
+
+    Box(
+        modifier
+            .width(widthDp)
+            .fillMaxHeight()
+            .background(panelColor),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.graphicsLayer { alpha = contentAlpha }
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = contentColor,
+                modifier = Modifier
+                    .size(22.dp)
+                    .graphicsLayer {
+                        scaleX = iconScale
+                        scaleY = iconScale
+                        rotationZ = iconRotation
+                    }
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = label,
+                color = contentColor,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                modifier = Modifier.graphicsLayer { alpha = labelAlpha }
+            )
+        }
+    }
+}
 
 @Composable
 private fun FavoriteMoreOptionsButton(
