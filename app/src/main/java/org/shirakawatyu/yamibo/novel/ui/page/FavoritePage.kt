@@ -90,6 +90,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -1509,6 +1510,9 @@ private fun SwipeToCheckRow(
     val scope = rememberCoroutineScope()
     val offsetX = remember { Animatable(0f) }
 
+    val currentOnCheck by rememberUpdatedState(onCheck)
+    val currentOnConfigure by rememberUpdatedState(onConfigure)
+
     // 触发阈值与最大可滑动距离
     val triggerPx = with(density) { 64.dp.toPx() }
     val maxLeftPx = with(density) { 96.dp.toPx() }
@@ -1586,8 +1590,8 @@ private fun SwipeToCheckRow(
                                 offsetX.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
                             }
                             when {
-                                x <= -triggerPx -> onCheck()
-                                canConfigure && x >= triggerPx -> onConfigure()
+                                x <= -triggerPx -> currentOnCheck()
+                                canConfigure && x >= triggerPx -> currentOnConfigure()
                             }
                         },
                         onDragCancel = {

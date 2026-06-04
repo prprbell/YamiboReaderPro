@@ -15,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -141,7 +142,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                     stateMutex.withLock {
                         updateCheckNovels = list
                     }
-                    _uiState.value = _uiState.value.copy(updateCheckNovels = list)
+                    _uiState.update { it.copy(updateCheckNovels = list) }
                 }
         }
 
@@ -152,7 +153,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                     stateMutex.withLock {
                         updateCheckMangas = list
                     }
-                    _uiState.value = _uiState.value.copy(updateCheckMangas = list)
+                    _uiState.update { it.copy(updateCheckMangas = list) }
                 }
         }
     }
@@ -182,7 +183,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             pendingFiltered.filter { it.type == currentCategory }
         }
 
-        _uiState.value = currentState.copy(favoriteList = filteredList)
+        _uiState.update { it.copy(favoriteList = filteredList) }
     }
 
     fun refreshList(showLoading: Boolean = true, isSmartSync: Boolean = false) {
@@ -222,7 +223,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         val currentGen = fetchGeneration.incrementAndGet()
 
         if (showLoading) {
-            _uiState.value = _uiState.value.copy(isRefreshing = true)
+            _uiState.update { it.copy(isRefreshing = true) }
         }
 
         CookieUtil.getCookie {
@@ -241,7 +242,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         if (fetchGeneration.get() == generation) {
             currentFetchState.set(FetchState.IDLE)
             viewModelScope.launch(Dispatchers.Main) {
-                _uiState.value = _uiState.value.copy(isRefreshing = false)
+                _uiState.update { it.copy(isRefreshing = false) }
             }
         }
     }
@@ -295,7 +296,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
                     if (currentPage == 1) {
                         withContext(Dispatchers.Main) {
-                            _uiState.value = _uiState.value.copy(isRefreshing = false)
+                            _uiState.update { it.copy(isRefreshing = false) }
                         }
 
                         val count = variables.getString("count")?.toIntOrNull() ?: 0
@@ -437,7 +438,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         val item = currentUiList.removeAt(from)
         currentUiList.add(to, item)
 
-        _uiState.value = _uiState.value.copy(favoriteList = currentUiList.toList())
+        _uiState.update { it.copy(favoriteList = currentUiList.toList()) }
 
         viewModelScope.launch(Dispatchers.IO) {
             stateMutex.withLock {
@@ -460,10 +461,10 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
         if (!isLoggedIn) return
         val newMode = !_uiState.value.isInManageMode
-        _uiState.value = _uiState.value.copy(
+        _uiState.update { it.copy(
             isInManageMode = newMode,
             selectedItems = emptySet()
-        )
+        ) }
         updateUiList()
     }
 
@@ -474,7 +475,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         if (newSelections.contains(url)) newSelections.remove(url)
         else newSelections.add(url)
 
-        _uiState.value = _uiState.value.copy(selectedItems = newSelections)
+        _uiState.update { it.copy(selectedItems = newSelections) }
     }
 
     fun hideSelectedItems() {
@@ -483,7 +484,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             FavoriteUtil.updateHiddenStatus(itemsToHide, true)
             withContext(Dispatchers.Main) {
-                _uiState.value = _uiState.value.copy(selectedItems = emptySet())
+                _uiState.update { it.copy(selectedItems = emptySet()) }
             }
         }
     }
@@ -495,7 +496,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             FavoriteUtil.updateHiddenStatus(itemsToUnhide, false)
 
             withContext(Dispatchers.Main) {
-                _uiState.value = _uiState.value.copy(selectedItems = emptySet())
+                _uiState.update { it.copy(selectedItems = emptySet()) }
             }
         }
     }
@@ -526,7 +527,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 allFavorites = updatedList
                 FavoriteUtil.saveFavoriteOrder(updatedList)
             }
-            _uiState.value = _uiState.value.copy(selectedItems = emptySet(), isInManageMode = false)
+            _uiState.update { it.copy(selectedItems = emptySet(), isInManageMode = false) }
             updateUiList()
         }
 
@@ -603,10 +604,10 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 }
             }
 
-            _uiState.value = _uiState.value.copy(cacheInfoMap = cacheInfoMap)
+            _uiState.update { it.copy(cacheInfoMap = cacheInfoMap) }
         } catch (e: Exception) {
             Log.e(logTag, "从内存索引刷新缓存信息失败", e)
-            _uiState.value = _uiState.value.copy(cacheInfoMap = emptyMap())
+            _uiState.update { it.copy(cacheInfoMap = emptyMap()) }
         }
     }
 
@@ -766,7 +767,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         val current = _uiState.value.checkingUpdateUrls
         val next = if (checking) current + url else current - url
         if (next != current) {
-            _uiState.value = _uiState.value.copy(checkingUpdateUrls = next)
+            _uiState.update { it.copy(checkingUpdateUrls = next) }
         }
     }
 
