@@ -154,6 +154,15 @@ import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import org.shirakawatyu.yamibo.novel.util.updateCheck.AutoUpdateCheckScheduler
+
+// 非搜索场景下，确认"暂无收藏"前的等待时间。
+// 调大以覆盖冷启动时 DataStore/Flow 首次发射前的空窗，避免闪现"暂无收藏"。
+private const val EMPTY_STATE_CONFIRM_DELAY_MS = 1500L
+
+/** 把"小时"格式化为更易读的文案：24 的整数倍显示为"天"，否则显示"小时"。 */
+private fun formatCheckInterval(hours: Int): String =
+    if (hours >= 24 && hours % 24 == 0) "${hours / 24} 天" else "$hours 小时"
 
 /**
  * 收藏页面，展示用户的收藏列表，支持刷新和拖拽排序。
@@ -178,6 +187,10 @@ fun FavoritePage(
     val updateCheckMangas = uiState.updateCheckMangas
     val novelCheckMap = remember(updateCheckNovels) { updateCheckNovels.associateBy { it.url } }
     val mangaCheckMap = remember(updateCheckMangas) { updateCheckMangas.associateBy { it.url } }
+    val autoEnabledCount = remember(updateCheckNovels, updateCheckMangas) {
+        updateCheckNovels.count { it.autoCheckEnabled } +
+                updateCheckMangas.count { it.autoCheckEnabled }
+    }
     var cacheInfoMap = uiState.cacheInfoMap
     val currentHomePage by GlobalData.homePageRoute.collectAsState()
     var showCacheManagement by remember { mutableStateOf(false) }
@@ -275,6 +288,8 @@ fun FavoritePage(
                 }
                 val isQuickReturn = favoriteVM.lastPauseTime != 0L &&
                         (System.currentTimeMillis() - favoriteVM.lastPauseTime < 2400L)
+                // 进入前台：尝试跑一轮自动更新检查（调度器自带最小间隔 + 错峰 + 登录守卫）
+                AutoUpdateCheckScheduler.onAppForeground(context.applicationContext)
 
                 coroutineScope.launch {
                     if (pendingScrollToTop) {
@@ -422,7 +437,7 @@ fun FavoritePage(
             // 避免进入页面时 DataStore / Flow 初始空列表造成一瞬间闪屏。
             shouldShowEmptyState = true
         } else {
-            delay(700L)
+            delay(EMPTY_STATE_CONFIRM_DELAY_MS)
             shouldShowEmptyState = true
         }
     }
@@ -808,6 +823,8 @@ fun FavoritePage(
                         val hasUpdate = novelCheckMap[item.url]?.hasUpdate == true ||
                                 mangaCheckMap[item.url]?.hasUpdate == true
                         val isCheckingUpdate = uiState.checkingUpdateUrls.contains(item.url)
+                        val autoCheckEnabled = novelCheckMap[item.url]?.autoCheckEnabled == true ||
+                                mangaCheckMap[item.url]?.autoCheckEnabled == true
                         val isManga = item.type == 2
                         val canSwipeCheck = !isInManageMode && (item.type == 1 || item.type == 2)
 
@@ -855,6 +872,7 @@ fun FavoritePage(
                                 isGlobalCollapsed = isFavoriteCollapsed,
                                 hasUpdate = hasUpdate,
                                 isCheckingUpdate = isCheckingUpdate,
+                                autoCheckEnabled = autoCheckEnabled,
                                 dragHandle = {
                                     val canDrag = !isInManageMode && !isSearching
                                     Icon(
@@ -1319,7 +1337,10 @@ fun FavoritePage(
                             enabled = mangaConfigAutoCheck,
                             intervalHours = mangaConfigInterval,
                             onEnabledChange = { mangaConfigAutoCheck = it },
-                            onIntervalChange = { mangaConfigInterval = it }
+                            onIntervalChange = { mangaConfigInterval = it },
+                            enabledCount = autoEnabledCount,
+                            maxCount = FavoriteVM.MAX_AUTO_CHECK,
+                            isCurrentlyEnabled = existingManga?.autoCheckEnabled == true
                         )
                     }
                 },
@@ -1366,7 +1387,10 @@ fun FavoritePage(
                             enabled = novelConfigAutoCheck,
                             intervalHours = novelConfigInterval,
                             onEnabledChange = { novelConfigAutoCheck = it },
-                            onIntervalChange = { novelConfigInterval = it }
+                            onIntervalChange = { novelConfigInterval = it },
+                            enabledCount = autoEnabledCount,
+                            maxCount = FavoriteVM.MAX_AUTO_CHECK,
+                            isCurrentlyEnabled = novelCheckMap[fav.url]?.autoCheckEnabled == true
                         )
                     }
                 },
@@ -1424,35 +1448,51 @@ private fun AutoCheckSection(
     enabled: Boolean,
     intervalHours: Int,
     onEnabledChange: (Boolean) -> Unit,
-    onIntervalChange: (Int) -> Unit
+    onIntervalChange: (Int) -> Unit,
+    enabledCount: Int,
+    maxCount: Int,
+    isCurrentlyEnabled: Boolean
 ) {
+    // 仅当"本项尚未启用"且"总数已达上限"时禁止新开
+    val atCapForNew = !isCurrentlyEnabled && enabledCount >= maxCount
+
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("自动检查更新", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Switch(checked = enabled, onCheckedChange = onEnabledChange)
+            Column(Modifier.weight(1f)) {
+                Text("自动检查更新", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "名额 $enabledCount / $maxCount",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = enabled,
+                enabled = !atCapForNew,
+                onCheckedChange = onEnabledChange
+            )
         }
-        val sizeSpec = tween<IntSize>(
-            durationMillis = 300,
-            easing = FastOutSlowInEasing
-        )
+
+        if (atCapForNew) {
+            Text(
+                "已达自动检查上限，请先关闭其它项目再开启",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+
+        val sizeSpec = tween<IntSize>(durationMillis = 300, easing = FastOutSlowInEasing)
         AnimatedVisibility(
             visible = enabled,
-            enter = fadeIn(
-                animationSpec = tween(300, easing = FastOutSlowInEasing)
-            ) + expandVertically(
-                animationSpec = sizeSpec,
-                expandFrom = Alignment.Top
-            ),
-            exit = fadeOut(
-                animationSpec = tween(300, easing = FastOutSlowInEasing)
-            ) + shrinkVertically(
-                animationSpec = sizeSpec,
-                shrinkTowards = Alignment.Top
-            )
+            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) +
+                    expandVertically(animationSpec = sizeSpec, expandFrom = Alignment.Top),
+            exit = fadeOut(tween(300, easing = FastOutSlowInEasing)) +
+                    shrinkVertically(animationSpec = sizeSpec, shrinkTowards = Alignment.Top)
         ) {
             Row(
                 modifier = Modifier
@@ -1461,13 +1501,17 @@ private fun AutoCheckSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("检查间隔", fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                val intervals = listOf(6, 12, 24, 48, 72)
+                Text(
+                    "检查间隔",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                // 6h / 12h / 1d / 2d / 3d / 5d / 7d / 14d / 30d
+                val intervals = listOf(6, 12, 24, 48, 72, 120, 168, 336, 720)
                 var expanded by remember { mutableStateOf(false) }
                 Box {
                     Text(
-                        "${intervalHours}小时",
+                        formatCheckInterval(intervalHours),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier
@@ -1481,7 +1525,7 @@ private fun AutoCheckSection(
                     ) {
                         intervals.forEach { h ->
                             DropdownMenuItem(
-                                text = { Text("${h}小时") },
+                                text = { Text(formatCheckInterval(h)) },
                                 onClick = { onIntervalChange(h); expanded = false }
                             )
                         }

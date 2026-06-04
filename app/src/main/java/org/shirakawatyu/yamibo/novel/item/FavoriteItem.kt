@@ -3,13 +3,19 @@ package org.shirakawatyu.yamibo.novel.item
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +23,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,8 +31,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -103,7 +108,8 @@ fun FavoriteItem(
     cacheInfo: FavoriteVM.CacheInfo? = null,
     isGlobalCollapsed: Boolean = false,
     hasUpdate: Boolean = false,
-    isCheckingUpdate: Boolean = false
+    isCheckingUpdate: Boolean = false,
+    autoCheckEnabled: Boolean = false
 ) {
     var isExpandedLocally by remember(isGlobalCollapsed) { mutableStateOf(false) }
 
@@ -280,7 +286,7 @@ fun FavoriteItem(
                 }
             }
 
-            // 右侧：折叠箭头 / 拖拽手柄（叠加更新状态角标）
+            // 右侧：折叠箭头 / 拖拽手柄（叠加更新状态角标 + 自动检查环）
             val handle = @Composable {
                 Box(
                     modifier = Modifier.size(40.dp),
@@ -307,24 +313,114 @@ fun FavoriteItem(
                 }
             }
 
-            if (isCheckingUpdate || hasUpdate) {
-                BadgedBox(
-                    modifier = Modifier.padding(start = 8.dp),
-                    badge = {
-                        if (isCheckingUpdate) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(12.dp),
-                                strokeWidth = 1.5.dp,
-                                color = darkThemeColor(YamiboColors.primary) { primary }
-                            )
-                        } else {
-                            Badge(containerColor = Color(0xFFE53935))
-                        }
-                    }
-                ) { handle() }
-            } else {
-                Box(Modifier.padding(start = 8.dp)) { handle() }
-            }
+            UpdateStatusHandle(
+                isCheckingUpdate = isCheckingUpdate,
+                hasUpdate = hasUpdate,
+                autoCheckEnabled = autoCheckEnabled,
+                modifier = Modifier.padding(start = 8.dp)
+            ) { handle() }
         }
+    }
+}
+
+/**
+ * 卡片右侧状态把手：在 [content]（折叠箭头/拖拽手柄）之上叠加状态视觉。
+ * 优先级：检查中（转圈）> 有更新（呼吸红点），二者占角标位；自动检查环为持久外圈，可与角标共存。
+ */
+@Composable
+private fun UpdateStatusHandle(
+    isCheckingUpdate: Boolean,
+    hasUpdate: Boolean,
+    autoCheckEnabled: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val autoRingColor = darkThemeColor(YamiboColors.primary) { primary }.copy(alpha = 0.40f)
+
+    Box(modifier = modifier.size(40.dp)) {
+        // 持久"自动检查环"：围在把手外圈，安静地表明该项已开启自动检查
+        if (autoCheckEnabled) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .border(1.2.dp, autoRingColor, CircleShape)
+            )
+        }
+
+        // 把手本体（箭头 / 拖拽手柄）
+        Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) { content() }
+
+        // 角标位：检查中 > 有更新
+        when {
+            isCheckingUpdate -> Box(
+                Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp)
+            ) { CheckingSpinner() }
+
+            hasUpdate -> Box(
+                Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp)
+            ) { UpdateDot() }
+        }
+    }
+}
+
+/** 精致的检查中加载圈：细环 + 浅色轨道底环。 */
+@Composable
+private fun CheckingSpinner() {
+    val ringColor = darkThemeColor(YamiboColors.primary) { primary }
+    Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(16.dp),
+            strokeWidth = 2.dp,
+            color = ringColor
+        )
+    }
+}
+
+/** 有更新：红色实心点 + 缓慢呼吸的柔和光晕。 */
+@Composable
+private fun UpdateDot() {
+    val dotColor = Color(0xFFE53935)
+    val transition = rememberInfiniteTransition(label = "update_pulse")
+    val haloScale by transition.animateFloat(
+        initialValue = 0.7f,
+        targetValue = 1.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "halo_scale"
+    )
+    val haloAlpha by transition.animateFloat(
+        initialValue = 0.40f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "halo_alpha"
+    )
+
+    Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+        // 呼吸光晕
+        Box(
+            Modifier
+                .size(10.dp)
+                .graphicsLayer {
+                    scaleX = haloScale
+                    scaleY = haloScale
+                    alpha = haloAlpha
+                }
+                .clip(CircleShape)
+                .background(dotColor)
+        )
+        // 实心点
+        Box(
+            Modifier
+                .size(9.dp)
+                .clip(CircleShape)
+                .background(dotColor)
+        )
     }
 }

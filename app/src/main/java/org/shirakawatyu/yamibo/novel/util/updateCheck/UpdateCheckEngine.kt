@@ -1,0 +1,327 @@
+package org.shirakawatyu.yamibo.novel.util.updateCheck
+
+import android.content.Context
+import android.widget.Toast
+import com.alibaba.fastjson2.JSON
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.shirakawatyu.yamibo.novel.bean.DirectoryStrategy
+import org.shirakawatyu.yamibo.novel.bean.Favorite
+import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckProfile
+import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckStrategy
+import org.shirakawatyu.yamibo.novel.bean.NovelUpdateCheckProfile
+import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import org.shirakawatyu.yamibo.novel.network.MangaApi
+import org.shirakawatyu.yamibo.novel.network.NovelApi
+import org.shirakawatyu.yamibo.novel.repository.DirectoryRepository
+
+/**
+ * 应用级（进程生命周期）更新检查引擎。
+ *
+ * - 手动检查（滑动卡片）与后台自动检查共用同一套执行逻辑与节流锁，避免重复实现与互相打架。
+ * - 通过 [inFlight] 暴露"正在检查"的 url 集合；UI 据此显示转圈，对手动/后台都生效。
+ * - 所有结果都写入 DataStore；UI 通过各自的 Flow 自动刷新角标。
+ * - notify=true 时弹 Toast（手动场景）；notify=false 时全程静默（后台场景）。
+ */
+object UpdateCheckEngine {
+
+    // 进程级作用域：不随任何 ViewModel / Composition 销毁而取消 —— 这是"后台不被打断"的根基。
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Volatile
+    private var appContext: Context? = null
+
+    fun ensureInit(context: Context) {
+        if (appContext == null) appContext = context.applicationContext
+    }
+
+    private fun requireContext(): Context =
+        appContext ?: error("UpdateCheckEngine 未初始化，请先调用 ensureInit(context)")
+
+    // ---- 正在检查的 url 集合（手动 + 后台共用）----
+    private val _inFlight = MutableStateFlow<Set<String>>(emptySet())
+    val inFlight: StateFlow<Set<String>> = _inFlight.asStateFlow()
+
+    private fun addInFlight(url: String) =
+        _inFlight.update { if (url in it) it else it + url }
+
+    private fun removeInFlight(url: String) =
+        _inFlight.update { if (url in it) it - url else it }
+
+    fun isChecking(url: String): Boolean = _inFlight.value.contains(url)
+
+    // ---- 节流：按 url hash 的条带锁，同 url 必互斥，不同书大概率并行 ----
+    private const val CHECK_LOCK_STRIPES = 16
+    private val urlCheckLocks = Array(CHECK_LOCK_STRIPES) { Mutex() }
+    private fun checkLockFor(url: String): Mutex =
+        urlCheckLocks[(url.hashCode() and Int.MAX_VALUE) % CHECK_LOCK_STRIPES]
+
+    // ---- 小说元数据请求节流（原 VM 里的逻辑搬来）----
+    private val novelMetaRequestMutex = Mutex()
+    private const val NOVEL_META_REQUEST_INTERVAL_MS = 400L
+    @Volatile private var lastNovelMetaRequestStartedAt = 0L
+
+    private fun extractTid(url: String): String? =
+        Regex("tid=(\\d+)").find(url)?.groupValues?.get(1)
+
+    private suspend fun toast(message: String) {
+        val ctx = appContext ?: return
+        withContext(Dispatchers.Main) {
+            Toast.makeText(ctx, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // =========================================================================
+    // 对外入口
+    // =========================================================================
+
+    /** 手动检查小说（来自滑动卡片）。 */
+    fun checkNovel(favorite: Favorite) {
+        if (favorite.type != 1) { scope.launch { toast("只有小说和漫画可以查询更新") }; return }
+        if (isChecking(favorite.url)) { scope.launch { toast("正在查询更新") }; return }
+        scope.launch { performNovel(favorite.url, favorite.title, favorite.authorId, notify = true) }
+    }
+
+    /** 手动检查漫画（来自滑动卡片 / 配置弹窗）。 */
+    fun checkManga(
+        favorite: Favorite,
+        overrideStrategy: MangaUpdateCheckStrategy? = null,
+        overrideSearchKeyword: String? = null,
+        overrideCleanBookName: String? = null
+    ) {
+        if (favorite.type != 2) { scope.launch { toast("只有小说和漫画可以查询更新") }; return }
+        if (isChecking(favorite.url)) { scope.launch { toast("正在查询更新") }; return }
+        scope.launch {
+            performManga(
+                favorite.url, favorite.title,
+                overrideStrategy, overrideSearchKeyword, overrideCleanBookName,
+                notify = true
+            )
+        }
+    }
+
+    /** 后台自动检查（由调度器串行调用，已在引擎作用域内，需挂起等待完成以便错峰）。 */
+    suspend fun runAutoNovel(profile: NovelUpdateCheckProfile) {
+        if (isChecking(profile.url)) return
+        performNovel(profile.url, profile.title, profile.authorId, notify = false)
+    }
+
+    suspend fun runAutoManga(profile: MangaUpdateCheckProfile) {
+        if (isChecking(profile.url)) return
+        // 自动检查复用 profile 里已保存的策略/关键词：全部传 null，让内部回退到 oldProfile。
+        performManga(profile.url, profile.title, null, null, null, notify = false)
+    }
+
+    // =========================================================================
+    // 实际执行（设置/清除 inFlight + 真正的网络逻辑）
+    // =========================================================================
+
+    private suspend fun performNovel(url: String, title: String, authorId: String?, notify: Boolean) {
+        addInFlight(url)
+        try {
+            runNovelUpdateCheck(url, title, authorId, notify)
+        } finally {
+            removeInFlight(url)
+        }
+    }
+
+    private suspend fun performManga(
+        url: String, title: String,
+        overrideStrategy: MangaUpdateCheckStrategy?,
+        overrideSearchKeyword: String?,
+        overrideCleanBookName: String?,
+        notify: Boolean
+    ) {
+        addInFlight(url)
+        try {
+            runMangaUpdateCheck(url, title, overrideStrategy, overrideSearchKeyword, overrideCleanBookName, notify)
+        } finally {
+            removeInFlight(url)
+        }
+    }
+
+    private suspend fun fetchNovelRepliesQueued(tid: String, authorId: String): Int? {
+        return novelMetaRequestMutex.withLock {
+            val now = System.currentTimeMillis()
+            val elapsed = now - lastNovelMetaRequestStartedAt
+            if (elapsed in 0L until NOVEL_META_REQUEST_INTERVAL_MS) {
+                delay(NOVEL_META_REQUEST_INTERVAL_MS - elapsed)
+            }
+            lastNovelMetaRequestStartedAt = System.currentTimeMillis()
+
+            val novelApi = YamiboRetrofit.getInstance().create(NovelApi::class.java)
+            val resp = novelApi.getThreadMeta(tid, authorId).string()
+            val json = JSON.parseObject(resp)
+            val thread = json.getJSONObject("Variables")?.getJSONObject("thread")
+            thread?.getString("replies")?.toIntOrNull()
+        }
+    }
+
+    // ---- 小说检查（搬自原 FavoriteVM.runNovelUpdateCheck，新增 notify 门控）----
+    private suspend fun runNovelUpdateCheck(url: String, title: String, authorId: String?, notify: Boolean) {
+        val tid = extractTid(url)
+        if (tid == null) { if (notify) toast("无法识别帖子ID，不能查询更新"); return }
+        if (authorId.isNullOrBlank()) { if (notify) toast("缺少作者ID，不能查询小说更新"); return }
+
+        checkLockFor(url).withLock {
+            val profile = NovelUpdateCheckUtil.getMapSuspend()[url]
+            try {
+                val currentReplies = fetchNovelRepliesQueued(tid, authorId)
+                if (currentReplies == null) {
+                    if (notify) toast("查询失败：没有读取到回复数")
+                    profile?.let { NovelUpdateCheckUtil.updateCheckTimeSuspend(url, System.currentTimeMillis()) }
+                    return@withLock
+                }
+                val checkedAt = System.currentTimeMillis()
+                if (profile == null) {
+                    // 首次追踪：建立基线，不算"有更新"
+                    NovelUpdateCheckUtil.saveProfileSuspend(
+                        NovelUpdateCheckProfile(
+                            title = title, url = url, authorId = authorId,
+                            savedReplies = currentReplies, hasUpdate = false, lastCheckTime = checkedAt
+                        )
+                    )
+                    if (notify) toast("已开始追踪更新")
+                    return@withLock
+                }
+                val detectedUpdate = currentReplies > profile.savedReplies
+                NovelUpdateCheckUtil.updateRepliesSuspend(
+                    url = url, newReplies = currentReplies,
+                    hasUpdate = detectedUpdate, lastCheckTime = checkedAt
+                )
+                if (notify) toast(if (detectedUpdate) "检测到小说更新" else "没有检测到小说更新")
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                // 失败也要更新 lastCheckTime，避免错峰窗口反复立刻重试
+                profile?.let { NovelUpdateCheckUtil.updateCheckTimeSuspend(url, System.currentTimeMillis()) }
+                if (notify) toast("查询小说更新失败")
+            }
+        }
+    }
+
+    // ---- 漫画检查（搬自原 FavoriteVM.runMangaUpdateCheck，新增 notify 门控）----
+    private suspend fun runMangaUpdateCheck(
+        url: String, title: String,
+        overrideStrategy: MangaUpdateCheckStrategy?,
+        overrideSearchKeyword: String?,
+        overrideCleanBookName: String?,
+        notify: Boolean
+    ) {
+        val ctx = requireContext()
+        val tid = extractTid(url)
+        if (tid == null) { if (notify) toast("无法识别帖子ID，不能查询更新"); return }
+
+        checkLockFor(url).withLock {
+            val repo = DirectoryRepository.getInstance(ctx)
+            val oldProfile = MangaUpdateCheckUtil.getMapSuspend()[url]
+            try {
+                var mangaDir = if (oldProfile != null) {
+                    repo.getDirectoryByCleanName(oldProfile.cleanBookName)
+                } else {
+                    repo.getAllDirectories().find { dir -> dir.chapters.any { it.tid == tid } }
+                }
+
+                if (mangaDir == null) {
+                    val mangaApi = YamiboRetrofit.getInstance().create(MangaApi::class.java)
+                    val resp = mangaApi.getThreadDetailApi(tid).string()
+                    val json = JSON.parseObject(resp)
+                    val postlist = json.getJSONObject("Variables")?.getJSONArray("postlist")
+                    val message = postlist?.getJSONObject(0)?.getString("message")
+                    if (message.isNullOrBlank()) {
+                        if (notify) toast("初始化漫画目录失败")
+                        return@withLock
+                    }
+                    val html = "<div class=\"message\">$message</div>"
+                    mangaDir = repo.initDirectoryForThread(tid, url, title, html)
+                }
+
+                if (overrideCleanBookName != null && overrideCleanBookName.isNotBlank() &&
+                    overrideCleanBookName != mangaDir.cleanBookName
+                ) {
+                    val newKeyword = overrideSearchKeyword ?: mangaDir.searchKeyword ?: ""
+                    mangaDir = repo.renameAndMergeDirectory(mangaDir, overrideCleanBookName, newKeyword)
+                }
+
+                val strategy = overrideStrategy
+                    ?: oldProfile?.strategy
+                    ?: if (mangaDir.strategy == DirectoryStrategy.TAG)
+                        MangaUpdateCheckStrategy.TAG else MangaUpdateCheckStrategy.SEARCH
+
+                val keyword = overrideSearchKeyword ?: oldProfile?.searchKeyword ?: mangaDir.searchKeyword
+                val cleanBookName = overrideCleanBookName ?: oldProfile?.cleanBookName ?: mangaDir.cleanBookName
+                val baseChapterCount = oldProfile?.savedChapterCount ?: mangaDir.chapters.size
+                val baseLatestTid = oldProfile?.savedLatestTid ?: (mangaDir.chapters.lastOrNull()?.tid ?: "")
+
+                val isFirstCheck = oldProfile == null
+                if (isFirstCheck) {
+                    MangaUpdateCheckUtil.saveProfileSuspend(
+                        MangaUpdateCheckProfile(
+                            title = title, url = url, cleanBookName = cleanBookName,
+                            searchKeyword = keyword, strategy = strategy,
+                            savedChapterCount = baseChapterCount, savedLatestTid = baseLatestTid,
+                            hasUpdate = false, lastCheckTime = 0L
+                        )
+                    )
+                } else {
+                    val existing = oldProfile!!
+                    if (existing.searchKeyword != keyword || existing.strategy != strategy) {
+                        MangaUpdateCheckUtil.saveProfileSuspend(
+                            existing.copy(title = title, searchKeyword = keyword, strategy = strategy)
+                        )
+                    }
+                }
+
+                val dirForUpdate = if (keyword != mangaDir.searchKeyword) {
+                    mangaDir.copy(searchKeyword = keyword)
+                } else mangaDir
+
+                val forceSearch = strategy == MangaUpdateCheckStrategy.SEARCH
+                val result = repo.manuallyUpdateDirectory(dirForUpdate, forceSearch = forceSearch, currentTid = tid)
+                if (result.isFailure) {
+                    MangaUpdateCheckUtil.updateCheckTimeSuspend(url, System.currentTimeMillis())
+                    if (notify) toast("查询漫画更新失败：${result.exceptionOrNull()?.message ?: "未知错误"}")
+                    return@withLock
+                }
+
+                val updatedDir = result.getOrThrow().directory
+                val newCount = updatedDir.chapters.size
+                val newLatestTid = updatedDir.chapters.lastOrNull()?.tid ?: ""
+                val snapshotCount = if (newCount > 0) newCount else baseChapterCount
+                val snapshotLatestTid = newLatestTid.ifEmpty { baseLatestTid }
+                val detectedUpdate = newCount > baseChapterCount ||
+                        (newLatestTid.isNotEmpty() && baseLatestTid.isNotEmpty() && newLatestTid != baseLatestTid)
+
+                MangaUpdateCheckUtil.updateSnapshotSuspend(
+                    url = url,
+                    chapterCount = snapshotCount,
+                    latestTid = snapshotLatestTid,
+                    hasUpdate = if (isFirstCheck) false else detectedUpdate,
+                    lastCheckTime = System.currentTimeMillis(),
+                    searchKeyword = keyword,
+                    strategy = strategy
+                )
+                if (notify) toast(
+                    when {
+                        isFirstCheck -> "已开始追踪更新"
+                        detectedUpdate -> "检测到漫画更新"
+                        else -> "没有检测到漫画更新"
+                    }
+                )
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                MangaUpdateCheckUtil.updateCheckTimeSuspend(url, System.currentTimeMillis())
+                if (notify) toast("查询漫画更新失败")
+            }
+        }
+    }
+}
