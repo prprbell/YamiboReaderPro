@@ -103,6 +103,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.page.BBSGlobalWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.page.BBSPage
 import org.shirakawatyu.yamibo.novel.ui.page.FavoritePage
@@ -442,6 +443,8 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
         }
         webViewClient = BBSGlobalWebViewClient(context)
         webChromeClient = chromeClient ?: GlobalData.webChromeClient
+
+        YamiboWebViewClient.setupDownloadListener(this)
 
         resumeTimers()
         onResume()

@@ -14,6 +14,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.annotation.RequiresApi
+import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import java.util.ArrayDeque
 import java.util.IdentityHashMap
 
@@ -171,6 +172,8 @@ object WebViewPool {
         )
         holder.webView.scrollTo(0, 0)
         holder.webView.onResume()
+
+        YamiboWebViewClient.setupDownloadListener(holder.webView)
 
         activeHolders[holder.webView] = holder
         return holder.webView

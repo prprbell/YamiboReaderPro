@@ -1,9 +1,16 @@
 package org.shirakawatyu.yamibo.novel.module
 
+import android.app.DownloadManager
+import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Environment
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
+import android.webkit.URLUtil
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,6 +21,69 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 
 open class YamiboWebViewClient : WebViewClient() {
+
+    companion object {
+        private val pendingNames = ConcurrentHashMap<String, String>()
+
+        class AttachmentNameBridge {
+            @JavascriptInterface
+            fun setAttachmentName(url: String, name: String) {
+                val aid = Uri.parse(url).getQueryParameter("aid") ?: return
+                pendingNames[aid] = name
+            }
+        }
+
+        fun setupDownloadListener(webView: WebView) {
+            webView.addJavascriptInterface(AttachmentNameBridge(), "__yamiboAttach")
+            webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+                try {
+                    val aid = Uri.parse(url).getQueryParameter("aid")
+                    val guessed = URLUtil.guessFileName(
+                        url,
+                        contentDisposition,
+                        mimeType?.takeIf { it.isNotBlank() } ?: "text/plain"
+                    )
+                    val fileName = when {
+                        !guessed.equals("forum.php", ignoreCase = true) &&
+                                !guessed.equals("forum.php.txt", ignoreCase = true) -> guessed
+                        aid != null -> pendingNames.remove(aid)?.let { "$it.txt" }
+                            ?: "yamibo_$aid.txt"
+                        else -> "yamibo_${System.currentTimeMillis()}.txt"
+                    }
+                    DownloadManager.Request(Uri.parse(url)).apply {
+                        setMimeType(mimeType?.takeIf { it.isNotBlank() } ?: "text/plain")
+                        addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url) ?: "")
+                        addRequestHeader("User-Agent", userAgent ?: webView.settings.userAgentString)
+                        addRequestHeader("Referer", webView.url ?: "https://bbs.yamibo.com/")
+                        addRequestHeader("Accept", "text/plain,application/octet-stream,*/*")
+                        setTitle(fileName)
+                        setDescription("正在下载附件")
+                        setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                        setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                    }.let {
+                        val dm = webView.context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                        dm.enqueue(it)
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        private val ATTACH_INTERCEPT_JS = """
+            (function() {
+                if (window.__yamiboAttachHooked) return;
+                window.__yamiboAttachHooked = true;
+                document.addEventListener('click', function(e) {
+                    var link = e.target.closest('a[href*="mod=attachment"]');
+                    if (!link) return;
+                    var span = link.querySelector('.link.f_b');
+                    if (span && window.__yamiboAttach) {
+                        var name = span.textContent.trim();
+                        if (name) window.__yamiboAttach.setAttachmentName(link.href, name);
+                    }
+                }, true);
+            })();
+        """.trimIndent()
+    }
 
     private var currentCookie = ""
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -115,7 +185,7 @@ open class YamiboWebViewClient : WebViewClient() {
                 function checkState() {
                     var state = window.history.state;
                     var isFullscreen = state && typeof state === 'object' && 'pswp_index' in state;
-                    
+
                     if (window.AndroidFullscreen) {
                         window.AndroidFullscreen.notify(!!isFullscreen);
                     }
@@ -127,7 +197,7 @@ open class YamiboWebViewClient : WebViewClient() {
                     checkState();
                     return result;
                 };
-                
+
                 var originalReplaceState = history.replaceState;
                 history.replaceState = function() {
                     var result = originalReplaceState.apply(this, arguments);
@@ -138,11 +208,12 @@ open class YamiboWebViewClient : WebViewClient() {
                 window.addEventListener('popstate', function() {
                     checkState();
                 });
-                
+
                 checkState();
             })();
             """.trimIndent(), null
         )
+        view?.evaluateJavascript(ATTACH_INTERCEPT_JS, null)
     }
 
     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {

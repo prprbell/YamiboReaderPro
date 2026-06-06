@@ -25,7 +25,6 @@ import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckStrategy
 import org.shirakawatyu.yamibo.novel.bean.NovelUpdateCheckProfile
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.FavoriteApi
-import org.shirakawatyu.yamibo.novel.repository.DirectoryRepository
 import org.shirakawatyu.yamibo.novel.ui.state.FavoriteState
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteDeleteUtil
@@ -303,10 +302,9 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                             (count + perpage - 1) / perpage
                         } else 1
                         val hasNextPage = currentPage < currentTotalPages
-                        val maxPossibleRemoteItems = count
 
                         stateMutex.withLock {
-                            if (allFavorites.size > maxPossibleRemoteItems) {
+                            if (allFavorites.size > count) {
                                 currentIsSmartSync = false
                             } else if (!hasNextPage) {
                                 currentIsSmartSync = false
@@ -553,7 +551,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                             primaryUrl = normalizedUrl,
                             aliasUrls = cacheAliasesForNormalizedUrl(normalizedUrl, url)
                         )
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                     }
                 }
                 refreshCacheInfo()
@@ -584,22 +582,19 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 val pagesWithImages = novelCache.pages.values.count { it.hasImages }
 
                 val old = cacheInfoMap[normalizedUrl]
-                cacheInfoMap[normalizedUrl] = if (old == null) {
-                    CacheInfo(
+                cacheInfoMap[normalizedUrl] = old?.copy(
+                    totalPages = old.totalPages + totalPages,
+                    totalSize = old.totalSize + totalSize,
+                    pagesWithImages = old.pagesWithImages + pagesWithImages,
+                    title = old.title ?: novelCache.title
+                )
+                    ?: CacheInfo(
                         url = normalizedUrl,
                         totalPages = totalPages,
                         totalSize = totalSize,
                         pagesWithImages = pagesWithImages,
                         title = novelCache.title
                     )
-                } else {
-                    old.copy(
-                        totalPages = old.totalPages + totalPages,
-                        totalSize = old.totalSize + totalSize,
-                        pagesWithImages = old.pagesWithImages + pagesWithImages,
-                        title = old.title ?: novelCache.title
-                    )
-                }
             }
 
             _uiState.update { it.copy(cacheInfoMap = cacheInfoMap) }
@@ -759,18 +754,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         }
     }
 
-    fun checkFavoriteUpdate(
-        favorite: Favorite,
-        mangaStrategy: MangaUpdateCheckStrategy? = null,
-        mangaSearchKeyword: String? = null
-    ) {
-        when (favorite.type) {
-            1 -> checkNovelUpdate(favorite)
-            2 -> checkMangaUpdate(favorite, mangaStrategy, mangaSearchKeyword)
-            else -> showUnsupportedUpdateCheckType()
-        }
-    }
-
     fun checkNovelUpdate(favorite: Favorite) {
         UpdateCheckEngine.ensureInit(applicationContext)
         UpdateCheckEngine.checkNovel(favorite)
@@ -795,12 +778,6 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     fun clearMangaUpdateCheckFlag(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
             MangaUpdateCheckUtil.clearUpdateFlagSuspend(url)
-        }
-    }
-
-    fun showUnsupportedUpdateCheckType() {
-        viewModelScope.launch {
-            showShortToast("只有小说和漫画可以查询更新")
         }
     }
 
