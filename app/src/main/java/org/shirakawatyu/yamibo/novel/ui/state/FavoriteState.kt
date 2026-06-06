@@ -13,5 +13,6 @@ data class FavoriteState(
     var cacheInfoMap: Map<String, FavoriteVM.CacheInfo> = emptyMap(),
     var updateCheckNovels: List<NovelUpdateCheckProfile> = listOf(),
     var updateCheckMangas: List<MangaUpdateCheckProfile> = listOf(),
-    var checkingUpdateUrls: Set<String> = emptySet()
+    var checkingUpdateUrls: Set<String> = emptySet(),
+    var probingTypeUrls: Set<String> = emptySet()
 )

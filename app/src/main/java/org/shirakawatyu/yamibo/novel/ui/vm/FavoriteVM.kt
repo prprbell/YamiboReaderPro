@@ -25,6 +25,7 @@ import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckStrategy
 import org.shirakawatyu.yamibo.novel.bean.NovelUpdateCheckProfile
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.FavoriteApi
+import org.shirakawatyu.yamibo.novel.network.NovelApi
 import org.shirakawatyu.yamibo.novel.ui.state.FavoriteState
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteDeleteUtil
@@ -44,6 +45,17 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     companion object {
         /** 自动检查同时启用的总上限（小说 + 漫画合计）。 */
         const val MAX_AUTO_CHECK = 16
+
+        /** 手动检查小说很快结束时，至少让加载圈稳定可见一小段时间，避免闪烁。 */
+        private const val MIN_UPDATE_CHECK_VISIBLE_MS = 650L
+
+        /** 类型探测通常也很快，至少让右侧胶囊稳定可见一小段时间。 */
+        private const val MIN_TYPE_PROBE_VISIBLE_MS = 650L
+
+        private val MANGA_SECTIONS = listOf("中文百合漫画区", "贴图区", "貼圖區", "原创图作区", "百合漫画图源区")
+        private val NOVEL_SECTIONS = listOf("文學區", "文学区", "轻小说/译文区", "TXT小说区")
+        private val MANGA_FIDS = setOf("13", "30", "46")
+        private val NOVEL_FIDS = setOf("49", "55")
     }
 
     private val _uiState = MutableStateFlow(FavoriteState())
@@ -72,6 +84,10 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     // 等待队列：保存正在倒计时的那个任务
     private var pendingSyncJob: Job? = null
     private var fetchJob: Job? = null
+    private val updateCheckVisibleSince = mutableMapOf<String, Long>()
+    private val updateCheckHideJobs = mutableMapOf<String, Job>()
+    private val typeProbeJobs = mutableMapOf<String, Job>()
+    private val typeProbeJobsLock = Any()
     private var lastNavigateTime = 0L
     private val SMART_SYNC_TIMEOUT = 20 * 60 * 1000L
 
@@ -146,11 +162,12 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 }
         }
 
-        // 初始化检查引擎（进程级），并把"正在检查"的集合镜像到 UI 状态
+        // 初始化检查引擎（进程级），并把"正在检查"的集合镜像到 UI 状态。
+        // UI 层保留最短可见时长，避免小说检查过快导致加载圈闪一下就消失。
         UpdateCheckEngine.ensureInit(applicationContext)
         viewModelScope.launch {
             UpdateCheckEngine.inFlight.collect { set ->
-                _uiState.update { it.copy(checkingUpdateUrls = set) }
+                mirrorUpdateCheckingUrls(set)
             }
         }
     }
@@ -158,6 +175,168 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     fun setCategory(category: Int) {
         currentCategory = category
         updateUiList()
+    }
+
+    private data class TypeProbeResult(
+        val type: Int,
+        val title: String,
+        val authorId: String
+    )
+
+    /**
+     * 后台探测未定收藏的类型。
+     *
+     * 只请求论坛线程 API 并更新本地收藏元数据，不打开 ProbingPage / WebView，
+     * 因此左滑探测不会把用户从收藏页带走。
+     */
+    fun probeFavoriteTypeInBackground(favorite: Favorite) {
+        if (favorite.type != 0) return
+        val alreadyProbing = synchronized(typeProbeJobsLock) {
+            typeProbeJobs[favorite.url]?.isActive == true
+        }
+        if (alreadyProbing) {
+            viewModelScope.launch { showShortToast("正在探测类型") }
+            return
+        }
+
+        val url = favorite.url
+        val job = viewModelScope.launch(Dispatchers.IO) {
+            val startedAt = System.currentTimeMillis()
+            markTypeProbeVisible(url)
+
+            try {
+                val result = probeFavoriteTypeSuspend(favorite)
+                if (result == null) {
+                    showShortToast("探测类型失败")
+                    return@launch
+                }
+
+                val changed = applyTypeProbeResult(favorite, result)
+                val label = when (result.type) {
+                    1 -> "小说"
+                    2 -> "漫画"
+                    else -> "其他"
+                }
+                showShortToast(if (changed) "已识别为$label" else "类型已是$label")
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(logTag, "后台探测收藏类型失败: ${favorite.url}", e)
+                showShortToast("探测类型失败")
+            } finally {
+                val elapsed = System.currentTimeMillis() - startedAt
+                val remainMs = (MIN_TYPE_PROBE_VISIBLE_MS - elapsed).coerceAtLeast(0L)
+                if (remainMs > 0) delay(remainMs)
+                markTypeProbeHidden(url)
+                synchronized(typeProbeJobsLock) { typeProbeJobs.remove(url) }
+            }
+        }
+        synchronized(typeProbeJobsLock) { if (job.isActive) typeProbeJobs[url] = job }
+    }
+
+    private fun markTypeProbeVisible(url: String) {
+        _uiState.update { it.copy(probingTypeUrls = it.probingTypeUrls + url) }
+    }
+
+    private fun markTypeProbeHidden(url: String) {
+        _uiState.update { it.copy(probingTypeUrls = it.probingTypeUrls - url) }
+    }
+
+    private suspend fun probeFavoriteTypeSuspend(favorite: Favorite): TypeProbeResult? {
+        val tid = Regex("tid=(\\d+)").find(favorite.url)?.groupValues?.get(1)
+        if (tid == null) {
+            return TypeProbeResult(type = 3, title = favorite.title, authorId = favorite.authorId ?: "")
+        }
+
+        val novelApi = YamiboRetrofit.getInstance().create(NovelApi::class.java)
+        val resp = novelApi.getThreadMetaLight(tid).string()
+        val json = JSON.parseObject(resp)
+        val variables = json.getJSONObject("Variables") ?: return null
+        val thread = variables.getJSONObject("thread") ?: return null
+        val forumName = variables.getJSONObject("forum")?.getString("name") ?: ""
+        val title = thread.getString("subject") ?: favorite.title
+        val authorId = thread.getString("authorid") ?: ""
+        val fid = thread.getString("fid") ?: ""
+
+        val type = when {
+            fid in MANGA_FIDS || MANGA_SECTIONS.any { forumName.contains(it) } -> 2
+            fid in NOVEL_FIDS || (forumName.isNotEmpty() && NOVEL_SECTIONS.any { forumName.contains(it) }) -> 1
+            else -> 3
+        }
+
+        return TypeProbeResult(type = type, title = title, authorId = authorId)
+    }
+
+    private suspend fun applyTypeProbeResult(favorite: Favorite, result: TypeProbeResult): Boolean {
+        var updatedFavorite: Favorite? = null
+
+        stateMutex.withLock {
+            val old = allFavorites.find { it.url == favorite.url } ?: favorite
+            var next = old
+
+            when (result.type) {
+                1 -> {
+                    val aid = result.authorId.takeIf { it.isNotBlank() }
+                    next = next.copy(type = 1, authorId = aid)
+
+                    val cleanTitle = cleanNovelProbeTitle(result.title)
+                    if (cleanTitle.isNotBlank()) next = next.copy(title = cleanTitle)
+                }
+
+                2 -> next = next.copy(type = 2)
+                else -> next = next.copy(type = 3)
+            }
+
+            if (next != old) {
+                allFavorites = allFavorites.map { if (it.url == next.url) next else it }
+                updatedFavorite = next
+            }
+        }
+
+        updatedFavorite?.let { FavoriteUtil.updateFavoriteSuspend(it) }
+        withContext(Dispatchers.Main) { updateUiList() }
+        return updatedFavorite != null
+    }
+
+    private fun cleanNovelProbeTitle(rawTitle: String): String =
+        rawTitle.replace(
+            Regex("\\s+[-—–_]+\\s+.*?(文學區|文学区|小说区|译文区|百合会|论坛).*$"),
+            ""
+        ).trim().ifBlank { rawTitle }
+
+    private fun mirrorUpdateCheckingUrls(actualCheckingUrls: Set<String>) {
+        val now = System.currentTimeMillis()
+
+        actualCheckingUrls.forEach { url ->
+            updateCheckHideJobs.remove(url)?.cancel()
+            updateCheckVisibleSince.putIfAbsent(url, now)
+        }
+
+        val currentVisible = _uiState.value.checkingUpdateUrls
+        val visibleWithActive = currentVisible + actualCheckingUrls
+        if (visibleWithActive != currentVisible) {
+            _uiState.update { it.copy(checkingUpdateUrls = visibleWithActive) }
+        }
+
+        val removedUrls = visibleWithActive - actualCheckingUrls
+        removedUrls.forEach { url ->
+            val shownFor = now - (updateCheckVisibleSince[url] ?: now)
+            val remainMs = (MIN_UPDATE_CHECK_VISIBLE_MS - shownFor).coerceAtLeast(0L)
+
+            if (remainMs == 0L) {
+                updateCheckVisibleSince.remove(url)
+                updateCheckHideJobs.remove(url)?.cancel()
+                _uiState.update { it.copy(checkingUpdateUrls = it.checkingUpdateUrls - url) }
+            } else if (updateCheckHideJobs[url]?.isActive != true) {
+                updateCheckHideJobs[url] = viewModelScope.launch {
+                    delay(remainMs)
+                    if (!UpdateCheckEngine.isChecking(url)) {
+                        updateCheckVisibleSince.remove(url)
+                        _uiState.update { it.copy(checkingUpdateUrls = it.checkingUpdateUrls - url) }
+                    }
+                    updateCheckHideJobs.remove(url)
+                }
+            }
+        }
     }
 
     private fun updateUiList() {

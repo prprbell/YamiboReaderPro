@@ -183,6 +183,7 @@ fun FavoritePage(
     val isDnsOptimizationEnabled by GlobalData.isDnsOptimizationEnabled.collectAsState()
     val isClickToTopEnabled by GlobalData.isClickToTopEnabled.collectAsState()
     val selectedItems = uiState.selectedItems
+    val probingTypeUrls = uiState.probingTypeUrls
     val updateCheckNovels = uiState.updateCheckNovels
     val updateCheckMangas = uiState.updateCheckMangas
     val novelCheckMap = remember(updateCheckNovels) { updateCheckNovels.associateBy { it.url } }
@@ -823,17 +824,30 @@ fun FavoritePage(
                         val hasUpdate = novelCheckMap[item.url]?.hasUpdate == true ||
                                 mangaCheckMap[item.url]?.hasUpdate == true
                         val isCheckingUpdate = uiState.checkingUpdateUrls.contains(item.url)
+                        val isProbingType = probingTypeUrls.contains(item.url)
                         val autoCheckEnabled = novelCheckMap[item.url]?.autoCheckEnabled == true ||
                                 mangaCheckMap[item.url]?.autoCheckEnabled == true
                         val isManga = item.type == 2
-                        val canSwipeCheck = !isInManageMode && (item.type == 1 || item.type == 2)
+                        val isUndetected = item.type == 0
+                        val canSwipeCheck = !isInManageMode && (item.type == 0 || item.type == 1 || item.type == 2)
+                        val canSwipeConfigure = !isInManageMode && (item.type == 1 || item.type == 2)
 
                         SwipeToCheckRow(
                             enabled = canSwipeCheck,
-                            canConfigure = canSwipeCheck,
+                            canConfigure = canSwipeConfigure,
                             modifier = Modifier.animateItem(),
+                            checkLabel = if (isUndetected) {
+                                if (isProbingType) "探测中" else "探测类型"
+                            } else {
+                                val hasProfile = novelCheckMap[item.url] != null ||
+                                        mangaCheckMap[item.url] != null
+                                if (hasProfile) "检查更新" else "追踪更新"
+                            },
+                            checkIcon = if (isUndetected) Icons.Default.Search else Icons.Default.Refresh,
+                            checkIconRotates = !isUndetected,
                             onCheck = {
                                 when (item.type) {
+                                    0 -> favoriteVM.probeFavoriteTypeInBackground(item)
                                     1 -> favoriteVM.checkNovelUpdate(item)
                                     2 -> if (mangaCheckMap[item.url] != null)
                                         favoriteVM.checkMangaUpdate(item)
@@ -871,7 +885,7 @@ fun FavoritePage(
                                 cacheInfo = cacheInfoMap[item.url],
                                 isGlobalCollapsed = isFavoriteCollapsed,
                                 hasUpdate = hasUpdate,
-                                isCheckingUpdate = isCheckingUpdate,
+                                isCheckingUpdate = isCheckingUpdate || isProbingType,
                                 autoCheckEnabled = autoCheckEnabled,
                                 dragHandle = {
                                     val canDrag = !isInManageMode && !isSearching
@@ -1543,6 +1557,11 @@ private fun SwipeToCheckRow(
     onCheck: () -> Unit,
     onConfigure: () -> Unit,
     modifier: Modifier = Modifier,
+    checkLabel: String = "检查更新",
+    checkIcon: ImageVector = Icons.Default.Refresh,
+    checkIconRotates: Boolean = true,
+    configureLabel: String = "配置",
+    configureIcon: ImageVector = Icons.Default.Build,
     content: @Composable () -> Unit
 ) {
     if (!enabled) {
@@ -1589,10 +1608,10 @@ private fun SwipeToCheckRow(
                     revealPx = leftRevealPx + cornerOverlapPx,
                     progress = leftProgress,
                     armed = leftArmed,
-                    icon = Icons.Default.Refresh,
-                    label = "检查更新",
+                    icon = checkIcon,
+                    label = checkLabel,
                     accent = accent,
-                    iconRotation = leftProgress * 180f
+                    iconRotation = if (checkIconRotates) leftProgress * 180f else 0f
                 )
             }
             if (rightRevealPx > 0.5f) {
@@ -1601,8 +1620,8 @@ private fun SwipeToCheckRow(
                     revealPx = rightRevealPx + cornerOverlapPx,
                     progress = rightProgress,
                     armed = rightArmed,
-                    icon = Icons.Default.Build,
-                    label = "配置",
+                    icon = configureIcon,
+                    label = configureLabel,
                     accent = accent,
                     iconRotation = 0f
                 )

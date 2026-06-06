@@ -23,11 +23,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -39,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -203,24 +206,18 @@ fun FavoriteItem(
                     else -> 4
                 }
 
-                Row(
+                Text(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        modifier = Modifier.weight(1f),
-                        fontSize = 16.sp,
-                        color = darkThemeColor(Color.Black) { onSurface },
-                        maxLines = titleMaxLines,
-                        overflow = TextOverflow.Clip,
-                        text = displayTitle,
-                        fontWeight = FontWeight.Medium,
-                        style = TextStyle(
-                            lineBreak = LineBreak.Simple
-                        )
+                    fontSize = 16.sp,
+                    color = darkThemeColor(Color.Black) { onSurface },
+                    maxLines = titleMaxLines,
+                    overflow = TextOverflow.Clip,
+                    text = displayTitle,
+                    fontWeight = FontWeight.Medium,
+                    style = TextStyle(
+                        lineBreak = LineBreak.Simple
                     )
-
-                }
+                )
 
                 AnimatedVisibility(
                     visible = !isEffectivelyCollapsed,
@@ -286,7 +283,7 @@ fun FavoriteItem(
                 }
             }
 
-            // 右侧：折叠箭头 / 拖拽手柄（叠加更新状态角标 + 自动检查环）
+            // 右侧：折叠箭头 / 拖拽手柄。更新状态直接坐在这个 40dp 把手上，不挤占标题和正文。
             val handle = @Composable {
                 Box(
                     modifier = Modifier.size(40.dp),
@@ -317,110 +314,219 @@ fun FavoriteItem(
                 isCheckingUpdate = isCheckingUpdate,
                 hasUpdate = hasUpdate,
                 autoCheckEnabled = autoCheckEnabled,
+                isCollapsed = isGlobalCollapsed,
                 modifier = Modifier.padding(start = 8.dp)
             ) { handle() }
         }
     }
 }
 
+
+private enum class HandleStatus {
+    CHECKING,
+    UPDATED
+}
+
 /**
- * 卡片右侧状态把手：在 [content]（折叠箭头/拖拽手柄）之上叠加状态视觉。
- * 优先级：检查中（转圈）> 有更新（呼吸红点），二者占角标位；自动检查环为持久外圈，可与角标共存。
+ * 卡片右侧状态把手：状态胶囊作为浮层坐在最右侧 40dp 图标区域上。
+ *
+ * 非折叠时贴在拖拽拉手上，折叠时贴在展开/收起箭头上；不占标题宽度，也不改变卡片高度。
+ * 优先级：检查中 > 有更新 > 自动检查已开启。
+ *
+ * 退出动画期间冻结 lastVisibleStatus，防止 AnimatedVisibility fade-out 时
+ * isCheckingUpdate 已变 false 但内容切到 else 分支，闪现"新"胶囊。
  */
 @Composable
 private fun UpdateStatusHandle(
     isCheckingUpdate: Boolean,
     hasUpdate: Boolean,
     autoCheckEnabled: Boolean,
+    isCollapsed: Boolean = false,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val autoRingColor = darkThemeColor(YamiboColors.primary) { primary }.copy(alpha = 0.40f)
+    val primary = darkThemeColor(YamiboColors.primary) { primary }
+    val updateAccent = darkModeColor(Color(0xFFC43E3E), Color(0xFFFF8A80))
 
-    Box(modifier = modifier.size(40.dp)) {
-        // 持久"自动检查环"：围在把手外圈，安静地表明该项已开启自动检查
-        if (autoCheckEnabled) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .border(1.2.dp, autoRingColor, CircleShape)
+    val currentStatus = when {
+        isCheckingUpdate -> HandleStatus.CHECKING
+        hasUpdate -> HandleStatus.UPDATED
+        else -> null
+    }
+
+    var lastVisibleStatus by remember { mutableStateOf<HandleStatus?>(currentStatus) }
+
+    LaunchedEffect(currentStatus) {
+        if (currentStatus != null) {
+            lastVisibleStatus = currentStatus
+        }
+    }
+
+    val capsuleStatus = currentStatus ?: lastVisibleStatus ?: HandleStatus.CHECKING
+
+    val hasAnyCapsule = currentStatus != null || autoCheckEnabled
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .then(if (isCollapsed && hasAnyCapsule) Modifier.offset(y = 6.dp) else Modifier),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) { content() }
+
+        // 检查中 / 有更新 胶囊（高优先级）
+        AnimatedVisibility(
+            visible = currentStatus != null,
+            enter = fadeIn(animationSpec = tween(140, easing = FastOutSlowInEasing)),
+            exit = fadeOut(animationSpec = tween(120)),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = (-12).dp)
+        ) {
+            HandleStatusCapsule(
+                status = capsuleStatus,
+                accent = when (capsuleStatus) {
+                    HandleStatus.CHECKING -> primary
+                    HandleStatus.UPDATED -> updateAccent
+                }
             )
         }
 
-        // 把手本体（箭头 / 拖拽手柄）
-        Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) { content() }
-
-        // 角标位：检查中 > 有更新
-        when {
-            isCheckingUpdate -> Box(
-                Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp)
-            ) { CheckingSpinner() }
-
-            hasUpdate -> Box(
-                Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp)
-            ) { UpdateDot() }
+        // 自动检查已开启 胶囊（低优先级，仅在无查/新时展示）
+        AnimatedVisibility(
+            visible = autoCheckEnabled && currentStatus == null,
+            enter = fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)),
+            exit = fadeOut(animationSpec = tween(120)),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = (-12).dp)
+        ) {
+            AutoCheckCapsule()
         }
     }
 }
 
-/** 精致的检查中加载圈：细环 + 浅色轨道底环。 */
+/** 贴在把手上的迷你胶囊：保留胶囊质感，但被限制在右侧图标区域内。 */
 @Composable
-private fun CheckingSpinner() {
-    val ringColor = darkThemeColor(YamiboColors.primary) { primary }
-    Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(16.dp),
-            strokeWidth = 2.dp,
-            color = ringColor
+private fun HandleStatusCapsule(
+    status: HandleStatus,
+    accent: Color
+) {
+    val isChecking = status == HandleStatus.CHECKING
+    val shape = RoundedCornerShape(50)
+    val containerAlpha = if (isChecking) 0.14f else 0.16f
+    val borderAlpha = if (isChecking) 0.34f else 0.40f
+    val textOffsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (-3).dp.toPx() }
+
+    Row(
+        modifier = Modifier
+            .width(38.dp)
+            .height(18.dp)
+            .clip(shape)
+            .background(accent.copy(alpha = containerAlpha))
+            .border(1.dp, accent.copy(alpha = borderAlpha), shape)
+            .padding(horizontal = 5.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isChecking) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(10.dp),
+                strokeWidth = 1.45.dp,
+                color = accent
+            )
+            Spacer(Modifier.width(3.dp))
+            Text(
+                text = "查",
+                color = accent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                modifier = Modifier.graphicsLayer { translationY = textOffsetPx }
+            )
+        } else {
+            UpdateCapsuleGlyph(accent = accent)
+            Spacer(Modifier.width(3.dp))
+            Text(
+                text = "新",
+                color = accent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                modifier = Modifier.graphicsLayer { translationY = textOffsetPx }
+            )
+        }
+    }
+}
+
+/** 自动检查已开启的胶囊：比”查”/”新”更低调，表明该项已纳入后台自动巡检。 */
+@Composable
+private fun AutoCheckCapsule() {
+    val primary = darkThemeColor(YamiboColors.primary) { primary }
+    val shape = RoundedCornerShape(50)
+    val textOffsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (-3).dp.toPx() }
+
+    Row(
+        modifier = Modifier
+            .width(38.dp)
+            .height(18.dp)
+            .clip(shape)
+            .background(primary.copy(alpha = 0.08f))
+            .border(1.dp, primary.copy(alpha = 0.28f), shape)
+            .padding(horizontal = 5.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "自动",
+            color = primary.copy(alpha = 0.7f),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            modifier = Modifier.graphicsLayer { translationY = textOffsetPx }
         )
     }
 }
 
-/** 有更新：红色实心点 + 缓慢呼吸的柔和光晕。 */
+/** 胶囊内的柔和脉冲点：让”有更新”有生命感，但不再是孤零零廉价红点。 */
 @Composable
-private fun UpdateDot() {
-    val dotColor = Color(0xFFE53935)
-    val transition = rememberInfiniteTransition(label = "update_pulse")
+private fun UpdateCapsuleGlyph(accent: Color) {
+    val transition = rememberInfiniteTransition(label = "update_capsule_pulse")
     val haloScale by transition.animateFloat(
-        initialValue = 0.7f,
-        targetValue = 1.7f,
+        initialValue = 0.72f,
+        targetValue = 1.45f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = FastOutSlowInEasing),
+            animation = tween(1500, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "halo_scale"
+        label = "update_capsule_halo_scale"
     )
     val haloAlpha by transition.animateFloat(
-        initialValue = 0.40f,
+        initialValue = 0.34f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = FastOutSlowInEasing),
+            animation = tween(1500, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "halo_alpha"
+        label = "update_capsule_halo_alpha"
     )
 
-    Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-        // 呼吸光晕
+    Box(modifier = Modifier.size(10.dp), contentAlignment = Alignment.Center) {
         Box(
             Modifier
-                .size(10.dp)
+                .size(7.dp)
                 .graphicsLayer {
                     scaleX = haloScale
                     scaleY = haloScale
                     alpha = haloAlpha
                 }
                 .clip(CircleShape)
-                .background(dotColor)
+                .background(accent)
         )
-        // 实心点
         Box(
             Modifier
-                .size(9.dp)
+                .size(5.dp)
                 .clip(CircleShape)
-                .background(dotColor)
+                .background(accent)
         )
     }
 }
