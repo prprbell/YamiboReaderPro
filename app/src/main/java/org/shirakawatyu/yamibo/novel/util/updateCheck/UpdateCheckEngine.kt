@@ -1,7 +1,6 @@
 package org.shirakawatyu.yamibo.novel.util.updateCheck
 
 import android.content.Context
-import android.widget.Toast
 import com.alibaba.fastjson2.JSON
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +22,7 @@ import org.shirakawatyu.yamibo.novel.bean.NovelUpdateCheckProfile
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.MangaApi
 import org.shirakawatyu.yamibo.novel.network.NovelApi
+import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.repository.DirectoryRepository
 
 /**
@@ -77,7 +77,7 @@ object UpdateCheckEngine {
     private suspend fun toast(message: String) {
         val ctx = appContext ?: return
         withContext(Dispatchers.Main) {
-            Toast.makeText(ctx, message, Toast.LENGTH_SHORT).show()
+            YamiboToast.show(context = ctx, message = message)
         }
     }
 

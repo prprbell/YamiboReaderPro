@@ -1,7 +1,6 @@
 package org.shirakawatyu.yamibo.novel.ui.page
 
 import android.webkit.CookieManager
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -147,6 +146,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.NetworkOptimizationDialog
+import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
@@ -1221,7 +1221,7 @@ fun FavoritePage(
                         onClick = {
                             showDeleteConfirmDialog = false
                             favoriteVM.deleteSelectedFavorites { msg ->
-                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                YamiboToast.show(context = context, message = msg)
                             }
                         },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)

@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.shirakawatyu.yamibo.novel.util.UpdateInfo
 import org.shirakawatyu.yamibo.novel.util.UpdateManager
+import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import androidx.core.net.toUri
 
 @Composable
@@ -104,7 +104,7 @@ fun UpdateDialog(
                     if (startingDownload) return@Button
 
                     if (info.downloadUrl.isBlank()) {
-                        Toast.makeText(context, "更新包下载地址为空", Toast.LENGTH_LONG).show()
+                        YamiboToast.show(context = context, message = "更新包下载地址为空", durationMillis = YamiboToast.LENGTH_LONG)
                         return@Button
                     }
 
@@ -120,15 +120,15 @@ fun UpdateDialog(
                         UpdateManager.registerDownloadReceiver(appContext, id) { file ->
                             UpdateManager.installApk(appContext, file)
                         }
-                        Toast.makeText(context, "正在下载更新...", Toast.LENGTH_SHORT).show()
+                        YamiboToast.show(context = context, message = "正在下载更新...")
                         onDismiss()
                     } catch (e: Exception) {
                         startingDownload = false
-                        Toast.makeText(
-                            context,
-                            "启动下载失败：${e.message ?: "未知错误"}",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        YamiboToast.show(
+                            context = context,
+                            message = "启动下载失败：${e.message ?: "未知错误"}",
+                            durationMillis = YamiboToast.LENGTH_LONG
+                        )
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)

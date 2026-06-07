@@ -2,7 +2,6 @@ package org.shirakawatyu.yamibo.novel.ui.vm
 
 import android.content.Context
 import android.util.Log
-import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alibaba.fastjson2.JSON
@@ -27,6 +26,7 @@ import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.FavoriteApi
 import org.shirakawatyu.yamibo.novel.network.NovelApi
 import org.shirakawatyu.yamibo.novel.ui.state.FavoriteState
+import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteDeleteUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
@@ -518,13 +518,11 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                         if (!isLoggedIn) {
                             if (isFavoritePageVisible) {
                                 withContext(Dispatchers.Main) {
-                                    val toast = Toast.makeText(
-                                        applicationContext,
-                                        "登录状态异常",
-                                        Toast.LENGTH_SHORT
+                                    YamiboToast.show(
+                                        context = applicationContext,
+                                        message = "登录状态异常",
+                                        durationMillis = 1500L
                                     )
-                                    toast.show()
-                                    launch { delay(1500L); toast.cancel() }
                                 }
                             }
                             break
@@ -536,13 +534,11 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                             FavoriteUtil.cleanupDeletedFavoritesSuspend(emptyList())
                         } else if (isFavoritePageVisible) {
                             withContext(Dispatchers.Main) {
-                                val toast = Toast.makeText(
-                                    applicationContext,
-                                    "网络状态异常",
-                                    Toast.LENGTH_SHORT
+                                YamiboToast.show(
+                                    context = applicationContext,
+                                    message = "网络状态异常",
+                                    durationMillis = 1500L
                                 )
-                                toast.show()
-                                launch { delay(1500L); toast.cancel() }
                             }
                         }
                         break
@@ -929,7 +925,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
 
     private suspend fun showShortToast(message: String) {
         withContext(Dispatchers.Main) {
-            Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
+            YamiboToast.show(context = applicationContext, message = message)
         }
     }
 

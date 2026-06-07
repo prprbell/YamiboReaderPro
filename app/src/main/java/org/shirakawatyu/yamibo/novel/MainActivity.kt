@@ -122,6 +122,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.BbsSkeletonScreen
 import org.shirakawatyu.yamibo.novel.ui.widget.BottomNavBar
+import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToastHost
 import org.shirakawatyu.yamibo.novel.ui.component.UpdateDialog
 import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
@@ -1628,6 +1629,8 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                         }
                     )
                 }
+
+                YamiboToastHost(modifier = Modifier.padding(bottom = 50.dp))
             } // 外层 Box 结束
         }
     }

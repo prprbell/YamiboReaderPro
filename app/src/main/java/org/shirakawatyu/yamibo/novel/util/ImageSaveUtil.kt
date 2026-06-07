@@ -5,11 +5,11 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import android.widget.Toast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
+import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import java.io.File
 import java.io.FileOutputStream
 
@@ -28,7 +28,7 @@ object ImageSaveUtil {
                 val response = client.newCall(request).execute()
                 if (!response.isSuccessful || response.body == null) {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "下载图片失败", Toast.LENGTH_SHORT).show()
+                        YamiboToast.show(context = context, message = "下载图片失败")
                     }
                     return@withContext Result.failure(Exception("HTTP ${response.code}"))
                 }
@@ -61,12 +61,12 @@ object ImageSaveUtil {
                 }
 
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "保存成功", Toast.LENGTH_SHORT).show()
+                    YamiboToast.show(context = context, message = "保存成功")
                 }
                 Result.success(Unit)
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    YamiboToast.show(context = context, message = "保存失败: ${e.message}")
                 }
                 Result.failure(e)
             }

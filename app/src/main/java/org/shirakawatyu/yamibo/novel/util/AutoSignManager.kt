@@ -1,21 +1,17 @@
 package org.shirakawatyu.yamibo.novel.util
 
 import android.content.Context
-import android.widget.Toast
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.alibaba.fastjson2.JSON
-import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.ResponseBody
 import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.FavoriteApi
+import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import retrofit2.http.GET
 import retrofit2.http.Url
 import java.text.SimpleDateFormat
@@ -87,7 +83,6 @@ object AutoSignManager {
         }
     }
 
-    @OptIn(DelicateCoroutinesApi::class)
     suspend fun checkAndSignIfNeeded(
         context: Context,
         trigger: SignTrigger = SignTrigger.LAUNCH,
@@ -148,15 +143,13 @@ object AutoSignManager {
         }
     }
 
-    @OptIn(DelicateCoroutinesApi::class)
     private suspend fun showToast(context: Context, msg: String) {
         withContext(Dispatchers.Main) {
-            val toast = Toast.makeText(context.applicationContext, msg, Toast.LENGTH_SHORT)
-            toast.show()
-            GlobalScope.launch(Dispatchers.Main) {
-                delay(1200L)
-                toast.cancel()
-            }
+            YamiboToast.show(
+                context = context.applicationContext,
+                message = msg,
+                durationMillis = 1200L
+            )
         }
     }
 }
