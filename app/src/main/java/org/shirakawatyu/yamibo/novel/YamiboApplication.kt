@@ -18,6 +18,7 @@ import org.shirakawatyu.yamibo.novel.global.GlobalData
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.util.manga.FastScrollDebounceInterceptor
 import org.shirakawatyu.yamibo.novel.util.network.NetworkPreWarmer
+import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
 import java.io.File
@@ -39,6 +40,14 @@ class YamiboApplication : Application(), ImageLoaderFactory {
         globalCacheDir = applicationContext.cacheDir
 
         GlobalData.dataStore = applicationContext.dataStore
+
+        try {
+            PageJsScripts.copyLinkIconSvg = applicationContext.assets
+                .open("icons/link-45deg.svg")
+                .bufferedReader()
+                .use { it.readText() }
+        } catch (_: Exception) {
+        }
 
         SettingsUtil.getAutoClearCacheMode { isEnabled ->
             GlobalData.isAutoClearCacheEnabled.value = isEnabled

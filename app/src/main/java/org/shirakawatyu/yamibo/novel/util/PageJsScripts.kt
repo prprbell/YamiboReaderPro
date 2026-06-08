@@ -308,6 +308,36 @@ object PageJsScripts {
         })();
     """.trimIndent()
 
+    // 从 assets/icons/link-45deg.svg 加载的图标内容，由 YamiboApplication 在启动时初始化
+    @Volatile var copyLinkIconSvg: String? = null
+
+    // 在帖子页面的 #nav-more-menu 中注入"复制链接"菜单项
+    val INJECT_COPY_LINK_JS by lazy {
+        val iconSvg = copyLinkIconSvg ?: """<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-link-45deg nav-more-item-text" viewBox="0 0 16 16"><path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1.002 1.002 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4.018 4.018 0 0 1-.128-1.287z"/><path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243L6.586 4.672z"/></svg>"""
+        """
+        (function() {
+            if (document.getElementById('copy-link-menu-item')) return;
+            var menu = document.getElementById('nav-more-menu');
+            if (!menu) return;
+            var item = document.createElement('a');
+            item.id = 'copy-link-menu-item';
+            item.className = 'nav-more-item';
+            item.href = 'javascript:;';
+            item.innerHTML = '${iconSvg.replace("'", "\\'")}' +
+                '<span class="nav-more-item-text">复制链接</span>';
+            item.addEventListener('click', function() {
+                var title = document.title || '';
+                title = title.replace(/\s*-\s*百合会.*$/, '');
+                var url = window.location.href;
+                if (window.AndroidFullscreen && window.AndroidFullscreen.copyLink) {
+                    window.AndroidFullscreen.copyLink(title, url);
+                }
+            });
+            menu.appendChild(item);
+        })();
+        """.trimIndent()
+    }
+
     val AUTO_OPEN_MANGA_JS = """
         (function() {
             // 版块白名单
@@ -991,7 +1021,8 @@ $styleString
             "INJECT_PSWP_AND_MANGA_JS" to INJECT_PSWP_AND_MANGA_JS,
             "FIX_CAROUSEL_LAYOUT_JS" to FIX_CAROUSEL_LAYOUT_JS,
             "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS,
-            "SEARCH_DIRECT_NAV_JS" to SEARCH_DIRECT_NAV_JS
+            "SEARCH_DIRECT_NAV_JS" to SEARCH_DIRECT_NAV_JS,
+            "INJECT_COPY_LINK_JS" to INJECT_COPY_LINK_JS
         )
     }
 
@@ -1006,7 +1037,8 @@ $styleString
     val OTHER_COMMIT_BOOTSTRAP_JS by lazy {
         combineJs(
             "OTHER_WEB_INIT_PSWP_JS" to OTHER_WEB_INIT_PSWP_JS,
-            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS
+            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS,
+            "INJECT_COPY_LINK_JS" to INJECT_COPY_LINK_JS
         )
     }
 
@@ -1014,7 +1046,8 @@ $styleString
         combineJs(
             "MINE_INJECT_PSWP_AND_MANGA_JS" to MINE_INJECT_PSWP_AND_MANGA_JS,
             "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS,
-            "SEARCH_DIRECT_NAV_JS" to SEARCH_DIRECT_NAV_JS
+            "SEARCH_DIRECT_NAV_JS" to SEARCH_DIRECT_NAV_JS,
+            "INJECT_COPY_LINK_JS" to INJECT_COPY_LINK_JS
         )
     }
 
@@ -1028,7 +1061,8 @@ $styleString
     val MANGA_BOOTSTRAP_JS by lazy {
         combineJs(
             "INJECT_PSWP_AND_MANGA_JS" to INJECT_PSWP_AND_MANGA_JS,
-            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS
+            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS,
+            "INJECT_COPY_LINK_JS" to INJECT_COPY_LINK_JS
         )
     }
 

@@ -90,6 +90,7 @@ import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.util.ActivityWebViewLifecycleObserver
 import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColor
 import org.shirakawatyu.yamibo.novel.util.ImageSaveUtil
+import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import kotlin.text.Charsets
 import org.shirakawatyu.yamibo.novel.util.PageJsScripts
 import org.shirakawatyu.yamibo.novel.util.WebViewPool
@@ -105,6 +106,7 @@ class FullscreenApiOther {
     var onStateChange: ((Boolean) -> Unit)? = null
     var onMangaActionDone: (() -> Unit)? = null
     var onSaveImage: ((String) -> Unit)? = null
+    var onCopyLink: ((String, String) -> Unit)? = null
 
     @JavascriptInterface
     fun notify(isFullscreen: Boolean) {
@@ -119,6 +121,11 @@ class FullscreenApiOther {
     @JavascriptInterface
     fun saveImage(url: String) {
         Handler(Looper.getMainLooper()).post { onSaveImage?.invoke(url) }
+    }
+
+    @JavascriptInterface
+    fun copyLink(title: String, url: String) {
+        Handler(Looper.getMainLooper()).post { onCopyLink?.invoke(title, url) }
     }
 }
 
@@ -249,6 +256,12 @@ fun OtherWebPage(
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+    fullscreenApi.onCopyLink = { title, url ->
+        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = android.content.ClipData.newPlainText("yamibo_link", "$title\n$url")
+        clipboard.setPrimaryClip(clip)
+        YamiboToast.show(message = "已复制链接")
     }
     val otherWebView = remember {
         WebViewPool.acquire(context).apply {
