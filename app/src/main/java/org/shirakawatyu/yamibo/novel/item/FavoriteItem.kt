@@ -364,11 +364,17 @@ private fun UpdateStatusHandle(
 
     val capsuleStatus = currentStatus ?: lastVisibleStatus ?: HandleStatus.CHECKING
 
-    val hasAnyCapsule = currentStatus != null || autoCheckEnabled
+    val capsuleOffsetY = if (isCollapsed) {
+        when {
+            autoCheckEnabled -> 6.dp
+            currentStatus != null -> 3.dp
+            else -> 0.dp
+        }
+    } else 0.dp
     Box(
         modifier = modifier
             .size(40.dp)
-            .then(if (isCollapsed && hasAnyCapsule) Modifier.offset(y = 6.dp) else Modifier),
+            .then(if (capsuleOffsetY > 0.dp) Modifier.offset(y = capsuleOffsetY) else Modifier),
         contentAlignment = Alignment.Center
     ) {
         Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) { content() }

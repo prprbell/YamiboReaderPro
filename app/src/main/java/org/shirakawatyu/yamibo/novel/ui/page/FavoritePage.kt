@@ -152,6 +152,7 @@ import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
+import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import org.shirakawatyu.yamibo.novel.util.updateCheck.AutoUpdateCheckScheduler
@@ -248,7 +249,11 @@ fun FavoritePage(
                 existing != null -> existing.strategy
                 else -> MangaUpdateCheckStrategy.TAG
             }
-            mangaConfigPresetKeyword = existing?.searchKeyword ?: matchedDir?.searchKeyword ?: ""
+            val derivedKeyword = matchedDir?.chapters?.find { it.tid == t }
+                ?.let { MangaTitleCleaner.extractAuthorPrefix(it.rawTitle) }
+                ?: matchedDir?.chapters?.lastOrNull()
+                    ?.let { MangaTitleCleaner.extractAuthorPrefix(it.rawTitle) } ?: ""
+            mangaConfigPresetKeyword = existing?.searchKeyword ?: matchedDir?.searchKeyword ?: derivedKeyword
             mangaConfigPresetBookName = existing?.cleanBookName ?: matchedDir?.cleanBookName ?: ""
             showMangaConfigDialog = true
         }
