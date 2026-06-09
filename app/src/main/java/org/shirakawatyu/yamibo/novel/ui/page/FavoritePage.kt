@@ -1477,6 +1477,24 @@ private fun AutoCheckSection(
 ) {
     // 仅当"本项尚未启用"且"总数已达上限"时禁止新开
     val atCapForNew = !isCurrentlyEnabled && enabledCount >= maxCount
+    val intervals = FavoriteVM.AUTO_CHECK_INTERVALS
+    val isCustom = intervalHours !in intervals
+    var showCustom by remember(isCustom, intervalHours) { mutableStateOf(isCustom) }
+    var customNum by remember(showCustom, intervalHours) {
+        mutableStateOf(
+            if (showCustom) {
+                if (intervalHours >= 24 && intervalHours % 24 == 0) (intervalHours / 24).toString()
+                else intervalHours.toString()
+            } else ""
+        )
+    }
+    var customUnitDays by remember(showCustom, intervalHours) {
+        mutableStateOf(showCustom && intervalHours >= 24 && intervalHours % 24 == 0)
+    }
+
+    fun applyCustom(num: Int, days: Boolean) {
+        if (num > 0) onIntervalChange(if (days) num * 24 else num)
+    }
 
     Column {
         Row(
@@ -1516,39 +1534,106 @@ private fun AutoCheckSection(
             exit = fadeOut(tween(300, easing = FastOutSlowInEasing)) +
                     shrinkVertically(animationSpec = sizeSpec, shrinkTowards = Alignment.Top)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "检查间隔",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                val intervals = FavoriteVM.AUTO_CHECK_INTERVALS
-                var expanded by remember { mutableStateOf(false) }
-                Box {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        formatCheckInterval(intervalHours),
+                        "检查间隔",
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { expanded = true }
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false }
-                    ) {
-                        intervals.forEach { h ->
+                    var expanded by remember { mutableStateOf(false) }
+                    Box {
+                        Text(
+                            formatCheckInterval(intervalHours),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { expanded = true }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            intervals.forEach { h ->
+                                DropdownMenuItem(
+                                    text = { Text(formatCheckInterval(h)) },
+                                    onClick = {
+                                        showCustom = false
+                                        onIntervalChange(h)
+                                        expanded = false
+                                    }
+                                )
+                            }
+                            HorizontalDivider()
                             DropdownMenuItem(
-                                text = { Text(formatCheckInterval(h)) },
-                                onClick = { onIntervalChange(h); expanded = false }
+                                text = { Text("自定义...") },
+                                onClick = {
+                                    showCustom = true
+                                    expanded = false
+                                }
                             )
+                        }
+                    }
+                }
+
+                if (showCustom) {
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = customNum,
+                            onValueChange = { v ->
+                                val filtered = v.filter { it.isDigit() }.take(3)
+                                customNum = filtered
+                                applyCustom(filtered.toIntOrNull() ?: 0, customUnitDays)
+                            },
+                            singleLine = true,
+                            modifier = Modifier.width(72.dp),
+                            textStyle = TextStyle(fontSize = 13.sp, textAlign = TextAlign.Center),
+                            colors = OutlinedTextFieldDefaults.colors()
+                        )
+                        var unitExpanded by remember { mutableStateOf(false) }
+                        Box {
+                            Text(
+                                if (customUnitDays) "天" else "小时",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { unitExpanded = true }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                            DropdownMenu(
+                                expanded = unitExpanded,
+                                onDismissRequest = { unitExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("小时") },
+                                    onClick = {
+                                        customUnitDays = false
+                                        unitExpanded = false
+                                        applyCustom(customNum.toIntOrNull() ?: 0, false)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("天") },
+                                    onClick = {
+                                        customUnitDays = true
+                                        unitExpanded = false
+                                        applyCustom(customNum.toIntOrNull() ?: 0, true)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
