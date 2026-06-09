@@ -22,6 +22,25 @@ object PageJsScripts {
         }
     }
 
+    private fun jsStringLiteral(value: String): String = buildString {
+        append('\'')
+        value.forEach { ch ->
+            when (ch) {
+                '\\' -> append("\\\\")
+                '\'' -> append("\\'")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                '<' -> append("\\u003C")
+                '>' -> append("\\u003E")
+                '&' -> append("\\u0026")
+                else -> append(ch)
+            }
+        }
+        append('\'')
+    }
+
+
     val FIX_CAROUSEL_LAYOUT_JS = """
         (function() {
             if (document.getElementById('carousel-fix-style')) return;
@@ -311,29 +330,103 @@ object PageJsScripts {
     // 从 assets/icons/link-45deg.svg 加载的图标内容，由 YamiboApplication 在启动时初始化
     @Volatile var copyLinkIconSvg: String? = null
 
-    // 在帖子页面的 #nav-more-menu 中注入"复制链接"菜单项
+    // 仅在帖子详情页的 #nav-more-menu 中注入“复制链接”菜单项。
+    // 注意：SVG 可能来自 assets，必须转成 JS 字符串字面量；否则换行/引号会让整段注入脚本语法错误。
     val INJECT_COPY_LINK_JS by lazy {
         val iconSvg = copyLinkIconSvg ?: """<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-link-45deg nav-more-item-text" viewBox="0 0 16 16"><path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1.002 1.002 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4.018 4.018 0 0 1-.128-1.287z"/><path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243L6.586 4.672z"/></svg>"""
+        val iconSvgLiteral = jsStringLiteral(iconSvg)
         """
         (function() {
-            if (document.getElementById('copy-link-menu-item')) return;
-            var menu = document.getElementById('nav-more-menu');
-            if (!menu) return;
-            var item = document.createElement('a');
-            item.id = 'copy-link-menu-item';
-            item.className = 'nav-more-item';
-            item.href = 'javascript:;';
-            item.innerHTML = '${iconSvg.replace("'", "\\'")}' +
-                '<span class="nav-more-item-text">复制链接</span>';
-            item.addEventListener('click', function() {
+            var ITEM_ID = 'yamibo-copy-link-menu-item';
+            var OBSERVER_KEY = '__yamiboCopyLinkObserver';
+
+            function isThreadPage() {
+                try {
+                    var url = new URL(window.location.href, document.baseURI);
+                    var host = String(url.hostname || '').toLowerCase();
+                    var path = String(url.pathname || '').replace(/^\/+/, '').toLowerCase();
+                    var query = String(url.search || '').toLowerCase();
+                    var bodyIsThread = !!(document.body && document.body.classList && document.body.classList.contains('pg_viewthread'));
+                    var urlIsThread = /^thread-\d+-\d+-\d+\.html$/.test(path) ||
+                        (path === 'forum.php' && query.indexOf('mod=viewthread') !== -1 && query.indexOf('tid=') !== -1);
+                    return (host === 'bbs.yamibo.com' || host === 'm.yamibo.com' || host === 'yamibo.com' || host === 'www.yamibo.com') && (bodyIsThread || urlIsThread);
+                } catch (e) {
+                    return !!(document.body && document.body.classList && document.body.classList.contains('pg_viewthread'));
+                }
+            }
+
+            function cleanTitle() {
                 var title = document.title || '';
-                title = title.replace(/\s*-\s*百合会.*$/, '');
-                var url = window.location.href;
-                if (window.AndroidFullscreen && window.AndroidFullscreen.copyLink) {
-                    window.AndroidFullscreen.copyLink(title, url);
+                return title.replace(/\s*-\s*百合会.*${'$'}/, '').trim();
+            }
+
+            function threadUrl() {
+                var canonical = document.querySelector('link[rel="canonical"]');
+                if (canonical && canonical.href) return canonical.href;
+                return window.location.href;
+            }
+
+            function removeItem() {
+                var oldItem = document.getElementById(ITEM_ID) || document.getElementById('copy-link-menu-item');
+                if (oldItem && oldItem.parentNode) oldItem.parentNode.removeChild(oldItem);
+            }
+
+            function inject() {
+                if (!isThreadPage()) {
+                    removeItem();
+                    return true;
+                }
+
+                var menu = document.getElementById('nav-more-menu');
+                if (!menu) return false;
+
+                var legacyItem = document.getElementById('copy-link-menu-item');
+                if (legacyItem && legacyItem.id !== ITEM_ID) legacyItem.id = ITEM_ID;
+                if (document.getElementById(ITEM_ID)) return true;
+
+                var item = document.createElement('a');
+                item.id = ITEM_ID;
+                item.className = 'nav-more-item';
+                item.href = 'javascript:;';
+                item.setAttribute('role', 'button');
+                item.setAttribute('aria-label', '复制帖子链接');
+                item.innerHTML = $iconSvgLiteral + '<span class="nav-more-item-text">复制链接</span>';
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (window.AndroidFullscreen && typeof window.AndroidFullscreen.copyLink === 'function') {
+                        window.AndroidFullscreen.copyLink(cleanTitle(), threadUrl());
+                    }
+                    return false;
+                }, true);
+                menu.appendChild(item);
+                return true;
+            }
+
+            if (window[OBSERVER_KEY]) {
+                try { window[OBSERVER_KEY].disconnect(); } catch (e) {}
+                window[OBSERVER_KEY] = null;
+            }
+
+            if (inject()) return;
+
+            var root = document.documentElement || document.body;
+            if (!root || typeof MutationObserver === 'undefined') return;
+
+            var observer = new MutationObserver(function() {
+                if (inject()) {
+                    observer.disconnect();
+                    window[OBSERVER_KEY] = null;
                 }
             });
-            menu.appendChild(item);
+            observer.observe(root, { childList: true, subtree: true });
+            window[OBSERVER_KEY] = observer;
+            setTimeout(function() {
+                if (window[OBSERVER_KEY] === observer) {
+                    observer.disconnect();
+                    window[OBSERVER_KEY] = null;
+                }
+            }, 5000);
         })();
         """.trimIndent()
     }
@@ -1030,7 +1123,8 @@ $styleString
         combineJs(
             "INJECT_PSWP_AND_MANGA_JS" to INJECT_PSWP_AND_MANGA_JS,
             "FIX_CAROUSEL_LAYOUT_JS" to FIX_CAROUSEL_LAYOUT_JS,
-            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS
+            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS,
+            "INJECT_COPY_LINK_JS" to INJECT_COPY_LINK_JS
         )
     }
 
@@ -1054,7 +1148,8 @@ $styleString
     val MINE_MANGA_REINJECT_JS by lazy {
         combineJs(
             "MINE_INJECT_PSWP_AND_MANGA_JS" to MINE_INJECT_PSWP_AND_MANGA_JS,
-            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS
+            "THREAD_LIST_CLICK_FIX_JS" to THREAD_LIST_CLICK_FIX_JS,
+            "INJECT_COPY_LINK_JS" to INJECT_COPY_LINK_JS
         )
     }
 

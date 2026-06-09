@@ -1475,46 +1475,90 @@ private fun AutoCheckSection(
     maxCount: Int,
     isCurrentlyEnabled: Boolean
 ) {
-    // 仅当"本项尚未启用"且"总数已达上限"时禁止新开
+    // 仅当“本项尚未启用”且“总数已达上限”时禁止新开
     val atCapForNew = !isCurrentlyEnabled && enabledCount >= maxCount
     val intervals = FavoriteVM.AUTO_CHECK_INTERVALS
-    val isCustom = intervalHours !in intervals
-    var showCustom by remember(isCustom, intervalHours) { mutableStateOf(isCustom) }
-    var customNum by remember(showCustom, intervalHours) {
+    val isPreset = intervalHours in intervals
+    var customMode by remember(intervalHours) { mutableStateOf(!isPreset) }
+    var customUnitDays by remember(intervalHours) {
+        mutableStateOf(intervalHours >= 24 && intervalHours % 24 == 0)
+    }
+    var customNum by remember(intervalHours) {
         mutableStateOf(
-            if (showCustom) {
-                if (intervalHours >= 24 && intervalHours % 24 == 0) (intervalHours / 24).toString()
-                else intervalHours.toString()
-            } else ""
+            if (intervalHours >= 24 && intervalHours % 24 == 0) {
+                (intervalHours / 24).toString()
+            } else {
+                intervalHours.coerceAtLeast(1).toString()
+            }
         )
     }
-    var customUnitDays by remember(showCustom, intervalHours) {
-        mutableStateOf(showCustom && intervalHours >= 24 && intervalHours % 24 == 0)
+
+    fun normalizeCustomHours(numText: String, days: Boolean): Int? {
+        val raw = numText.toIntOrNull() ?: return null
+        if (raw <= 0) return null
+        return if (days) raw.coerceIn(1, 30) * 24 else raw.coerceIn(1, 720)
     }
 
-    fun applyCustom(num: Int, days: Boolean) {
-        if (num > 0) onIntervalChange(if (days) num * 24 else num)
+    fun applyCustom(numText: String = customNum, days: Boolean = customUnitDays) {
+        normalizeCustomHours(numText, days)?.let(onIntervalChange)
     }
 
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    fun presetSubtitle(hours: Int): String = when (hours) {
+        3 -> "高频追更"
+        6 -> "常用推荐"
+        12 -> "轻量检查"
+        24 -> "每日一次"
+        else -> "预设间隔"
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Column(Modifier.weight(1f)) {
-                Text("自动检查更新", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "名额 $enabledCount / $maxCount",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("自动检查更新", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = if (enabled) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            }
+                        ) {
+                            Text(
+                                if (enabled) "已开启" else "未开启",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                fontSize = 11.sp,
+                                color = if (enabled) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
+                    Text(
+                        "自动名额 $enabledCount / $maxCount · 当前 ${formatCheckInterval(intervalHours)}",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 3.dp)
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    enabled = !atCapForNew,
+                    onCheckedChange = onEnabledChange
                 )
             }
-            Switch(
-                checked = enabled,
-                enabled = !atCapForNew,
-                onCheckedChange = onEnabledChange
-            )
         }
 
         if (atCapForNew) {
@@ -1522,118 +1566,183 @@ private fun AutoCheckSection(
                 "已达自动检查上限，请先关闭其它项目再开启",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(horizontal = 2.dp)
             )
         }
 
-        val sizeSpec = tween<IntSize>(durationMillis = 300, easing = FastOutSlowInEasing)
+        val sizeSpec = tween<IntSize>(durationMillis = 260, easing = FastOutSlowInEasing)
         AnimatedVisibility(
             visible = enabled,
-            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) +
+            enter = fadeIn(tween(220, easing = FastOutSlowInEasing)) +
                     expandVertically(animationSpec = sizeSpec, expandFrom = Alignment.Top),
-            exit = fadeOut(tween(300, easing = FastOutSlowInEasing)) +
+            exit = fadeOut(tween(180, easing = FastOutSlowInEasing)) +
                     shrinkVertically(animationSpec = sizeSpec, shrinkTowards = Alignment.Top)
         ) {
-            Column {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "检查间隔",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    var expanded by remember { mutableStateOf(false) }
-                    Box {
-                        Text(
-                            formatCheckInterval(intervalHours),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable { expanded = true }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                        DropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false }
-                        ) {
-                            intervals.forEach { h ->
-                                DropdownMenuItem(
-                                    text = { Text(formatCheckInterval(h)) },
-                                    onClick = {
-                                        showCustom = false
-                                        onIntervalChange(h)
-                                        expanded = false
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "选择检查间隔",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                intervals.chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rowItems.forEach { hours ->
+                            val selected = !customMode && intervalHours == hours
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                },
+                                border = if (selected) {
+                                    BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                                } else null,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        customMode = false
+                                        onIntervalChange(hours)
                                     }
-                                )
-                            }
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text("自定义...") },
-                                onClick = {
-                                    showCustom = true
-                                    expanded = false
+                            ) {
+                                Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                                    Text(
+                                        formatCheckInterval(hours),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (selected) {
+                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurface
+                                        }
+                                    )
+                                    Text(
+                                        presetSubtitle(hours),
+                                        fontSize = 11.sp,
+                                        color = if (selected) {
+                                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                    )
                                 }
-                            )
+                            }
                         }
+                        if (rowItems.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
 
-                if (showCustom) {
-                    Row(
-                        modifier = Modifier.padding(top = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = customNum,
-                            onValueChange = { v ->
-                                val filtered = v.filter { it.isDigit() }.take(3)
-                                customNum = filtered
-                                applyCustom(filtered.toIntOrNull() ?: 0, customUnitDays)
-                            },
-                            singleLine = true,
-                            modifier = Modifier.width(72.dp),
-                            textStyle = TextStyle(fontSize = 13.sp, textAlign = TextAlign.Center),
-                            colors = OutlinedTextFieldDefaults.colors()
-                        )
-                        var unitExpanded by remember { mutableStateOf(false) }
-                        Box {
-                            Text(
-                                if (customUnitDays) "天" else "小时",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable { unitExpanded = true }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                            DropdownMenu(
-                                expanded = unitExpanded,
-                                onDismissRequest = { unitExpanded = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("小时") },
-                                    onClick = {
-                                        customUnitDays = false
-                                        unitExpanded = false
-                                        applyCustom(customNum.toIntOrNull() ?: 0, false)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("天") },
-                                    onClick = {
-                                        customUnitDays = true
-                                        unitExpanded = false
-                                        applyCustom(customNum.toIntOrNull() ?: 0, true)
-                                    }
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (customMode) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    },
+                    border = if (customMode) {
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                    } else null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable {
+                            customMode = true
+                            applyCustom()
+                        }
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("自定义间隔", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "适合低频追更；最多 720 小时或 30 天",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            Text(
+                                if (customMode) formatCheckInterval(intervalHours) else "未选择",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (customMode) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = customNum,
+                                onValueChange = { value ->
+                                    val filtered = value.filter { it.isDigit() }.take(3)
+                                    customNum = filtered
+                                    customMode = true
+                                    applyCustom(filtered, customUnitDays)
+                                },
+                                singleLine = true,
+                                modifier = Modifier.width(92.dp),
+                                textStyle = TextStyle(fontSize = 15.sp, textAlign = TextAlign.Center),
+                                label = { Text("数值") },
+                                colors = OutlinedTextFieldDefaults.colors()
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(MaterialTheme.colorScheme.surface),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                listOf(false to "小时", true to "天").forEach { (asDays, label) ->
+                                    val selected = customUnitDays == asDays
+                                    Text(
+                                        text = label,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (selected) {
+                                            MaterialTheme.colorScheme.onPrimary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .background(
+                                                if (selected) MaterialTheme.colorScheme.primary
+                                                else Color.Transparent
+                                            )
+                                            .clickable {
+                                                customUnitDays = asDays
+                                                customMode = true
+                                                applyCustom(customNum, asDays)
+                                            }
+                                            .padding(horizontal = 13.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        val customValue = customNum.toIntOrNull() ?: 0
+                        if (customMode && customValue <= 0) {
+                            Text(
+                                "请输入大于 0 的间隔",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.error
+                            )
                         }
                     }
                 }
