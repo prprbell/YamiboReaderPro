@@ -112,7 +112,8 @@ fun FavoriteItem(
     isGlobalCollapsed: Boolean = false,
     hasUpdate: Boolean = false,
     isCheckingUpdate: Boolean = false,
-    autoCheckEnabled: Boolean = false
+    autoCheckEnabled: Boolean = false,
+    updateCheckTracked: Boolean = false
 ) {
     var isExpandedLocally by remember(isGlobalCollapsed) { mutableStateOf(false) }
 
@@ -314,6 +315,7 @@ fun FavoriteItem(
                 isCheckingUpdate = isCheckingUpdate,
                 hasUpdate = hasUpdate,
                 autoCheckEnabled = autoCheckEnabled,
+                updateCheckTracked = updateCheckTracked,
                 isCollapsed = isGlobalCollapsed,
                 modifier = Modifier.padding(start = 8.dp)
             ) { handle() }
@@ -341,6 +343,7 @@ private fun UpdateStatusHandle(
     isCheckingUpdate: Boolean,
     hasUpdate: Boolean,
     autoCheckEnabled: Boolean,
+    updateCheckTracked: Boolean = false,
     isCollapsed: Boolean = false,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
@@ -364,17 +367,19 @@ private fun UpdateStatusHandle(
 
     val capsuleStatus = currentStatus ?: lastVisibleStatus ?: HandleStatus.CHECKING
 
-    val capsuleOffsetY = if (isCollapsed) {
+    // 折叠模式下，把手位置只跟“配置状态”绑定，不跟“检查中/有更新”绑定。
+    // 这样检查开始/结束、胶囊淡入/淡出时，箭头和胶囊不会临时跳位。
+    val handleOffsetY = if (isCollapsed) {
         when {
             autoCheckEnabled -> 6.dp
-            currentStatus != null -> 3.dp
+            updateCheckTracked -> 3.dp
             else -> 0.dp
         }
     } else 0.dp
     Box(
         modifier = modifier
             .size(40.dp)
-            .then(if (capsuleOffsetY > 0.dp) Modifier.offset(y = capsuleOffsetY) else Modifier),
+            .then(if (handleOffsetY > 0.dp) Modifier.offset(y = handleOffsetY) else Modifier),
         contentAlignment = Alignment.Center
     ) {
         Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) { content() }

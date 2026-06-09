@@ -15,6 +15,8 @@ data class NovelUpdateCheckProfile(
     val savedReplies: Int,
     val hasUpdate: Boolean = false,
     val lastCheckTime: Long = 0L,
+    /** 上次进入自动检查队列并开始尝试的时间；用于队列公平排序，不等同于成功检查时间。 */
+    val lastAutoCheckAttemptTime: Long = 0L,
     val autoCheckEnabled: Boolean = false,
-    val autoCheckIntervalHours: Int = 24
+    val autoCheckIntervalHours: Int = 6
 )

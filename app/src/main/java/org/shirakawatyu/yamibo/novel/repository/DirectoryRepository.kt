@@ -399,7 +399,7 @@ class DirectoryRepository private constructor(private val context: Context) {
         exactKeyword: String? = null
     ): Result<List<MangaChapterItem>> {
         val now = System.currentTimeMillis()
-        if (now - GlobalData.lastSearchTimestamp.get() < 20_000L) return Result.failure(Exception("搜索冷却中，请等待20秒"))
+        if (now - GlobalData.lastSearchTimestamp.get() < 15_000L) return Result.failure(Exception("搜索冷却中，请等待15秒"))
         GlobalData.lastSearchTimestamp.set(now)
 
         val safeKeyword = exactKeyword ?: MangaTitleCleaner.getSearchKeyword(rawTitle)

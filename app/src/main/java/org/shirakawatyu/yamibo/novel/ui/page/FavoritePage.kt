@@ -227,7 +227,7 @@ fun FavoritePage(
     var novelUpdateCheckTarget by remember { mutableStateOf<Favorite?>(null) }
     var showNovelConfigDialog by remember { mutableStateOf(false) }
     var novelConfigAutoCheck by remember { mutableStateOf(false) }
-    var novelConfigInterval by remember { mutableIntStateOf(24) }
+    var novelConfigInterval by remember { mutableIntStateOf(6) }
     val openMangaConfig: (Favorite) -> Unit = { fav ->
         mangaUpdateCheckTarget = fav
         favoriteVM.getDirectoryList { dirs ->
@@ -830,6 +830,8 @@ fun FavoritePage(
                                 mangaCheckMap[item.url]?.hasUpdate == true
                         val isCheckingUpdate = uiState.checkingUpdateUrls.contains(item.url)
                         val isProbingType = probingTypeUrls.contains(item.url)
+                        val updateCheckTracked = novelCheckMap[item.url] != null ||
+                                mangaCheckMap[item.url] != null
                         val autoCheckEnabled = novelCheckMap[item.url]?.autoCheckEnabled == true ||
                                 mangaCheckMap[item.url]?.autoCheckEnabled == true
                         val isManga = item.type == 2
@@ -844,9 +846,7 @@ fun FavoritePage(
                             checkLabel = if (isUndetected) {
                                 if (isProbingType) "探测中" else "探测类型"
                             } else {
-                                val hasProfile = novelCheckMap[item.url] != null ||
-                                        mangaCheckMap[item.url] != null
-                                if (hasProfile) "检查更新" else "追踪更新"
+                                if (updateCheckTracked) "检查更新" else "追踪更新"
                             },
                             checkIcon = if (isUndetected) Icons.Default.Search else Icons.Default.Refresh,
                             checkIconRotates = !isUndetected,
@@ -865,7 +865,7 @@ fun FavoritePage(
                                     val profile = novelCheckMap[item.url]
                                     novelUpdateCheckTarget = item
                                     novelConfigAutoCheck = profile?.autoCheckEnabled ?: false
-                                    novelConfigInterval = profile?.autoCheckIntervalHours ?: 24
+                                    novelConfigInterval = profile?.autoCheckIntervalHours ?: 6
                                     showNovelConfigDialog = true
                                 }
                             }
@@ -892,6 +892,7 @@ fun FavoritePage(
                                 hasUpdate = hasUpdate,
                                 isCheckingUpdate = isCheckingUpdate || isProbingType,
                                 autoCheckEnabled = autoCheckEnabled,
+                                updateCheckTracked = updateCheckTracked,
                                 dragHandle = {
                                     val canDrag = !isInManageMode && !isSearching
                                     Icon(
@@ -1252,7 +1253,9 @@ fun FavoritePage(
             var showKeyword2 by remember(fav.url) { mutableStateOf(false) }
             val existingManga = mangaCheckMap[fav.url]
             var mangaConfigAutoCheck by remember(fav.url, existingManga) { mutableStateOf(existingManga?.autoCheckEnabled ?: false) }
-            var mangaConfigInterval by remember(fav.url, existingManga) { mutableIntStateOf(existingManga?.autoCheckIntervalHours ?: 24) }
+            var mangaConfigInterval by remember(fav.url, existingManga) {
+                mutableIntStateOf(existingManga?.autoCheckIntervalHours ?: 6)
+            }
             var searchCooldownSec by remember { mutableIntStateOf(0) }
 
             LaunchedEffect(selectedStrategy, showMangaConfigDialog) {
@@ -1525,8 +1528,7 @@ private fun AutoCheckSection(
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                // 6h / 12h / 1d / 2d / 3d / 5d / 7d / 14d / 30d
-                val intervals = listOf(6, 12, 24, 48, 72, 120, 168, 336, 720)
+                val intervals = FavoriteVM.AUTO_CHECK_INTERVALS
                 var expanded by remember { mutableStateOf(false) }
                 Box {
                     Text(

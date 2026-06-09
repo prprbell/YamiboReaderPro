@@ -106,7 +106,6 @@ object UpdateManager {
             val downloadUrl = json.getString("apkDownloadUrl") ?: ""
 
             if (compareVersion(pureVersion, currentVersionName) > 0 || latestCode > currentVersionCode) {
-                Log.i(TAG, "checkForUpdate: NEW version: $latestVersion (code=$latestCode) url=$downloadUrl")
                 return@withContext UpdateInfo(
                     versionName = latestVersion,
                     versionCode = latestCode,

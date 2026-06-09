@@ -195,9 +195,10 @@ object UpdateCheckEngine {
                     return@withLock
                 }
                 val detectedUpdate = currentReplies > profile.savedReplies
+                val keepUnreadUpdate = profile.hasUpdate || detectedUpdate
                 NovelUpdateCheckUtil.updateRepliesSuspend(
                     url = url, newReplies = currentReplies,
-                    hasUpdate = detectedUpdate, lastCheckTime = checkedAt
+                    hasUpdate = keepUnreadUpdate, lastCheckTime = checkedAt
                 )
                 if (notify) toast(if (detectedUpdate) "检测到小说更新" else "没有检测到小说更新")
             } catch (e: Exception) {
@@ -289,7 +290,7 @@ object UpdateCheckEngine {
                 val result = repo.manuallyUpdateDirectory(dirForUpdate, forceSearch = forceSearch, currentTid = tid)
                 if (result.isFailure) {
                     MangaUpdateCheckUtil.updateCheckTimeSuspend(url, System.currentTimeMillis())
-                    if (notify) toast("查询漫画更新失败：${result.exceptionOrNull()?.message ?: "未知错误"}")
+                    if (notify) toast("查询漫画更新失败")
                     return@withLock
                 }
 
@@ -301,11 +302,12 @@ object UpdateCheckEngine {
                 val detectedUpdate = newCount > baseChapterCount ||
                         (newLatestTid.isNotEmpty() && baseLatestTid.isNotEmpty() && newLatestTid != baseLatestTid)
 
+                val keepUnreadUpdate = oldProfile?.hasUpdate == true || (!isFirstCheck && detectedUpdate)
                 MangaUpdateCheckUtil.updateSnapshotSuspend(
                     url = url,
                     chapterCount = snapshotCount,
                     latestTid = snapshotLatestTid,
-                    hasUpdate = if (isFirstCheck) false else detectedUpdate,
+                    hasUpdate = keepUnreadUpdate,
                     lastCheckTime = System.currentTimeMillis(),
                     searchKeyword = keyword,
                     strategy = strategy

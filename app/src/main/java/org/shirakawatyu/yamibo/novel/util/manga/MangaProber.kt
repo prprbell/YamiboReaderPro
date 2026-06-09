@@ -128,7 +128,6 @@ class MangaProber {
             // 第 1 层：快速游离态读取缓存
             val cachedEntry = getValidCache(tid)
             if (cachedEntry != null) {
-                Log.i(TAG, "Fast Cache hit for TID: $tid")
                 MangaImagePipeline.handoffPrefetch(appContext, cachedEntry.urls, 0)
                 onSuccess(cachedEntry.urls, cachedEntry.title, cachedEntry.messageHtml)
                 return
@@ -144,7 +143,6 @@ class MangaProber {
                     // 第 2 层：拿到锁后再查一次缓存，如果已经被前面排队的协程请求到了，直接复用
                     val doubleCheckCache = getValidCache(tid)
                     if (doubleCheckCache != null) {
-                        Log.i(TAG, "DCL Cache hit for TID: $tid")
                         withContext(Dispatchers.Main) {
                             MangaImagePipeline.handoffPrefetch(appContext, doubleCheckCache.urls, 0)
                             onSuccess(doubleCheckCache.urls, doubleCheckCache.title, doubleCheckCache.messageHtml)
@@ -157,7 +155,6 @@ class MangaProber {
                 }
 
                 if (success) {
-                    Log.i(TAG, "Fast API probe success for TID: $tid")
                     return // 极速解析成功，直接返回，绝不启动 WebView
                 }
             } catch (e: CancellationException) {
@@ -211,14 +208,12 @@ class MangaProber {
         if (forumName.isNotEmpty()) {
             val allowedSections = listOf("中文百合漫画区", "貼圖區", "贴图区", "原创图作区", "百合漫画图源区")
             if (allowedSections.none { forumName.contains(it) }) {
-                Log.i(TAG, "Fast API intercept: Invalid section -> $forumName")
                 return@withContext false
             }
         }
 
         val typeName = threadObj.getString("typename") ?: ""
         if (typeName.contains("公告") || title.contains("公告")) {
-            Log.i(TAG, "Fast API intercept: Thread is an announcement.")
             return@withContext false
         }
         // --- 结束业务过滤 ---

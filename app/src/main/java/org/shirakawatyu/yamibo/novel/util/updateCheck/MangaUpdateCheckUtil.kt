@@ -88,6 +88,16 @@ class MangaUpdateCheckUtil {
             }
         }
 
+        suspend fun updateAutoCheckAttemptTimeSuspend(url: String, attemptTime: Long) {
+            writeMutex.withLock {
+                val map = getMapSuspend()
+                map[url]?.let {
+                    map[url] = it.copy(lastAutoCheckAttemptTime = attemptTime)
+                    saveMapSuspend(map)
+                }
+            }
+        }
+
         suspend fun updateAutoCheckSuspend(
             url: String,
             enabled: Boolean,
@@ -166,6 +176,7 @@ class MangaUpdateCheckUtil {
                     savedLatestTid = obj.getString("savedLatestTid") ?: "",
                     hasUpdate = obj.getBooleanValue("hasUpdate"),
                     lastCheckTime = obj.getLongValue("lastCheckTime"),
+                    lastAutoCheckAttemptTime = obj.getLongValue("lastAutoCheckAttemptTime"),
                     autoCheckEnabled = obj.getBooleanValue("autoCheckEnabled"),
                     autoCheckIntervalHours = obj.getIntValue("autoCheckIntervalHours")
                         .takeIf { it > 0 } ?: 24

@@ -26,9 +26,7 @@ object AutoUpdateCheckScheduler {
     private val runMutex = Mutex()
 
     @Volatile private var lastRunAt = 0L
-
-    // 一轮最多处理的项目数（与配额 MAX_AUTO_CHECK 对齐）
-    private const val MAX_PER_RUN = 16
+    @Volatile private var pendingRunAfterCurrent = false
 
     // 前台触发的最小间隔：避免来回切界面频繁扫描
     private const val MIN_RUN_GAP_MS = 60_000L
@@ -37,8 +35,8 @@ object AutoUpdateCheckScheduler {
     private const val INTER_CHECK_GAP_MS = 1_500L
     private const val INTER_CHECK_JITTER_MS = 1_200L
 
-    // 漫画"搜索"策略受 20s 搜索冷却约束，跟随其后需更长间隔
-    private const val MANGA_SEARCH_GAP_MS = 21_000L
+    // 漫画"搜索"策略受论坛 10s 搜索冷却约束，保留少量余量再错峰。
+    private const val MANGA_SEARCH_GAP_MS = 12_500L
 
     private sealed interface Due {
         val url: String
@@ -46,59 +44,136 @@ object AutoUpdateCheckScheduler {
         data class Manga(val p: MangaUpdateCheckProfile) : Due { override val url get() = p.url }
     }
 
+    private data class DueCandidate(
+        val item: Due,
+        val nextDueAt: Long,
+        val overdueMs: Long,
+        val phase: Long,
+        val mangaPriority: Int
+    )
+
     /** App / 收藏页进入前台时调用（带最小间隔节流）。 */
     fun onAppForeground(appContext: Context) {
         UpdateCheckEngine.ensureInit(appContext)
-        scope.launch { runDueChecks(force = false) }
+        requestRun(force = false)
     }
 
     /** 启用自动检查后立刻尝试跑一轮（忽略最小间隔）。 */
     fun triggerNow(appContext: Context) {
         UpdateCheckEngine.ensureInit(appContext)
-        scope.launch { runDueChecks(force = true) }
+        requestRun(force = true)
+    }
+
+    private fun requestRun(force: Boolean) {
+        if (force) pendingRunAfterCurrent = true
+        scope.launch { runDueChecks(force = force) }
     }
 
     private suspend fun runDueChecks(force: Boolean) {
         if (!isLoggedIn()) return
-        // 同一时刻只允许一轮在跑；正在跑就直接跳过，避免叠加
-        if (!runMutex.tryLock()) return
+        // 同一时刻只允许一轮在跑；强制触发如果撞上正在跑的队列，只登记“跑完后继续扫”。
+        if (!runMutex.tryLock()) {
+            if (force) pendingRunAfterCurrent = true
+            return
+        }
+
         try {
-            val now = System.currentTimeMillis()
-            if (!force && now - lastRunAt < MIN_RUN_GAP_MS) return
-            lastRunAt = now
+            var bypassForegroundGap = force
 
-            val novels = NovelUpdateCheckUtil.getMapSuspend().values
-                .filter { it.autoCheckEnabled && !it.authorId.isNullOrBlank() && isDue(it.url, it.lastCheckTime, it.autoCheckIntervalHours, now) }
-                .map { Due.Novel(it) }
+            while (isLoggedIn()) {
+                val now = System.currentTimeMillis()
+                if (!bypassForegroundGap && now - lastRunAt < MIN_RUN_GAP_MS) return
+                lastRunAt = now
+                pendingRunAfterCurrent = false
 
-            val mangas = MangaUpdateCheckUtil.getMapSuspend().values
-                .filter { it.autoCheckEnabled && isDue(it.url, it.lastCheckTime, it.autoCheckIntervalHours, now) }
-                .map { Due.Manga(it) }
+                val item = selectNextDue(now) ?: return
 
-            // 错峰：按相位排序得到稳定且分散的执行顺序，并限制单轮数量
-            val due = (novels + mangas)
-                .sortedBy { phaseOf(it.url, 3_600_000L) }
-                .take(MAX_PER_RUN)
-
-            for ((i, item) in due.withIndex()) {
-                if (!isLoggedIn()) break
                 when (item) {
                     is Due.Novel -> UpdateCheckEngine.runAutoNovel(item.p)
                     is Due.Manga -> UpdateCheckEngine.runAutoManga(item.p)
                 }
-                if (i < due.lastIndex) {
-                    val isMangaSearch = item is Due.Manga &&
-                            item.p.strategy == MangaUpdateCheckStrategy.SEARCH
-                    val gap = if (isMangaSearch) {
-                        MANGA_SEARCH_GAP_MS + Random.nextLong(INTER_CHECK_JITTER_MS)
-                    } else {
-                        INTER_CHECK_GAP_MS + Random.nextLong(INTER_CHECK_JITTER_MS)
-                    }
-                    delay(gap)
-                }
+
+                val hasMoreDue = selectNextDue(System.currentTimeMillis()) != null
+                if (!pendingRunAfterCurrent && !hasMoreDue) return
+
+                delay(gapAfter(item))
+                // 同一条后台队列内部继续 drain，不再受前台 60s 节流影响。
+                bypassForegroundGap = true
             }
         } finally {
             runMutex.unlock()
+        }
+    }
+
+    /**
+     * 动态选择“下一本该查的书”，而不是一次性截取固定前 16 个。
+     *
+     * 优先级：
+     * 1. 从未检查/最逾期的条目；
+     * 2. 同等逾期时漫画优先，因为漫画检查还负责刷新本地目录；
+     * 3. 最后用固定相位打散顺序，避免每次完全按保存顺序请求。
+     */
+    private suspend fun selectNextDue(now: Long): Due? {
+        val novels = NovelUpdateCheckUtil.getMapSuspend().values
+            .asSequence()
+            .filter {
+                it.autoCheckEnabled &&
+                        !it.hasUpdate &&
+                        !it.authorId.isNullOrBlank() &&
+                        !UpdateCheckEngine.isChecking(it.url)
+            }
+            .map { Due.Novel(it) }
+
+        val mangas = MangaUpdateCheckUtil.getMapSuspend().values
+            .asSequence()
+            .filter {
+                // 漫画即使已有“新”胶囊也继续到期检查：
+                // 检查过程会同步刷新本地漫画目录，否则连续更新时目录会停在第一次更新。
+                it.autoCheckEnabled &&
+                        !UpdateCheckEngine.isChecking(it.url)
+            }
+            .map { Due.Manga(it) }
+
+        return (novels + mangas)
+            .mapNotNull { candidateOf(it, now) }
+            .sortedWith(
+                compareByDescending<DueCandidate> { it.overdueMs }
+                    .thenByDescending { it.mangaPriority }
+                    .thenBy { it.phase }
+            )
+            .firstOrNull()
+            ?.item
+    }
+
+    private fun candidateOf(item: Due, now: Long): DueCandidate? {
+        val lastCheck = when (item) {
+            is Due.Novel -> item.p.lastCheckTime
+            is Due.Manga -> item.p.lastCheckTime
+        }
+        val intervalHours = when (item) {
+            is Due.Novel -> item.p.autoCheckIntervalHours
+            is Due.Manga -> item.p.autoCheckIntervalHours
+        }
+        val intervalMs = intervalHours.coerceAtLeast(1) * 3_600_000L
+        val nextDueAt = nextDueAt(item.url, lastCheck, intervalMs)
+        if (nextDueAt > now) return null
+
+        return DueCandidate(
+            item = item,
+            nextDueAt = nextDueAt,
+            overdueMs = if (lastCheck <= 0L) Long.MAX_VALUE else now - nextDueAt,
+            phase = phaseOf(item.url, 3_600_000L),
+            mangaPriority = if (item is Due.Manga) 1 else 0
+        )
+    }
+
+    private fun gapAfter(item: Due): Long {
+        val isMangaSearch = item is Due.Manga &&
+                item.p.strategy == MangaUpdateCheckStrategy.SEARCH
+        return if (isMangaSearch) {
+            MANGA_SEARCH_GAP_MS + Random.nextLong(INTER_CHECK_JITTER_MS)
+        } else {
+            INTER_CHECK_GAP_MS + Random.nextLong(INTER_CHECK_JITTER_MS)
         }
     }
 
@@ -108,17 +183,12 @@ object AutoUpdateCheckScheduler {
         return if (windowMs <= 0L) 0L else h % windowMs
     }
 
-    /**
-     * 基于"相位错位的桶"判断是否到点：
-     * 周期严格为 interval，但每个项目的桶边界被自身相位平移，从而互相错开。
-     */
-    private fun isDue(url: String, lastCheck: Long, intervalHours: Int, now: Long): Boolean {
-        val interval = intervalHours.coerceAtLeast(1) * 3_600_000L
-        if (lastCheck <= 0L) return true // 从未检查 → 视为到点（串行节流会摊开首轮）
-        val phase = phaseOf(url, interval)
-        val bucketNow = (now + phase) / interval
-        val bucketLast = (lastCheck + phase) / interval
-        return bucketNow > bucketLast
+    /** 计算下一次应检查的时间。lastCheck <= 0 表示从未检查，应立即进入队列。 */
+    private fun nextDueAt(url: String, lastCheck: Long, intervalMs: Long): Long {
+        if (lastCheck <= 0L) return 0L
+        val phase = phaseOf(url, intervalMs)
+        val bucketLast = (lastCheck + phase) / intervalMs
+        return ((bucketLast + 1) * intervalMs) - phase
     }
 
     private fun isLoggedIn(): Boolean =
