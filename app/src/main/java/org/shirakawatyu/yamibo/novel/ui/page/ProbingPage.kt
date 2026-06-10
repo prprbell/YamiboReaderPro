@@ -152,6 +152,11 @@ fun ProbingPage(url: String, navController: NavController) {
                         url = url,
                         title = title
                     )
+
+                    3 -> UpdateCheckEngine.trackOtherSilently(
+                        url = url,
+                        title = title
+                    )
                 }
 
                 withContext(Dispatchers.Main) {

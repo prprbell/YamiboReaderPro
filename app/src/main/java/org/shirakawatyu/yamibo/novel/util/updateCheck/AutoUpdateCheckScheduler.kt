@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.Mutex
 import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckProfile
 import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckStrategy
 import org.shirakawatyu.yamibo.novel.bean.NovelUpdateCheckProfile
+import org.shirakawatyu.yamibo.novel.bean.OtherUpdateCheckProfile
 import kotlin.random.Random
 
 /**
@@ -42,6 +43,7 @@ object AutoUpdateCheckScheduler {
         val url: String
         data class Novel(val p: NovelUpdateCheckProfile) : Due { override val url get() = p.url }
         data class Manga(val p: MangaUpdateCheckProfile) : Due { override val url get() = p.url }
+        data class Other(val p: OtherUpdateCheckProfile) : Due { override val url get() = p.url }
     }
 
     private data class DueCandidate(
@@ -91,6 +93,7 @@ object AutoUpdateCheckScheduler {
                 when (item) {
                     is Due.Novel -> UpdateCheckEngine.runAutoNovel(item.p)
                     is Due.Manga -> UpdateCheckEngine.runAutoManga(item.p)
+                    is Due.Other -> UpdateCheckEngine.runAutoOther(item.p)
                 }
 
                 val hasMoreDue = selectNextDue(System.currentTimeMillis()) != null
@@ -134,7 +137,16 @@ object AutoUpdateCheckScheduler {
             }
             .map { Due.Manga(it) }
 
-        return (novels + mangas)
+        val others = OtherUpdateCheckUtil.getMapSuspend().values
+            .asSequence()
+            .filter {
+                it.autoCheckEnabled &&
+                        !it.hasUpdate &&
+                        !UpdateCheckEngine.isChecking(it.url)
+            }
+            .map { Due.Other(it) }
+
+        return (novels + mangas + others)
             .mapNotNull { candidateOf(it, now) }
             .sortedWith(
                 compareByDescending<DueCandidate> { it.overdueMs }
@@ -149,10 +161,12 @@ object AutoUpdateCheckScheduler {
         val lastCheck = when (item) {
             is Due.Novel -> item.p.lastCheckTime
             is Due.Manga -> item.p.lastCheckTime
+            is Due.Other -> item.p.lastCheckTime
         }
         val intervalHours = when (item) {
             is Due.Novel -> item.p.autoCheckIntervalHours
             is Due.Manga -> item.p.autoCheckIntervalHours
+            is Due.Other -> item.p.autoCheckIntervalHours
         }
         val intervalMs = intervalHours.coerceAtLeast(1) * 3_600_000L
         val nextDueAt = nextDueAt(item.url, lastCheck, intervalMs)

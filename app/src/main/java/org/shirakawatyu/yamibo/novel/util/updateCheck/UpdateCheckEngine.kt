@@ -19,6 +19,7 @@ import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckProfile
 import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckStrategy
 import org.shirakawatyu.yamibo.novel.bean.NovelUpdateCheckProfile
+import org.shirakawatyu.yamibo.novel.bean.OtherUpdateCheckProfile
 import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.network.MangaApi
 import org.shirakawatyu.yamibo.novel.network.NovelApi
@@ -97,8 +98,14 @@ object UpdateCheckEngine {
 
     /** 手动检查小说（来自滑动卡片）。 */
     fun checkNovel(favorite: Favorite) {
-        if (favorite.type != 1) { scope.launch { toast("只有小说和漫画可以查询更新") }; return }
+        if (favorite.type != 1) return
         scope.launch { performNovel(favorite.url, favorite.title, favorite.authorId, notify = true) }
+    }
+
+    /** 手动检查"其他"帖子（来自滑动卡片）。不需要 authorId。 */
+    fun checkOther(favorite: Favorite) {
+        if (favorite.type != 3) return
+        scope.launch { performOther(favorite.url, favorite.title, notify = true) }
     }
 
     /** 手动检查漫画（来自滑动卡片 / 配置弹窗）。 */
@@ -108,7 +115,7 @@ object UpdateCheckEngine {
         overrideSearchKeyword: String? = null,
         overrideCleanBookName: String? = null
     ) {
-        if (favorite.type != 2) { scope.launch { toast("只有小说和漫画可以查询更新") }; return }
+        if (favorite.type != 2) return
         scope.launch {
             performManga(
                 favorite.url, favorite.title,
@@ -128,13 +135,17 @@ object UpdateCheckEngine {
         overrideSearchKeyword: String? = null,
         overrideCleanBookName: String? = null
     ) {
-        if (favorite.type != 2) { toast("只有小说和漫画可以查询更新"); return }
+        if (favorite.type != 2) return
         performManga(favorite.url, favorite.title, overrideStrategy, overrideSearchKeyword, overrideCleanBookName, notify = true)
     }
 
     /** 类型探测后静默建立"追踪更新"基线：不弹 Toast，不改变自动检查开关。 */
     fun trackNovelSilently(url: String, title: String, authorId: String?) {
         scope.launch { performNovel(url, title, authorId, notify = false) }
+    }
+
+    fun trackOtherSilently(url: String, title: String) {
+        scope.launch { performOther(url, title, notify = false) }
     }
 
     /** 类型探测后静默建立"追踪更新"基线：不弹 Toast，不改变自动检查开关。 */
@@ -150,6 +161,10 @@ object UpdateCheckEngine {
     suspend fun runAutoManga(profile: MangaUpdateCheckProfile) {
         // 自动检查复用 profile 里已保存的策略/关键词：全部传 null，让内部回退到 oldProfile。
         performManga(profile.url, profile.title, null, null, null, notify = false)
+    }
+
+    suspend fun runAutoOther(profile: OtherUpdateCheckProfile) {
+        performOther(profile.url, profile.title, notify = false)
     }
 
     // =========================================================================
@@ -183,6 +198,35 @@ object UpdateCheckEngine {
             runMangaUpdateCheck(url, title, overrideStrategy, overrideSearchKeyword, overrideCleanBookName, notify)
         } finally {
             leave(url)
+        }
+    }
+
+    private suspend fun performOther(url: String, title: String, notify: Boolean) {
+        if (!tryEnter(url)) {
+            if (notify) toast("正在查询更新")
+            return
+        }
+        try {
+            runOtherUpdateCheck(url, title, notify)
+        } finally {
+            leave(url)
+        }
+    }
+
+    private suspend fun fetchOtherRepliesQueued(tid: String): Int? {
+        return novelMetaRequestMutex.withLock {
+            val now = System.currentTimeMillis()
+            val elapsed = now - lastNovelMetaRequestStartedAt
+            if (elapsed in 0L until NOVEL_META_REQUEST_INTERVAL_MS) {
+                delay(NOVEL_META_REQUEST_INTERVAL_MS - elapsed)
+            }
+            lastNovelMetaRequestStartedAt = System.currentTimeMillis()
+
+            val novelApi = YamiboRetrofit.getInstance().create(NovelApi::class.java)
+            val resp = novelApi.getThreadMetaLight(tid).string()
+            val json = JSON.parseObject(resp)
+            val thread = json.getJSONObject("Variables")?.getJSONObject("thread")
+            thread?.getString("replies")?.toIntOrNull()
         }
     }
 
@@ -242,6 +286,46 @@ object UpdateCheckEngine {
                 // 失败也要更新 lastCheckTime，避免错峰窗口反复立刻重试
                 profile?.let { NovelUpdateCheckUtil.updateCheckTimeSuspend(url, System.currentTimeMillis()) }
                 if (notify) toast("查询小说更新失败")
+            }
+        }
+    }
+
+    // ---- "其他"帖子检查（不需要 authorId，使用 getThreadMetaLight）----
+    private suspend fun runOtherUpdateCheck(url: String, title: String, notify: Boolean) {
+        val tid = extractTid(url)
+        if (tid == null) { if (notify) toast("无法识别帖子ID，不能查询更新"); return }
+
+        checkLockFor(url).withLock {
+            val profile = OtherUpdateCheckUtil.getMapSuspend()[url]
+            try {
+                val currentReplies = fetchOtherRepliesQueued(tid)
+                if (currentReplies == null) {
+                    if (notify) toast("查询失败：没有读取到回复数")
+                    profile?.let { OtherUpdateCheckUtil.updateCheckTimeSuspend(url, System.currentTimeMillis()) }
+                    return@withLock
+                }
+                val checkedAt = System.currentTimeMillis()
+                if (profile == null) {
+                    OtherUpdateCheckUtil.saveProfileSuspend(
+                        OtherUpdateCheckProfile(
+                            title = title, url = url,
+                            savedReplies = currentReplies, hasUpdate = false, lastCheckTime = checkedAt
+                        )
+                    )
+                    if (notify) toast("已开始追踪更新")
+                    return@withLock
+                }
+                val detectedUpdate = currentReplies > profile.savedReplies
+                val keepUnreadUpdate = profile.hasUpdate || detectedUpdate
+                OtherUpdateCheckUtil.updateRepliesSuspend(
+                    url = url, newReplies = currentReplies,
+                    hasUpdate = keepUnreadUpdate, lastCheckTime = checkedAt
+                )
+                if (notify) toast(if (detectedUpdate) "检测到更新" else "没有检测到更新")
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                profile?.let { OtherUpdateCheckUtil.updateCheckTimeSuspend(url, System.currentTimeMillis()) }
+                if (notify) toast("查询更新失败")
             }
         }
     }

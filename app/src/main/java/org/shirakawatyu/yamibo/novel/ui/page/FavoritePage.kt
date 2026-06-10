@@ -3,21 +3,11 @@ package org.shirakawatyu.yamibo.novel.ui.page
 import android.webkit.CookieManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,11 +17,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -39,19 +27,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
@@ -59,7 +41,6 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -71,11 +52,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -85,33 +63,22 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -124,9 +91,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import coil.annotation.ExperimentalCoilApi
-import coil.imageLoader
-import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -137,34 +101,38 @@ import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
 import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckStrategy
 import org.shirakawatyu.yamibo.novel.global.GlobalData
-import org.shirakawatyu.yamibo.novel.global.GlobalData.Companion.lightModeTheme
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.theme.YellowLightLight
-import org.shirakawatyu.yamibo.novel.util.darkModeColor
-import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.FavoriteVM
 import org.shirakawatyu.yamibo.novel.ui.vm.ViewModelFactory
 import org.shirakawatyu.yamibo.novel.ui.widget.NetworkOptimizationDialog
-import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
 import org.shirakawatyu.yamibo.novel.ui.widget.TopBar
+import org.shirakawatyu.yamibo.novel.ui.widget.YamiboToast
+import org.shirakawatyu.yamibo.novel.ui.widget.favorite.AutoCheckSection
+import org.shirakawatyu.yamibo.novel.ui.widget.favorite.BookmarkManagementDialog
+import org.shirakawatyu.yamibo.novel.ui.widget.favorite.CacheManagementDialog
+import org.shirakawatyu.yamibo.novel.ui.widget.favorite.DirectoryManagementDialog
+import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteManageDoneButton
+import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteMoreOptionsButton
+import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteTopSearchField
+import org.shirakawatyu.yamibo.novel.ui.widget.favorite.SwipeToCheckRow
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
+import org.shirakawatyu.yamibo.novel.util.darkModeColor
+import org.shirakawatyu.yamibo.novel.util.darkThemeColor
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
+import org.shirakawatyu.yamibo.novel.util.updateCheck.AutoUpdateCheckScheduler
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
-import org.shirakawatyu.yamibo.novel.util.updateCheck.AutoUpdateCheckScheduler
+
 
 // 非搜索场景下，确认"暂无收藏"前的等待时间。
 // 调大以覆盖冷启动时 DataStore/Flow 首次发射前的空窗，避免闪现"暂无收藏"。
 private const val EMPTY_STATE_CONFIRM_DELAY_MS = 1500L
-
-/** 把"小时"格式化为更易读的文案：24 的整数倍显示为"天"，否则显示"小时"。 */
-private fun formatCheckInterval(hours: Int): String =
-    if (hours >= 24 && hours % 24 == 0) "${hours / 24} 天" else "$hours 小时"
 
 /**
  * 收藏页面，展示用户的收藏列表，支持刷新和拖拽排序。
@@ -188,11 +156,14 @@ fun FavoritePage(
     val probingTypeUrls = uiState.probingTypeUrls
     val updateCheckNovels = uiState.updateCheckNovels
     val updateCheckMangas = uiState.updateCheckMangas
+    val updateCheckOthers = uiState.updateCheckOthers
     val novelCheckMap = remember(updateCheckNovels) { updateCheckNovels.associateBy { it.url } }
     val mangaCheckMap = remember(updateCheckMangas) { updateCheckMangas.associateBy { it.url } }
-    val autoEnabledCount = remember(updateCheckNovels, updateCheckMangas) {
+    val otherCheckMap = remember(updateCheckOthers) { updateCheckOthers.associateBy { it.url } }
+    val autoEnabledCount = remember(updateCheckNovels, updateCheckMangas, updateCheckOthers) {
         updateCheckNovels.count { it.autoCheckEnabled } +
-                updateCheckMangas.count { it.autoCheckEnabled }
+                updateCheckMangas.count { it.autoCheckEnabled } +
+                updateCheckOthers.count { it.autoCheckEnabled }
     }
     var cacheInfoMap = uiState.cacheInfoMap
     val currentHomePage by GlobalData.homePageRoute.collectAsState()
@@ -229,6 +200,10 @@ fun FavoritePage(
     var showNovelConfigDialog by remember { mutableStateOf(false) }
     var novelConfigAutoCheck by remember { mutableStateOf(false) }
     var novelConfigInterval by remember { mutableIntStateOf(12) }
+    var otherUpdateCheckTarget by remember { mutableStateOf<Favorite?>(null) }
+    var showOtherConfigDialog by remember { mutableStateOf(false) }
+    var otherConfigAutoCheck by remember { mutableStateOf(false) }
+    var otherConfigInterval by remember { mutableIntStateOf(12) }
     val openMangaConfig: (Favorite) -> Unit = { fav ->
         mangaUpdateCheckTarget = fav
         favoriteVM.getDirectoryList { dirs ->
@@ -828,20 +803,23 @@ fun FavoritePage(
                     ) { isDragging ->
                         val isSelected = selectedItems.contains(item.url)
                         val hasUpdate = novelCheckMap[item.url]?.hasUpdate == true ||
-                                mangaCheckMap[item.url]?.hasUpdate == true
+                                mangaCheckMap[item.url]?.hasUpdate == true ||
+                                otherCheckMap[item.url]?.hasUpdate == true
                         val isCheckingUpdate = uiState.checkingUpdateUrls.contains(item.url)
                         val isProbingType = probingTypeUrls.contains(item.url)
                         val updateCheckTracked = novelCheckMap[item.url] != null ||
-                                mangaCheckMap[item.url] != null
+                                mangaCheckMap[item.url] != null ||
+                                otherCheckMap[item.url] != null
                         val autoCheckEnabled = novelCheckMap[item.url]?.autoCheckEnabled == true ||
-                                mangaCheckMap[item.url]?.autoCheckEnabled == true
+                                mangaCheckMap[item.url]?.autoCheckEnabled == true ||
+                                otherCheckMap[item.url]?.autoCheckEnabled == true
                         val isManga = item.type == 2
                         val isUndetected = item.type == 0
-                        val canSwipeCheck = !isInManageMode && (item.type == 0 || item.type == 1 || item.type == 2)
+                        val canSwipeCheck = !isInManageMode && (item.type == 0 || item.type == 1 || item.type == 2 || item.type == 3)
                         val canSwipeConfigure =
                             !isInManageMode &&
                                     updateCheckTracked &&
-                                    (item.type == 1 || item.type == 2)
+                                    (item.type == 1 || item.type == 2 || item.type == 3)
 
                         SwipeToCheckRow(
                             enabled = canSwipeCheck,
@@ -861,10 +839,18 @@ fun FavoritePage(
                                     2 -> if (mangaCheckMap[item.url] != null)
                                         favoriteVM.checkMangaUpdate(item)
                                     else openMangaConfig(item)
+                                    3 -> favoriteVM.checkOtherUpdate(item)
                                 }
                             },
                             onConfigure = {
                                 if (isManga) openMangaConfig(item)
+                                else if (item.type == 3) {
+                                    val profile = otherCheckMap[item.url]
+                                    otherUpdateCheckTarget = item
+                                    otherConfigAutoCheck = profile?.autoCheckEnabled ?: false
+                                    otherConfigInterval = profile?.autoCheckIntervalHours ?: 12
+                                    showOtherConfigDialog = true
+                                }
                                 else {
                                     val profile = novelCheckMap[item.url]
                                     novelUpdateCheckTarget = item
@@ -1211,7 +1197,7 @@ fun FavoritePage(
                     }
                 },
                 onClearAll = {
-                    favoriteVM.clearAllDirectories() {
+                    favoriteVM.clearAllDirectories {
                         directoryList = emptyList()
                     }
                 }
@@ -1352,7 +1338,7 @@ fun FavoritePage(
 
                         if (searchOnCooldown) {
                             Text(
-                                "搜索冷却中，请等待 ${searchCooldownSec} 秒",
+                                "搜索冷却中，请等待 $searchCooldownSec 秒",
                                 color = MaterialTheme.colorScheme.error,
                                 fontSize = 12.sp
                             )
@@ -1365,7 +1351,7 @@ fun FavoritePage(
                             onEnabledChange = { mangaConfigAutoCheck = it },
                             onIntervalChange = { mangaConfigInterval = it },
                             enabledCount = autoEnabledCount + when {
-                                mangaConfigAutoCheck && !(existingManga?.autoCheckEnabled == true) -> 1
+                                mangaConfigAutoCheck && existingManga?.autoCheckEnabled != true -> 1
                                 !mangaConfigAutoCheck && (existingManga?.autoCheckEnabled == true) -> -1
                                 else -> 0
                             },
@@ -1420,7 +1406,7 @@ fun FavoritePage(
                             onEnabledChange = { novelConfigAutoCheck = it },
                             onIntervalChange = { novelConfigInterval = it },
                             enabledCount = autoEnabledCount + when {
-                                novelConfigAutoCheck && !(novelCheckMap[fav.url]?.autoCheckEnabled == true) -> 1
+                                novelConfigAutoCheck && novelCheckMap[fav.url]?.autoCheckEnabled != true -> 1
                                 !novelConfigAutoCheck && (novelCheckMap[fav.url]?.autoCheckEnabled == true) -> -1
                                 else -> 0
                             },
@@ -1441,6 +1427,44 @@ fun FavoritePage(
                 dismissButton = {
                     TextButton(onClick = {
                         showNovelConfigDialog = false; novelUpdateCheckTarget = null
+                    }) { Text("取消") }
+                }
+            )
+        }
+        if (showOtherConfigDialog && otherUpdateCheckTarget != null) {
+            val fav = otherUpdateCheckTarget!!
+            AlertDialog(
+                onDismissRequest = { showOtherConfigDialog = false; otherUpdateCheckTarget = null },
+                title = { Text("帖子更新检查") },
+                text = {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        AutoCheckSection(
+                            enabled = otherConfigAutoCheck,
+                            intervalHours = otherConfigInterval,
+                            onEnabledChange = { otherConfigAutoCheck = it },
+                            onIntervalChange = { otherConfigInterval = it },
+                            enabledCount = autoEnabledCount + when {
+                                otherConfigAutoCheck && otherCheckMap[fav.url]?.autoCheckEnabled != true -> 1
+                                !otherConfigAutoCheck && (otherCheckMap[fav.url]?.autoCheckEnabled == true) -> -1
+                                else -> 0
+                            },
+                            maxCount = FavoriteVM.MAX_AUTO_CHECK,
+                            isCurrentlyEnabled = otherCheckMap[fav.url]?.autoCheckEnabled == true
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showOtherConfigDialog = false
+                        otherUpdateCheckTarget?.let { target ->
+                            favoriteVM.saveOtherAutoCheck(target.url, otherConfigAutoCheck, otherConfigInterval)
+                        }
+                        otherUpdateCheckTarget = null
+                    }) { Text("保存") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showOtherConfigDialog = false; otherUpdateCheckTarget = null
                     }) { Text("取消") }
                 }
             )
@@ -1474,1500 +1498,5 @@ fun FavoritePage(
                 color = Color.White
             )
         }
-    }
-}
-
-
-@Composable
-private fun AutoCheckSection(
-    enabled: Boolean,
-    intervalHours: Int,
-    onEnabledChange: (Boolean) -> Unit,
-    onIntervalChange: (Int) -> Unit,
-    enabledCount: Int,
-    maxCount: Int,
-    isCurrentlyEnabled: Boolean
-) {
-    val lightModeTheme by GlobalData.lightModeTheme.collectAsState()
-    // 仅当"本项尚未启用"且"总数已达上限"时禁止新开
-    val atCapForNew = !isCurrentlyEnabled && enabledCount >= maxCount
-    val intervals = FavoriteVM.AUTO_CHECK_INTERVALS
-    var showCustomDialog by remember { mutableStateOf(false) }
-
-    var customUnitDays by remember { mutableStateOf(false) }
-    var customNum by remember { mutableStateOf("12") }
-
-    fun normalizeCustomHours(numText: String, days: Boolean): Int? {
-        val raw = numText.toIntOrNull() ?: return null
-        if (raw <= 0) return null
-        return if (days) raw.coerceIn(1, 30) * 24 else raw.coerceIn(1, 720)
-    }
-
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("自动检查更新", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "名额 $enabledCount / $maxCount",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Switch(
-                checked = enabled,
-                enabled = !atCapForNew,
-                onCheckedChange = onEnabledChange,
-                colors = if (lightModeTheme > 0) SwitchDefaults.colors(
-                    uncheckedTrackColor = Color(0xFFCBD5E1),
-                    uncheckedBorderColor = Color(0xFFCBD5E1)
-                ) else SwitchDefaults.colors()
-            )
-        }
-
-        if (atCapForNew) {
-            Text(
-                "已达自动检查上限，请先关闭其它项目再开启",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-
-        val sizeSpec = tween<IntSize>(durationMillis = 300, easing = FastOutSlowInEasing)
-        AnimatedVisibility(
-            visible = enabled,
-            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) +
-                    expandVertically(animationSpec = sizeSpec, expandFrom = Alignment.Top),
-            exit = fadeOut(tween(300, easing = FastOutSlowInEasing)) +
-                    shrinkVertically(animationSpec = sizeSpec, shrinkTowards = Alignment.Top)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "检查间隔",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                var expanded by remember { mutableStateOf(false) }
-                Box {
-                    Text(
-                        formatCheckInterval(intervalHours),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { expanded = true }
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                    DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false }
-                    ) {
-                        intervals.forEach { h ->
-                            DropdownMenuItem(
-                                text = { Text(formatCheckInterval(h)) },
-                                onClick = {
-                                    onIntervalChange(h)
-                                    expanded = false
-                                }
-                            )
-                        }
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("自定义...") },
-                            onClick = {
-                                showCustomDialog = true
-                                expanded = false
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    // 每次打开自定义弹窗时，基于当前 intervalHours 初始化输入值
-    LaunchedEffect(showCustomDialog) {
-        if (showCustomDialog) {
-            val init = if (intervalHours !in intervals) intervalHours.coerceAtLeast(1) else 12
-            customUnitDays = init >= 24 && init % 24 == 0
-            customNum = if (customUnitDays) (init / 24).toString() else init.toString()
-        }
-    }
-
-    if (showCustomDialog) {
-        val normalized = normalizeCustomHours(customNum, customUnitDays)
-        AlertDialog(
-            onDismissRequest = { showCustomDialog = false },
-            title = {
-                Text("自定义间隔", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // 输入框：使用中性灰色，不用主题色
-                    OutlinedTextField(
-                        value = customNum,
-                        onValueChange = { value ->
-                            customNum = value.filter { it.isDigit() }.take(3)
-                        },
-                        singleLine = true,
-                        textStyle = TextStyle(
-                            fontSize = 18.sp,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurface
-                        ),
-                        modifier = Modifier.width(86.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF64748B),
-                            unfocusedBorderColor = Color(0xFF94A3B8),
-                            cursorColor = Color(0xFF475569)
-                        )
-                    )
-
-                    // 单位切换：用 Row + 分隔线，不用胶囊边框
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val unitOptions = listOf(false to "小时", true to "天")
-                        unitOptions.forEachIndexed { idx, (isDays, label) ->
-                            val selected = customUnitDays == isDays
-                            Box(
-                                modifier = Modifier
-                                    .clickable { customUnitDays = isDays }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    label,
-                                    fontSize = 14.sp,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (selected) {
-                                        Color(0xFF334155)
-                                    } else {
-                                        Color(0xFF94A3B8)
-                                    }
-                                )
-                            }
-                            if (idx < unitOptions.lastIndex) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(1.dp)
-                                        .height(16.dp)
-                                        .background(Color(0xFFCBD5E1))
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = normalized != null,
-                    onClick = {
-                        normalized?.let(onIntervalChange)
-                        showCustomDialog = false
-                    }
-                ) {
-                    Text("确定")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCustomDialog = false }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun SwipeToCheckRow(
-    enabled: Boolean,
-    canConfigure: Boolean,
-    onCheck: () -> Unit,
-    onConfigure: () -> Unit,
-    modifier: Modifier = Modifier,
-    checkLabel: String = "检查更新",
-    checkIcon: ImageVector = Icons.Default.Refresh,
-    checkIconRotates: Boolean = true,
-    configureLabel: String = "配置",
-    configureIcon: ImageVector = Icons.Default.Build,
-    content: @Composable () -> Unit
-) {
-    if (!enabled) {
-        Box(modifier) { content() }
-        return
-    }
-    val density = LocalDensity.current
-    val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    val offsetX = remember { Animatable(0f) }
-
-    val currentOnCheck by rememberUpdatedState(onCheck)
-    val currentOnConfigure by rememberUpdatedState(onConfigure)
-
-    // 触发阈值与最大可滑动距离
-    val triggerPx = with(density) { 64.dp.toPx() }
-    val maxLeftPx = with(density) { 96.dp.toPx() }
-    val maxRightPx = if (canConfigure) with(density) { 96.dp.toPx() } else 0f
-    var wasArmed by remember { mutableStateOf(false) }
-
-    val accent = darkThemeColor(YamiboColors.primary) { primary }
-
-    Box(modifier) {
-        // 随滑动实时计算两侧揭示宽度与进度
-        val leftRevealPx = (-offsetX.value).coerceAtLeast(0f)
-        val rightRevealPx = if (canConfigure) offsetX.value.coerceAtLeast(0f) else 0f
-        val leftProgress = (leftRevealPx / triggerPx).coerceIn(0f, 1f)
-        val rightProgress = (rightRevealPx / triggerPx).coerceIn(0f, 1f)
-        val leftArmed = offsetX.value <= -triggerPx
-        val rightArmed = canConfigure && offsetX.value >= triggerPx
-        // 面板比揭示宽度多延伸 12dp 伸到卡片圆角下面，消除缝隙
-        val cornerOverlapPx = with(density) { 12.dp.toPx() }
-
-        // 背后揭示的操作面板：与卡片同样内缩 5dp、同样 12dp 圆角，保证整体感
-        Box(
-            Modifier
-                .matchParentSize()
-                .padding(5.dp)
-                .clip(RoundedCornerShape(12.dp))
-        ) {
-            if (leftRevealPx > 0.5f) {
-                SwipeActionPanel(
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                    revealPx = leftRevealPx + cornerOverlapPx,
-                    progress = leftProgress,
-                    armed = leftArmed,
-                    icon = checkIcon,
-                    label = checkLabel,
-                    accent = accent,
-                    iconRotation = if (checkIconRotates) leftProgress * 180f else 0f
-                )
-            }
-            if (rightRevealPx > 0.5f) {
-                SwipeActionPanel(
-                    modifier = Modifier.align(Alignment.CenterStart),
-                    revealPx = rightRevealPx + cornerOverlapPx,
-                    progress = rightProgress,
-                    armed = rightArmed,
-                    icon = configureIcon,
-                    label = configureLabel,
-                    accent = accent,
-                    iconRotation = 0f
-                )
-            }
-        }
-
-        // 前景：可横向拖动的收藏卡片
-        Box(
-            Modifier
-                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-                .pointerInput(canConfigure) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { wasArmed = false },
-                        onHorizontalDrag = { change, dragAmount ->
-                            change.consume()
-                            val target =
-                                (offsetX.value + dragAmount).coerceIn(-maxLeftPx, maxRightPx)
-                            scope.launch { offsetX.snapTo(target) }
-                            val armed =
-                                target <= -triggerPx || (canConfigure && target >= triggerPx)
-                            if (armed && !wasArmed) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            }
-                            wasArmed = armed
-                        },
-                        onDragEnd = {
-                            val x = offsetX.value
-                            scope.launch {
-                                offsetX.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
-                            }
-                            when {
-                                x <= -triggerPx -> currentOnCheck()
-                                canConfigure && x >= triggerPx -> currentOnConfigure()
-                            }
-                        },
-                        onDragCancel = {
-                            scope.launch {
-                                offsetX.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
-                            }
-                        }
-                    )
-                }
-        ) {
-            content()
-        }
-    }
-}
-
-/**
- * 左/右滑动揭示的操作面板。
- *
- * 设计目标：与收藏卡片同高、同圆角；背景由「浅色着色 -> 实色强调色」平滑过渡，
- * 跨过触发阈值(armed)时图标弹性放大、配色翻转，给出清晰的「即将触发」反馈。
- */
-@Composable
-private fun SwipeActionPanel(
-    revealPx: Float,
-    progress: Float,
-    armed: Boolean,
-    icon: ImageVector,
-    label: String,
-    accent: Color,
-    iconRotation: Float,
-    modifier: Modifier = Modifier
-) {
-    val density = LocalDensity.current
-    val widthDp = with(density) { revealPx.toDp() }
-
-    // armed 的弹性过渡，带一点回弹让「触发就绪」更有手感
-    val arm by animateFloatAsState(
-        targetValue = if (armed) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = 0.5f,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "swipe_action_arm"
-    )
-
-    // 依据强调色亮度挑选对比色，避免浅色主题下白色图标看不清
-    val accentLuma = 0.299f * accent.red + 0.587f * accent.green + 0.114f * accent.blue
-    val onAccent = if (accentLuma > 0.6f) Color(0xFF1A1A1A) else Color.White
-
-    val panelColor = lerp(accent.copy(alpha = 0.16f), accent, arm)
-    val contentColor = lerp(accent, onAccent, arm)
-    val iconScale = (0.72f + 0.28f * progress) * (1f + 0.14f * arm)
-    val contentAlpha = (0.15f + progress).coerceIn(0f, 1f)
-    val labelAlpha = ((widthDp.value - 46f) / 20f).coerceIn(0f, 1f)
-
-    Box(
-        modifier
-            .width(widthDp)
-            .fillMaxHeight()
-            .background(panelColor),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.graphicsLayer { alpha = contentAlpha }
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = contentColor,
-                modifier = Modifier
-                    .size(22.dp)
-                    .graphicsLayer {
-                        scaleX = iconScale
-                        scaleY = iconScale
-                        rotationZ = iconRotation
-                    }
-            )
-            Spacer(Modifier.height(3.dp))
-            Text(
-                text = label,
-                color = contentColor,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                modifier = Modifier.graphicsLayer { alpha = labelAlpha }
-            )
-        }
-    }
-}
-
-@Composable
-private fun FavoriteMoreOptionsButton(
-    topBarContentColor: Color,
-    isLoggedIn: Boolean,
-    isRefreshing: Boolean,
-    isFavoriteCollapsed: Boolean,
-    isClickToTopEnabled: Boolean,
-    isDnsOptimizationEnabled: Boolean,
-    onSetHomePage: () -> Unit,
-    onManageFavorite: () -> Unit,
-    onToggleFavoriteCollapsed: () -> Unit,
-    onManageCache: () -> Unit,
-    onToggleClickToTop: () -> Unit,
-    onManageBookmark: () -> Unit,
-    onNetworkOptimization: () -> Unit,
-    onManageDirectory: () -> Unit,
-    onToggleAutoSignIn: () -> Unit,
-    onRefreshList: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var menuExpanded by remember { mutableStateOf(false) }
-    var lastMenuClickTime by remember { mutableLongStateOf(0L) }
-    val activeMenuContainer = MaterialTheme.colorScheme.primary
-    val activeMenuContent = MaterialTheme.colorScheme.onPrimary
-    val activeMenuText = darkThemeColor(YamiboColors.primary) { primary }
-
-    @Composable
-    fun ActiveMenuIcon(active: Boolean, content: @Composable (Color) -> Unit) {
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .then(if (active) Modifier.background(activeMenuContainer) else Modifier),
-            contentAlignment = Alignment.Center
-        ) {
-            content(if (active) activeMenuContent else MaterialTheme.colorScheme.onSurface)
-        }
-    }
-
-    fun runMenuAction(action: () -> Unit) {
-        menuExpanded = false
-        action()
-    }
-
-    Box(modifier = modifier) {
-        IconButton(
-            onClick = {
-                val currentTime = System.currentTimeMillis()
-                if (currentTime - lastMenuClickTime > 250L) {
-                    lastMenuClickTime = currentTime
-                    menuExpanded = true
-                }
-            },
-            modifier = Modifier.size(40.dp)
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_more_horiz),
-                contentDescription = "更多选项",
-                modifier = Modifier.size(24.dp),
-                tint = topBarContentColor
-            )
-        }
-        DropdownMenu(
-            expanded = menuExpanded,
-            onDismissRequest = { menuExpanded = false },
-            offset = DpOffset(x = 9.dp, y = 16.dp),
-            modifier = Modifier
-                .width(256.dp)
-                .background(MaterialTheme.colorScheme.surface)
-                .clip(RoundedCornerShape(12.dp))
-        ) {
-            // 第一排：设置首页 管理收藏
-            Row(modifier = Modifier.fillMaxWidth()) {
-                DropdownMenuItem(
-                    modifier = Modifier.weight(1f),
-                    text = { Text("设置首页") },
-                    onClick = { runMenuAction(onSetHomePage) },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Home,
-                            null,
-                            Modifier.size(24.dp)
-                        )
-                    }
-                )
-                DropdownMenuItem(
-                    modifier = Modifier.weight(1f),
-                    text = { Text("管理收藏") },
-                    enabled = isLoggedIn,
-                    onClick = { runMenuAction(onManageFavorite) },
-                    leadingIcon = {
-                        Icon(
-                            painterResource(R.drawable.ic_visibility),
-                            null,
-                            Modifier.size(24.dp),
-                            tint = if (isLoggedIn) MaterialTheme.colorScheme.onSurface
-                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        )
-                    })
-            }
-
-            // 第二排：折叠 管理缓存
-            Row(modifier = Modifier.fillMaxWidth()) {
-                DropdownMenuItem(
-                    modifier = Modifier.weight(1f),
-                    text = {
-                        Text(
-                            text = if (isFavoriteCollapsed) "关闭折叠" else "折叠模式",
-                            color = if (isFavoriteCollapsed) activeMenuText else MaterialTheme.colorScheme.onSurface
-                        )
-                    },
-                    onClick = { runMenuAction(onToggleFavoriteCollapsed) },
-                    leadingIcon = {
-                        ActiveMenuIcon(isFavoriteCollapsed) { tint ->
-                            Icon(
-                                painterResource(id = if (isFavoriteCollapsed) R.drawable.ic_unfold_more else R.drawable.ic_unfold_less),
-                                null,
-                                Modifier.size(18.dp),
-                                tint = tint
-                            )
-                        }
-                    }
-                )
-                DropdownMenuItem(
-                    modifier = Modifier.weight(1f),
-                    text = { Text("管理缓存") },
-                    onClick = { runMenuAction(onManageCache) },
-                    leadingIcon = {
-                        Icon(
-                            painterResource(R.drawable.ic_download),
-                            null,
-                            Modifier.size(24.dp)
-                        )
-                    }
-                )
-            }
-
-            // 第三排：阅后置顶 管理书签
-            Row(modifier = Modifier.fillMaxWidth()) {
-                DropdownMenuItem(
-                    modifier = Modifier.weight(1f),
-                    text = {
-                        Text(
-                            text = if (isClickToTopEnabled) "关闭置顶" else "阅后置顶",
-                            color = if (isClickToTopEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface
-                        )
-                    },
-                    onClick = { runMenuAction(onToggleClickToTop) },
-                    leadingIcon = {
-                        ActiveMenuIcon(isClickToTopEnabled) { tint ->
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_align_top),
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                                tint = tint
-                            )
-                        }
-                    }
-                )
-                DropdownMenuItem(
-                    modifier = Modifier.weight(1f),
-                    text = { Text("管理书签") },
-                    onClick = { runMenuAction(onManageBookmark) },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.DateRange,
-                            null,
-                            Modifier.size(24.dp)
-                        )
-                    }
-                )
-            }
-
-            // 第四排：网络优化 管理目录
-            Row(modifier = Modifier.fillMaxWidth()) {
-                DropdownMenuItem(
-                    modifier = Modifier.weight(1f),
-                    text = {
-                        Text(
-                            text = "网络优化",
-                            color = if (isDnsOptimizationEnabled) activeMenuText else MaterialTheme.colorScheme.onSurface
-                        )
-                    },
-                    onClick = { runMenuAction(onNetworkOptimization) },
-                    leadingIcon = {
-                        ActiveMenuIcon(isDnsOptimizationEnabled) { tint ->
-                            Icon(
-                                Icons.Default.Build,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                                tint = tint
-                            )
-                        }
-                    }
-                )
-                DropdownMenuItem(
-                    modifier = Modifier.weight(1f),
-                    text = { Text("管理目录") },
-                    onClick = { runMenuAction(onManageDirectory) },
-                    leadingIcon = {
-                        Icon(
-                            Icons.AutoMirrored.Filled.List,
-                            null,
-                            Modifier.size(24.dp)
-                        )
-                    }
-                )
-            }
-
-            // 第五排：自动签到 刷新
-            Row(modifier = Modifier.fillMaxWidth()) {
-                val isAutoSignIn = GlobalData.isAutoSignInEnabled.value
-                DropdownMenuItem(
-                    modifier = Modifier.weight(1f),
-                    text = {
-                        Text(
-                            text = if (isAutoSignIn) "关闭签到" else "自动签到",
-                            color = if (isAutoSignIn) activeMenuText else MaterialTheme.colorScheme.onSurface
-                        )
-                    },
-                    onClick = { runMenuAction(onToggleAutoSignIn) },
-                    leadingIcon = {
-                        ActiveMenuIcon(isAutoSignIn) { tint ->
-                            Icon(
-                                imageVector = if (isAutoSignIn) Icons.Default.Clear
-                                else Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                                tint = tint
-                            )
-                        }
-                    }
-                )
-                DropdownMenuItem(
-                    modifier = Modifier.weight(1f),
-                    text = { Text("刷新列表") },
-                    onClick = { runMenuAction(onRefreshList) },
-                    enabled = !isRefreshing,
-                    leadingIcon = {
-                        if (isRefreshing) CircularProgressIndicator(Modifier.size(24.dp)) else Icon(
-                            Icons.Default.Refresh,
-                            null,
-                            Modifier.size(24.dp)
-                        )
-                    }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun FavoriteManageDoneButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Button(
-        onClick = onClick,
-        modifier = modifier
-            .padding(start = 2.dp)
-            .width(68.dp)
-            .height(40.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-            contentColor = MaterialTheme.colorScheme.primary
-        ),
-        elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 0.dp,
-            pressedElevation = 0.dp,
-            focusedElevation = 0.dp,
-            hoveredElevation = 0.dp,
-            disabledElevation = 0.dp
-        ),
-        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
-    ) {
-        Text(
-            text = "完成",
-            modifier = Modifier.fillMaxWidth(),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
-@Composable
-private fun FavoriteTopSearchField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onClose: () -> Unit,
-    resultText: String? = null,
-    modifier: Modifier = Modifier
-) {
-    val containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
-    val borderColor = if (value.isBlank()) {
-        MaterialTheme.colorScheme.outline.copy(alpha = 0.20f)
-    } else {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.60f)
-    }
-    val contentColor = MaterialTheme.colorScheme.onSurface
-    val supportColor = MaterialTheme.colorScheme.onSurfaceVariant
-    val focusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
-
-    Surface(
-        modifier = modifier.height(40.dp),
-        shape = RoundedCornerShape(20.dp),
-        color = containerColor,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-        border = BorderStroke(1.dp, borderColor)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(start = 12.dp, end = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = if (value.isBlank()) supportColor else MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = true,
-                textStyle = TextStyle(
-                    color = contentColor,
-                    fontSize = 15.sp
-                ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester),
-                decorationBox = { innerTextField ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (value.isBlank()) {
-                            Text(
-                                text = "搜索标题",
-                                color = supportColor.copy(alpha = 0.72f),
-                                fontSize = 15.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            )
-            if (!resultText.isNullOrBlank()) {
-                Text(
-                    text = resultText,
-                    color = supportColor.copy(alpha = 0.86f),
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    modifier = Modifier.padding(start = 8.dp, end = 2.dp)
-                )
-            }
-            IconButton(
-                onClick = onClose,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Clear,
-                    contentDescription = "收起搜索",
-                    modifier = Modifier.size(20.dp),
-                    tint = supportColor
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalCoilApi::class)
-@Composable
-fun CacheManagementDialog(
-    favoriteList: List<Favorite>,
-    cacheInfoMap: Map<String, FavoriteVM.CacheInfo>,
-    onDismiss: () -> Unit,
-    onDeleteCache: (String) -> Unit,
-    onClearAll: () -> Unit
-) {
-    var showClearAllConfirm by remember { mutableStateOf(false) }
-
-    // 用于图片缓存管理的上下文和协程
-    val context = LocalContext.current
-
-    val coroutineScope = rememberCoroutineScope()
-    var imageCacheSize by remember { mutableLongStateOf(0L) }
-    val isAutoClearCache by GlobalData.isAutoClearCacheEnabled.collectAsState()
-    val lightModeTheme by GlobalData.lightModeTheme.collectAsState()
-
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            imageCacheSize = context.imageLoader.diskCache?.size ?: 0L
-        }
-    }
-
-    // 格式化文件大小的辅助函数
-    fun formatFileSize(bytes: Long): String {
-        return when {
-            bytes < 1024 -> "$bytes B"
-            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-            else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                "缓存管理",
-                fontSize = 22.sp,
-                color = MaterialTheme.colorScheme.primary
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 500.dp)
-            ) {
-                // 图片缓存管理区块
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 6.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                    )
-                ) {
-                    Column {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 16.dp, top = 16.dp, bottom = 12.dp, end = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "图片缓存 (漫画)",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    "占用空间: ${formatFileSize(imageCacheSize)}",
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(
-                                        alpha = 0.8f
-                                    )
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        context.imageLoader.diskCache?.clear()
-                                        context.imageLoader.memoryCache?.clear()
-                                        imageCacheSize = context.imageLoader.diskCache?.size ?: 0L
-                                    }
-                                },
-                                enabled = imageCacheSize > 0
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "清理图片",
-                                    tint = if (imageCacheSize > 0) MaterialTheme.colorScheme.error
-                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.1f)
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    val newState = !isAutoClearCache
-                                    GlobalData.isAutoClearCacheEnabled.value = newState
-                                    SettingsUtil.saveAutoClearCacheMode(newState)
-                                }
-                                .padding(start = 16.dp, top = 12.dp, bottom = 16.dp, end = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "自动清空图片缓存",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                            Switch(
-                                checked = isAutoClearCache,
-                                onCheckedChange = { newState ->
-                                    GlobalData.isAutoClearCacheEnabled.value = newState
-                                    SettingsUtil.saveAutoClearCacheMode(newState)
-                                },
-                                colors = if (lightModeTheme > 0) SwitchDefaults.colors(
-                                    uncheckedTrackColor = Color(0xFFCBD5E1),
-                                    uncheckedBorderColor = Color(0xFFCBD5E1)
-                                ) else SwitchDefaults.colors()
-                            )
-                        }
-                    }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(bottom = 6.dp))
-
-                // 文本统计信息
-                // val totalCached = cacheInfoMap.values.sumOf { it.totalPages }
-                val totalSize = cacheInfoMap.values.sumOf { it.totalSize }
-
-                if (cacheInfoMap.isNotEmpty()) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp)
-                        ) {
-                            Text(
-                                "文本缓存: ${cacheInfoMap.size} 部，占用空间: ${
-                                    formatFileSize(
-                                        totalSize
-                                    )
-                                }", fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    HorizontalDivider()
-
-                    // 作品列表
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        // 分离数据
-                        val favoriteUrls = favoriteList.map { it.url }.toSet()
-                        // 仍在收藏中的缓存 (有标题)
-                        val favoriteCaches =
-                            favoriteList.filter { cacheInfoMap.containsKey(it.url) }
-                        // 已移除的缓存 (孤立的)
-                        val orphanedCaches =
-                            cacheInfoMap.values.filter { !favoriteUrls.contains(it.url) }
-
-                        items(
-                            items = favoriteCaches,
-                            key = { "favorite_${it.url}" }
-                        ) { favorite ->
-                            val info = cacheInfoMap[favorite.url]!!
-                            val cleanTitle = favorite.title.replace(
-                                Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"),
-                                ""
-                            ).ifBlank { favorite.title }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 12.dp, horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        cleanTitle,
-                                        fontSize = 14.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        "${info.totalPages} 页 · ${formatFileSize(info.totalSize)}",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                IconButton(onClick = { onDeleteCache(favorite.url) }) {
-                                    Icon(
-                                        Icons.Default.Delete, "删除缓存",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            }
-                        }
-                        // 3. 渲染孤立的缓存
-                        if (orphanedCaches.isNotEmpty()) {
-                            item(key = "orphan_header") {
-                                Text(
-                                    "已取消收藏的帖子的缓存",
-                                    modifier = Modifier.padding(16.dp),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            items(
-                                items = orphanedCaches,
-                                key = { "orphan_${it.url}" }
-                            ) { info ->
-                                val displayTitle = info.title?.replace(
-                                    Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"),
-                                    ""
-                                )?.ifBlank { info.title } ?: info.url
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 12.dp, horizontal = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            displayTitle,
-                                            fontSize = if (info.title != null) 14.sp else 12.sp,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(
-                                            "${info.totalPages} 页 · ${formatFileSize(info.totalSize)}",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    IconButton(onClick = { onDeleteCache(info.url) }) {
-                                        Icon(
-                                            Icons.Default.Delete, "删除缓存",
-                                            tint = MaterialTheme.colorScheme.error
-                                        )
-                                    }
-                                }
-                                HorizontalDivider()
-                            }
-                        }
-                    }
-                } else {
-                    // 无文本缓存提示
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_cache),
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "暂无文本缓存",
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            if (cacheInfoMap.isNotEmpty()) {
-                TextButton(
-                    onClick = { showClearAllConfirm = true },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("清空所有文本缓存")
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
-        }
-    )
-
-    // 清空确认对话框
-    if (showClearAllConfirm) {
-        AlertDialog(
-            onDismissRequest = { showClearAllConfirm = false },
-            title = { Text("确认清空") },
-            text = { Text("确定要清空所有文本缓存吗？此操作不可撤销。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onClearAll()
-                        showClearAllConfirm = false
-                        onDismiss()
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("清空")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearAllConfirm = false }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
-}
-
-// 在文件末尾添加书签管理对话框
-@Composable
-fun BookmarkManagementDialog(
-    favoriteList: List<Favorite>,
-    onDismiss: () -> Unit,
-    onClearBookmark: (String) -> Unit,
-    onClearAll: () -> Unit
-) {
-    var showClearAllConfirm by remember { mutableStateOf(false) }
-    // 筛选出存在阅读进度的收藏 (只要页数大于0、网页大于1、有最后章节名，或者有漫画URL，就算有进度)
-    val bookmarkedList = favoriteList.filter {
-        it.lastPage > 0 || it.lastView > 1 || !it.lastChapter.isNullOrEmpty() || !it.lastMangaUrl.isNullOrEmpty()
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                "书签与进度管理",
-                fontSize = 22.sp,
-                color = MaterialTheme.colorScheme.primary
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 500.dp)
-            ) {
-                if (bookmarkedList.isNotEmpty()) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                "总计: ${bookmarkedList.size} 个书签/进度",
-                                fontSize = 14.sp
-                            )
-                        }
-                    }
-
-                    HorizontalDivider()
-
-                    // 有书签的作品列表
-                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                        items(
-                            items = bookmarkedList,
-                            key = { it.url }
-                        ) { favorite ->
-                            val cleanTitle = favorite.title.replace(
-                                Regex("^(?:【.*?】|\\[.*?\\]|[\\s\\u00A0\\u3000])+"),
-                                ""
-                            ).ifBlank { favorite.title }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 12.dp, horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        cleanTitle,
-                                        fontSize = 14.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    // 优先显示章节名，没有的话显示页数信息
-                                    val progressText = if (!favorite.lastChapter.isNullOrEmpty()) {
-                                        favorite.lastChapter!!
-                                    } else {
-                                        "第${favorite.lastPage + 1}页 / 网页第${favorite.lastView}页"
-                                    }
-                                    Text(
-                                        progressText,
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                IconButton(onClick = { onClearBookmark(favorite.url) }) {
-                                    Icon(
-                                        Icons.Default.Delete, "删除书签",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            }
-                            HorizontalDivider()
-                        }
-                    }
-                } else {
-                    // 无进度提示
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DateRange,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "暂无书签/进度",
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "阅读过的小说或漫画进度\n将会在这里显示",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            if (bookmarkedList.isNotEmpty()) {
-                TextButton(
-                    onClick = { showClearAllConfirm = true },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("清空所有书签")
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
-        }
-    )
-
-    // 清空确认对话框
-    if (showClearAllConfirm) {
-        AlertDialog(
-            onDismissRequest = { showClearAllConfirm = false },
-            title = { Text("确认清空") },
-            text = { Text("确定要清空所有书签和阅读进度吗？\n此操作不可撤销，阅读进度将会重置。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onClearAll()
-                        showClearAllConfirm = false
-                        onDismiss()
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("清空")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearAllConfirm = false }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
-}
-
-@Composable
-fun DirectoryManagementDialog(
-    directoryList: List<MangaDirectory>,
-    onDismiss: () -> Unit,
-    onDeleteDirectory: (String) -> Unit,
-    onClearAll: () -> Unit
-) {
-    var showClearAllConfirm by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
-
-    // 实现本地搜索过滤
-    val filteredList = if (searchQuery.isBlank()) {
-        directoryList
-    } else {
-        directoryList.filter { it.cleanBookName.contains(searchQuery, ignoreCase = true) }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                "漫画目录管理",
-                fontSize = 22.sp,
-                color = MaterialTheme.colorScheme.primary
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 500.dp)
-            ) {
-                // 搜索框
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("搜索漫画名称...") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedBorderColor = Color(0xFF94A3B8),
-                        focusedBorderColor = Color(0xFF64748B)
-                    ),
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "清除搜索")
-                            }
-                        }
-                    }
-                )
-
-                if (directoryList.isNotEmpty()) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                "总计: ${directoryList.size} 个本地目录",
-                                fontSize = 14.sp
-                            )
-                            if (searchQuery.isNotBlank()) {
-                                Text(
-                                    "搜索结果: ${filteredList.size} 个",
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                    }
-
-                    HorizontalDivider()
-
-                    // 过滤后的目录列表
-                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                        items(
-                            items = filteredList,
-                            key = { it.cleanBookName }
-                        ) { dir ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 12.dp, horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        dir.cleanBookName,
-                                        fontSize = 14.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                IconButton(onClick = { onDeleteDirectory(dir.cleanBookName) }) {
-                                    Icon(
-                                        Icons.Default.Delete, "删除目录",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            }
-                            HorizontalDivider()
-                        }
-                    }
-                } else {
-                    // 无目录提示
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.List,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "暂无本地目录",
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            if (directoryList.isNotEmpty()) {
-                TextButton(
-                    onClick = { showClearAllConfirm = true },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("清空所有目录")
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
-        }
-    )
-
-    // 清空确认对话框
-    if (showClearAllConfirm) {
-        AlertDialog(
-            onDismissRequest = { showClearAllConfirm = false },
-            title = { Text("确认清空") },
-            text = { Text("确定要清空所有本地保存的漫画目录吗？\n此操作不可撤销，下次进入漫画时将重新抓取并生成目录。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onClearAll()
-                        showClearAllConfirm = false
-                        onDismiss()
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("清空")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearAllConfirm = false }) {
-                    Text("取消")
-                }
-            }
-        )
     }
 }

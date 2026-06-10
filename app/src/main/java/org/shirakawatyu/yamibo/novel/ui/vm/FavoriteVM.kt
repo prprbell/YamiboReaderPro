@@ -33,8 +33,10 @@ import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.favorite.TombstoneQueueUtil
 import org.shirakawatyu.yamibo.novel.util.reader.LocalCacheUtil
 import org.shirakawatyu.yamibo.novel.util.updateCheck.AutoUpdateCheckScheduler
+import org.shirakawatyu.yamibo.novel.bean.OtherUpdateCheckProfile
 import org.shirakawatyu.yamibo.novel.util.updateCheck.MangaUpdateCheckUtil
 import org.shirakawatyu.yamibo.novel.util.updateCheck.NovelUpdateCheckUtil
+import org.shirakawatyu.yamibo.novel.util.updateCheck.OtherUpdateCheckUtil
 import org.shirakawatyu.yamibo.novel.util.updateCheck.UpdateCheckEngine
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -76,6 +78,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private var allFavorites: List<Favorite> = listOf()
     private var updateCheckNovels: List<NovelUpdateCheckProfile> = listOf()
     private var updateCheckMangas: List<MangaUpdateCheckProfile> = listOf()
+    private var updateCheckOthers: List<OtherUpdateCheckProfile> = listOf()
 
     // 预加载的表单校验码
     private var prefetchFormHash: String? = null
@@ -164,6 +167,17 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                         updateCheckMangas = list
                     }
                     _uiState.update { it.copy(updateCheckMangas = list) }
+                }
+        }
+
+        viewModelScope.launch {
+            OtherUpdateCheckUtil.getUpdateCheckFlow()
+                .flowOn(Dispatchers.IO)
+                .collect { list ->
+                    stateMutex.withLock {
+                        updateCheckOthers = list
+                    }
+                    _uiState.update { it.copy(updateCheckOthers = list) }
                 }
         }
 
@@ -285,6 +299,11 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             }
 
             2 -> UpdateCheckEngine.trackMangaSilently(
+                url = favorite.url,
+                title = result.title.ifBlank { favorite.title }
+            )
+
+            3 -> UpdateCheckEngine.trackOtherSilently(
                 url = favorite.url,
                 title = result.title.ifBlank { favorite.title }
             )
@@ -755,6 +774,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                     }
                     NovelUpdateCheckUtil.removeProfileSuspend(url)
                     MangaUpdateCheckUtil.removeProfileSuspend(url)
+                    OtherUpdateCheckUtil.removeProfileSuspend(url)
                 }
                 refreshCacheInfo()
             } else {
@@ -951,6 +971,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                         val url = entry.substringBefore("|")
                         NovelUpdateCheckUtil.removeProfileSuspend(url)
                         MangaUpdateCheckUtil.removeProfileSuspend(url)
+                        OtherUpdateCheckUtil.removeProfileSuspend(url)
                     }
                 }
             }
@@ -971,6 +992,35 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     fun clearNovelUpdateCheckFlag(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
             NovelUpdateCheckUtil.clearUpdateFlagSuspend(url)
+        }
+    }
+
+    fun checkOtherUpdate(favorite: Favorite) {
+        UpdateCheckEngine.ensureInit(applicationContext)
+        UpdateCheckEngine.checkOther(favorite)
+    }
+
+    fun clearOtherUpdateCheckFlag(url: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            OtherUpdateCheckUtil.clearUpdateFlagSuspend(url)
+        }
+    }
+
+    fun saveOtherAutoCheck(url: String, enabled: Boolean, intervalHours: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (enabled) {
+                val already = OtherUpdateCheckUtil.getMapSuspend()[url]?.autoCheckEnabled == true
+                if (!already && autoCheckEnabledCountSuspend() >= MAX_AUTO_CHECK) {
+                    showShortToast("自动检查已达上限（$MAX_AUTO_CHECK），请先关闭其它项目")
+                    return@launch
+                }
+            }
+            OtherUpdateCheckUtil.updateAutoCheckSuspend(
+                url,
+                enabled,
+                intervalHours
+            )
+            if (enabled) AutoUpdateCheckScheduler.triggerNow(applicationContext)
         }
     }
 
@@ -1028,11 +1078,12 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         return remaining.coerceAtLeast(0L)
     }
 
-    /** 当前已启用自动检查的总数（小说 + 漫画），用于配额校验。 */
+    /** 当前已启用自动检查的总数（小说 + 漫画 + 其他），用于配额校验。 */
     private suspend fun autoCheckEnabledCountSuspend(): Int {
         val n = NovelUpdateCheckUtil.getMapSuspend().values.count { it.autoCheckEnabled }
         val m = MangaUpdateCheckUtil.getMapSuspend().values.count { it.autoCheckEnabled }
-        return n + m
+        val o = OtherUpdateCheckUtil.getMapSuspend().values.count { it.autoCheckEnabled }
+        return n + m + o
     }
 
     fun saveNovelAutoCheck(url: String, enabled: Boolean, intervalHours: Int) {
