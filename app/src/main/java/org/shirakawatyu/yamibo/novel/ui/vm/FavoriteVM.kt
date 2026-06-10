@@ -753,6 +753,8 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                         )
                     } catch (_: Exception) {
                     }
+                    NovelUpdateCheckUtil.removeProfileSuspend(url)
+                    MangaUpdateCheckUtil.removeProfileSuspend(url)
                 }
                 refreshCacheInfo()
             } else {
@@ -933,16 +935,23 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
      */
     private suspend fun retryPendingDeletesQuietly() {
         withContext(Dispatchers.IO) {
-            val pendingEntries = TombstoneQueueUtil.getPendingUrls()
+            val pendingEntries = TombstoneQueueUtil.getPendingEntries()
             if (pendingEntries.isEmpty()) return@withContext
 
-            val favIdsToDelete = pendingEntries.map { it.substringAfter("|") }
+            val favIdsToDelete = pendingEntries.mapNotNull {
+                it.substringAfter("|", "").takeIf { id -> id.isNotBlank() }
+            }
 
             if (favIdsToDelete.isNotEmpty()) {
                 val isSuccess = FavoriteDeleteUtil.deleteFavoritesBatch(null, favIdsToDelete)
 
                 if (isSuccess) {
-                    TombstoneQueueUtil.removeUrls(pendingEntries)
+                    TombstoneQueueUtil.removeEntries(pendingEntries)
+                    pendingEntries.forEach { entry ->
+                        val url = entry.substringBefore("|")
+                        NovelUpdateCheckUtil.removeProfileSuspend(url)
+                        MangaUpdateCheckUtil.removeProfileSuspend(url)
+                    }
                 }
             }
         }
@@ -973,6 +982,38 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     ) {
         UpdateCheckEngine.ensureInit(applicationContext)
         UpdateCheckEngine.checkManga(favorite, overrideStrategy, overrideSearchKeyword, overrideCleanBookName)
+    }
+
+    fun checkMangaUpdateAndSaveAutoCheck(
+        favorite: Favorite,
+        overrideStrategy: MangaUpdateCheckStrategy?,
+        overrideSearchKeyword: String?,
+        overrideCleanBookName: String?,
+        autoEnabled: Boolean,
+        intervalHours: Int
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            UpdateCheckEngine.ensureInit(applicationContext)
+            UpdateCheckEngine.checkMangaSuspend(
+                favorite,
+                overrideStrategy,
+                overrideSearchKeyword,
+                overrideCleanBookName
+            )
+            if (autoEnabled) {
+                val already = MangaUpdateCheckUtil.getMapSuspend()[favorite.url]?.autoCheckEnabled == true
+                if (!already && autoCheckEnabledCountSuspend() >= MAX_AUTO_CHECK) {
+                    showShortToast("自动检查已达上限（$MAX_AUTO_CHECK），请先关闭其它项目")
+                    return@launch
+                }
+            }
+            MangaUpdateCheckUtil.updateAutoCheckSuspend(
+                favorite.url,
+                autoEnabled,
+                intervalHours
+            )
+            if (autoEnabled) AutoUpdateCheckScheduler.triggerNow(applicationContext)
+        }
     }
 
     fun clearMangaUpdateCheckFlag(url: String) {

@@ -40,7 +40,12 @@ class MangaUpdateCheckUtil {
         suspend fun saveProfileSuspend(profile: MangaUpdateCheckProfile) {
             writeMutex.withLock {
                 val map = getMapSuspend()
-                map[profile.url] = profile
+                map[profile.url] = map[profile.url]?.let { old ->
+                    profile.copy(
+                        autoCheckEnabled = old.autoCheckEnabled,
+                        autoCheckIntervalHours = old.autoCheckIntervalHours
+                    )
+                } ?: profile
                 saveMapSuspend(map)
             }
         }
@@ -60,7 +65,8 @@ class MangaUpdateCheckUtil {
             hasUpdate: Boolean,
             lastCheckTime: Long? = null,
             searchKeyword: String? = null,
-            strategy: MangaUpdateCheckStrategy? = null
+            strategy: MangaUpdateCheckStrategy? = null,
+            cleanBookName: String? = null
         ) {
             writeMutex.withLock {
                 val map = getMapSuspend()
@@ -71,7 +77,8 @@ class MangaUpdateCheckUtil {
                         hasUpdate = hasUpdate,
                         lastCheckTime = lastCheckTime ?: it.lastCheckTime,
                         searchKeyword = searchKeyword ?: it.searchKeyword,
-                        strategy = strategy ?: it.strategy
+                        strategy = strategy ?: it.strategy,
+                        cleanBookName = cleanBookName ?: it.cleanBookName
                     )
                     saveMapSuspend(map)
                 }
@@ -83,16 +90,6 @@ class MangaUpdateCheckUtil {
                 val map = getMapSuspend()
                 map[url]?.let {
                     map[url] = it.copy(lastCheckTime = lastCheckTime)
-                    saveMapSuspend(map)
-                }
-            }
-        }
-
-        suspend fun updateAutoCheckAttemptTimeSuspend(url: String, attemptTime: Long) {
-            writeMutex.withLock {
-                val map = getMapSuspend()
-                map[url]?.let {
-                    map[url] = it.copy(lastAutoCheckAttemptTime = attemptTime)
                     saveMapSuspend(map)
                 }
             }
@@ -176,10 +173,9 @@ class MangaUpdateCheckUtil {
                     savedLatestTid = obj.getString("savedLatestTid") ?: "",
                     hasUpdate = obj.getBooleanValue("hasUpdate"),
                     lastCheckTime = obj.getLongValue("lastCheckTime"),
-                    lastAutoCheckAttemptTime = obj.getLongValue("lastAutoCheckAttemptTime"),
                     autoCheckEnabled = obj.getBooleanValue("autoCheckEnabled"),
                     autoCheckIntervalHours = obj.getIntValue("autoCheckIntervalHours")
-                        .takeIf { it > 0 } ?: 24
+                        .takeIf { it > 0 } ?: 12
                 )
                 map[profile.url] = profile
             }

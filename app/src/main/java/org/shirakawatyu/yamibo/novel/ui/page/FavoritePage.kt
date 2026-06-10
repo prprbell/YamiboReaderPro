@@ -227,7 +227,7 @@ fun FavoritePage(
     var novelUpdateCheckTarget by remember { mutableStateOf<Favorite?>(null) }
     var showNovelConfigDialog by remember { mutableStateOf(false) }
     var novelConfigAutoCheck by remember { mutableStateOf(false) }
-    var novelConfigInterval by remember { mutableIntStateOf(6) }
+    var novelConfigInterval by remember { mutableIntStateOf(12) }
     val openMangaConfig: (Favorite) -> Unit = { fav ->
         mangaUpdateCheckTarget = fav
         favoriteVM.getDirectoryList { dirs ->
@@ -1384,13 +1384,14 @@ fun FavoritePage(
                                         .filter { it.isNotEmpty() }
                                         .joinToString(" ")
                                 } else ""
-                                favoriteVM.checkMangaUpdate(
+                                favoriteVM.checkMangaUpdateAndSaveAutoCheck(
                                     target,
                                     overrideStrategy = selectedStrategy,
                                     overrideSearchKeyword = combinedKeyword.ifBlank { null },
-                                    overrideCleanBookName = if (isSearch) bookName.ifBlank { null } else null
+                                    overrideCleanBookName = if (isSearch) bookName.ifBlank { null } else null,
+                                    autoEnabled = mangaConfigAutoCheck,
+                                    intervalHours = mangaConfigInterval
                                 )
-                                favoriteVM.saveMangaAutoCheck(target.url, mangaConfigAutoCheck, mangaConfigInterval)
                             }
                             mangaUpdateCheckTarget = null
                         },

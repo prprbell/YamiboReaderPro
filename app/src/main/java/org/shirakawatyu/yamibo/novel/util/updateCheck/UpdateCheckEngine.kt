@@ -52,13 +52,23 @@ object UpdateCheckEngine {
     private val _inFlight = MutableStateFlow<Set<String>>(emptySet())
     val inFlight: StateFlow<Set<String>> = _inFlight.asStateFlow()
 
-    private fun addInFlight(url: String) =
-        _inFlight.update { if (url in it) it else it + url }
-
-    private fun removeInFlight(url: String) =
-        _inFlight.update { if (url in it) it - url else it }
-
     fun isChecking(url: String): Boolean = _inFlight.value.contains(url)
+
+    private val inFlightMutex = Mutex()
+
+    private suspend fun tryEnter(url: String): Boolean =
+        inFlightMutex.withLock {
+            if (url in _inFlight.value) false
+            else {
+                _inFlight.value = _inFlight.value + url
+                true
+            }
+        }
+
+    private suspend fun leave(url: String) =
+        inFlightMutex.withLock {
+            _inFlight.value = _inFlight.value - url
+        }
 
     // ---- 节流：按 url hash 的条带锁，同 url 必互斥，不同书大概率并行 ----
     private const val CHECK_LOCK_STRIPES = 16
@@ -88,7 +98,6 @@ object UpdateCheckEngine {
     /** 手动检查小说（来自滑动卡片）。 */
     fun checkNovel(favorite: Favorite) {
         if (favorite.type != 1) { scope.launch { toast("只有小说和漫画可以查询更新") }; return }
-        if (isChecking(favorite.url)) { scope.launch { toast("正在查询更新") }; return }
         scope.launch { performNovel(favorite.url, favorite.title, favorite.authorId, notify = true) }
     }
 
@@ -100,7 +109,6 @@ object UpdateCheckEngine {
         overrideCleanBookName: String? = null
     ) {
         if (favorite.type != 2) { scope.launch { toast("只有小说和漫画可以查询更新") }; return }
-        if (isChecking(favorite.url)) { scope.launch { toast("正在查询更新") }; return }
         scope.launch {
             performManga(
                 favorite.url, favorite.title,
@@ -110,26 +118,36 @@ object UpdateCheckEngine {
         }
     }
 
+    /**
+     * 手动检查漫画（挂起版本，调用方可按需串行后续操作）。
+     * tryEnter 保证原子去重；同一 url 已在检查时直接返回，不弹 Toast。
+     */
+    suspend fun checkMangaSuspend(
+        favorite: Favorite,
+        overrideStrategy: MangaUpdateCheckStrategy? = null,
+        overrideSearchKeyword: String? = null,
+        overrideCleanBookName: String? = null
+    ) {
+        if (favorite.type != 2) { toast("只有小说和漫画可以查询更新"); return }
+        performManga(favorite.url, favorite.title, overrideStrategy, overrideSearchKeyword, overrideCleanBookName, notify = true)
+    }
+
     /** 类型探测后静默建立"追踪更新"基线：不弹 Toast，不改变自动检查开关。 */
     fun trackNovelSilently(url: String, title: String, authorId: String?) {
-        if (isChecking(url)) return
         scope.launch { performNovel(url, title, authorId, notify = false) }
     }
 
     /** 类型探测后静默建立"追踪更新"基线：不弹 Toast，不改变自动检查开关。 */
     fun trackMangaSilently(url: String, title: String) {
-        if (isChecking(url)) return
         scope.launch { performManga(url, title, null, null, null, notify = false) }
     }
 
     /** 后台自动检查（由调度器串行调用，已在引擎作用域内，需挂起等待完成以便错峰）。 */
     suspend fun runAutoNovel(profile: NovelUpdateCheckProfile) {
-        if (isChecking(profile.url)) return
         performNovel(profile.url, profile.title, profile.authorId, notify = false)
     }
 
     suspend fun runAutoManga(profile: MangaUpdateCheckProfile) {
-        if (isChecking(profile.url)) return
         // 自动检查复用 profile 里已保存的策略/关键词：全部传 null，让内部回退到 oldProfile。
         performManga(profile.url, profile.title, null, null, null, notify = false)
     }
@@ -139,11 +157,14 @@ object UpdateCheckEngine {
     // =========================================================================
 
     private suspend fun performNovel(url: String, title: String, authorId: String?, notify: Boolean) {
-        addInFlight(url)
+        if (!tryEnter(url)) {
+            if (notify) toast("正在查询更新")
+            return
+        }
         try {
             runNovelUpdateCheck(url, title, authorId, notify)
         } finally {
-            removeInFlight(url)
+            leave(url)
         }
     }
 
@@ -154,11 +175,14 @@ object UpdateCheckEngine {
         overrideCleanBookName: String?,
         notify: Boolean
     ) {
-        addInFlight(url)
+        if (!tryEnter(url)) {
+            if (notify) toast("正在查询更新")
+            return
+        }
         try {
             runMangaUpdateCheck(url, title, overrideStrategy, overrideSearchKeyword, overrideCleanBookName, notify)
         } finally {
-            removeInFlight(url)
+            leave(url)
         }
     }
 
@@ -240,6 +264,7 @@ object UpdateCheckEngine {
             try {
                 var mangaDir = if (oldProfile != null) {
                     repo.getDirectoryByCleanName(oldProfile.cleanBookName)
+                        ?: repo.getAllDirectories().find { dir -> dir.chapters.any { it.tid == tid } }
                 } else {
                     repo.getAllDirectories().find { dir -> dir.chapters.any { it.tid == tid } }
                 }
@@ -322,7 +347,8 @@ object UpdateCheckEngine {
                     hasUpdate = keepUnreadUpdate,
                     lastCheckTime = System.currentTimeMillis(),
                     searchKeyword = keyword,
-                    strategy = strategy
+                    strategy = strategy,
+                    cleanBookName = mangaDir.cleanBookName
                 )
                 if (notify) toast(
                     when {

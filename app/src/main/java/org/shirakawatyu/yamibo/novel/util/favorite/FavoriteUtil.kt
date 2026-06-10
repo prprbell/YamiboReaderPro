@@ -147,6 +147,7 @@ class FavoriteUtil {
         }
 
         suspend fun cleanupDeletedFavoritesSuspend(fullNetworkList: List<Favorite>) {
+            val removedUrls = mutableSetOf<String>()
             writeMutex.withLock {
                 val oldMap = getFavoriteMapSuspend()
                 val networkUrls = fullNetworkList.map { it.url }.toSet()
@@ -155,6 +156,8 @@ class FavoriteUtil {
                 oldMap.forEach { (url, fav) ->
                     if (networkUrls.contains(url)) {
                         cleanedMap[url] = fav
+                    } else {
+                        removedUrls.add(url)
                     }
                 }
 
@@ -162,6 +165,10 @@ class FavoriteUtil {
                     pendingFavMap = null
                     DataStoreUtil.Companion.addData(JSON.toJSONString(cleanedMap), key)
                 }
+            }
+            removedUrls.forEach { url ->
+                org.shirakawatyu.yamibo.novel.util.updateCheck.NovelUpdateCheckUtil.removeProfileSuspend(url)
+                org.shirakawatyu.yamibo.novel.util.updateCheck.MangaUpdateCheckUtil.removeProfileSuspend(url)
             }
         }
 
