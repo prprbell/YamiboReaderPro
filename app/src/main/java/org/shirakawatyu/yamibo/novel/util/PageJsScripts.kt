@@ -887,9 +887,12 @@ object PageJsScripts {
             var sectionHeader = document.querySelector('.header h2 a');
             var sectionName = sectionHeader ? sectionHeader.innerText.trim() : '';
             var currentUrl = window.location.href;
+            var forcedOtherSections = ['TXT小说区'];
+            var isForcedOther = forcedOtherSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=60') !== -1;
+            if (isForcedOther) return 3;
             var mangaSections = ['中文百合漫画区', '貼圖區', '原创图作区', '百合漫画图源区'];
             var isManga = mangaSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=30') !== -1;
-            var novelSections = ['文學區', '文学区', 'TXT小说区', '轻小说/译文区'];
+            var novelSections = ['文學區', '文学区', '轻小说/译文区'];
             var isNovel = novelSections.some(function(s) { return sectionName.indexOf(s) !== -1; }) || currentUrl.indexOf('fid=55') !== -1;
             if (isNovel) return 1;
             if (isManga) return 2;

@@ -110,6 +110,18 @@ object UpdateCheckEngine {
         }
     }
 
+    /** 类型探测后静默建立"追踪更新"基线：不弹 Toast，不改变自动检查开关。 */
+    fun trackNovelSilently(url: String, title: String, authorId: String?) {
+        if (isChecking(url)) return
+        scope.launch { performNovel(url, title, authorId, notify = false) }
+    }
+
+    /** 类型探测后静默建立"追踪更新"基线：不弹 Toast，不改变自动检查开关。 */
+    fun trackMangaSilently(url: String, title: String) {
+        if (isChecking(url)) return
+        scope.launch { performManga(url, title, null, null, null, notify = false) }
+    }
+
     /** 后台自动检查（由调度器串行调用，已在引擎作用域内，需挂起等待完成以便错峰）。 */
     suspend fun runAutoNovel(profile: NovelUpdateCheckProfile) {
         if (isChecking(profile.url)) return

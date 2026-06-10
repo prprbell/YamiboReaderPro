@@ -6,7 +6,7 @@ package org.shirakawatyu.yamibo.novel.util.reader
  */
 class ReaderModeDetector {
     companion object {
-        private val textSections = listOf("文學區", "文学区", "轻小说/译文区", "TXT小说区")
+        private val textSections = listOf("文學區", "文学区", "轻小说/译文区")
 
         /**
          * 判断URL是否为帖子页面（可转换为阅读模式）

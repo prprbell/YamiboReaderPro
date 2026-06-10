@@ -56,9 +56,11 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         private const val MIN_TYPE_PROBE_VISIBLE_MS = 650L
 
         private val MANGA_SECTIONS = listOf("中文百合漫画区", "贴图区", "貼圖區", "原创图作区", "百合漫画图源区")
-        private val NOVEL_SECTIONS = listOf("文學區", "文学区", "轻小说/译文区", "TXT小说区")
+        private val NOVEL_SECTIONS = listOf("文學區", "文学区", "轻小说/译文区")
+        private val FORCED_OTHER_SECTIONS = listOf("TXT小说区")
         private val MANGA_FIDS = setOf("13", "30", "46")
         private val NOVEL_FIDS = setOf("49", "55")
+        private val FORCED_OTHER_FIDS = setOf("60")
     }
 
     private val _uiState = MutableStateFlow(FavoriteState())
@@ -215,6 +217,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 }
 
                 val changed = applyTypeProbeResult(favorite, result)
+                startUpdateTrackingAfterTypeProbe(favorite, result)
                 val label = when (result.type) {
                     1 -> "小说"
                     2 -> "漫画"
@@ -261,12 +264,31 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         val fid = thread.getString("fid") ?: ""
 
         val type = when {
+            fid in FORCED_OTHER_FIDS || FORCED_OTHER_SECTIONS.any { forumName.contains(it) } -> 3
             fid in MANGA_FIDS || MANGA_SECTIONS.any { forumName.contains(it) } -> 2
             fid in NOVEL_FIDS || (forumName.isNotEmpty() && NOVEL_SECTIONS.any { forumName.contains(it) }) -> 1
             else -> 3
         }
 
         return TypeProbeResult(type = type, title = title, authorId = authorId)
+    }
+
+    private fun startUpdateTrackingAfterTypeProbe(favorite: Favorite, result: TypeProbeResult) {
+        when (result.type) {
+            1 -> {
+                val cleanTitle = cleanNovelProbeTitle(result.title)
+                UpdateCheckEngine.trackNovelSilently(
+                    url = favorite.url,
+                    title = cleanTitle.ifBlank { favorite.title },
+                    authorId = result.authorId
+                )
+            }
+
+            2 -> UpdateCheckEngine.trackMangaSilently(
+                url = favorite.url,
+                title = result.title.ifBlank { favorite.title }
+            )
+        }
     }
 
     private suspend fun applyTypeProbeResult(favorite: Favorite, result: TypeProbeResult): Boolean {

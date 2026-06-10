@@ -1363,7 +1363,11 @@ fun FavoritePage(
                             intervalHours = mangaConfigInterval,
                             onEnabledChange = { mangaConfigAutoCheck = it },
                             onIntervalChange = { mangaConfigInterval = it },
-                            enabledCount = autoEnabledCount,
+                            enabledCount = autoEnabledCount + when {
+                                mangaConfigAutoCheck && !(existingManga?.autoCheckEnabled == true) -> 1
+                                !mangaConfigAutoCheck && (existingManga?.autoCheckEnabled == true) -> -1
+                                else -> 0
+                            },
                             maxCount = FavoriteVM.MAX_AUTO_CHECK,
                             isCurrentlyEnabled = existingManga?.autoCheckEnabled == true
                         )
@@ -1413,7 +1417,11 @@ fun FavoritePage(
                             intervalHours = novelConfigInterval,
                             onEnabledChange = { novelConfigAutoCheck = it },
                             onIntervalChange = { novelConfigInterval = it },
-                            enabledCount = autoEnabledCount,
+                            enabledCount = autoEnabledCount + when {
+                                novelConfigAutoCheck && !(novelCheckMap[fav.url]?.autoCheckEnabled == true) -> 1
+                                !novelConfigAutoCheck && (novelCheckMap[fav.url]?.autoCheckEnabled == true) -> -1
+                                else -> 0
+                            },
                             maxCount = FavoriteVM.MAX_AUTO_CHECK,
                             isCurrentlyEnabled = novelCheckMap[fav.url]?.autoCheckEnabled == true
                         )

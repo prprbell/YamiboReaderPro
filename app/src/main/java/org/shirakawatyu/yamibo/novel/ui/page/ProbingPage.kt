@@ -31,12 +31,15 @@ import org.shirakawatyu.yamibo.novel.util.ComposeUtil.Companion.SetStatusBarColo
 import org.shirakawatyu.yamibo.novel.util.favorite.FavoriteUtil
 import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
+import org.shirakawatyu.yamibo.novel.util.updateCheck.UpdateCheckEngine
 import java.net.URLEncoder
 
 private val mangaSections = listOf("中文百合漫画区", "贴图区", "貼圖區", "原创图作区", "百合漫画图源区")
-private val novelSections = listOf("文學區", "文学区", "轻小说/译文区", "TXT小说区")
+private val novelSections = listOf("文學區", "文学区", "轻小说/译文区")
+private val forcedOtherSections = listOf("TXT小说区")
 private val mangaFids = setOf("13", "30", "46")
 private val novelFids = setOf("49", "55")
+private val forcedOtherFids = setOf("60")
 
 private val IMG_TAG_REGEX = Regex(
     """<img\s+[^>]*?(?:zsrc|data-src|file|src)=["']([^"']+)["'][^>]*>""",
@@ -91,6 +94,7 @@ fun ProbingPage(url: String, navController: NavController) {
 
             // 确定类型
             val type = when {
+                fid in forcedOtherFids || forcedOtherSections.any { forumName.contains(it) } -> 3
                 fid in mangaFids || mangaSections.any { forumName.contains(it) } -> 2
                 fid in novelFids || (forumName.isNotEmpty() && novelSections.any { forumName.contains(it) }) -> 1
                 else -> 3
@@ -131,6 +135,23 @@ fun ProbingPage(url: String, navController: NavController) {
                     if (changed) {
                         FavoriteUtil.updateFavoriteSuspend(newFav)
                     }
+                }
+
+                UpdateCheckEngine.ensureInit(context.applicationContext)
+                when (type) {
+                    1 -> {
+                        val cleanTitle = cleanNovelProbeTitle(title)
+                        UpdateCheckEngine.trackNovelSilently(
+                            url = url,
+                            title = cleanTitle.ifBlank { title },
+                            authorId = authorId
+                        )
+                    }
+
+                    2 -> UpdateCheckEngine.trackMangaSilently(
+                        url = url,
+                        title = title
+                    )
                 }
 
                 withContext(Dispatchers.Main) {
@@ -186,6 +207,12 @@ fun ProbingPage(url: String, navController: NavController) {
         }
     }
 }
+
+private fun cleanNovelProbeTitle(rawTitle: String): String =
+    rawTitle.replace(
+        Regex("\\s+[-—–_]+\\s+.*?(文學區|文学区|小说区|译文区|百合会|论坛).*$"),
+        ""
+    ).trim().ifBlank { rawTitle }
 
 private fun extractMangaData(
     postList: com.alibaba.fastjson2.JSONArray?,
