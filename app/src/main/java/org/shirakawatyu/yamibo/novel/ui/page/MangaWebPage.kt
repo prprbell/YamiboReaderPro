@@ -271,6 +271,7 @@ fun MangaWebPage(
             addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             addJavascriptInterface(nativeMangaApi, "NativeMangaApi")
             this.webChromeClient = webChromeClient
+            YamiboWebViewClient.setupDownloadListener(this)
         }
     }
 

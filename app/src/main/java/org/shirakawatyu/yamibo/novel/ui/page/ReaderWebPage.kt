@@ -361,6 +361,7 @@ fun ReaderWebPage(
             }
             addJavascriptInterface(fullscreenApi, "AndroidFullscreen")
             this.webChromeClient = webChromeClient
+            YamiboWebViewClient.setupDownloadListener(this)
         }
     }
     LaunchedEffect(Unit) {

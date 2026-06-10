@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Environment
+import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.URLUtil
@@ -25,11 +26,32 @@ open class YamiboWebViewClient : WebViewClient() {
     companion object {
         private val pendingNames = ConcurrentHashMap<String, String>()
 
+        private fun normalizeAttachmentAid(aid: String?): String? {
+            if (aid.isNullOrBlank()) return null
+
+            // Discuz 的 aid 是带签名和时间戳的 Base64 字符串，例如：
+            // 1264306|8b054faf|1781066499|655106|547818
+            // 同一个附件在跳转或刷新后可能得到新的签名，因此只使用稳定的附件编号作缓存键。
+            val cleaned = aid.replace(' ', '+')
+            return try {
+                String(Base64.decode(cleaned, Base64.DEFAULT), Charsets.UTF_8)
+                    .substringBefore('|')
+                    .takeIf { it.isNotBlank() }
+                    ?: cleaned
+            } catch (_: IllegalArgumentException) {
+                cleaned
+            }
+        }
+
+        private fun attachmentKey(url: String): String? {
+            return normalizeAttachmentAid(Uri.parse(url).getQueryParameter("aid"))
+        }
+
         class AttachmentNameBridge {
             @JavascriptInterface
             fun setAttachmentName(url: String, name: String) {
-                val aid = Uri.parse(url).getQueryParameter("aid") ?: return
-                pendingNames[aid] = name
+                val key = attachmentKey(url) ?: return
+                pendingNames[key] = name
             }
         }
 
@@ -38,6 +60,7 @@ open class YamiboWebViewClient : WebViewClient() {
             webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
                 try {
                     val aid = Uri.parse(url).getQueryParameter("aid")
+                    val attachmentId = normalizeAttachmentAid(aid)
                     val guessed = URLUtil.guessFileName(
                         url,
                         contentDisposition,
@@ -49,11 +72,11 @@ open class YamiboWebViewClient : WebViewClient() {
                     val fileName = when {
                         !guessed.equals("forum.php", ignoreCase = true) &&
                                 !guessed.equals("forum.php.txt", ignoreCase = true) -> guessed
-                        aid != null -> pendingNames.remove(aid)?.let { name ->
+                        aid != null -> attachmentId?.let { pendingNames.remove(it) }?.let { name ->
                                 if (name.contains('.') && name.lastIndexOf('.') > name.lastIndexOf('/')) name
                                 else ext?.let { "$name.$it" } ?: name
                             }
-                            ?: "yamibo_$aid" + (ext?.let { ".$it" } ?: "")
+                            ?: "yamibo_${attachmentId ?: aid}" + (ext?.let { ".$it" } ?: "")
                         else -> "yamibo_${System.currentTimeMillis()}" + (ext?.let { ".$it" } ?: "")
                     }
                     DownloadManager.Request(Uri.parse(url)).apply {
@@ -76,16 +99,24 @@ open class YamiboWebViewClient : WebViewClient() {
 
         private val ATTACH_INTERCEPT_JS = """
             (function() {
+                function rememberAttachment(link) {
+                    if (!link || !window.__yamiboAttach) return;
+                    var span = link.querySelector('.link.f_b');
+                    var name = span && span.textContent ? span.textContent.trim() : '';
+                    if (name) window.__yamiboAttach.setAttachmentName(link.href, name);
+                }
+
+                // 页面完成后先缓存一次，避免点击与 DownloadListener 回调之间的时序竞争。
+                document.querySelectorAll('a[href*="mod=attachment"]').forEach(rememberAttachment);
+
                 if (window.__yamiboAttachHooked) return;
                 window.__yamiboAttachHooked = true;
                 document.addEventListener('click', function(e) {
-                    var link = e.target.closest('a[href*="mod=attachment"]');
-                    if (!link) return;
-                    var span = link.querySelector('.link.f_b');
-                    if (span && window.__yamiboAttach) {
-                        var name = span.textContent.trim();
-                        if (name) window.__yamiboAttach.setAttachmentName(link.href, name);
-                    }
+                    var target = e.target;
+                    var link = target && target.closest
+                        ? target.closest('a[href*="mod=attachment"]')
+                        : null;
+                    rememberAttachment(link);
                 }, true);
             })();
         """.trimIndent()

@@ -1518,7 +1518,11 @@ private fun AutoCheckSection(
             Switch(
                 checked = enabled,
                 enabled = !atCapForNew,
-                onCheckedChange = onEnabledChange
+                onCheckedChange = onEnabledChange,
+                colors = if (lightModeTheme > 0) SwitchDefaults.colors(
+                    uncheckedTrackColor = Color(0xFFCBD5E1),
+                    uncheckedBorderColor = Color(0xFFCBD5E1)
+                ) else SwitchDefaults.colors()
             )
         }
 
