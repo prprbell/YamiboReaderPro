@@ -137,6 +137,7 @@ import org.shirakawatyu.yamibo.novel.bean.Favorite
 import org.shirakawatyu.yamibo.novel.bean.MangaDirectory
 import org.shirakawatyu.yamibo.novel.bean.MangaUpdateCheckStrategy
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.global.GlobalData.Companion.lightModeTheme
 import org.shirakawatyu.yamibo.novel.item.FavoriteItem
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.theme.YellowLightLight
@@ -1487,6 +1488,7 @@ private fun AutoCheckSection(
     maxCount: Int,
     isCurrentlyEnabled: Boolean
 ) {
+    val lightModeTheme by GlobalData.lightModeTheme.collectAsState()
     // 仅当"本项尚未启用"且"总数已达上限"时禁止新开
     val atCapForNew = !isCurrentlyEnabled && enabledCount >= maxCount
     val intervals = FavoriteVM.AUTO_CHECK_INTERVALS
