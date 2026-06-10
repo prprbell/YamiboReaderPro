@@ -1011,7 +1011,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             if (enabled) {
                 val already = OtherUpdateCheckUtil.getMapSuspend()[url]?.autoCheckEnabled == true
                 if (!already && autoCheckEnabledCountSuspend() >= MAX_AUTO_CHECK) {
-                    showShortToast("自动检查已达上限（$MAX_AUTO_CHECK），请先关闭其它项目")
+                    showShortToast("自动检查已达上限")
                     return@launch
                 }
             }
@@ -1053,7 +1053,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             if (autoEnabled) {
                 val already = MangaUpdateCheckUtil.getMapSuspend()[favorite.url]?.autoCheckEnabled == true
                 if (!already && autoCheckEnabledCountSuspend() >= MAX_AUTO_CHECK) {
-                    showShortToast("自动检查已达上限（$MAX_AUTO_CHECK），请先关闭其它项目")
+                    showShortToast("自动检查已达上限")
                     return@launch
                 }
             }
@@ -1091,7 +1091,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             if (enabled) {
                 val already = NovelUpdateCheckUtil.getMapSuspend()[url]?.autoCheckEnabled == true
                 if (!already && autoCheckEnabledCountSuspend() >= MAX_AUTO_CHECK) {
-                    showShortToast("自动检查已达上限（$MAX_AUTO_CHECK），请先关闭其它项目")
+                    showShortToast("自动检查已达上限")
                     return@launch
                 }
             }
@@ -1109,7 +1109,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             if (enabled) {
                 val already = MangaUpdateCheckUtil.getMapSuspend()[url]?.autoCheckEnabled == true
                 if (!already && autoCheckEnabledCountSuspend() >= MAX_AUTO_CHECK) {
-                    showShortToast("自动检查已达上限（$MAX_AUTO_CHECK），请先关闭其它项目")
+                    showShortToast("自动检查已达上限")
                     return@launch
                 }
             }

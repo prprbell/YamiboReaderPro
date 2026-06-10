@@ -112,7 +112,7 @@ object AutoSignManager {
                 formHash = jsonObject?.getJSONObject("Variables")?.getString("formhash")
             } catch (_: Exception) { }
             if (formHash.isNullOrEmpty()) {
-                if (force) showToast(context, "获取鉴权失败，无法打卡")
+                if (force) showToast(context, "登录验证失败，无法打卡")
                 return@withContext
             }
 

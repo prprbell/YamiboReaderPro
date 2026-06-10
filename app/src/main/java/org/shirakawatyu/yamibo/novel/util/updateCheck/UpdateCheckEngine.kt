@@ -250,8 +250,8 @@ object UpdateCheckEngine {
     // ---- 小说检查（搬自原 FavoriteVM.runNovelUpdateCheck，新增 notify 门控）----
     private suspend fun runNovelUpdateCheck(url: String, title: String, authorId: String?, notify: Boolean) {
         val tid = extractTid(url)
-        if (tid == null) { if (notify) toast("无法识别帖子ID，不能查询更新"); return }
-        if (authorId.isNullOrBlank()) { if (notify) toast("缺少作者ID，不能查询小说更新"); return }
+        if (tid == null) { if (notify) toast("查询失败，无法识别帖子ID"); return }
+        if (authorId.isNullOrBlank()) { if (notify) toast("查询失败，缺少作者ID"); return }
 
         checkLockFor(url).withLock {
             val profile = NovelUpdateCheckUtil.getMapSuspend()[url]
@@ -293,7 +293,7 @@ object UpdateCheckEngine {
     // ---- "其他"帖子检查（不需要 authorId，使用 getThreadMetaLight）----
     private suspend fun runOtherUpdateCheck(url: String, title: String, notify: Boolean) {
         val tid = extractTid(url)
-        if (tid == null) { if (notify) toast("无法识别帖子ID，不能查询更新"); return }
+        if (tid == null) { if (notify) toast("查询失败，无法识别帖子ID"); return }
 
         checkLockFor(url).withLock {
             val profile = OtherUpdateCheckUtil.getMapSuspend()[url]
@@ -340,7 +340,7 @@ object UpdateCheckEngine {
     ) {
         val ctx = requireContext()
         val tid = extractTid(url)
-        if (tid == null) { if (notify) toast("无法识别帖子ID，不能查询更新"); return }
+        if (tid == null) { if (notify) toast("查询失败，无法识别帖子ID"); return }
 
         checkLockFor(url).withLock {
             val repo = DirectoryRepository.getInstance(ctx)
