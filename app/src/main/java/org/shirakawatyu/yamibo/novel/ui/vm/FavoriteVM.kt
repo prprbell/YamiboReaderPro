@@ -47,7 +47,7 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         const val MAX_AUTO_CHECK = 16
 
         /** 自动检查允许的间隔：避免过长间隔导致错过更新。 */
-        val AUTO_CHECK_INTERVALS = listOf(3, 6, 12, 24)
+        val AUTO_CHECK_INTERVALS = listOf(3, 6, 12, 24, 72)
 
         /** 手动检查小说很快结束时，至少让加载圈稳定可见一小段时间，避免闪烁。 */
         private const val MIN_UPDATE_CHECK_VISIBLE_MS = 650L

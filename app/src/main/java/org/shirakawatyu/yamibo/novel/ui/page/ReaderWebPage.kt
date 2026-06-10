@@ -341,6 +341,7 @@ fun ReaderWebPage(
         val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         val clip = android.content.ClipData.newPlainText("yamibo_link", "$title\n$url")
         clipboard.setPrimaryClip(clip)
+        GlobalData.lastClipboardUrl = url
         YamiboToast.show(message = "已复制链接")
     }
     val readerWebView = remember {

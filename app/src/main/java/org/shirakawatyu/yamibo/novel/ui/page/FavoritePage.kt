@@ -837,7 +837,10 @@ fun FavoritePage(
                         val isManga = item.type == 2
                         val isUndetected = item.type == 0
                         val canSwipeCheck = !isInManageMode && (item.type == 0 || item.type == 1 || item.type == 2)
-                        val canSwipeConfigure = !isInManageMode && (item.type == 1 || item.type == 2)
+                        val canSwipeConfigure =
+                            !isInManageMode &&
+                                    updateCheckTracked &&
+                                    (item.type == 1 || item.type == 2)
 
                         SwipeToCheckRow(
                             enabled = canSwipeCheck,
@@ -865,7 +868,7 @@ fun FavoritePage(
                                     val profile = novelCheckMap[item.url]
                                     novelUpdateCheckTarget = item
                                     novelConfigAutoCheck = profile?.autoCheckEnabled ?: false
-                                    novelConfigInterval = profile?.autoCheckIntervalHours ?: 6
+                                    novelConfigInterval = profile?.autoCheckIntervalHours ?: 12
                                     showNovelConfigDialog = true
                                 }
                             }
@@ -1254,7 +1257,7 @@ fun FavoritePage(
             val existingManga = mangaCheckMap[fav.url]
             var mangaConfigAutoCheck by remember(fav.url, existingManga) { mutableStateOf(existingManga?.autoCheckEnabled ?: false) }
             var mangaConfigInterval by remember(fav.url, existingManga) {
-                mutableIntStateOf(existingManga?.autoCheckIntervalHours ?: 6)
+                mutableIntStateOf(existingManga?.autoCheckIntervalHours ?: 12)
             }
             var searchCooldownSec by remember { mutableIntStateOf(0) }
 
@@ -1475,23 +1478,13 @@ private fun AutoCheckSection(
     maxCount: Int,
     isCurrentlyEnabled: Boolean
 ) {
-    // 仅当“本项尚未启用”且“总数已达上限”时禁止新开
+    // 仅当"本项尚未启用"且"总数已达上限"时禁止新开
     val atCapForNew = !isCurrentlyEnabled && enabledCount >= maxCount
     val intervals = FavoriteVM.AUTO_CHECK_INTERVALS
-    val isPreset = intervalHours in intervals
-    var customMode by remember(intervalHours) { mutableStateOf(!isPreset) }
-    var customUnitDays by remember(intervalHours) {
-        mutableStateOf(intervalHours >= 24 && intervalHours % 24 == 0)
-    }
-    var customNum by remember(intervalHours) {
-        mutableStateOf(
-            if (intervalHours >= 24 && intervalHours % 24 == 0) {
-                (intervalHours / 24).toString()
-            } else {
-                intervalHours.coerceAtLeast(1).toString()
-            }
-        )
-    }
+    var showCustomDialog by remember { mutableStateOf(false) }
+
+    var customUnitDays by remember { mutableStateOf(false) }
+    var customNum by remember { mutableStateOf("12") }
 
     fun normalizeCustomHours(numText: String, days: Boolean): Int? {
         val raw = numText.toIntOrNull() ?: return null
@@ -1499,66 +1492,25 @@ private fun AutoCheckSection(
         return if (days) raw.coerceIn(1, 30) * 24 else raw.coerceIn(1, 720)
     }
 
-    fun applyCustom(numText: String = customNum, days: Boolean = customUnitDays) {
-        normalizeCustomHours(numText, days)?.let(onIntervalChange)
-    }
-
-    fun presetSubtitle(hours: Int): String = when (hours) {
-        3 -> "高频追更"
-        6 -> "常用推荐"
-        12 -> "轻量检查"
-        24 -> "每日一次"
-        else -> "预设间隔"
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-            modifier = Modifier.fillMaxWidth()
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("自动检查更新", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.width(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(999.dp),
-                            color = if (enabled) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            }
-                        ) {
-                            Text(
-                                if (enabled) "已开启" else "未开启",
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                fontSize = 11.sp,
-                                color = if (enabled) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        }
-                    }
-                    Text(
-                        "自动名额 $enabledCount / $maxCount · 当前 ${formatCheckInterval(intervalHours)}",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 3.dp)
-                    )
-                }
-                Switch(
-                    checked = enabled,
-                    enabled = !atCapForNew,
-                    onCheckedChange = onEnabledChange
+            Column(Modifier.weight(1f)) {
+                Text("自动检查更新", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "名额 $enabledCount / $maxCount",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            Switch(
+                checked = enabled,
+                enabled = !atCapForNew,
+                onCheckedChange = onEnabledChange
+            )
         }
 
         if (atCapForNew) {
@@ -1566,188 +1518,164 @@ private fun AutoCheckSection(
                 "已达自动检查上限，请先关闭其它项目再开启",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = 2.dp)
+                modifier = Modifier.padding(top = 4.dp)
             )
         }
 
-        val sizeSpec = tween<IntSize>(durationMillis = 260, easing = FastOutSlowInEasing)
+        val sizeSpec = tween<IntSize>(durationMillis = 300, easing = FastOutSlowInEasing)
         AnimatedVisibility(
             visible = enabled,
-            enter = fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) +
                     expandVertically(animationSpec = sizeSpec, expandFrom = Alignment.Top),
-            exit = fadeOut(tween(180, easing = FastOutSlowInEasing)) +
+            exit = fadeOut(tween(300, easing = FastOutSlowInEasing)) +
                     shrinkVertically(animationSpec = sizeSpec, shrinkTowards = Alignment.Top)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    "选择检查间隔",
+                    "检查间隔",
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-
-                intervals.chunked(2).forEach { rowItems ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                var expanded by remember { mutableStateOf(false) }
+                Box {
+                    Text(
+                        formatCheckInterval(intervalHours),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { expanded = true }
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
                     ) {
-                        rowItems.forEach { hours ->
-                            val selected = !customMode && intervalHours == hours
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (selected) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                                },
-                                border = if (selected) {
-                                    BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-                                } else null,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .clickable {
-                                        customMode = false
-                                        onIntervalChange(hours)
-                                    }
-                            ) {
-                                Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                                    Text(
-                                        formatCheckInterval(hours),
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (selected) {
-                                            MaterialTheme.colorScheme.onPrimaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurface
-                                        }
-                                    )
-                                    Text(
-                                        presetSubtitle(hours),
-                                        fontSize = 11.sp,
-                                        color = if (selected) {
-                                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                        if (rowItems.size == 1) Spacer(Modifier.weight(1f))
-                    }
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (customMode) {
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                    },
-                    border = if (customMode) {
-                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-                    } else null,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable {
-                            customMode = true
-                            applyCustom()
-                        }
-                ) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text("自定义间隔", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                Text(
-                                    "适合低频追更；最多 720 小时或 30 天",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Text(
-                                if (customMode) formatCheckInterval(intervalHours) else "未选择",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = if (customMode) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                        intervals.forEach { h ->
+                            DropdownMenuItem(
+                                text = { Text(formatCheckInterval(h)) },
+                                onClick = {
+                                    onIntervalChange(h)
+                                    expanded = false
                                 }
                             )
                         }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = customNum,
-                                onValueChange = { value ->
-                                    val filtered = value.filter { it.isDigit() }.take(3)
-                                    customNum = filtered
-                                    customMode = true
-                                    applyCustom(filtered, customUnitDays)
-                                },
-                                singleLine = true,
-                                modifier = Modifier.width(92.dp),
-                                textStyle = TextStyle(fontSize = 15.sp, textAlign = TextAlign.Center),
-                                label = { Text("数值") },
-                                colors = OutlinedTextFieldDefaults.colors()
-                            )
-
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(999.dp))
-                                    .background(MaterialTheme.colorScheme.surface),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                listOf(false to "小时", true to "天").forEach { (asDays, label) ->
-                                    val selected = customUnitDays == asDays
-                                    Text(
-                                        text = label,
-                                        fontSize = 13.sp,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (selected) {
-                                            MaterialTheme.colorScheme.onPrimary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(999.dp))
-                                            .background(
-                                                if (selected) MaterialTheme.colorScheme.primary
-                                                else Color.Transparent
-                                            )
-                                            .clickable {
-                                                customUnitDays = asDays
-                                                customMode = true
-                                                applyCustom(customNum, asDays)
-                                            }
-                                            .padding(horizontal = 13.dp, vertical = 8.dp)
-                                    )
-                                }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("自定义...") },
+                            onClick = {
+                                showCustomDialog = true
+                                expanded = false
                             }
-                        }
-
-                        val customValue = customNum.toIntOrNull() ?: 0
-                        if (customMode && customValue <= 0) {
-                            Text(
-                                "请输入大于 0 的间隔",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
+                        )
                     }
                 }
             }
         }
+    }
+
+    // 每次打开自定义弹窗时，基于当前 intervalHours 初始化输入值
+    LaunchedEffect(showCustomDialog) {
+        if (showCustomDialog) {
+            val init = if (intervalHours !in intervals) intervalHours.coerceAtLeast(1) else 12
+            customUnitDays = init >= 24 && init % 24 == 0
+            customNum = if (customUnitDays) (init / 24).toString() else init.toString()
+        }
+    }
+
+    if (showCustomDialog) {
+        val normalized = normalizeCustomHours(customNum, customUnitDays)
+        AlertDialog(
+            onDismissRequest = { showCustomDialog = false },
+            title = {
+                Text("自定义间隔", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 输入框：使用中性灰色，不用主题色
+                    OutlinedTextField(
+                        value = customNum,
+                        onValueChange = { value ->
+                            customNum = value.filter { it.isDigit() }.take(3)
+                        },
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            fontSize = 18.sp,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        modifier = Modifier.width(86.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF64748B),
+                            unfocusedBorderColor = Color(0xFF94A3B8),
+                            cursorColor = Color(0xFF475569)
+                        )
+                    )
+
+                    // 单位切换：用 Row + 分隔线，不用胶囊边框
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val unitOptions = listOf(false to "小时", true to "天")
+                        unitOptions.forEachIndexed { idx, (isDays, label) ->
+                            val selected = customUnitDays == isDays
+                            Box(
+                                modifier = Modifier
+                                    .clickable { customUnitDays = isDays }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    label,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (selected) {
+                                        Color(0xFF334155)
+                                    } else {
+                                        Color(0xFF94A3B8)
+                                    }
+                                )
+                            }
+                            if (idx < unitOptions.lastIndex) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(1.dp)
+                                        .height(16.dp)
+                                        .background(Color(0xFFCBD5E1))
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = normalized != null,
+                    onClick = {
+                        normalized?.let(onIntervalChange)
+                        showCustomDialog = false
+                    }
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 

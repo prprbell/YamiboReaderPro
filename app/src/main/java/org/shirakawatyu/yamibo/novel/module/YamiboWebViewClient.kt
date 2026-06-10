@@ -43,12 +43,18 @@ open class YamiboWebViewClient : WebViewClient() {
                         contentDisposition,
                         mimeType?.takeIf { it.isNotBlank() } ?: "text/plain"
                     )
+                    val ext = mimeType?.let {
+                        android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it)
+                    }?.takeIf { it.isNotEmpty() }
                     val fileName = when {
                         !guessed.equals("forum.php", ignoreCase = true) &&
                                 !guessed.equals("forum.php.txt", ignoreCase = true) -> guessed
-                        aid != null -> pendingNames.remove(aid)?.let { "$it.txt" }
-                            ?: "yamibo_$aid.txt"
-                        else -> "yamibo_${System.currentTimeMillis()}.txt"
+                        aid != null -> pendingNames.remove(aid)?.let { name ->
+                                if (name.contains('.') && name.lastIndexOf('.') > name.lastIndexOf('/')) name
+                                else ext?.let { "$name.$it" } ?: name
+                            }
+                            ?: "yamibo_$aid" + (ext?.let { ".$it" } ?: "")
+                        else -> "yamibo_${System.currentTimeMillis()}" + (ext?.let { ".$it" } ?: "")
                     }
                     DownloadManager.Request(Uri.parse(url)).apply {
                         setMimeType(mimeType?.takeIf { it.isNotBlank() } ?: "text/plain")
