@@ -386,6 +386,11 @@ object UpdateCheckEngine {
 
                 val isFirstCheck = oldProfile == null
                 if (isFirstCheck) {
+                    // 无声探测（首次类型识别）时，若漫画无 tag，不自动建立追踪基线。
+                    // 无 tag 漫画依赖自动生成的关键词搜索，关键词可能不准，留待用户手动确认后再追踪。
+                    if (!notify && mangaDir.strategy != DirectoryStrategy.TAG) {
+                        return@withLock
+                    }
                     MangaUpdateCheckUtil.saveProfileSuspend(
                         MangaUpdateCheckProfile(
                             title = title, url = url, cleanBookName = cleanBookName,
