@@ -1367,7 +1367,7 @@ fun FavoritePage(
                             mangaUpdateCheckTarget?.let { target ->
                                 val isSearch = selectedStrategy == MangaUpdateCheckStrategy.SEARCH
                                 val combinedKeyword = if (isSearch) {
-                                    listOf(keyword1.trim(), keyword2.trim())
+                                    listOf(keyword1.trim(), keyword2.trim(), bookName.trim())
                                         .filter { it.isNotEmpty() }
                                         .joinToString(" ")
                                 } else ""
