@@ -239,9 +239,21 @@ fun FavoritePage(
         viewModel(viewModelStoreOwner = context as ComponentActivity)
     var probingUrl by remember { mutableStateOf<String?>(null) }
     var probingJob by remember { mutableStateOf<Job?>(null) }
+    var probingPipelineOwnerKey by remember { mutableStateOf<String?>(null) }
     BackHandler(enabled = probingUrl != null) {
         probingJob?.cancel()
+        probingPipelineOwnerKey?.let { ownerKey ->
+            MangaImagePipeline.cancelNativeWindow(
+                ownerKey,
+                MangaImagePipeline.CancelReason.PAGE_EXIT
+            )
+            MangaImagePipeline.cancelChapterColdPrefetches(
+                ownerKey,
+                MangaImagePipeline.CancelReason.PAGE_EXIT
+            )
+        }
         probingJob = null
+        probingPipelineOwnerKey = null
         probingUrl = null
     }
     val hapticFeedback = LocalHapticFeedback.current
@@ -750,7 +762,11 @@ fun FavoritePage(
                                             java.net.URLEncoder.encode(targetUrl, "utf-8")
                                         val encodedOriginal =
                                             java.net.URLEncoder.encode(item.url, "utf-8")
+                                        val pipelineOwnerKey =
+                                            MangaImagePipeline.createNativeOwnerKey(targetUrl, item.url)
+
                                         probingUrl = targetUrl
+                                        probingPipelineOwnerKey = pipelineOwnerKey
                                         probingJob = coroutineScope.launch {
                                             MangaProber().probeUrl(
                                                 context = context,
@@ -769,7 +785,8 @@ fun FavoritePage(
                                                     MangaImagePipeline.handoffPrefetch(
                                                         context = context.applicationContext,
                                                         urls = normalizedUrls,
-                                                        clickedIndex = targetIndex
+                                                        clickedIndex = targetIndex,
+                                                        ownerKey = pipelineOwnerKey
                                                     )
 
                                                     GlobalData.tempMangaUrls = normalizedUrls
@@ -777,19 +794,24 @@ fun FavoritePage(
                                                     GlobalData.tempTitle = title
                                                     GlobalData.tempMangaIndex = targetIndex
 
-                                                    navController.navigate("NativeMangaPage?url=$encodedTarget&originalUrl=$encodedOriginal")
+                                                    val encodedOwnerKey = java.net.URLEncoder.encode(pipelineOwnerKey, "utf-8")
+                                                    navController.navigate("NativeMangaPage?url=$encodedTarget&originalUrl=$encodedOriginal&pipelineOwnerKey=$encodedOwnerKey")
 
                                                     coroutineScope.launch {
                                                         delay(300)
                                                         probingUrl = null
                                                         probingJob = null
+                                                        probingPipelineOwnerKey = null
                                                     }
                                                 },
                                                 onFallback = {
                                                     navController.navigate("MangaWebPage/$encodedTarget/$encodedOriginal?fastForward=false&initialPage=${item.lastPage}")
                                                     probingUrl = null
                                                     probingJob = null
-                                                }
+                                                    probingPipelineOwnerKey = null
+                                                },
+                                                // 由 FavoritePage 使用确定的 Native owner 手动 handoff；避免 Prober 再开一组匿名 handoff。
+                                                autoPrefetch = false
                                             )
                                         }
                                     }

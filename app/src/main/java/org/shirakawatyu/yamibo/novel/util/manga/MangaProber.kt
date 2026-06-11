@@ -119,7 +119,9 @@ class MangaProber {
         context: Context,
         url: String,
         onSuccess: (List<String>, String, String) -> Unit,
-        onFallback: () -> Unit
+        onFallback: () -> Unit,
+        prefetchOwnerKey: String? = null,
+        autoPrefetch: Boolean = true
     ) {
         val tid = MangaTitleCleaner.extractTidFromUrl(url)
         val appContext = context.applicationContext
@@ -128,7 +130,7 @@ class MangaProber {
             // 第 1 层：快速游离态读取缓存
             val cachedEntry = getValidCache(tid)
             if (cachedEntry != null) {
-                MangaImagePipeline.handoffPrefetch(appContext, cachedEntry.urls, 0)
+                prefetchIfNeeded(appContext, cachedEntry.urls, prefetchOwnerKey, autoPrefetch)
                 onSuccess(cachedEntry.urls, cachedEntry.title, cachedEntry.messageHtml)
                 return
             }
@@ -144,14 +146,20 @@ class MangaProber {
                     val doubleCheckCache = getValidCache(tid)
                     if (doubleCheckCache != null) {
                         withContext(Dispatchers.Main) {
-                            MangaImagePipeline.handoffPrefetch(appContext, doubleCheckCache.urls, 0)
+                            prefetchIfNeeded(appContext, doubleCheckCache.urls, prefetchOwnerKey, autoPrefetch)
                             onSuccess(doubleCheckCache.urls, doubleCheckCache.title, doubleCheckCache.messageHtml)
                         }
                         return@withLock true
                     }
 
                     // 确实没缓存，才去真实发 API 请求
-                    fastApiProbe(appContext, tid, onSuccess)
+                    fastApiProbe(
+                        context = appContext,
+                        tid = tid,
+                        onSuccess = onSuccess,
+                        prefetchOwnerKey = prefetchOwnerKey,
+                        autoPrefetch = autoPrefetch
+                    )
                 }
 
                 if (success) {
@@ -166,7 +174,29 @@ class MangaProber {
         }
 
         // 降级轨：兜底走原有 WebView 探针
-        fallbackWebViewProbe(context, url, onSuccess, onFallback)
+        fallbackWebViewProbe(
+            context = context,
+            url = url,
+            onSuccess = onSuccess,
+            onFallback = onFallback,
+            prefetchOwnerKey = prefetchOwnerKey,
+            autoPrefetch = autoPrefetch
+        )
+    }
+
+    private fun prefetchIfNeeded(
+        context: Context,
+        urls: List<String>,
+        ownerKey: String?,
+        autoPrefetch: Boolean
+    ) {
+        if (!autoPrefetch) return
+        MangaImagePipeline.handoffPrefetch(
+            context = context.applicationContext,
+            urls = urls,
+            clickedIndex = 0,
+            ownerKey = ownerKey
+        )
     }
 
     /**
@@ -191,7 +221,9 @@ class MangaProber {
     private suspend fun fastApiProbe(
         context: Context,
         tid: String,
-        onSuccess: (List<String>, String, String) -> Unit
+        onSuccess: (List<String>, String, String) -> Unit,
+        prefetchOwnerKey: String?,
+        autoPrefetch: Boolean
     ): Boolean = withContext(Dispatchers.IO) {
         val mangaApi = YamiboRetrofit.getInstance().create(MangaApi::class.java)
         val jsonStr = mangaApi.getThreadDetailApi(tid).string()
@@ -282,11 +314,7 @@ class MangaProber {
             }
 
             withContext(Dispatchers.Main) {
-                MangaImagePipeline.handoffPrefetch(
-                    context = context,
-                    urls = urlList,
-                    clickedIndex = 0
-                )
+                prefetchIfNeeded(context, urlList, prefetchOwnerKey, autoPrefetch)
                 onSuccess(urlList, title, compatibleHtml)
             }
             return@withContext true
@@ -302,7 +330,9 @@ class MangaProber {
         context: Context,
         url: String,
         onSuccess: (List<String>, String, String) -> Unit,
-        onFallback: () -> Unit
+        onFallback: () -> Unit,
+        prefetchOwnerKey: String?,
+        autoPrefetch: Boolean
     ) {
         val webView = WebViewPool.acquire(context)
         val appContext = context.applicationContext
@@ -428,11 +458,7 @@ class MangaProber {
                             .filter { it.isNotBlank() }
                             .distinct()
 
-                        MangaImagePipeline.handoffPrefetch(
-                            context = appContext,
-                            urls = urls,
-                            clickedIndex = 0
-                        )
+                        prefetchIfNeeded(appContext, urls, prefetchOwnerKey, autoPrefetch)
 
                         cleanupAndFinish()
                         onSuccess(urls, title, cleanHtml)

@@ -38,7 +38,7 @@ object MangaImagePipeline {
     private const val TAG = "MangaImagePipeline"
     private const val REFERER = "https://bbs.yamibo.com/"
     private const val WEBVIEW_WAIT_TIMEOUT_MS = 60_000L
-
+    
     enum class Source {
         WEBVIEW_TAKEOVER,
         HANDOFF_HOT,
@@ -55,6 +55,17 @@ object MangaImagePipeline {
         NETWORK_SUCCESS,
         NETWORK_FAILED,
         CANCELLED
+    }
+
+    enum class CancelReason {
+        /** 阅读窗口滚动/换页导致的窗口收缩，给用户回滚和短暂抖动留缓冲。 */
+        WINDOW_SHRINK,
+
+        /** Native 页面退出或被替换，冷预取应尽快停，热图给短暂收尾时间。 */
+        PAGE_EXIT,
+
+        /** 系统低内存/强制清理，不做收尾等待。 */
+        LOW_MEMORY
     }
 
     private data class InFlightLoad(
@@ -89,6 +100,10 @@ object MangaImagePipeline {
     private val chapterColdOwnerParents = ConcurrentHashMap<String, String>()
     private val parentChapterColdOwners = ConcurrentHashMap<String, MutableSet<String>>()
 
+    // 兼容旧入口：如果 FavoritePage / WebView 入口还没传 ownerKey，Native 首帧会按首图接管旧 handoff owner。
+    private val handoffOwnersByFirstKey = ConcurrentHashMap<String, MutableSet<String>>()
+    private val handoffOwnerFirstKeys = ConcurrentHashMap<String, String>()
+
     /** WebView takeover / handoff 首屏热图 / Native 当前附近热图。 */
     private val highSemaphore = Semaphore(4)
 
@@ -97,6 +112,10 @@ object MangaImagePipeline {
 
     /** 远距离预取、跨章节整章冷预取，只进磁盘，低并发。 */
     private val coldSemaphore = Semaphore(2)
+
+    fun createNativeOwnerKey(url: String, originalUrl: String = url): String {
+        return "native:${url.hashCode()}:${originalUrl.hashCode()}:${System.nanoTime()}"
+    }
 
     /**
      * WebView 图片请求接管入口。
@@ -142,10 +161,11 @@ object MangaImagePipeline {
         urls: List<String>,
         clickedIndex: Int = 0,
         headers: Map<String, String> = emptyMap(),
-        cookie: String = ""
-    ) {
+        cookie: String = "",
+        ownerKey: String? = null
+    ): String? {
         val normalized = urls.filter { it.isNotBlank() }.distinct()
-        if (normalized.isEmpty()) return
+        if (normalized.isEmpty()) return ownerKey
 
         val safeIndex = clickedIndex.coerceIn(0, normalized.lastIndex)
         val ordered = buildList {
@@ -153,7 +173,12 @@ object MangaImagePipeline {
             addAll(normalized.take(safeIndex).asReversed())
         }.distinct()
 
-        val ownerKey = "handoff:${ordered.firstOrNull().orEmpty().hashCode()}:${System.nanoTime()}"
+        val realOwnerKey = ownerKey?.takeIf { it.isNotBlank() }
+            ?: "handoff:${ordered.firstOrNull().orEmpty().hashCode()}:${System.nanoTime()}"
+
+        ordered.firstOrNull()?.let { firstUrl ->
+            registerHandoffOwner(realOwnerKey, cacheKey(firstUrl))
+        }
 
         ordered.forEachIndexed { index, imgUrl ->
             val hot = index <= 2
@@ -161,11 +186,52 @@ object MangaImagePipeline {
                 context = context.applicationContext,
                 url = imgUrl,
                 headers = headers,
-                ownerKey = ownerKey,
+                ownerKey = realOwnerKey,
                 source = if (hot) Source.HANDOFF_HOT else Source.HANDOFF_COLD,
                 memory = hot,
                 explicitCookie = cookie
             )
+        }
+
+        return realOwnerKey
+    }
+
+    /**
+     * Native 首帧接管已经启动的 handoff 预取。
+     * 这样旧入口即使没有传 ownerKey，退出 Native 时也能取消这些 in-flight。
+     */
+    fun adoptHandoffPrefetchOwner(urls: List<String>, newOwnerKey: String) {
+        val firstUrl = urls.firstOrNull { it.isNotBlank() } ?: return
+        val firstKey = cacheKey(firstUrl)
+
+        synchronized(lock) {
+            val oldOwners = handoffOwnersByFirstKey.remove(firstKey)?.toSet().orEmpty()
+            if (oldOwners.isEmpty()) return
+
+            oldOwners.forEach { oldOwnerKey ->
+                handoffOwnerFirstKeys.remove(oldOwnerKey)
+                if (oldOwnerKey == newOwnerKey) return@forEach
+
+                val keys = ownerUrlKeys.remove(oldOwnerKey)?.toSet().orEmpty()
+                if (keys.isNotEmpty()) {
+                    val newKeys = ownerUrlKeys.getOrPut(newOwnerKey) { mutableSetOf() }
+                    keys.forEach { key ->
+                        newKeys.add(key)
+                        val load = inFlight[key]
+                        if (load != null) {
+                            load.owners.remove(oldOwnerKey)
+                            load.owners.add(newOwnerKey)
+                            cancelJobs.remove(key)?.cancel()
+                        }
+                    }
+                }
+
+                ownerLastIndex.remove(oldOwnerKey)
+                ownerDirections.remove(oldOwnerKey)
+                ownerDirectionStreak.remove(oldOwnerKey)
+                ownerRecentWindows.remove(oldOwnerKey)
+                unregisterChapterColdOwner(oldOwnerKey)
+            }
         }
     }
 
@@ -182,7 +248,7 @@ object MangaImagePipeline {
         isRtl: Boolean = false
     ) {
         if (urls.isEmpty() || currentIndex !in urls.indices) {
-            cancelOwner(ownerKey)
+            cancelOwner(ownerKey, CancelReason.WINDOW_SHRINK)
             return
         }
         val previousIndex = ownerLastIndex.put(ownerKey, currentIndex)
@@ -265,7 +331,7 @@ object MangaImagePipeline {
 
         previousKeys
             .filterNot { it in desiredKeys }
-            .forEach { releaseOwnerFromUrl(ownerKey, it) }
+            .forEach { releaseOwnerFromUrl(ownerKey, it, CancelReason.WINDOW_SHRINK) }
 
         ownerUrlKeys[ownerKey] = desiredKeys
 
@@ -399,34 +465,38 @@ object MangaImagePipeline {
         }
     }
 
-    fun cancelOwner(ownerKey: String) {
+    fun cancelOwner(ownerKey: String, reason: CancelReason = CancelReason.PAGE_EXIT) {
         val keys = ownerUrlKeys.remove(ownerKey)?.toSet().orEmpty()
-        keys.forEach { key -> releaseOwnerFromUrl(ownerKey, key) }
+        keys.forEach { key -> releaseOwnerFromUrl(ownerKey, key, reason) }
 
         ownerLastIndex.remove(ownerKey)
         ownerDirections.remove(ownerKey)
         ownerDirectionStreak.remove(ownerKey)
         ownerRecentWindows.remove(ownerKey)
         unregisterChapterColdOwner(ownerKey)
+        unregisterHandoffOwner(ownerKey)
     }
 
     /**
      * 只取消某个 Native 页面 owner 的窗口预加载，不关闭全局 pipeline。
      * 不提供 shutdown()：这是应用级单例，取消 scope 后无法安全重建。
      */
-    fun cancelNativeWindow(ownerKey: String) {
-        cancelOwner(ownerKey)
+    fun cancelNativeWindow(ownerKey: String, reason: CancelReason = CancelReason.PAGE_EXIT) {
+        cancelOwner(ownerKey, reason)
     }
 
     /**
      * 取消某个 Native 阅读页启动的跨章节整章冷预取。
      * 已经完成并写入磁盘的缓存不受影响，只取消还在排队/下载的冷预取任务。
      */
-    fun cancelChapterColdPrefetches(parentOwnerKey: String) {
+    fun cancelChapterColdPrefetches(
+        parentOwnerKey: String,
+        reason: CancelReason = CancelReason.PAGE_EXIT
+    ) {
         val owners = parentChapterColdOwners.remove(parentOwnerKey)?.toSet().orEmpty()
         owners.forEach { ownerKey ->
             chapterColdOwnerParents.remove(ownerKey)
-            cancelOwner(ownerKey)
+            cancelOwner(ownerKey, reason)
         }
     }
 
@@ -443,6 +513,28 @@ object MangaImagePipeline {
         parentChapterColdOwners[parent]?.remove(ownerKey)
         if (parentChapterColdOwners[parent]?.isEmpty() == true) {
             parentChapterColdOwners.remove(parent)
+        }
+    }
+
+    private fun registerHandoffOwner(ownerKey: String, firstKey: String) {
+        val oldFirstKey = handoffOwnerFirstKeys.put(ownerKey, firstKey)
+        if (oldFirstKey != null && oldFirstKey != firstKey) {
+            handoffOwnersByFirstKey[oldFirstKey]?.remove(ownerKey)
+            if (handoffOwnersByFirstKey[oldFirstKey]?.isEmpty() == true) {
+                handoffOwnersByFirstKey.remove(oldFirstKey)
+            }
+        }
+
+        handoffOwnersByFirstKey
+            .getOrPut(firstKey) { ConcurrentHashMap.newKeySet<String>() }
+            .add(ownerKey)
+    }
+
+    private fun unregisterHandoffOwner(ownerKey: String) {
+        val firstKey = handoffOwnerFirstKeys.remove(ownerKey) ?: return
+        handoffOwnersByFirstKey[firstKey]?.remove(ownerKey)
+        if (handoffOwnersByFirstKey[firstKey]?.isEmpty() == true) {
+            handoffOwnersByFirstKey.remove(firstKey)
         }
     }
 
@@ -510,6 +602,7 @@ object MangaImagePipeline {
                                 if (ownerUrlKeys[owner]?.isEmpty() == true) {
                                     ownerUrlKeys.remove(owner)
                                     unregisterChapterColdOwner(owner)
+                                    unregisterHandoffOwner(owner)
                                 }
                             }
                         }
@@ -626,25 +719,69 @@ object MangaImagePipeline {
         return specs.distinctBy { cacheKey(it.url) }
     }
 
-    private fun releaseOwnerFromUrl(ownerKey: String, cacheKey: String) {
+    private fun releaseOwnerFromUrl(ownerKey: String, cacheKey: String, reason: CancelReason) {
         synchronized(lock) {
             ownerUrlKeys[ownerKey]?.remove(cacheKey)
+
             val load = inFlight[cacheKey] ?: return
             load.owners.remove(ownerKey)
-            if (load.owners.isEmpty() && load.source != Source.WEBVIEW_TAKEOVER) {
-                cancelJobs[cacheKey]?.cancel()
-                cancelJobs[cacheKey] = pipelineScope.launch {
-                    delay(1500L)
-                    synchronized(lock) {
-                        val currentLoad = inFlight[cacheKey]
-                        if (currentLoad != null && currentLoad.owners.isEmpty()) {
-                            currentLoad.deferred.cancel()
-                            inFlight.remove(cacheKey)
-                        }
-                        cancelJobs.remove(cacheKey)
+
+            if (load.owners.isNotEmpty()) return
+            if (load.source == Source.WEBVIEW_TAKEOVER) return
+
+            val delayMs = cancelDelayFor(load.source, reason)
+            cancelJobs.remove(cacheKey)?.cancel()
+
+            if (delayMs <= 0L) {
+                load.deferred.cancel()
+                inFlight.remove(cacheKey)
+                cancelJobs.remove(cacheKey)
+                return
+            }
+
+            cancelJobs[cacheKey] = pipelineScope.launch {
+                delay(delayMs)
+                synchronized(lock) {
+                    val currentLoad = inFlight[cacheKey]
+                    if (currentLoad != null && currentLoad.owners.isEmpty()) {
+                        currentLoad.deferred.cancel()
+                        inFlight.remove(cacheKey)
                     }
+                    cancelJobs.remove(cacheKey)
                 }
             }
+        }
+    }
+
+    private fun cancelDelayFor(source: Source, reason: CancelReason): Long {
+        return when (reason) {
+            CancelReason.WINDOW_SHRINK -> when (source) {
+                Source.HANDOFF_HOT,
+                Source.NATIVE_HOT_WINDOW -> 2_000L
+
+                Source.NATIVE_WARM_WINDOW -> 1_000L
+
+                Source.HANDOFF_COLD,
+                Source.NATIVE_COLD_WINDOW,
+                Source.CHAPTER_COLD_PREFETCH -> 500L
+
+                Source.WEBVIEW_TAKEOVER -> Long.MAX_VALUE
+            }
+
+            CancelReason.PAGE_EXIT -> when (source) {
+                Source.HANDOFF_HOT,
+                Source.NATIVE_HOT_WINDOW -> 8_000L
+
+                Source.NATIVE_WARM_WINDOW -> 600L
+
+                Source.HANDOFF_COLD,
+                Source.NATIVE_COLD_WINDOW,
+                Source.CHAPTER_COLD_PREFETCH -> 0L
+
+                Source.WEBVIEW_TAKEOVER -> Long.MAX_VALUE
+            }
+
+            CancelReason.LOW_MEMORY -> 0L
         }
     }
 

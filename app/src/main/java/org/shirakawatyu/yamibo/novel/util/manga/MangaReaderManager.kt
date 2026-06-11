@@ -155,7 +155,9 @@ class MangaReaderManager(
 
                         setLoadingState(isPrevious = true, isManualJump = isManualJump, loading = false)
                         fallbackNavigate(prevChapterInfo.url)
-                    }
+                    },
+                    // 相邻章节加载后由 prefetchPreviousChapterCold 统一做边缘/冷预取，避免 Prober 再开一组 handoff。
+                    autoPrefetch = false
                 )
             } catch (e: CancellationException) {
                 if (!isStaleLoad(loadId)) {
@@ -246,7 +248,9 @@ class MangaReaderManager(
 
                         setLoadingState(isPrevious = false, isManualJump = isManualJump, loading = false)
                         fallbackNavigate(nextChapterInfo.url)
-                    }
+                    },
+                    // 相邻章节加载后由 prefetchNextChapterCold 统一做边缘/冷预取，避免 Prober 再开一组 handoff。
+                    autoPrefetch = false
                 )
             } catch (e: CancellationException) {
                 if (!isStaleLoad(loadId)) {

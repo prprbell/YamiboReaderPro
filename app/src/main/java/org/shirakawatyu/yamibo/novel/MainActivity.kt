@@ -1463,10 +1463,11 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                     }
                                 }
                                 composable(
-                                    route = "NativeMangaPage?url={url}&originalUrl={originalUrl}",
+                                    route = "NativeMangaPage?url={url}&originalUrl={originalUrl}&pipelineOwnerKey={pipelineOwnerKey}",
                                     arguments = listOf(
                                         navArgument("url") { defaultValue = "" },
-                                        navArgument("originalUrl") { defaultValue = "" }
+                                        navArgument("originalUrl") { defaultValue = "" },
+                                        navArgument("pipelineOwnerKey") { defaultValue = "" }
                                     ),
                                     enterTransition = {
                                         scaleIn(
@@ -1494,11 +1495,14 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                     val url = backStackEntry.arguments?.getString("url") ?: ""
                                     val originalUrl = backStackEntry.arguments?.getString("originalUrl")
                                         ?.takeIf { it.isNotBlank() } ?: url
+                                    val pipelineOwnerKey = backStackEntry.arguments?.getString("pipelineOwnerKey")
+                                        ?.takeIf { it.isNotBlank() }
 
                                     NativeMangaPage(
                                         url = url,
                                         originalUrl = originalUrl,
-                                        navController = navController
+                                        navController = navController,
+                                        pipelineOwnerKey = pipelineOwnerKey
                                     )
                                 }
                             }

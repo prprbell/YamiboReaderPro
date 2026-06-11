@@ -152,7 +152,8 @@ private val MangaLoadingIndicatorColor = Color.White
 fun NativeMangaPage(
     url: String,
     originalUrl: String = url,
-    navController: NavController
+    navController: NavController,
+    pipelineOwnerKey: String? = null
 ) {
 
     val context = LocalContext.current
@@ -181,6 +182,7 @@ fun NativeMangaPage(
     val globalOffsetY = remember { Animatable(0f) }
     var probingUrl by remember { mutableStateOf<String?>(null) }
     var probingJob by remember { mutableStateOf<Job?>(null) }
+    var probingPipelineOwnerKey by remember { mutableStateOf<String?>(null) }
 
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp.dp
@@ -191,8 +193,9 @@ fun NativeMangaPage(
 
     var isMultiTouch by remember { mutableStateOf(false) }
     var lastVolKeyTime by remember { mutableLongStateOf(0L) }
-    val nativePipelineOwnerKey = remember(url, originalUrl) {
-        "native:${url.hashCode()}:${originalUrl.hashCode()}:${System.nanoTime()}"
+    val nativePipelineOwnerKey = remember(url, originalUrl, pipelineOwnerKey) {
+        pipelineOwnerKey?.takeIf { it.isNotBlank() }
+            ?: MangaImagePipeline.createNativeOwnerKey(url, originalUrl)
     }
 
     val handleVerticalClick: () -> Unit = remember {
@@ -232,6 +235,8 @@ fun NativeMangaPage(
 
         val encodedChapterUrl = URLEncoder.encode(targetUrl, "utf-8")
         val encodedOriginalUrl = URLEncoder.encode(originalUrl, "utf-8")
+        val targetPipelineOwnerKey = MangaImagePipeline.createNativeOwnerKey(targetUrl, originalUrl)
+        probingPipelineOwnerKey = targetPipelineOwnerKey
 
         probingJob = scope.launch {
             MangaProber().probeUrl(
@@ -243,18 +248,13 @@ fun NativeMangaPage(
                         .filter { it.isNotBlank() }
                         .distinct()
 
-                    MangaImagePipeline.handoffPrefetch(
-                        context = context.applicationContext,
-                        urls = normalizedUrls,
-                        clickedIndex = 0
-                    )
-
                     GlobalData.tempMangaUrls = normalizedUrls
                     GlobalData.tempHtml = html
                     GlobalData.tempTitle = title
                     GlobalData.tempMangaIndex = 0
 
-                    navController.navigate("NativeMangaPage?url=$encodedChapterUrl&originalUrl=$encodedOriginalUrl") {
+                    val encodedOwnerKey = URLEncoder.encode(targetPipelineOwnerKey, "utf-8")
+                    navController.navigate("NativeMangaPage?url=$encodedChapterUrl&originalUrl=$encodedOriginalUrl&pipelineOwnerKey=$encodedOwnerKey") {
                         if (previousRoute?.startsWith("MangaWebPage") == true) {
                             popUpTo(previousRoute) { inclusive = true }
                         } else {
@@ -265,7 +265,12 @@ fun NativeMangaPage(
                             }
                         }
                     }
-                    scope.launch { delay(300); probingUrl = null; probingJob = null }
+                    scope.launch {
+                        delay(300)
+                        probingUrl = null
+                        probingJob = null
+                        probingPipelineOwnerKey = null
+                    }
                 },
                 onFallback = {
                     isJumpingChapter = false
@@ -280,8 +285,13 @@ fun NativeMangaPage(
                             }
                         }
                     }
-                    probingUrl = null; probingJob = null
-                }
+                    probingUrl = null
+                    probingJob = null
+                    probingPipelineOwnerKey = null
+                },
+                // 这里必须用目标页 owner，而不是当前页 owner；否则当前页 onDispose 会误杀新章节预热。
+                prefetchOwnerKey = targetPipelineOwnerKey,
+                autoPrefetch = true
             )
         }
     }
@@ -341,7 +351,21 @@ fun NativeMangaPage(
 
     BackHandler(enabled = true) {
         if (probingUrl != null) {
-            probingJob?.cancel(); probingJob = null; probingUrl = null; isJumpingChapter = false
+            probingJob?.cancel()
+            probingPipelineOwnerKey?.let { ownerKey ->
+                MangaImagePipeline.cancelNativeWindow(
+                    ownerKey,
+                    MangaImagePipeline.CancelReason.PAGE_EXIT
+                )
+                MangaImagePipeline.cancelChapterColdPrefetches(
+                    ownerKey,
+                    MangaImagePipeline.CancelReason.PAGE_EXIT
+                )
+            }
+            probingJob = null
+            probingPipelineOwnerKey = null
+            probingUrl = null
+            isJumpingChapter = false
         } else performExit()
     }
 
@@ -441,7 +465,9 @@ fun NativeMangaPage(
     LaunchedEffect(Unit) {
         if (GlobalData.tempMangaUrls.isNotEmpty()) {
             val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: ""
-            readerManager.initFirstChapter(tid, url, GlobalData.tempTitle, GlobalData.tempMangaUrls)
+            val initialTempUrls = GlobalData.tempMangaUrls
+            MangaImagePipeline.adoptHandoffPrefetchOwner(initialTempUrls, nativePipelineOwnerKey)
+            readerManager.initFirstChapter(tid, url, GlobalData.tempTitle, initialTempUrls)
 
             if (GlobalData.tempHtml.isNotBlank()) {
                 mangaDirVM.initDirectoryFromWeb(url, GlobalData.tempHtml, GlobalData.tempTitle)
