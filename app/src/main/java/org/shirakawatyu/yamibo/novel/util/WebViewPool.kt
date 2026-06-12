@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
@@ -32,7 +33,12 @@ object WebViewPool {
     private val pool = ArrayDeque<WebViewHolder>()
     private val activeHolders = IdentityHashMap<WebView, WebViewHolder>()
 
-    private const val MAX_POOL_SIZE = 2
+    private const val BASE_POOL_SIZE = 2
+    private const val BURST_POOL_SIZE = 3
+    private const val BURST_KEEP_ALIVE_MS = 5 * 60 * 1000L
+
+    private var burstUntilElapsed = 0L
+
     private const val MAX_USES_PER_WEBVIEW = 8
     private const val CLEANUP_DELAY_MS = 10 * 60 * 1000L
 
@@ -56,6 +62,7 @@ object WebViewPool {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val cleanupRunnable = Runnable { clearIdlePool() }
+    private val burstTrimRunnable = Runnable { trimIdlePoolToBaseIfNeeded() }
 
     fun init(context: Context) {
         checkMainThread("init")
@@ -81,6 +88,40 @@ object WebViewPool {
         mainHandler.postDelayed(cleanupRunnable, CLEANUP_DELAY_MS)
     }
 
+    private fun currentPoolLimit(): Int {
+        return if (SystemClock.elapsedRealtime() < burstUntilElapsed) {
+            BURST_POOL_SIZE
+        } else {
+            BASE_POOL_SIZE
+        }
+    }
+
+    private fun enableBurstCapacity() {
+        burstUntilElapsed = SystemClock.elapsedRealtime() + BURST_KEEP_ALIVE_MS
+        mainHandler.removeCallbacks(burstTrimRunnable)
+        mainHandler.postDelayed(burstTrimRunnable, BURST_KEEP_ALIVE_MS)
+    }
+
+    private fun pollCleanHolder(): WebViewHolder? {
+        val iterator = pool.iterator()
+        while (iterator.hasNext()) {
+            val holder = iterator.next()
+            if (!holder.isDirty) {
+                iterator.remove()
+                return holder
+            }
+        }
+        return null
+    }
+
+    private fun trimIdlePoolToBaseIfNeeded() {
+        if (SystemClock.elapsedRealtime() < burstUntilElapsed) return
+
+        while (pool.size + activeHolders.size > BASE_POOL_SIZE && pool.isNotEmpty()) {
+            discardHolder(pool.removeLast())
+        }
+    }
+
     private fun clearIdlePool() {
         checkMainThread("clearIdlePool")
         while (pool.isNotEmpty()) {
@@ -94,7 +135,7 @@ object WebViewPool {
 
         Looper.myQueue().addIdleHandler {
             try {
-                if (pool.size + activeHolders.size < MAX_POOL_SIZE) {
+                if (pool.size + activeHolders.size < currentPoolLimit()) {
                     val holder = createWebViewHolder(appContext)
                     holder.webView.tag = "recycled_standby"
                     pool.addLast(holder)
@@ -154,9 +195,22 @@ object WebViewPool {
         checkMainThread("acquire")
         scheduleCleanup()
 
-        val holder = pool.pollFirst() ?: createWebViewHolder(context).also {
-            triggerAsyncReplenish(context.applicationContext)
-        }
+        val appContext = context.applicationContext
+
+        val holder = pollCleanHolder()
+            ?: run {
+                val total = pool.size + activeHolders.size
+                val hasDirtyStandby = pool.any { it.isDirty }
+
+                if (hasDirtyStandby && total < BURST_POOL_SIZE) {
+                    enableBurstCapacity()
+                    createWebViewHolder(appContext)
+                } else {
+                    pool.pollFirst() ?: createWebViewHolder(appContext).also {
+                        triggerAsyncReplenish(appContext)
+                    }
+                }
+            }
 
         if (holder.isDirty) {
             washWebView(holder.webView)
@@ -204,11 +258,12 @@ object WebViewPool {
         if (holder.useCount >= MAX_USES_PER_WEBVIEW) {
             discardHolder(holder)
             triggerAsyncReplenish(appContext)
-        } else if (pool.size + activeHolders.size < MAX_POOL_SIZE) {
+        } else if (pool.size + activeHolders.size < currentPoolLimit()) {
             webView.tag = "recycled_standby"
             holder.isDirty = true
             pool.addLast(holder)
             triggerAsyncWash()
+            trimIdlePoolToBaseIfNeeded()
         } else {
             discardHolder(holder)
         }
