@@ -35,9 +35,11 @@ object WebViewPool {
 
     private const val BASE_POOL_SIZE = 2
     private const val BURST_POOL_SIZE = 3
+    private const val HARD_MAX_POOL_SIZE = 3
     private const val BURST_KEEP_ALIVE_MS = 5 * 60 * 1000L
 
     private var burstUntilElapsed = 0L
+    private var permanentLimit = BASE_POOL_SIZE
 
     private const val MAX_USES_PER_WEBVIEW = 8
     private const val CLEANUP_DELAY_MS = 10 * 60 * 1000L
@@ -62,7 +64,7 @@ object WebViewPool {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val cleanupRunnable = Runnable { clearIdlePool() }
-    private val burstTrimRunnable = Runnable { trimIdlePoolToBaseIfNeeded() }
+    private val burstTrimRunnable = Runnable { trimExcessIfNeeded() }
 
     fun init(context: Context) {
         checkMainThread("init")
@@ -90,9 +92,9 @@ object WebViewPool {
 
     private fun currentPoolLimit(): Int {
         return if (SystemClock.elapsedRealtime() < burstUntilElapsed) {
-            BURST_POOL_SIZE
+            maxOf(permanentLimit, BURST_POOL_SIZE)
         } else {
-            BASE_POOL_SIZE
+            permanentLimit
         }
     }
 
@@ -114,10 +116,10 @@ object WebViewPool {
         return null
     }
 
-    private fun trimIdlePoolToBaseIfNeeded() {
+    private fun trimExcessIfNeeded() {
         if (SystemClock.elapsedRealtime() < burstUntilElapsed) return
 
-        while (pool.size + activeHolders.size > BASE_POOL_SIZE && pool.isNotEmpty()) {
+        while (pool.size + activeHolders.size > permanentLimit && pool.isNotEmpty()) {
             discardHolder(pool.removeLast())
         }
     }
@@ -202,11 +204,17 @@ object WebViewPool {
                 val total = pool.size + activeHolders.size
                 val hasDirtyStandby = pool.any { it.isDirty }
 
-                if (hasDirtyStandby && total < BURST_POOL_SIZE) {
+                if (hasDirtyStandby && total < HARD_MAX_POOL_SIZE) {
                     enableBurstCapacity()
                     createWebViewHolder(appContext)
                 } else {
-                    pool.pollFirst() ?: createWebViewHolder(appContext).also {
+                    pool.pollFirst() ?: {
+                        val newTotal = activeHolders.size + 1
+                        if (newTotal > permanentLimit) {
+                            permanentLimit = newTotal.coerceAtMost(HARD_MAX_POOL_SIZE)
+                        }
+                        createWebViewHolder(appContext)
+                    }().also {
                         triggerAsyncReplenish(appContext)
                     }
                 }
@@ -263,7 +271,7 @@ object WebViewPool {
             holder.isDirty = true
             pool.addLast(holder)
             triggerAsyncWash()
-            trimIdlePoolToBaseIfNeeded()
+            trimExcessIfNeeded()
         } else {
             discardHolder(holder)
         }
