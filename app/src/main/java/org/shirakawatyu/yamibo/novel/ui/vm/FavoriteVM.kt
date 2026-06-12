@@ -46,7 +46,7 @@ enum class FetchState { IDLE, BACKGROUND, MANUAL }
 class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     companion object {
         /** 自动检查同时启用的总上限（小说 + 漫画合计）。 */
-        const val MAX_AUTO_CHECK = 16
+        const val MAX_AUTO_CHECK = 25
 
         /** 自动检查允许的间隔：避免过长间隔导致错过更新。 */
         val AUTO_CHECK_INTERVALS = listOf(3, 6, 12, 24, 72)
