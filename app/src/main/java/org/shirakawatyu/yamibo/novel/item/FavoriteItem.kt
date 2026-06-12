@@ -367,8 +367,6 @@ private fun UpdateStatusHandle(
 
     val capsuleStatus = currentStatus ?: lastVisibleStatus ?: HandleStatus.CHECKING
 
-    // 折叠模式下，把手位置只跟“配置状态”绑定，不跟“检查中/有更新”绑定。
-    // 这样检查开始/结束、胶囊淡入/淡出时，箭头和胶囊不会临时跳位。
     val handleOffsetY = if (isCollapsed) {
         when {
             autoCheckEnabled -> 6.dp
@@ -384,7 +382,7 @@ private fun UpdateStatusHandle(
     ) {
         Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) { content() }
 
-        // 检查中 / 有更新 胶囊（高优先级）
+        // 检查中 / 有更新
         AnimatedVisibility(
             visible = currentStatus != null,
             enter = fadeIn(animationSpec = tween(140, easing = FastOutSlowInEasing)),
@@ -402,7 +400,7 @@ private fun UpdateStatusHandle(
             )
         }
 
-        // 自动检查已开启 胶囊（低优先级，仅在无查/新时展示）
+        // 自动检查已开启
         AnimatedVisibility(
             visible = autoCheckEnabled && currentStatus == null,
             enter = fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)),
@@ -416,7 +414,6 @@ private fun UpdateStatusHandle(
     }
 }
 
-/** 贴在把手上的迷你胶囊：保留胶囊质感，但被限制在右侧图标区域内。 */
 @Composable
 private fun HandleStatusCapsule(
     status: HandleStatus,
@@ -469,12 +466,12 @@ private fun HandleStatusCapsule(
     }
 }
 
-/** 自动检查已开启的胶囊：比”查”/”新”更低调，表明该项已纳入后台自动巡检。 */
+/** 自动检查已开启的胶囊 */
 @Composable
 private fun AutoCheckCapsule() {
     val primary = darkThemeColor(YamiboColors.primary) { primary }
     val shape = RoundedCornerShape(50)
-    val textOffsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (-3).dp.toPx() }
+    val textOffsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (-4).dp.toPx() }
 
     Row(
         modifier = Modifier
@@ -498,7 +495,6 @@ private fun AutoCheckCapsule() {
     }
 }
 
-/** 胶囊内的柔和脉冲点：让”有更新”有生命感，但不再是孤零零廉价红点。 */
 @Composable
 private fun UpdateCapsuleGlyph(accent: Color) {
     val transition = rememberInfiniteTransition(label = "update_capsule_pulse")
