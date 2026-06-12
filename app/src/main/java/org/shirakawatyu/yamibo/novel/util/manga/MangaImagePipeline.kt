@@ -39,14 +39,16 @@ object MangaImagePipeline {
     private const val REFERER = "https://bbs.yamibo.com/"
     private const val WEBVIEW_WAIT_TIMEOUT_MS = 60_000L
     
-    enum class Source {
-        WEBVIEW_TAKEOVER,
-        HANDOFF_HOT,
-        HANDOFF_COLD,
-        NATIVE_HOT_WINDOW,
-        NATIVE_WARM_WINDOW,
-        NATIVE_COLD_WINDOW,
-        CHAPTER_COLD_PREFETCH
+    enum class Source(private val priority: Int) {
+        WEBVIEW_TAKEOVER(100),
+        NATIVE_HOT_WINDOW(95),
+        HANDOFF_HOT(90),
+        NATIVE_WARM_WINDOW(60),
+        HANDOFF_COLD(30),
+        NATIVE_COLD_WINDOW(20),
+        CHAPTER_COLD_PREFETCH(10);
+
+        fun priority() = priority
     }
 
     enum class LoadResult {
@@ -71,7 +73,7 @@ object MangaImagePipeline {
     private data class InFlightLoad(
         val cacheKey: String,
         val url: String,
-        val source: Source,
+        var source: Source,
         val deferred: Deferred<LoadResult>,
         val owners: MutableSet<String>
     )
@@ -566,7 +568,9 @@ object MangaImagePipeline {
             val existing = inFlight[key]
             if (existing != null) {
                 existing.owners.add(ownerKey)
-                // 若该请求正处于延迟取消倒计时中，中止取消操作（复活）
+                if (source.priority() > existing.source.priority()) {
+                    existing.source = source
+                }
                 cancelJobs.remove(key)?.cancel()
                 return existing.deferred
             }
