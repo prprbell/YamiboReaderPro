@@ -466,7 +466,15 @@ fun NativeMangaPage(
         if (GlobalData.tempMangaUrls.isNotEmpty()) {
             val tid = MangaTitleCleaner.extractTidFromUrl(url) ?: ""
             val initialTempUrls = GlobalData.tempMangaUrls
-            MangaImagePipeline.adoptHandoffPrefetchOwner(initialTempUrls, nativePipelineOwnerKey)
+            val targetIndex = GlobalData.tempMangaIndex.coerceIn(
+                0,
+                maxOf(0, initialTempUrls.size - 1)
+            )
+            MangaImagePipeline.adoptHandoffPrefetchOwner(
+                urls = initialTempUrls,
+                newOwnerKey = nativePipelineOwnerKey,
+                clickedIndex = targetIndex
+            )
             readerManager.initFirstChapter(tid, url, GlobalData.tempTitle, initialTempUrls)
 
             if (GlobalData.tempHtml.isNotBlank()) {
@@ -474,8 +482,6 @@ fun NativeMangaPage(
             } else {
                 if (mangaDirVM.currentDirectory == null) mangaDirVM.loadDirectoryByUrl(url)
             }
-
-            val targetIndex = GlobalData.tempMangaIndex
             GlobalData.tempMangaUrls = emptyList()
             GlobalData.tempHtml = ""
             GlobalData.tempMangaIndex = 0

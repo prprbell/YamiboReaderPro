@@ -202,8 +202,14 @@ object MangaImagePipeline {
      * Native 首帧接管已经启动的 handoff 预取。
      * 这样旧入口即使没有传 ownerKey，退出 Native 时也能取消这些 in-flight。
      */
-    fun adoptHandoffPrefetchOwner(urls: List<String>, newOwnerKey: String) {
-        val firstUrl = urls.firstOrNull { it.isNotBlank() } ?: return
+    fun adoptHandoffPrefetchOwner(
+        urls: List<String>,
+        newOwnerKey: String,
+        clickedIndex: Int = 0
+    ) {
+        val normalized = urls.filter { it.isNotBlank() }.distinct()
+        if (normalized.isEmpty()) return
+        val firstUrl = normalized[clickedIndex.coerceIn(0, normalized.lastIndex)]
         val firstKey = cacheKey(firstUrl)
 
         synchronized(lock) {
@@ -317,6 +323,7 @@ object MangaImagePipeline {
         }
 
         val desiredKeys = buildSet {
+            add(cacheKey(urls[currentIndex]))
             addAll(currentWindowKeys)
             addAll(retainedHotKeys)
             addAll(retainedNonHotKeys)
