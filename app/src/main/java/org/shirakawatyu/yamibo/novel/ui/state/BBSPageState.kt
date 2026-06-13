@@ -22,9 +22,6 @@ object BBSPageState {
     var showLoadError by mutableStateOf(false)
     var currentUrl by mutableStateOf<String?>(null)
     var pageTitle by mutableStateOf("")
-
-    // 首屏骨架屏交接状态：不移除 MainActivity 或 BBSPage 任意一方的骨架屏，
-    // 只确保 MainActivity 首屏骨架在 BBSPage 内部骨架/容器接手后再退出，避免中间空白或闪烁。
     var isBbsContainerMounted by mutableStateOf(false)
         private set
     var isBbsLoadingCoverMounted by mutableStateOf(false)
@@ -33,9 +30,15 @@ object BBSPageState {
         private set
     var hasRequestedInitialLoad by mutableStateOf(false)
 
+    val isRecovering: Boolean
+        get() = needsResumeRecovery || isAutoRecoveringBeforeError
+
+    val shouldDisplayLoadError: Boolean
+        get() = showLoadError && !isRecovering
+
     val isReadyToTakeInitialSkeleton: Boolean
         get() = isBbsContainerMounted &&
-                (isBbsLoadingCoverMounted || hasSuccessfullyLoaded || showLoadError)
+                (isBbsLoadingCoverMounted || hasSuccessfullyLoaded || shouldDisplayLoadError)
 
     var lastLoginState: Boolean? = null
     var hasSuccessfullyLoaded by mutableStateOf(false)
@@ -209,10 +212,20 @@ object BBSPageState {
     }
 
     fun requestResumeRecovery(mode: BbsResumeRecoveryMode = BbsResumeRecoveryMode.HealthCheck) {
+        val hadVisibleError = showLoadError || isErrorState || autoRecoveryFailed
+
         needsResumeRecovery = true
         if (recoveryPriority(mode) >= recoveryPriority(resumeRecoveryMode)) {
             resumeRecoveryMode = mode
         }
+
+        if (hadVisibleError) {
+            showLoadError = false
+            autoRecoveryFailed = false
+            isAutoRecoveringBeforeError = true
+            isLoading = true
+        }
+
         resumeRecoveryToken++
     }
 

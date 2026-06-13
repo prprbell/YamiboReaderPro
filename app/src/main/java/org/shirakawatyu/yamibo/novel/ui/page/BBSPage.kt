@@ -932,7 +932,7 @@ fun BBSPage(
         if (!isSelected) return
         if (!BBSPageState.needsResumeRecovery &&
             !BBSPageState.isErrorState &&
-            !BBSPageState.showLoadError
+            !BBSPageState.shouldDisplayLoadError
         ) {
             return
         }
@@ -1343,7 +1343,7 @@ fun BBSPage(
                 }
             )
 
-            if (BBSPageState.showLoadError) {
+            if (BBSPageState.shouldDisplayLoadError) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1396,7 +1396,7 @@ fun BBSPage(
                 (BBSPageState.isLoading || BBSPageState.isAutoRecoveringBeforeError) &&
                         !isPullRefreshing &&
                         !BBSPageState.hasSuccessfullyLoaded &&
-                        !BBSPageState.showLoadError
+                        !BBSPageState.shouldDisplayLoadError
 
             if (shouldShowLoadingCover) {
                 SideEffect {
@@ -1410,7 +1410,7 @@ fun BBSPage(
             }
 
             ReaderModeFAB(
-                visible = canConvertToReader && !BBSPageState.isLoading && !BBSPageState.showLoadError && !isFullscreenState.value,
+                visible = canConvertToReader && !BBSPageState.isLoading && !BBSPageState.shouldDisplayLoadError && !isFullscreenState.value,
                 onClick = {
                     BBSPageState.currentUrl?.let { url ->
                         val cleanUrl = url.substringBefore("#")
