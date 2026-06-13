@@ -116,6 +116,9 @@ import org.shirakawatyu.yamibo.novel.ui.page.ProbingPage
 import org.shirakawatyu.yamibo.novel.ui.page.ReaderPage
 import org.shirakawatyu.yamibo.novel.ui.page.ReaderWebPage
 import org.shirakawatyu.yamibo.novel.ui.state.BBSPageState
+import org.shirakawatyu.yamibo.novel.ui.state.BbsBackgroundPolicy
+import org.shirakawatyu.yamibo.novel.ui.state.BbsResumeRecoveryMode
+import org.shirakawatyu.yamibo.novel.ui.state.BbsWebViewPauseScheduler
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.theme._300文学Theme
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
@@ -151,6 +154,9 @@ class MainActivity : ComponentActivity() {
         private set
     private var backgroundStopJob: Job? = null
     private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val bbsPageState = BBSPageState()
+    private val bbsBackgroundPolicy = BbsBackgroundPolicy()
+    private val bbsPauseScheduler = BbsWebViewPauseScheduler(mainScope)
     private var uploadMessage: ValueCallback<Array<Uri>>? = null
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -173,14 +179,14 @@ class MainActivity : ComponentActivity() {
                 if (view != null &&
                     view === bbsWebViewState &&
                     newProgress >= 100 &&
-                    BBSPageState.hasMainFrameCommitted &&
-                    BBSPageState.isLoading &&
-                    !BBSPageState.isErrorState &&
-                    !BBSPageState.showLoadError
+                    bbsPageState.hasMainFrameCommitted &&
+                    bbsPageState.isLoading &&
+                    !bbsPageState.isErrorState &&
+                    !bbsPageState.showLoadError
                 ) {
                     val url = try { view.url } catch (_: Throwable) { null }
-                    if (BBSPageState.isUsableBbsUrl(url)) {
-                        BBSPageState.markLoadSucceeded(url)
+                    if (bbsPageState.isUsableBbsUrl(url)) {
+                        bbsPageState.markLoadSucceeded(url)
                     }
                 }
             }
@@ -286,7 +292,7 @@ class MainActivity : ComponentActivity() {
         }
 
         if (bbsWebViewState == null) {
-            bbsWebViewState = createBbsWebView(this, customWebChromeClient)
+            bbsWebViewState = createBbsWebView(this, bbsPageState, customWebChromeClient)
         }
 
         handleDeepLink(intent)
@@ -295,6 +301,8 @@ class MainActivity : ComponentActivity() {
             App(
                 bbsWebView = bbsWebViewState,
                 webChromeClient = customWebChromeClient,
+                bbsPageState = bbsPageState,
+                bbsPauseScheduler = bbsPauseScheduler,
                 isRestoring = isRestoring
             )
         }
@@ -319,21 +327,24 @@ class MainActivity : ComponentActivity() {
         // WebView 销毁是内存回收策略，不是普通恢复策略。
         // backgroundStopJob 的 delay 在进程 cached/doze 时可能不能准时执行，
         // 因此回到前台时再用 elapsedRealtime 补判一次：后台超过阈值才丢弃旧 WebView。
+        val backgroundDecision = bbsBackgroundPolicy.consumeStartDecision()
         val shouldReleaseBbsWebViewForMemory =
-            bbsWebViewState != null && BBSPageState.shouldReleaseWebViewForMemoryAfterLongBackground()
+            bbsWebViewState != null && backgroundDecision.shouldReleaseWebViewForMemory
 
         backgroundStopJob?.cancel()
         backgroundStopJob = null
 
-        BBSPageState.markAppStarted()
-        if (BBSPageState.isErrorState || BBSPageState.showLoadError) {
-            BBSPageState.requestResumeRecovery()
+        if (backgroundDecision.recoveryMode != BbsResumeRecoveryMode.None) {
+            bbsPageState.requestResumeRecovery(backgroundDecision.recoveryMode)
+        }
+        if (bbsPageState.isErrorState || bbsPageState.showLoadError) {
+            bbsPageState.requestResumeRecovery()
         }
 
         when {
             bbsWebViewState == null -> {
-                bbsWebViewState = createBbsWebView(this, customWebChromeClient)
-                BBSPageState.requestResumeRecovery()
+                bbsWebViewState = createBbsWebView(this, bbsPageState, customWebChromeClient)
+                bbsPageState.requestResumeRecovery()
             }
 
             shouldReleaseBbsWebViewForMemory -> {
@@ -349,14 +360,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        BBSPageState.markAppStopped()
+        bbsBackgroundPolicy.markStopped()
         bbsWebViewState?.onPause()
 
         backgroundStopJob?.cancel()
         backgroundStopJob = mainScope.launch {
             delay(900_000L) // 15 分钟：后台较久后销毁 BBS WebView，主要用于释放 renderer/surface/图片缓存内存。
             destroyBbsWebView(bbsWebViewState)
-            BBSPageState.resetForNewBbsWebView()
+            bbsPageState.resetForNewBbsWebView()
         }
     }
 
@@ -380,16 +391,16 @@ class MainActivity : ComponentActivity() {
 
     private fun recreateBbsWebViewForRecovery(clearErrorState: Boolean) {
         destroyBbsWebView(bbsWebViewState)
-        bbsWebViewState = createBbsWebView(this, customWebChromeClient)
-        BBSPageState.resetForNewBbsWebView()
+        bbsWebViewState = createBbsWebView(this, bbsPageState, customWebChromeClient)
         if (!clearErrorState) {
-            BBSPageState.requestRecoveryBeforeShowingError()
+            bbsPageState.requestRecoveryBeforeShowingError()
         } else {
-            BBSPageState.requestResumeRecovery()
+            bbsPageState.requestResumeRecovery()
         }
     }
 
     private fun destroyBbsWebView(target: WebView?) {
+        bbsPauseScheduler.cancel()
         destroyDetachedWebView(target)
         if (target == null || bbsWebViewState === target) {
             bbsWebViewState = null
@@ -399,6 +410,7 @@ class MainActivity : ComponentActivity() {
     private fun destroyDetachedWebView(target: WebView?) {
         target?.apply {
             try {
+                (webViewClient as? BBSGlobalWebViewClient)?.dispose()
                 stopLoading()
                 (parent as? ViewGroup)?.removeView(this)
                 removeAllViews()
@@ -411,17 +423,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        bbsPauseScheduler.close()
         mainScope.cancel()
         destroyBbsWebView(bbsWebViewState)
 
-        BBSPageState.hasSuccessfullyLoaded = false
+        bbsPageState.resetForNewBbsWebView()
         GlobalData.isAppInitialized = false
     }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
-fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): WebView {
-    BBSPageState.resetForNewBbsWebView()
+fun createBbsWebView(
+    context: Context,
+    bbsPageState: BBSPageState,
+    chromeClient: WebChromeClient? = null
+): WebView {
+    bbsPageState.resetForNewBbsWebView()
 
     return WebView(context).apply {
         layoutParams = ViewGroup.LayoutParams(
@@ -444,7 +461,7 @@ fun createBbsWebView(context: Context, chromeClient: WebChromeClient? = null): W
             loadsImagesAutomatically = true
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         }
-        webViewClient = BBSGlobalWebViewClient(context)
+        webViewClient = BBSGlobalWebViewClient(context, bbsPageState)
         webChromeClient = chromeClient ?: GlobalData.webChromeClient
 
         YamiboWebViewClient.setupDownloadListener(this)
@@ -666,7 +683,13 @@ private fun ClipboardLinkHint(
 @RequiresApi(Build.VERSION_CODES.O)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boolean = false) {
+fun App(
+    bbsWebView: WebView?,
+    webChromeClient: WebChromeClient,
+    bbsPageState: BBSPageState,
+    bbsPauseScheduler: BbsWebViewPauseScheduler,
+    isRestoring: Boolean = false
+) {
     val isAppInitialized = GlobalData.isAppInitialized
     val context = LocalContext.current
     val isNetworkAvailable by remember {
@@ -875,17 +898,17 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                             bbsWebView,
                             isNetworkAvailable,
                             homeRoute,
-                            BBSPageState.needsResumeRecovery
+                            bbsPageState.needsResumeRecovery
                         ) {
                             if (bbsWebView != null &&
                                 isNetworkAvailable &&
-                                !BBSPageState.hasSuccessfullyLoaded &&
-                                !BBSPageState.needsResumeRecovery &&
-                                !BBSPageState.isAutoRecoveringBeforeError &&
-                                !BBSPageState.showLoadError &&
-                                !BBSPageState.isLoading
+                                !bbsPageState.hasSuccessfullyLoaded &&
+                                !bbsPageState.needsResumeRecovery &&
+                                !bbsPageState.isAutoRecoveringBeforeError &&
+                                !bbsPageState.showLoadError &&
+                                !bbsPageState.isLoading
                             ) {
-                                BBSPageState.requestRecoveryBeforeShowingError()
+                                bbsPageState.requestRecoveryBeforeShowingError()
                             }
                         }
 
@@ -1067,7 +1090,9 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                                             BBSPage(
                                                 webView = bbsWebView,
                                                 isSelected = selectedItemIndex == 1,
-                                                navController = navController
+                                                navController = navController,
+                                                bbsPageState = bbsPageState,
+                                                pauseScheduler = bbsPauseScheduler
                                             )
                                             Box(
                                                 modifier = Modifier
@@ -1532,7 +1557,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                             val keepBbsInitialSkeletonOverlay = homeRoute == "BBSPage" &&
                                     !isRestoring &&
                                     (currentRoute == null || currentRoute == "BBSPage") &&
-                                    !BBSPageState.isReadyToTakeInitialSkeleton
+                                    !bbsPageState.isReadyToTakeInitialSkeleton
 
                             if (keepBbsInitialSkeletonOverlay) {
                                 val splashStatusHeight = WindowInsets.statusBars

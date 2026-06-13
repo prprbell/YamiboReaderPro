@@ -1,91 +1,181 @@
 package org.shirakawatyu.yamibo.novel.ui.state
 
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
-import android.webkit.WebView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import org.shirakawatyu.yamibo.novel.ui.page.FullscreenApi
-import org.shirakawatyu.yamibo.novel.ui.page.NativeMangaJSInterface
 
+/** 恢复强度。Reload 的优先级高于 HealthCheck。 */
 enum class BbsResumeRecoveryMode {
     None,
     HealthCheck,
     Reload
 }
 
-object BBSPageState {
-    var isLoading by mutableStateOf(true)
-    var showLoadError by mutableStateOf(false)
+/** 恢复请求的来源，用来区分普通前台恢复和“错误页展示前”的静默恢复。 */
+enum class BbsRecoveryReason {
+    AppResume,
+    BeforeShowingError
+}
+
+/**
+ * BBS 页面的有限状态机。
+ *
+ * 页面只能处于 Initial / Loading / Content / Recovering / Error 之一，避免原先十几个 Boolean
+ * 产生互相矛盾的排列组合。
+ */
+sealed interface BbsPagePhase {
+    data object Initial : BbsPagePhase
+
+    data class Loading(
+        val url: String?,
+        val keepsPreviousContent: Boolean
+    ) : BbsPagePhase
+
+    data class Content(
+        val url: String?,
+        val title: String
+    ) : BbsPagePhase
+
+    data class Recovering(
+        val url: String?,
+        val mode: BbsResumeRecoveryMode,
+        val reason: BbsRecoveryReason,
+        val keepsPreviousContent: Boolean
+    ) : BbsPagePhase
+
+    data class Error(
+        val url: String?,
+        val recoveryFailed: Boolean
+    ) : BbsPagePhase
+}
+
+data class BbsRecoveryRequest(
+    val mode: BbsResumeRecoveryMode,
+    val reason: BbsRecoveryReason,
+    val token: Int
+)
+
+/**
+ * Activity 级实例，由 MainActivity 创建和销毁。
+ *
+ * 该类不持有 Context、Handler、WebView 或 JS bridge，生命周期完全跟随宿主 Activity。
+ */
+class BBSPageState(
+    val skeletonHandoff: BbsSkeletonHandoffState = BbsSkeletonHandoffState()
+) {
+    var phase by mutableStateOf<BbsPagePhase>(BbsPagePhase.Initial)
+        private set
+
     var currentUrl by mutableStateOf<String?>(null)
+        private set
+
     var pageTitle by mutableStateOf("")
-    var isBbsContainerMounted by mutableStateOf(false)
         private set
-    var isBbsLoadingCoverMounted by mutableStateOf(false)
-        private set
+
     var hasMainFrameCommitted by mutableStateOf(false)
         private set
+
     var hasRequestedInitialLoad by mutableStateOf(false)
+        private set
 
-    val isRecovering: Boolean
-        get() = needsResumeRecovery || isAutoRecoveringBeforeError
-
-    val shouldDisplayLoadError: Boolean
-        get() = showLoadError && !isRecovering
-
-    val isReadyToTakeInitialSkeleton: Boolean
-        get() = isBbsContainerMounted &&
-                (isBbsLoadingCoverMounted || hasSuccessfullyLoaded || shouldDisplayLoadError)
+    var hasSuccessfullyLoaded by mutableStateOf(false)
+        private set
 
     var lastLoginState: Boolean? = null
-    var hasSuccessfullyLoaded by mutableStateOf(false)
-    var fullscreenApi: FullscreenApi? = null
-    var nativeMangaApi: NativeMangaJSInterface? = null
-    var isErrorState by mutableStateOf(false)
-    var hasExecutedInitialDelay: Boolean = false
+        private set
 
-    var isAutoRecoveringBeforeError by mutableStateOf(false)
-    var autoRecoveryFailed by mutableStateOf(false)
+    private var recoveryRequest by mutableStateOf<BbsRecoveryRequest?>(null)
+
+    var resumeRecoveryToken by mutableIntStateOf(0)
+        private set
+
     var autoRecoveryToken by mutableIntStateOf(0)
+        private set
+
+    private var lastResumeRecoveryElapsedRealtime: Long = 0L
+
+    val isLoading: Boolean
+        get() = phase is BbsPagePhase.Loading || phase is BbsPagePhase.Recovering
+
+    val isErrorState: Boolean
+        get() = phase is BbsPagePhase.Error
+
+    val showLoadError: Boolean
+        get() = phase is BbsPagePhase.Error
+
+    val autoRecoveryFailed: Boolean
+        get() = (phase as? BbsPagePhase.Error)?.recoveryFailed == true
+
+    val needsResumeRecovery: Boolean
+        get() = recoveryRequest != null
+
+    val resumeRecoveryMode: BbsResumeRecoveryMode
+        get() = recoveryRequest?.mode ?: BbsResumeRecoveryMode.None
+
+    val isAutoRecoveringBeforeError: Boolean
+        get() = recoveryRequest?.reason == BbsRecoveryReason.BeforeShowingError
+
+    val isRecovering: Boolean
+        get() = recoveryRequest != null || phase is BbsPagePhase.Recovering
+
+    val shouldDisplayLoadError: Boolean
+        get() = phase is BbsPagePhase.Error && !isRecovering
+
+    val isBbsContainerMounted: Boolean
+        get() = skeletonHandoff.isContainerMounted
+
+    val isBbsLoadingCoverMounted: Boolean
+        get() = skeletonHandoff.isLoadingCoverMounted
+
+    val isReadyToTakeInitialSkeleton: Boolean
+        get() = skeletonHandoff.isReady(
+            hasSuccessfullyLoaded = hasSuccessfullyLoaded,
+            shouldDisplayLoadError = shouldDisplayLoadError
+        )
 
     fun resetForNewBbsWebView() {
-        isLoading = true
-        showLoadError = false
+        phase = BbsPagePhase.Initial
         currentUrl = null
         pageTitle = ""
-        hasSuccessfullyLoaded = false
-        isErrorState = false
-        isAutoRecoveringBeforeError = false
-        autoRecoveryFailed = false
         hasMainFrameCommitted = false
         hasRequestedInitialLoad = false
-        needsResumeRecovery = false
-        resumeRecoveryMode = BbsResumeRecoveryMode.None
-        resetInitialSkeletonHandoff()
+        hasSuccessfullyLoaded = false
+        recoveryRequest = null
+        skeletonHandoff.reset()
     }
 
     fun resetInitialSkeletonHandoff() {
-        isBbsContainerMounted = false
-        isBbsLoadingCoverMounted = false
+        skeletonHandoff.reset()
     }
 
     fun markBbsContainerMounted() {
-        isBbsContainerMounted = true
+        skeletonHandoff.markContainerMounted()
     }
 
     fun markBbsLoadingCoverMounted() {
-        isBbsLoadingCoverMounted = true
+        skeletonHandoff.markLoadingCoverMounted()
+    }
+
+    /** 用户主动加载、刷新或恢复时统一从这里进入 Loading。 */
+    fun markLoadRequested(url: String?, clearSuccessfulContent: Boolean = false) {
+        hasRequestedInitialLoad = true
+        hasMainFrameCommitted = false
+        if (clearSuccessfulContent) {
+            hasSuccessfullyLoaded = false
+        }
+        if (isUsableBbsUrl(url)) {
+            currentUrl = url
+        }
+        phase = BbsPagePhase.Loading(
+            url = currentUrl ?: url,
+            keepsPreviousContent = hasSuccessfullyLoaded
+        )
     }
 
     fun markMainFrameLoadStarted(url: String?) {
-        currentUrl = url
-        isLoading = true
-        showLoadError = false
-        isErrorState = false
-        hasMainFrameCommitted = false
+        markLoadRequested(url = url, clearSuccessfulContent = false)
     }
 
     fun markMainFrameCommitted(url: String?, title: String?) {
@@ -96,144 +186,123 @@ object BBSPageState {
         hasMainFrameCommitted = true
     }
 
+    fun updatePageSnapshot(url: String?, title: String?) {
+        if (isUsableBbsUrl(url)) {
+            currentUrl = url
+        }
+        pageTitle = title.orEmpty()
+    }
+
+    fun updateLoginState(isLoggedIn: Boolean) {
+        lastLoginState = isLoggedIn
+    }
+
     fun markLoadSucceeded(url: String?) {
-        isLoading = false
-        isErrorState = false
-        showLoadError = false
-        finishRecoveryBeforeShowingError()
         if (isUsableBbsUrl(url)) {
             currentUrl = url
             hasSuccessfullyLoaded = true
         }
+        val completedRecovery = recoveryRequest != null
+        recoveryRequest = null
+        if (completedRecovery) {
+            lastResumeRecoveryElapsedRealtime = SystemClock.elapsedRealtime()
+        }
+        phase = BbsPagePhase.Content(currentUrl, pageTitle)
     }
 
-    fun requestRecoveryBeforeShowingError() {
-        isAutoRecoveringBeforeError = true
-        autoRecoveryFailed = false
-        showLoadError = false
+    /** 非当前主框架产生的错误，不应该把页面推进 Error。 */
+    fun finishIgnoredLoadError() {
+        val request = recoveryRequest
+        phase = when {
+            request != null -> BbsPagePhase.Recovering(
+                url = currentUrl,
+                mode = request.mode,
+                reason = request.reason,
+                keepsPreviousContent = hasSuccessfullyLoaded
+            )
+            hasSuccessfullyLoaded -> BbsPagePhase.Content(currentUrl, pageTitle)
+            else -> BbsPagePhase.Initial
+        }
+    }
+
+    /** 普通加载超时，直接显示错误页。 */
+    fun showLoadErrorNow(recoveryFailed: Boolean = false) {
+        recoveryRequest = null
+        phase = BbsPagePhase.Error(currentUrl, recoveryFailed)
+    }
+
+    /** WebView 主框架失败后，先进入静默恢复，不立即显示错误页。 */
+    fun requestRecoveryBeforeShowingError(
+        mode: BbsResumeRecoveryMode = BbsResumeRecoveryMode.HealthCheck
+    ) {
+        hasSuccessfullyLoaded = false
         autoRecoveryToken++
-        requestResumeRecovery()
+        enqueueRecovery(mode, BbsRecoveryReason.BeforeShowingError)
+        phase = BbsPagePhase.Recovering(
+            url = currentUrl,
+            mode = resumeRecoveryMode,
+            reason = BbsRecoveryReason.BeforeShowingError,
+            keepsPreviousContent = false
+        )
     }
 
-    fun finishRecoveryBeforeShowingError() {
-        isAutoRecoveringBeforeError = false
-        autoRecoveryFailed = false
+    /** 把已经排队的恢复明确推进 Recovering，供 HealthCheck / Reload 开始前调用。 */
+    fun beginRecovery(
+        mode: BbsResumeRecoveryMode = resumeRecoveryMode.takeUnless {
+            it == BbsResumeRecoveryMode.None
+        } ?: BbsResumeRecoveryMode.HealthCheck
+    ) {
+        val current = recoveryRequest
+        val reason = current?.reason ?: BbsRecoveryReason.AppResume
+        if (current == null) {
+            enqueueRecovery(mode, reason)
+        } else if (recoveryPriority(mode) > recoveryPriority(current.mode)) {
+            recoveryRequest = current.copy(mode = mode)
+        }
+        phase = BbsPagePhase.Recovering(
+            url = currentUrl,
+            mode = resumeRecoveryMode,
+            reason = reason,
+            keepsPreviousContent = hasSuccessfullyLoaded
+        )
     }
 
     fun failRecoveryBeforeShowingError() {
-        isAutoRecoveringBeforeError = false
-        autoRecoveryFailed = true
-        isLoading = false
-        isErrorState = true
-        showLoadError = true
+        recoveryRequest = null
+        lastResumeRecoveryElapsedRealtime = SystemClock.elapsedRealtime()
+        phase = BbsPagePhase.Error(currentUrl, recoveryFailed = true)
     }
 
-    // 恢复策略和内存回收策略分离：
-    // 30 秒以上统一做低成本 JS 健康检查：页面正常只补图和重注入脚本，不刷新；页面异常才 load/reload。
-    // 15 分钟是省内存阈值：销毁 BBS WebView，释放 renderer/surface/图片缓存，而不是为了“修复页面”。
-    private const val HEALTH_CHECK_RECOVERY_THRESHOLD_MS = 30_000L
-    private const val RELEASE_WEBVIEW_FOR_MEMORY_AFTER_LONG_BACKGROUND_MS = 15 * 60 * 1000L
-    private const val RESUME_RECOVERY_THROTTLE_MS = 5_000L
-
-    var lastStoppedElapsedRealtime: Long = 0L
-        private set
-
-    var needsResumeRecovery by mutableStateOf(false)
-        private set
-
-    var resumeRecoveryMode by mutableStateOf(BbsResumeRecoveryMode.None)
-        private set
-
-    // Boolean 已经是 true 时再次 request 不会触发 LaunchedEffect；token 用来保证每次请求都能被消费。
-    var resumeRecoveryToken by mutableIntStateOf(0)
-        private set
-
-    private var lastResumeRecoveryElapsedRealtime: Long = 0L
-
-    private val handler = Handler(Looper.getMainLooper())
-    private var pauseRunnable: Runnable? = null
-
-    fun schedulePause(webView: WebView, delayMs: Long = 8000L) {
-        cancelPause()
-        pauseRunnable = Runnable {
-            try {
-                webView.onPause()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+    fun requestResumeRecovery(
+        mode: BbsResumeRecoveryMode = BbsResumeRecoveryMode.HealthCheck
+    ) {
+        val reason = if (phase is BbsPagePhase.Error) {
+            BbsRecoveryReason.BeforeShowingError
+        } else {
+            recoveryRequest?.reason ?: BbsRecoveryReason.AppResume
         }
-        handler.postDelayed(pauseRunnable!!, delayMs)
-    }
+        enqueueRecovery(mode, reason)
 
-    fun cancelPause() {
-        pauseRunnable?.let { handler.removeCallbacks(it) }
-        pauseRunnable = null
-    }
-
-    fun markAppStopped() {
-        lastStoppedElapsedRealtime = SystemClock.elapsedRealtime()
-    }
-
-    fun markAppStarted() {
-        val mode = resumeRecoveryModeAfterBackground()
-        if (mode != BbsResumeRecoveryMode.None) {
-            requestResumeRecovery(mode)
+        if (phase is BbsPagePhase.Error) {
+            phase = BbsPagePhase.Recovering(
+                url = currentUrl,
+                mode = resumeRecoveryMode,
+                reason = reason,
+                keepsPreviousContent = false
+            )
         }
-    }
-
-    fun resumeRecoveryModeAfterBackground(): BbsResumeRecoveryMode {
-        val stoppedAt = lastStoppedElapsedRealtime
-        if (stoppedAt <= 0L) return BbsResumeRecoveryMode.None
-
-        val elapsed = SystemClock.elapsedRealtime() - stoppedAt
-        return when {
-            elapsed < HEALTH_CHECK_RECOVERY_THRESHOLD_MS -> BbsResumeRecoveryMode.None
-            else -> BbsResumeRecoveryMode.HealthCheck
-        }
-    }
-
-    fun shouldReleaseWebViewForMemoryAfterLongBackground(): Boolean {
-        val stoppedAt = lastStoppedElapsedRealtime
-        return stoppedAt > 0L &&
-                SystemClock.elapsedRealtime() - stoppedAt >= RELEASE_WEBVIEW_FOR_MEMORY_AFTER_LONG_BACKGROUND_MS
-    }
-
-    fun shouldForceRecreateWebViewAfterLongBackground(): Boolean {
-        // 兼容 MainActivity 现有调用名；这里的“强制重建”主要是后台较久后的内存回收策略。
-        return shouldReleaseWebViewForMemoryAfterLongBackground()
-    }
-
-    private fun recoveryPriority(mode: BbsResumeRecoveryMode): Int {
-        return when (mode) {
-            BbsResumeRecoveryMode.None -> 0
-            BbsResumeRecoveryMode.HealthCheck -> 1
-            BbsResumeRecoveryMode.Reload -> 2
-        }
-    }
-
-    fun requestResumeRecovery(mode: BbsResumeRecoveryMode = BbsResumeRecoveryMode.HealthCheck) {
-        val hadVisibleError = showLoadError || isErrorState || autoRecoveryFailed
-
-        needsResumeRecovery = true
-        if (recoveryPriority(mode) >= recoveryPriority(resumeRecoveryMode)) {
-            resumeRecoveryMode = mode
-        }
-
-        if (hadVisibleError) {
-            showLoadError = false
-            autoRecoveryFailed = false
-            isAutoRecoveringBeforeError = true
-            isLoading = true
-        }
-
-        resumeRecoveryToken++
     }
 
     fun finishResumeRecovery() {
-        needsResumeRecovery = false
-        resumeRecoveryMode = BbsResumeRecoveryMode.None
-        lastStoppedElapsedRealtime = 0L
+        recoveryRequest = null
         lastResumeRecoveryElapsedRealtime = SystemClock.elapsedRealtime()
+        if (phase is BbsPagePhase.Recovering) {
+            phase = if (hasSuccessfullyLoaded) {
+                BbsPagePhase.Content(currentUrl, pageTitle)
+            } else {
+                BbsPagePhase.Initial
+            }
+        }
     }
 
     fun resumeRecoveryThrottleDelayMs(): Long {
@@ -251,21 +320,39 @@ object BBSPageState {
                 !url.contains("warmup=true")
     }
 
-    fun bestRecoveryUrl(webView: WebView?, fallbackUrl: String): String {
-        val viewUrl = try {
-            webView?.url
-        } catch (_: Throwable) {
-            null
+    private fun enqueueRecovery(mode: BbsResumeRecoveryMode, reason: BbsRecoveryReason) {
+        val current = recoveryRequest
+        val selectedMode = if (recoveryPriority(mode) >= recoveryPriority(current?.mode)) {
+            mode
+        } else {
+            current?.mode ?: mode
+        }
+        val selectedReason = if (
+            current?.reason == BbsRecoveryReason.BeforeShowingError ||
+            reason == BbsRecoveryReason.BeforeShowingError
+        ) {
+            BbsRecoveryReason.BeforeShowingError
+        } else {
+            BbsRecoveryReason.AppResume
         }
 
-        if (isErrorState || isAutoRecoveringBeforeError || autoRecoveryFailed) {
-            return currentUrl?.takeIf { isUsableBbsUrl(it) }
-                ?: viewUrl?.takeIf { isUsableBbsUrl(it) }
-                ?: fallbackUrl
-        }
+        resumeRecoveryToken++
+        recoveryRequest = BbsRecoveryRequest(
+            mode = selectedMode,
+            reason = selectedReason,
+            token = resumeRecoveryToken
+        )
+    }
 
-        return viewUrl?.takeIf { isUsableBbsUrl(it) }
-            ?: currentUrl?.takeIf { isUsableBbsUrl(it) }
-            ?: fallbackUrl
+    private fun recoveryPriority(mode: BbsResumeRecoveryMode?): Int {
+        return when (mode) {
+            null, BbsResumeRecoveryMode.None -> 0
+            BbsResumeRecoveryMode.HealthCheck -> 1
+            BbsResumeRecoveryMode.Reload -> 2
+        }
+    }
+
+    private companion object {
+        const val RESUME_RECOVERY_THROTTLE_MS = 5_000L
     }
 }
