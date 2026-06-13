@@ -122,9 +122,71 @@ object PageJsScripts {
                     _lpStartPos = { x: e.clientX, y: e.clientY };
                     _lpTimer = setTimeout(function() {
                         _lpTimer = null;
-                        var img = pswp.querySelector('.pswp__item--active img') || pswp.querySelector('.pswp__img');
-                        if (img && img.src && window.AndroidFullscreen) {
-                            window.AndroidFullscreen.saveImage(img.src);
+                        var img = (function() {
+                            function isValidImage(node) {
+                                return node &&
+                                       node.tagName &&
+                                       node.tagName.toLowerCase() === 'img' &&
+                                       pswp.contains(node) &&
+                                       (node.currentSrc || node.src || node.getAttribute('src'));
+                            }
+
+                            // 优先取长按坐标下的真实图片，避免 PhotoSwipe active 节点切换滞后导致保存上一张。
+                            var hit = document.elementFromPoint(_lpStartPos.x, _lpStartPos.y);
+                            if (hit) {
+                                var hitImg = hit.tagName && hit.tagName.toLowerCase() === 'img'
+                                    ? hit
+                                    : (hit.closest ? hit.closest('img') : null);
+
+                                if (isValidImage(hitImg)) {
+                                    return hitImg;
+                                }
+                            }
+
+                            // 兜底：按可见面积与屏幕中心距离判断当前正在显示的图片。
+                            var imgs = Array.prototype.slice.call(
+                                pswp.querySelectorAll('.pswp__img, .pswp__item img')
+                            );
+
+                            var vw = window.innerWidth || document.documentElement.clientWidth;
+                            var vh = window.innerHeight || document.documentElement.clientHeight;
+                            var centerX = vw / 2;
+                            var centerY = vh / 2;
+
+                            var best = null;
+                            var bestScore = -Infinity;
+
+                            for (var i = 0; i < imgs.length; i++) {
+                                var candidate = imgs[i];
+                                if (!isValidImage(candidate)) continue;
+
+                                var rect = candidate.getBoundingClientRect();
+                                var visibleW = Math.max(0, Math.min(rect.right, vw) - Math.max(rect.left, 0));
+                                var visibleH = Math.max(0, Math.min(rect.bottom, vh) - Math.max(rect.top, 0));
+                                var visibleArea = visibleW * visibleH;
+
+                                if (visibleArea <= 1) continue;
+
+                                var imgCenterX = rect.left + rect.width / 2;
+                                var imgCenterY = rect.top + rect.height / 2;
+                                var dx = imgCenterX - centerX;
+                                var dy = imgCenterY - centerY;
+                                var distance = Math.sqrt(dx * dx + dy * dy);
+                                var score = visibleArea - distance * 1000;
+
+                                if (score > bestScore) {
+                                    bestScore = score;
+                                    best = candidate;
+                                }
+                            }
+
+                            return best;
+                        })();
+                        if (img && window.AndroidFullscreen) {
+                            var rawSrc = img.currentSrc || img.src || img.getAttribute('src');
+                            if (rawSrc) {
+                                window.AndroidFullscreen.saveImage(new URL(rawSrc, document.baseURI).href);
+                            }
                         }
                     }, 500);
                 }, { passive: true });
@@ -607,9 +669,71 @@ object PageJsScripts {
                     _lpStartPos = { x: e.clientX, y: e.clientY };
                     _lpTimer = setTimeout(function() {
                         _lpTimer = null;
-                        var img = pswp.querySelector('.pswp__item--active img') || pswp.querySelector('.pswp__img');
-                        if (img && img.src && window.AndroidFullscreen) {
-                            window.AndroidFullscreen.saveImage(img.src);
+                        var img = (function() {
+                            function isValidImage(node) {
+                                return node &&
+                                       node.tagName &&
+                                       node.tagName.toLowerCase() === 'img' &&
+                                       pswp.contains(node) &&
+                                       (node.currentSrc || node.src || node.getAttribute('src'));
+                            }
+
+                            // 优先取长按坐标下的真实图片，避免 PhotoSwipe active 节点切换滞后导致保存上一张。
+                            var hit = document.elementFromPoint(_lpStartPos.x, _lpStartPos.y);
+                            if (hit) {
+                                var hitImg = hit.tagName && hit.tagName.toLowerCase() === 'img'
+                                    ? hit
+                                    : (hit.closest ? hit.closest('img') : null);
+
+                                if (isValidImage(hitImg)) {
+                                    return hitImg;
+                                }
+                            }
+
+                            // 兜底：按可见面积与屏幕中心距离判断当前正在显示的图片。
+                            var imgs = Array.prototype.slice.call(
+                                pswp.querySelectorAll('.pswp__img, .pswp__item img')
+                            );
+
+                            var vw = window.innerWidth || document.documentElement.clientWidth;
+                            var vh = window.innerHeight || document.documentElement.clientHeight;
+                            var centerX = vw / 2;
+                            var centerY = vh / 2;
+
+                            var best = null;
+                            var bestScore = -Infinity;
+
+                            for (var i = 0; i < imgs.length; i++) {
+                                var candidate = imgs[i];
+                                if (!isValidImage(candidate)) continue;
+
+                                var rect = candidate.getBoundingClientRect();
+                                var visibleW = Math.max(0, Math.min(rect.right, vw) - Math.max(rect.left, 0));
+                                var visibleH = Math.max(0, Math.min(rect.bottom, vh) - Math.max(rect.top, 0));
+                                var visibleArea = visibleW * visibleH;
+
+                                if (visibleArea <= 1) continue;
+
+                                var imgCenterX = rect.left + rect.width / 2;
+                                var imgCenterY = rect.top + rect.height / 2;
+                                var dx = imgCenterX - centerX;
+                                var dy = imgCenterY - centerY;
+                                var distance = Math.sqrt(dx * dx + dy * dy);
+                                var score = visibleArea - distance * 1000;
+
+                                if (score > bestScore) {
+                                    bestScore = score;
+                                    best = candidate;
+                                }
+                            }
+
+                            return best;
+                        })();
+                        if (img && window.AndroidFullscreen) {
+                            var rawSrc = img.currentSrc || img.src || img.getAttribute('src');
+                            if (rawSrc) {
+                                window.AndroidFullscreen.saveImage(new URL(rawSrc, document.baseURI).href);
+                            }
                         }
                     }, 500);
                 }, { passive: true });
@@ -860,9 +984,71 @@ object PageJsScripts {
                     _lpStartPos = { x: e.clientX, y: e.clientY };
                     _lpTimer = setTimeout(function() {
                         _lpTimer = null;
-                        var img = pswp.querySelector('.pswp__item--active img') || pswp.querySelector('.pswp__img');
-                        if (img && img.src && window.AndroidFullscreen) {
-                            window.AndroidFullscreen.saveImage(img.src);
+                        var img = (function() {
+                            function isValidImage(node) {
+                                return node &&
+                                       node.tagName &&
+                                       node.tagName.toLowerCase() === 'img' &&
+                                       pswp.contains(node) &&
+                                       (node.currentSrc || node.src || node.getAttribute('src'));
+                            }
+
+                            // 优先取长按坐标下的真实图片，避免 PhotoSwipe active 节点切换滞后导致保存上一张。
+                            var hit = document.elementFromPoint(_lpStartPos.x, _lpStartPos.y);
+                            if (hit) {
+                                var hitImg = hit.tagName && hit.tagName.toLowerCase() === 'img'
+                                    ? hit
+                                    : (hit.closest ? hit.closest('img') : null);
+
+                                if (isValidImage(hitImg)) {
+                                    return hitImg;
+                                }
+                            }
+
+                            // 兜底：按可见面积与屏幕中心距离判断当前正在显示的图片。
+                            var imgs = Array.prototype.slice.call(
+                                pswp.querySelectorAll('.pswp__img, .pswp__item img')
+                            );
+
+                            var vw = window.innerWidth || document.documentElement.clientWidth;
+                            var vh = window.innerHeight || document.documentElement.clientHeight;
+                            var centerX = vw / 2;
+                            var centerY = vh / 2;
+
+                            var best = null;
+                            var bestScore = -Infinity;
+
+                            for (var i = 0; i < imgs.length; i++) {
+                                var candidate = imgs[i];
+                                if (!isValidImage(candidate)) continue;
+
+                                var rect = candidate.getBoundingClientRect();
+                                var visibleW = Math.max(0, Math.min(rect.right, vw) - Math.max(rect.left, 0));
+                                var visibleH = Math.max(0, Math.min(rect.bottom, vh) - Math.max(rect.top, 0));
+                                var visibleArea = visibleW * visibleH;
+
+                                if (visibleArea <= 1) continue;
+
+                                var imgCenterX = rect.left + rect.width / 2;
+                                var imgCenterY = rect.top + rect.height / 2;
+                                var dx = imgCenterX - centerX;
+                                var dy = imgCenterY - centerY;
+                                var distance = Math.sqrt(dx * dx + dy * dy);
+                                var score = visibleArea - distance * 1000;
+
+                                if (score > bestScore) {
+                                    bestScore = score;
+                                    best = candidate;
+                                }
+                            }
+
+                            return best;
+                        })();
+                        if (img && window.AndroidFullscreen) {
+                            var rawSrc = img.currentSrc || img.src || img.getAttribute('src');
+                            if (rawSrc) {
+                                window.AndroidFullscreen.saveImage(new URL(rawSrc, document.baseURI).href);
+                            }
                         }
                     }, 500);
                 }, { passive: true });
