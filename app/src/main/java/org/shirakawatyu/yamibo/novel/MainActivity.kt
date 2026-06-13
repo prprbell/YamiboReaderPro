@@ -316,10 +316,11 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
 
-        // 长时间后台时，backgroundStopJob 的 delay 可能因为进程进入 cached/doze 而没有按时执行。
-        // 因此回到前台时必须再次用 elapsedRealtime 判断，必要时主动丢弃旧 WebView。
-        val shouldRecreateBbsWebView =
-            bbsWebViewState != null && BBSPageState.shouldForceRecreateWebViewAfterLongBackground()
+        // WebView 销毁是内存回收策略，不是普通恢复策略。
+        // backgroundStopJob 的 delay 在进程 cached/doze 时可能不能准时执行，
+        // 因此回到前台时再用 elapsedRealtime 补判一次：后台超过阈值才丢弃旧 WebView。
+        val shouldReleaseBbsWebViewForMemory =
+            bbsWebViewState != null && BBSPageState.shouldReleaseWebViewForMemoryAfterLongBackground()
 
         backgroundStopJob?.cancel()
         backgroundStopJob = null
@@ -335,7 +336,7 @@ class MainActivity : ComponentActivity() {
                 BBSPageState.requestResumeRecovery()
             }
 
-            shouldRecreateBbsWebView -> {
+            shouldReleaseBbsWebViewForMemory -> {
                 recreateBbsWebViewAfterLongBackground()
             }
 
@@ -353,7 +354,7 @@ class MainActivity : ComponentActivity() {
 
         backgroundStopJob?.cancel()
         backgroundStopJob = mainScope.launch {
-            delay(900_000L) // 15分钟
+            delay(900_000L) // 15 分钟：后台较久后销毁 BBS WebView，主要用于释放 renderer/surface/图片缓存内存。
             destroyBbsWebView(bbsWebViewState)
             BBSPageState.resetForNewBbsWebView()
         }
@@ -373,6 +374,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun recreateBbsWebViewAfterLongBackground() {
+        // 这里不是为了修复健康页面，而是后台较久后重新创建 WebView，避免长期占用内存。
         recreateBbsWebViewForRecovery(clearErrorState = true)
     }
 
@@ -868,7 +870,7 @@ fun App(bbsWebView: WebView?, webChromeClient: WebChromeClient, isRestoring: Boo
                             pageList.indexOf(currentRoute ?: homeRoute).coerceAtLeast(0)
 
                         // 初始加载 / 网络恢复后，如果 BBSPage 还没成功加载且没有正在恢复，
-                        // 则委托 BBSPageState 启动自动恢复，统一走 BBSPage 的 startLoading + 超时状态机。
+                        // 则委托 BBSPageState 启动自动恢复。30 秒以上后台恢复也统一走 JS 健康检查，异常才刷新。
                         LaunchedEffect(
                             bbsWebView,
                             isNetworkAvailable,

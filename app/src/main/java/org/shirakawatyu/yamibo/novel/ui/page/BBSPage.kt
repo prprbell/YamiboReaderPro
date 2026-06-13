@@ -90,6 +90,7 @@ import org.shirakawatyu.yamibo.novel.global.YamiboRetrofit
 import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.state.BBSPageState
+import org.shirakawatyu.yamibo.novel.ui.state.BbsResumeRecoveryMode
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
 import org.shirakawatyu.yamibo.novel.ui.vm.BottomNavBarVM
 import org.shirakawatyu.yamibo.novel.ui.vm.MangaDirectoryVM
@@ -845,6 +846,88 @@ fun BBSPage(
         NetworkMonitor.observeNetwork(context)
     }.collectAsState(initial = false)
 
+    fun isBbsPageHealthyFromResult(result: String?): Boolean {
+        return try {
+            val cleanJson = if (result?.startsWith("\"") == true) {
+                JSON.parse(result) as? String
+            } else {
+                result
+            } ?: return false
+
+            val obj = JSON.parseObject(cleanJson)
+            if (obj.containsKey("error")) return false
+
+            val href = obj.getString("href") ?: ""
+            val hasBody = obj.getBooleanValue("hasBody")
+            val bodyTextLength = obj.getIntValue("bodyTextLength")
+            val hasForumContent = obj.getBooleanValue("hasForumContent")
+            val titleLength = obj.getIntValue("titleLength")
+
+            BBSPageState.isUsableBbsUrl(href) &&
+                    hasBody &&
+                    (bodyTextLength > 20 || hasForumContent || titleLength > 0)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun runHealthCheckResumeRecovery() {
+        // 30 秒以上后台恢复统一走这里：先 onResume/resumeTimers，再用低成本 JS 检查页面是否真的坏了。
+        // 健康页面只补坏图和重注入漫画脚本；只有硬异常才 load/reload，避免短后台回来打断用户当前页面。
+        val targetUrl = BBSPageState.bestRecoveryUrl(webView, mobileIndexUrl)
+        val healthCheckJs = """
+            (function() {
+                try {
+                    var bodyTextLength = document.body ? ((document.body.innerText || '').trim().length) : 0;
+                    var hasForumContent = !!document.querySelector('.wp, .thread, .postlist, #ct, .message, .bm, .bm_c, #threadlist, #postlist, .postmessage');
+                    return JSON.stringify({
+                        href: String(location.href || ''),
+                        readyState: String(document.readyState || ''),
+                        hasBody: !!document.body,
+                        bodyTextLength: bodyTextLength,
+                        hasForumContent: hasForumContent,
+                        titleLength: String(document.title || '').length
+                    });
+                } catch (e) {
+                    return JSON.stringify({ error: String(e) });
+                }
+            })();
+        """.trimIndent()
+
+        webView.evaluateJavascript(healthCheckJs) { result ->
+            try {
+                val currentWebViewUrl = try {
+                    webView.url
+                } catch (_: Throwable) {
+                    null
+                }
+
+                val shouldLoadUrl = BBSPageState.isErrorState ||
+                        BBSPageState.showLoadError ||
+                        !BBSPageState.hasSuccessfullyLoaded ||
+                        !BBSPageState.isUsableBbsUrl(currentWebViewUrl) ||
+                        !isBbsPageHealthyFromResult(result)
+
+                if (shouldLoadUrl) {
+                    startLoading(targetUrl)
+                } else {
+                    webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
+                    webView.evaluateJavascript(PageJsScripts.BBS_MANGA_REINJECT_JS, null)
+                    BBSPageState.markLoadSucceeded(currentWebViewUrl)
+                }
+
+                BBSPageState.finishResumeRecovery()
+            } catch (_: Throwable) {
+                BBSPageState.isLoading = false
+                BBSPageState.isErrorState = true
+                BBSPageState.showLoadError = false
+                BBSPageState.requestRecoveryBeforeShowingError()
+                (context as? org.shirakawatyu.yamibo.novel.MainActivity)
+                    ?.recreateBbsWebViewAfterRendererGone(webView)
+            }
+        }
+    }
+
     fun recoverBbsWebViewAfterResume() {
         if (!isSelected) return
         if (!BBSPageState.needsResumeRecovery &&
@@ -858,27 +941,29 @@ fun BBSPage(
             BBSPageState.cancelPause()
             webView.onResume()
             webView.resumeTimers()
-            webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
 
-            val targetUrl = BBSPageState.bestRecoveryUrl(webView, mobileIndexUrl)
             val currentWebViewUrl = try {
                 webView.url
             } catch (_: Throwable) {
                 null
             }
 
-            val shouldLoadUrl = BBSPageState.isErrorState ||
-                    BBSPageState.showLoadError ||
-                    !BBSPageState.hasSuccessfullyLoaded ||
-                    !BBSPageState.isUsableBbsUrl(currentWebViewUrl)
-
-            if (shouldLoadUrl) {
-                startLoading(targetUrl)
-            } else {
-                reloadCurrentPageWithTimeout()
+            val effectiveMode = when {
+                BBSPageState.isErrorState || BBSPageState.showLoadError -> BbsResumeRecoveryMode.HealthCheck
+                BBSPageState.isLoading -> BbsResumeRecoveryMode.HealthCheck
+                !BBSPageState.hasSuccessfullyLoaded -> BbsResumeRecoveryMode.HealthCheck
+                !BBSPageState.isUsableBbsUrl(currentWebViewUrl) -> BbsResumeRecoveryMode.HealthCheck
+                else -> BBSPageState.resumeRecoveryMode
             }
 
-            BBSPageState.finishResumeRecovery()
+            when (effectiveMode) {
+                BbsResumeRecoveryMode.Reload -> {
+                    reloadCurrentPageWithTimeout()
+                    BBSPageState.finishResumeRecovery()
+                }
+                BbsResumeRecoveryMode.HealthCheck,
+                BbsResumeRecoveryMode.None -> runHealthCheckResumeRecovery()
+            }
         } catch (_: Throwable) {
             BBSPageState.isLoading = false
             BBSPageState.isErrorState = true
