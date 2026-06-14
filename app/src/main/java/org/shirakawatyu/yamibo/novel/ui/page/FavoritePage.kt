@@ -119,7 +119,6 @@ import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteMoreOptionsButto
 import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteTopSearchField
 import org.shirakawatyu.yamibo.novel.ui.widget.favorite.SwipeToCheckRow
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
-import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.util.darkThemeColor
@@ -273,25 +272,19 @@ fun FavoritePage(
             } else if (event == Lifecycle.Event.ON_RESUME) {
                 loginPollJob?.cancel()
                 loginPollJob = coroutineScope.launch(Dispatchers.IO) {
-                    var wasLoggedIn = isLoggedIn
                     for (i in 0 until 20) {
-                        val realCookie =
+                        val currentCookie =
                             CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
-                        val auth = realCookie.contains("EeqY_2132_auth=")
-                        if (isLoggedIn != auth) {
-                            withContext(Dispatchers.Main) { isLoggedIn = auth }
+                        val currentLoginState = currentCookie.contains("EeqY_2132_auth=")
+                        if (isLoggedIn != currentLoginState) {
+                            withContext(Dispatchers.Main) { isLoggedIn = currentLoginState }
                         }
-                        if (!wasLoggedIn && auth) {
-                            AccountSyncManager.syncCookieAndCheckSign(
-                                context.applicationContext,
-                                "FAVORITE_PAGE_POLL"
-                            )
+                        if (favoriteVM.checkLoginState(currentLoginState, uiState.isRefreshing)) {
                             withContext(Dispatchers.Main) {
                                 favoriteVM.refreshList(showLoading = false, isSmartSync = false)
                             }
                             break
                         }
-                        wasLoggedIn = auth
                         delay(500)
                     }
                 }

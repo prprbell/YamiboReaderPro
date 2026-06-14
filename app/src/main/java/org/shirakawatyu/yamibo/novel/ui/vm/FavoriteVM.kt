@@ -113,6 +113,19 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
         private set
     var lastPauseTime = 0L
     var isFavoritePageVisible = false
+    var lastLoginState: Boolean? = null
+        private set
+
+    /** BBSPage-aligned: 三段式登录态检查。返回 true 表示需要刷新列表。 */
+    fun checkLoginState(currentLoginState: Boolean, isRefreshing: Boolean): Boolean {
+        if (isRefreshing) {
+            lastLoginState = currentLoginState
+            return false
+        }
+        val changed = lastLoginState != null && lastLoginState != currentLoginState
+        lastLoginState = currentLoginState
+        return changed
+    }
 
     // 本地缓存工具
     private val localCache by lazy { LocalCacheUtil.getInstance(applicationContext) }
