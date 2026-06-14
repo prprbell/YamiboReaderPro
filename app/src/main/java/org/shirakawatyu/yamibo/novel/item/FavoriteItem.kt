@@ -367,12 +367,10 @@ private fun UpdateStatusHandle(
 
     val capsuleStatus = currentStatus ?: lastVisibleStatus ?: HandleStatus.CHECKING
 
-    val handleOffsetY = if (isCollapsed) {
-        when {
-            autoCheckEnabled -> 6.dp
-            updateCheckTracked -> 3.dp
-            else -> 0.dp
-        }
+    val wasAlreadyTracked = remember { updateCheckTracked }
+
+    val handleOffsetY = if (isCollapsed && wasAlreadyTracked) {
+        if (autoCheckEnabled) 6.dp else 3.dp
     } else 0.dp
     Box(
         modifier = modifier
@@ -471,7 +469,7 @@ private fun HandleStatusCapsule(
 private fun AutoCheckCapsule() {
     val primary = darkThemeColor(YamiboColors.primary) { primary }
     val shape = RoundedCornerShape(50)
-    val textOffsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (-4).dp.toPx() }
+    val textOffsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { (-3).dp.toPx() }
 
     Row(
         modifier = Modifier
