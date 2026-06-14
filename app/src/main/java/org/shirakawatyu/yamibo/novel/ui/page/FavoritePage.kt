@@ -119,6 +119,7 @@ import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteMoreOptionsButto
 import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteTopSearchField
 import org.shirakawatyu.yamibo.novel.ui.widget.favorite.SwipeToCheckRow
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
+import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
 import org.shirakawatyu.yamibo.novel.util.darkThemeColor
@@ -264,20 +265,34 @@ fun FavoritePage(
     var newItemsCount by remember { mutableIntStateOf(0) }
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    var loginPollJob by remember { mutableStateOf<Job?>(null) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
                 favoriteVM.lastPauseTime = System.currentTimeMillis()
             } else if (event == Lifecycle.Event.ON_RESUME) {
-                coroutineScope.launch(Dispatchers.IO) {
-                    for (i in 0 until 5) {
+                loginPollJob?.cancel()
+                loginPollJob = coroutineScope.launch(Dispatchers.IO) {
+                    var wasLoggedIn = isLoggedIn
+                    for (i in 0 until 20) {
                         val realCookie =
                             CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
                         val auth = realCookie.contains("EeqY_2132_auth=")
                         if (isLoggedIn != auth) {
                             withContext(Dispatchers.Main) { isLoggedIn = auth }
                         }
-                        delay(1000)
+                        if (!wasLoggedIn && auth) {
+                            AccountSyncManager.syncCookieAndCheckSign(
+                                context.applicationContext,
+                                "FAVORITE_PAGE_POLL"
+                            )
+                            withContext(Dispatchers.Main) {
+                                favoriteVM.refreshList(showLoading = false, isSmartSync = false)
+                            }
+                            break
+                        }
+                        wasLoggedIn = auth
+                        delay(500)
                     }
                 }
                 val isQuickReturn = favoriteVM.lastPauseTime != 0L &&
