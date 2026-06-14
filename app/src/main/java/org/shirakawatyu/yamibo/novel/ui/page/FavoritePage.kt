@@ -66,6 +66,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -118,6 +119,7 @@ import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteManageDoneButton
 import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteMoreOptionsButton
 import org.shirakawatyu.yamibo.novel.ui.widget.favorite.FavoriteTopSearchField
 import org.shirakawatyu.yamibo.novel.ui.widget.favorite.SwipeToCheckRow
+import org.shirakawatyu.yamibo.novel.util.AccountSyncManager
 import org.shirakawatyu.yamibo.novel.util.AutoSignManager
 import org.shirakawatyu.yamibo.novel.util.SettingsUtil
 import org.shirakawatyu.yamibo.novel.util.darkModeColor
@@ -133,6 +135,16 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 // 非搜索场景下，确认"暂无收藏"前的等待时间。
 // 调大以覆盖冷启动时 DataStore/Flow 首次发射前的空窗，避免闪现"暂无收藏"。
 private const val EMPTY_STATE_CONFIRM_DELAY_MS = 1500L
+private const val YAMIBO_COOKIE_URL = "https://bbs.yamibo.com"
+private const val YAMIBO_AUTH_COOKIE_KEY = "EeqY_2132_auth="
+private const val FAVORITE_LOGIN_POLL_MAX_COUNT = 20
+private const val FAVORITE_LOGIN_POLL_INTERVAL_MS = 500L
+
+private fun readYamiboLoginStateFromCookie(): Boolean {
+    return CookieManager.getInstance()
+        .getCookie(YAMIBO_COOKIE_URL)
+        ?.contains(YAMIBO_AUTH_COOKIE_KEY) == true
+}
 
 /**
  * 收藏页面，展示用户的收藏列表，支持刷新和拖拽排序。
@@ -143,7 +155,8 @@ private const val EMPTY_STATE_CONFIRM_DELAY_MS = 1500L
 @Composable
 fun FavoritePage(
     favoriteVM: FavoriteVM = viewModel(factory = ViewModelFactory(LocalContext.current.applicationContext)),
-    navController: NavController
+    navController: NavController,
+    isSelected: Boolean = true
 ) {
     val uiState by favoriteVM.uiState.collectAsState()
     val favoriteList = uiState.favoriteList
@@ -173,10 +186,7 @@ fun FavoritePage(
     var showClickToTopDialog by remember { mutableStateOf(false) }
     var pendingScrollToTop by remember { mutableStateOf(false) }
     var isLoggedIn by remember {
-        mutableStateOf(
-            CookieManager.getInstance().getCookie("https://bbs.yamibo.com")
-                ?.contains("EeqY_2132_auth=") == true
-        )
+        mutableStateOf(readYamiboLoginStateFromCookie())
     }
 
     LaunchedEffect(Unit) { favoriteVM.refreshCacheInfo() }
@@ -235,6 +245,79 @@ fun FavoritePage(
         }
     }
     val context = LocalContext.current
+    val latestIsRefreshing by rememberUpdatedState(isRefreshing)
+
+    LaunchedEffect(Unit) {
+        AccountSyncManager.authStateFlow.collect { authHash ->
+            val cookieLoggedIn = readYamiboLoginStateFromCookie()
+
+            // authStateFlow 尚未同步，但 WebView Cookie 已经是登录态时，只更新 UI，
+            // 不触发 checkLoginState，避免在 CookieUtil.saveCookie 之前抢跑刷新。
+            if (authHash == null && cookieLoggedIn) {
+                if (!isLoggedIn) isLoggedIn = true
+                return@collect
+            }
+
+            val nowLoggedIn = authHash != null
+
+            if (isLoggedIn != nowLoggedIn) {
+                isLoggedIn = nowLoggedIn
+            }
+
+            val shouldRefresh = favoriteVM.checkLoginState(
+                currentLoginState = nowLoggedIn,
+                isRefreshing = latestIsRefreshing
+            )
+
+            // 登录成功时刷新一次；退出登录只更新状态，不主动打收藏接口，避免无意义的登录异常提示。
+            if (shouldRefresh && nowLoggedIn) {
+                favoriteVM.refreshList(
+                    showLoading = false,
+                    isSmartSync = false
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(isSelected) {
+        if (!isSelected) return@LaunchedEffect
+
+        suspend fun syncCurrentCookie(source: String) {
+            withContext(Dispatchers.IO) {
+                AccountSyncManager.syncCookieAndCheckSign(
+                    context = context.applicationContext,
+                    source = source
+                )
+            }
+        }
+
+        // 每次进入收藏页只同步一次，覆盖 MinePage 登录中途被切走导致延迟同步取消的情况。
+        syncCurrentCookie("FavoritePageSelectedInitial")
+
+        val alreadyLoggedIn = readYamiboLoginStateFromCookie()
+        if (isLoggedIn != alreadyLoggedIn) {
+            isLoggedIn = alreadyLoggedIn
+        }
+
+        // 已经登录：到这里就结束，不做选中轮询。
+        if (alreadyLoggedIn) return@LaunchedEffect
+
+        // 未登录：只开一个短窗口，专门覆盖“MinePage 正在登录，马上切到 FavoritePage”的情况。
+        repeat(FAVORITE_LOGIN_POLL_MAX_COUNT) {
+            delay(FAVORITE_LOGIN_POLL_INTERVAL_MS)
+
+            val currentLoginState = readYamiboLoginStateFromCookie()
+            if (isLoggedIn != currentLoginState) {
+                isLoggedIn = currentLoginState
+            }
+
+            if (currentLoginState) {
+                syncCurrentCookie("FavoritePageSelectedLoginDetected")
+                return@LaunchedEffect
+            }
+        }
+    }
+
     val bottomNavBarVM: BottomNavBarVM =
         viewModel(viewModelStoreOwner = context as ComponentActivity)
     var probingUrl by remember { mutableStateOf<String?>(null) }
@@ -264,30 +347,11 @@ fun FavoritePage(
     var newItemsCount by remember { mutableIntStateOf(0) }
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
-    var loginPollJob by remember { mutableStateOf<Job?>(null) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
                 favoriteVM.lastPauseTime = System.currentTimeMillis()
             } else if (event == Lifecycle.Event.ON_RESUME) {
-                loginPollJob?.cancel()
-                loginPollJob = coroutineScope.launch(Dispatchers.IO) {
-                    for (i in 0 until 20) {
-                        val currentCookie =
-                            CookieManager.getInstance().getCookie("https://bbs.yamibo.com") ?: ""
-                        val currentLoginState = currentCookie.contains("EeqY_2132_auth=")
-                        if (isLoggedIn != currentLoginState) {
-                            withContext(Dispatchers.Main) { isLoggedIn = currentLoginState }
-                        }
-                        if (favoriteVM.checkLoginState(currentLoginState, uiState.isRefreshing)) {
-                            withContext(Dispatchers.Main) {
-                                favoriteVM.refreshList(showLoading = false, isSmartSync = false)
-                            }
-                            break
-                        }
-                        delay(500)
-                    }
-                }
                 val isQuickReturn = favoriteVM.lastPauseTime != 0L &&
                         (System.currentTimeMillis() - favoriteVM.lastPauseTime < 2400L)
                 // 进入前台：尝试跑一轮自动更新检查（调度器自带最小间隔 + 错峰 + 登录守卫）

@@ -1003,11 +1003,12 @@ fun App(
                                 ) {
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         FavoritePage(
-                                            viewModel(
+                                            favoriteVM = viewModel(
                                                 stateOwner,
                                                 factory = ViewModelFactory(context.applicationContext)
                                             ),
-                                            navController
+                                            navController = navController,
+                                            isSelected = selectedItemIndex == 0
                                         )
                                         Box(
                                             modifier = Modifier

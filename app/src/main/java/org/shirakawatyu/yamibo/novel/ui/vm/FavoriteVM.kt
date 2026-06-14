@@ -122,9 +122,14 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
             lastLoginState = currentLoginState
             return false
         }
-        val changed = lastLoginState != null && lastLoginState != currentLoginState
+
+        val oldState = lastLoginState
         lastLoginState = currentLoginState
-        return changed
+
+        val changed = oldState != null && oldState != currentLoginState
+        val firstLoginDetected = oldState == null && currentLoginState
+
+        return changed || firstLoginDetected
     }
 
     // 本地缓存工具
