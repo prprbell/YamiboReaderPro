@@ -173,6 +173,26 @@ fun FavoritePage(
     val novelCheckMap = remember(updateCheckNovels) { updateCheckNovels.associateBy { it.url } }
     val mangaCheckMap = remember(updateCheckMangas) { updateCheckMangas.associateBy { it.url } }
     val otherCheckMap = remember(updateCheckOthers) { updateCheckOthers.associateBy { it.url } }
+    val currentUpdateTrackedUrls = remember(updateCheckNovels, updateCheckMangas, updateCheckOthers) {
+        (updateCheckNovels.map { it.url } +
+                updateCheckMangas.map { it.url } +
+                updateCheckOthers.map { it.url }).toSet()
+    }
+    val latestCurrentUpdateTrackedUrls by rememberUpdatedState(currentUpdateTrackedUrls)
+    var visualTrackedUrlsAtPageEnter by remember { mutableStateOf(currentUpdateTrackedUrls) }
+
+    LaunchedEffect(isSelected, uiState.updateCheckProfilesReady) {
+        if (isSelected && uiState.updateCheckProfilesReady) {
+            visualTrackedUrlsAtPageEnter = latestCurrentUpdateTrackedUrls
+        }
+    }
+
+    LaunchedEffect(isSelected, currentUpdateTrackedUrls, uiState.updateCheckProfilesReady) {
+        if (!isSelected && uiState.updateCheckProfilesReady) {
+            visualTrackedUrlsAtPageEnter = currentUpdateTrackedUrls
+        }
+    }
+
     val autoEnabledCount = remember(updateCheckNovels, updateCheckMangas, updateCheckOthers) {
         updateCheckNovels.count { it.autoCheckEnabled } +
                 updateCheckMangas.count { it.autoCheckEnabled } +
@@ -976,7 +996,7 @@ fun FavoritePage(
                                 hasUpdate = hasUpdate,
                                 isCheckingUpdate = isCheckingUpdate || isProbingType,
                                 autoCheckEnabled = autoCheckEnabled,
-                                updateCheckTracked = updateCheckTracked,
+                                updateCheckTracked = item.url in visualTrackedUrlsAtPageEnter,
                                 dragHandle = {
                                     val canDrag = !isInManageMode && !isSearching
                                     Icon(

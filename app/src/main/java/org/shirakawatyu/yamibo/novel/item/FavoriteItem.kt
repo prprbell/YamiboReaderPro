@@ -367,11 +367,12 @@ private fun UpdateStatusHandle(
 
     val capsuleStatus = currentStatus ?: lastVisibleStatus ?: HandleStatus.CHECKING
 
-    val wasAlreadyTracked = remember { updateCheckTracked }
-
-    val handleOffsetY = if (isCollapsed && wasAlreadyTracked) {
-        if (autoCheckEnabled) 6.dp else 3.dp
-    } else 0.dp
+    val handleOffsetY = when {
+        !isCollapsed -> 0.dp
+        autoCheckEnabled -> 6.dp
+        updateCheckTracked -> 3.dp
+        else -> 0.dp
+    }
     Box(
         modifier = modifier
             .size(40.dp)
@@ -464,7 +465,6 @@ private fun HandleStatusCapsule(
     }
 }
 
-/** 自动检查已开启的胶囊 */
 @Composable
 private fun AutoCheckCapsule() {
     val primary = darkThemeColor(YamiboColors.primary) { primary }

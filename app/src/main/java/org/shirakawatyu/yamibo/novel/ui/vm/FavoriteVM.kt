@@ -79,6 +79,12 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
     private var updateCheckNovels: List<NovelUpdateCheckProfile> = listOf()
     private var updateCheckMangas: List<MangaUpdateCheckProfile> = listOf()
     private var updateCheckOthers: List<OtherUpdateCheckProfile> = listOf()
+    private var novelUpdateCheckProfilesLoaded = false
+    private var mangaUpdateCheckProfilesLoaded = false
+    private var otherUpdateCheckProfilesLoaded = false
+
+    private fun areUpdateCheckProfilesReady(): Boolean =
+        novelUpdateCheckProfilesLoaded && mangaUpdateCheckProfilesLoaded && otherUpdateCheckProfilesLoaded
 
     // 预加载的表单校验码
     private var prefetchFormHash: String? = null
@@ -172,8 +178,14 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 .collect { list ->
                     stateMutex.withLock {
                         updateCheckNovels = list
+                        novelUpdateCheckProfilesLoaded = true
                     }
-                    _uiState.update { it.copy(updateCheckNovels = list) }
+                    _uiState.update {
+                        it.copy(
+                            updateCheckNovels = list,
+                            updateCheckProfilesReady = areUpdateCheckProfilesReady()
+                        )
+                    }
                 }
         }
 
@@ -183,8 +195,14 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 .collect { list ->
                     stateMutex.withLock {
                         updateCheckMangas = list
+                        mangaUpdateCheckProfilesLoaded = true
                     }
-                    _uiState.update { it.copy(updateCheckMangas = list) }
+                    _uiState.update {
+                        it.copy(
+                            updateCheckMangas = list,
+                            updateCheckProfilesReady = areUpdateCheckProfilesReady()
+                        )
+                    }
                 }
         }
 
@@ -194,8 +212,14 @@ class FavoriteVM(private val applicationContext: Context) : ViewModel() {
                 .collect { list ->
                     stateMutex.withLock {
                         updateCheckOthers = list
+                        otherUpdateCheckProfilesLoaded = true
                     }
-                    _uiState.update { it.copy(updateCheckOthers = list) }
+                    _uiState.update {
+                        it.copy(
+                            updateCheckOthers = list,
+                            updateCheckProfilesReady = areUpdateCheckProfilesReady()
+                        )
+                    }
                 }
         }
 

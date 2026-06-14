@@ -1008,7 +1008,8 @@ fun App(
                                                 factory = ViewModelFactory(context.applicationContext)
                                             ),
                                             navController = navController,
-                                            isSelected = selectedItemIndex == 0
+                                            isSelected = currentRoute == "FavoritePage" ||
+                                                    (currentRoute == null && homeRoute == "FavoritePage")
                                         )
                                         Box(
                                             modifier = Modifier
