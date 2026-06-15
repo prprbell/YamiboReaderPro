@@ -140,6 +140,23 @@ private const val YAMIBO_AUTH_COOKIE_KEY = "EeqY_2132_auth="
 private const val FAVORITE_LOGIN_POLL_MAX_COUNT = 20
 private const val FAVORITE_LOGIN_POLL_INTERVAL_MS = 500L
 
+private fun stripMangaBookNameSuffix(searchKeyword: String?, cleanBookName: String?): String {
+    val keyword = searchKeyword
+        ?.replace(Regex("\\s+"), " ")
+        ?.trim()
+        .orEmpty()
+    val bookName = cleanBookName
+        ?.replace(Regex("\\s+"), " ")
+        ?.trim()
+        .orEmpty()
+    if (keyword.isBlank() || bookName.isBlank()) return keyword
+
+    // 兼容旧数据：旧版曾把「漫画名称」拼进 searchKeyword，这里只剥离末尾的漫画名。
+    return Regex("\\s+${Regex.escape(bookName)}$")
+        .replace(keyword, "")
+        .trim()
+}
+
 private fun readYamiboLoginStateFromCookie(): Boolean {
     return CookieManager.getInstance()
         .getCookie(YAMIBO_COOKIE_URL)
@@ -259,8 +276,10 @@ fun FavoritePage(
                 ?.let { MangaTitleCleaner.extractAuthorPrefix(it.rawTitle) }
                 ?: matchedDir?.chapters?.lastOrNull()
                     ?.let { MangaTitleCleaner.extractAuthorPrefix(it.rawTitle) } ?: ""
-            mangaConfigPresetKeyword = existing?.searchKeyword ?: matchedDir?.searchKeyword ?: derivedKeyword
-            mangaConfigPresetBookName = existing?.cleanBookName ?: matchedDir?.cleanBookName ?: ""
+            val presetBookName = existing?.cleanBookName ?: matchedDir?.cleanBookName ?: ""
+            val rawPresetKeyword = existing?.searchKeyword ?: matchedDir?.searchKeyword ?: derivedKeyword
+            mangaConfigPresetKeyword = stripMangaBookNameSuffix(rawPresetKeyword, presetBookName)
+            mangaConfigPresetBookName = presetBookName
             showMangaConfigDialog = true
         }
     }
@@ -1386,19 +1405,29 @@ fun FavoritePage(
 
                         if (tagAvailable) {
                             Text("更新策略", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedStrategy = MangaUpdateCheckStrategy.TAG },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 RadioButton(
                                     selected = selectedStrategy == MangaUpdateCheckStrategy.TAG,
                                     onClick = { selectedStrategy = MangaUpdateCheckStrategy.TAG }
                                 )
-                                Text("标签页拉取", modifier = Modifier.clickable { selectedStrategy = MangaUpdateCheckStrategy.TAG })
+                                Text("标签页拉取", modifier = Modifier.weight(1f))
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedStrategy = MangaUpdateCheckStrategy.SEARCH },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 RadioButton(
                                     selected = selectedStrategy == MangaUpdateCheckStrategy.SEARCH,
                                     onClick = { selectedStrategy = MangaUpdateCheckStrategy.SEARCH }
                                 )
-                                Text("全局搜索", modifier = Modifier.clickable { selectedStrategy = MangaUpdateCheckStrategy.SEARCH })
+                                Text("全局搜索", modifier = Modifier.weight(1f))
                             }
                         } else {
                             Text(
@@ -1481,7 +1510,7 @@ fun FavoritePage(
                             mangaUpdateCheckTarget?.let { target ->
                                 val isSearch = selectedStrategy == MangaUpdateCheckStrategy.SEARCH
                                 val combinedKeyword = if (isSearch) {
-                                    listOf(keyword1.trim(), keyword2.trim(), bookName.trim())
+                                    listOf(keyword1.trim(), keyword2.trim())
                                         .filter { it.isNotEmpty() }
                                         .joinToString(" ")
                                 } else ""

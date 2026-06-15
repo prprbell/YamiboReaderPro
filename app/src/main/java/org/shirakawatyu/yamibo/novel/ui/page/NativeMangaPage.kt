@@ -138,6 +138,8 @@ import org.shirakawatyu.yamibo.novel.util.manga.MangaImagePipeline
 import org.shirakawatyu.yamibo.novel.util.manga.MangaProber
 import org.shirakawatyu.yamibo.novel.util.manga.MangaReaderManager
 import org.shirakawatyu.yamibo.novel.util.manga.MangaTitleCleaner
+import org.shirakawatyu.yamibo.novel.util.updateCheck.MangaUpdateCheckUtil
+import org.shirakawatyu.yamibo.novel.util.updateCheck.UpdateCheckEngine
 import org.shirakawatyu.yamibo.novel.util.manga.ZoomPanGestureHandler
 import org.shirakawatyu.yamibo.novel.util.manga.verticalMangaZoomGesture
 import java.net.URLEncoder
@@ -1498,6 +1500,16 @@ fun NativeMangaPage(
                         val newSearchKeyword =
                             if (newAuthor.isNotBlank()) "$newAuthor $newTitle".trim() else newTitle.trim()
                         mangaDirVM.renameDirectory(newTitle.trim(), newSearchKeyword)
+                        scope.launch {
+                            MangaUpdateCheckUtil.getMapSuspend()[originalUrl]?.let { profile ->
+                                val cleanKeyword = UpdateCheckEngine.stripMangaCleanNameSuffix(
+                                    newSearchKeyword, newTitle.trim()
+                                )
+                                MangaUpdateCheckUtil.saveProfileSuspend(
+                                    profile.copy(searchKeyword = cleanKeyword, cleanBookName = newTitle.trim())
+                                )
+                            }
+                        }
                     },
                     onChapterClick = { chapter ->
                         if (chapter.url.isNotEmpty()) {

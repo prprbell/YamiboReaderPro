@@ -85,6 +85,38 @@ object UpdateCheckEngine {
     private fun extractTid(url: String): String? =
         Regex("tid=(\\d+)").find(url)?.groupValues?.get(1)
 
+    fun normalizeSearchTerm(value: String?): String =
+        value
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            .orEmpty()
+
+    fun stripMangaCleanNameSuffix(searchKeyword: String?, cleanBookName: String?): String {
+        val keyword = normalizeSearchTerm(searchKeyword)
+        val bookName = normalizeSearchTerm(cleanBookName)
+        if (keyword.isBlank() || bookName.isBlank()) return keyword
+
+        // 兼容旧数据：旧版曾把「漫画名称」拼到 searchKeyword 末尾。
+        return Regex("\\s+${Regex.escape(bookName)}$")
+            .replace(keyword, "")
+            .trim()
+    }
+
+    private fun buildMangaSearchKeywordForRequest(
+        storedSearchKeyword: String,
+        cleanBookName: String,
+        strategy: MangaUpdateCheckStrategy
+    ): String {
+        val keyword = normalizeSearchTerm(storedSearchKeyword)
+        if (strategy != MangaUpdateCheckStrategy.SEARCH) return keyword
+
+        val bookName = normalizeSearchTerm(cleanBookName)
+        return listOf(keyword, bookName)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString(" ")
+    }
+
     private suspend fun toast(message: String) {
         val ctx = appContext ?: return
         withContext(Dispatchers.Main) {
@@ -370,8 +402,17 @@ object UpdateCheckEngine {
                 if (overrideCleanBookName != null && overrideCleanBookName.isNotBlank() &&
                     overrideCleanBookName != mangaDir.cleanBookName
                 ) {
-                    val newKeyword = overrideSearchKeyword ?: mangaDir.searchKeyword ?: ""
+                    val newKeyword = stripMangaCleanNameSuffix(
+                        overrideSearchKeyword ?: mangaDir.searchKeyword,
+                        overrideCleanBookName
+                    )
                     mangaDir = repo.renameAndMergeDirectory(mangaDir, overrideCleanBookName, newKeyword)
+                } else if (overrideSearchKeyword != null && overrideSearchKeyword != mangaDir.searchKeyword) {
+                    val newKeyword = stripMangaCleanNameSuffix(
+                        overrideSearchKeyword,
+                        mangaDir.cleanBookName
+                    )
+                    mangaDir = repo.renameAndMergeDirectory(mangaDir, mangaDir.cleanBookName, newKeyword)
                 }
 
                 val strategy = overrideStrategy
@@ -379,8 +420,13 @@ object UpdateCheckEngine {
                     ?: if (mangaDir.strategy == DirectoryStrategy.TAG)
                         MangaUpdateCheckStrategy.TAG else MangaUpdateCheckStrategy.SEARCH
 
-                val keyword = overrideSearchKeyword ?: oldProfile?.searchKeyword ?: mangaDir.searchKeyword
-                val cleanBookName = overrideCleanBookName ?: oldProfile?.cleanBookName ?: mangaDir.cleanBookName
+                val cleanBookName = normalizeSearchTerm(
+                    overrideCleanBookName ?: oldProfile?.cleanBookName ?: mangaDir.cleanBookName
+                )
+                val rawKeyword = overrideSearchKeyword ?: oldProfile?.searchKeyword ?: mangaDir.searchKeyword
+                val keyword = stripMangaCleanNameSuffix(rawKeyword, cleanBookName)
+                val profileKeyword = keyword.takeIf { it.isNotBlank() }
+                val effectiveKeyword = buildMangaSearchKeywordForRequest(keyword, cleanBookName, strategy)
                 val baseChapterCount = oldProfile?.savedChapterCount ?: mangaDir.chapters.size
                 val baseLatestTid = oldProfile?.savedLatestTid ?: (mangaDir.chapters.lastOrNull()?.tid ?: "")
 
@@ -394,22 +440,22 @@ object UpdateCheckEngine {
                     MangaUpdateCheckUtil.saveProfileSuspend(
                         MangaUpdateCheckProfile(
                             title = title, url = url, cleanBookName = cleanBookName,
-                            searchKeyword = keyword, strategy = strategy,
+                            searchKeyword = profileKeyword, strategy = strategy,
                             savedChapterCount = baseChapterCount, savedLatestTid = baseLatestTid,
                             hasUpdate = false, lastCheckTime = 0L
                         )
                     )
                 } else {
                     val existing = oldProfile!!
-                    if (existing.searchKeyword != keyword || existing.strategy != strategy) {
+                    if (existing.searchKeyword != profileKeyword || existing.strategy != strategy) {
                         MangaUpdateCheckUtil.saveProfileSuspend(
-                            existing.copy(title = title, searchKeyword = keyword, strategy = strategy)
+                            existing.copy(title = title, searchKeyword = profileKeyword, strategy = strategy)
                         )
                     }
                 }
 
-                val dirForUpdate = if (keyword != mangaDir.searchKeyword) {
-                    mangaDir.copy(searchKeyword = keyword)
+                val dirForUpdate = if (effectiveKeyword != mangaDir.searchKeyword) {
+                    mangaDir.copy(searchKeyword = effectiveKeyword)
                 } else mangaDir
 
                 val forceSearch = strategy == MangaUpdateCheckStrategy.SEARCH
@@ -435,9 +481,9 @@ object UpdateCheckEngine {
                     latestTid = snapshotLatestTid,
                     hasUpdate = keepUnreadUpdate,
                     lastCheckTime = System.currentTimeMillis(),
-                    searchKeyword = keyword,
+                    searchKeyword = profileKeyword,
                     strategy = strategy,
-                    cleanBookName = mangaDir.cleanBookName
+                    cleanBookName = cleanBookName
                 )
                 if (notify) toast(
                     when {

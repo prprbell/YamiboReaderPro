@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
@@ -2119,22 +2120,33 @@ private fun SettingAdjuster(
         )
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            IconButton(onClick = onDecrease) {
+            IconButton(
+                onClick = onDecrease,
+                modifier = Modifier.requiredSize(48.dp)
+            ) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_remove),
-                    contentDescription = "Decrease $label"
+                    contentDescription = "Decrease $label",
+                    modifier = Modifier.size(24.dp)
                 )
             }
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.widthIn(min = 24.dp),
+                modifier = Modifier.widthIn(min = 24.dp, max = 28.dp),
                 textAlign = TextAlign.Center
             )
-            IconButton(onClick = onIncrease) {
-                Icon(Icons.Default.Add, contentDescription = "Increase $label")
+            IconButton(
+                onClick = onIncrease,
+                modifier = Modifier.requiredSize(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Increase $label",
+                    modifier = Modifier.size(24.dp)
+                )
             }
         }
     }
