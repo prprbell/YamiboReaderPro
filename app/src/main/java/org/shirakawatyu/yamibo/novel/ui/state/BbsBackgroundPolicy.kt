@@ -7,7 +7,12 @@ data class BbsBackgroundDecision(
     val shouldReleaseWebViewForMemory: Boolean
 )
 
-/** 只负责后台时长判定，不接触 Compose 状态和 WebView。 */
+/**
+ * 只负责后台时长判定，不接触 Compose 状态和 WebView。
+ *
+ * 重要：30 秒以上只触发 Silent HealthCheck，不代表页面不健康，也不代表要显示骨架屏。
+ * 主动释放 WebView 的阈值改为极端长后台，避免"每次回来都像重新加载"。
+ */
 class BbsBackgroundPolicy(
     private val elapsedRealtime: () -> Long = SystemClock::elapsedRealtime
 ) {
@@ -33,17 +38,17 @@ class BbsBackgroundPolicy(
 
         val elapsed = elapsedRealtime() - stoppedAt
         return BbsBackgroundDecision(
-            recoveryMode = if (elapsed >= HEALTH_CHECK_RECOVERY_THRESHOLD_MS) {
+            recoveryMode = if (elapsed >= SILENT_REPAIR_THRESHOLD_MS) {
                 BbsResumeRecoveryMode.HealthCheck
             } else {
                 BbsResumeRecoveryMode.None
             },
-            shouldReleaseWebViewForMemory = elapsed >= RELEASE_WEBVIEW_FOR_MEMORY_AFTER_LONG_BACKGROUND_MS
+            shouldReleaseWebViewForMemory = elapsed >= RELEASE_WEBVIEW_FOR_MEMORY_AFTER_EXTREME_BACKGROUND_MS
         )
     }
 
     private companion object {
-        const val HEALTH_CHECK_RECOVERY_THRESHOLD_MS = 30_000L
-        const val RELEASE_WEBVIEW_FOR_MEMORY_AFTER_LONG_BACKGROUND_MS = 15 * 60 * 1000L
+        const val SILENT_REPAIR_THRESHOLD_MS = 30_000L
+        const val RELEASE_WEBVIEW_FOR_MEMORY_AFTER_EXTREME_BACKGROUND_MS = 6 * 60 * 60 * 1000L
     }
 }

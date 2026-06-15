@@ -485,7 +485,7 @@ fun MangaWebPage(
                 if (request?.isForMainFrame == true &&
                     request.method == "GET" &&
                     (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) &&
-                    urlStr.contains("bbs.yamibo.com")
+                    YamiboWebViewClient.shouldProxyHtmlForTheme(urlStr, accept)
                 ) {
                     val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
                     if (html != null) {

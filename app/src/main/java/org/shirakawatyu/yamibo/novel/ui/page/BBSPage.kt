@@ -91,6 +91,7 @@ import org.shirakawatyu.yamibo.novel.module.CoilWebViewProxy
 import org.shirakawatyu.yamibo.novel.module.YamiboWebViewClient
 import org.shirakawatyu.yamibo.novel.ui.state.BBSPageState
 import org.shirakawatyu.yamibo.novel.ui.state.BbsResumeRecoveryMode
+import org.shirakawatyu.yamibo.novel.ui.state.BbsSurfaceTrust
 import org.shirakawatyu.yamibo.novel.ui.state.selectBbsRecoveryUrl
 import org.shirakawatyu.yamibo.novel.ui.state.BbsWebViewPauseScheduler
 import org.shirakawatyu.yamibo.novel.ui.theme.YamiboColors
@@ -308,7 +309,7 @@ class BBSGlobalWebViewClient(
         if (request?.isForMainFrame == true &&
             request.method == "GET" &&
             (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) &&
-            urlStr.contains("bbs.yamibo.com")
+            YamiboWebViewClient.shouldProxyHtmlForTheme(urlStr, accept)
         ) {
             val html = YamiboRetrofit.proxyHtmlForDarkMode(request)
             if (html != null) {
@@ -789,8 +790,12 @@ fun BBSPage(
         }
     }
 
-    startLoading = { url: String ->
-        bbsPageState.markLoadRequested(url)
+    fun loadUrlWithTimeout(url: String, blocking: Boolean, clearSuccessfulContent: Boolean) {
+        if (blocking) {
+            bbsPageState.markBlockingLoadRequested(url, clearSuccessfulContent = clearSuccessfulContent)
+        } else {
+            bbsPageState.markLoadRequested(url, clearSuccessfulContent = clearSuccessfulContent)
+        }
         retryCount = 0
         CookieManager.getInstance().setCookie(url, GlobalData.currentCookie)
         CookieManager.getInstance().flush()
@@ -805,9 +810,21 @@ fun BBSPage(
         }
     }
 
+    startLoading = { url: String ->
+        loadUrlWithTimeout(
+            url = url,
+            blocking = !bbsPageState.hasSuccessfullyLoaded || bbsPageState.surfaceTrust == BbsSurfaceTrust.UntrustedBlocking,
+            clearSuccessfulContent = false
+        )
+    }
+
+    fun startBlockingLoading(url: String, clearSuccessfulContent: Boolean = true) {
+        loadUrlWithTimeout(url = url, blocking = true, clearSuccessfulContent = clearSuccessfulContent)
+    }
+
     fun reloadCurrentPageWithTimeout() {
         val targetUrl = selectBbsRecoveryUrl(bbsPageState, webView, mobileIndexUrl)
-        bbsPageState.markLoadRequested(targetUrl, clearSuccessfulContent = true)
+        bbsPageState.markBlockingLoadRequested(targetUrl, clearSuccessfulContent = true)
         retryCount = 0
         CookieManager.getInstance().setCookie(targetUrl, GlobalData.currentCookie)
         CookieManager.getInstance().flush()
@@ -830,94 +847,87 @@ fun BBSPage(
         NetworkMonitor.observeNetwork(context)
     }.collectAsState(initial = false)
 
-    fun isBbsPageHealthyFromResult(result: String?): Boolean {
-        return try {
-            val cleanJson = if (result?.startsWith("\"") == true) {
-                JSON.parse(result) as? String
-            } else {
-                result
-            } ?: return false
-
-            val obj = JSON.parseObject(cleanJson)
-            if (obj.containsKey("error")) return false
-
-            val href = obj.getString("href") ?: ""
-            val hasBody = obj.getBooleanValue("hasBody")
-            val bodyTextLength = obj.getIntValue("bodyTextLength")
-            val hasForumContent = obj.getBooleanValue("hasForumContent")
-            val titleLength = obj.getIntValue("titleLength")
-
-            bbsPageState.isUsableBbsUrl(href) &&
-                    hasBody &&
-                    (bodyTextLength > 20 || hasForumContent || titleLength > 0)
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
-    fun runHealthCheckResumeRecovery() {
-        // 30 秒以上后台恢复统一走这里：先 onResume/resumeTimers，再用低成本 JS 检查页面是否真的坏了。
-        // 健康页面只补坏图和重注入漫画脚本；只有硬异常才 load/reload，避免短后台回来打断用户当前页面。
+    fun runSilentResumeRepair() {
+        // 30 秒以上后台恢复不再等同于显示骨架屏。
+        // 只有 Native 快速门控已经确认没有可信旧内容，或 JS probe 明确 fatal，才升级为 blocking recovery。
         val targetUrl = selectBbsRecoveryUrl(bbsPageState, webView, mobileIndexUrl)
-        val healthCheckJs = """
-            (function() {
-                try {
-                    var bodyTextLength = document.body ? ((document.body.innerText || '').trim().length) : 0;
-                    var hasForumContent = !!document.querySelector('.wp, .thread, .postlist, #ct, .message, .bm, .bm_c, #threadlist, #postlist, .postmessage');
-                    return JSON.stringify({
-                        href: String(location.href || ''),
-                        readyState: String(document.readyState || ''),
-                        hasBody: !!document.body,
-                        bodyTextLength: bodyTextLength,
-                        hasForumContent: hasForumContent,
-                        titleLength: String(document.title || '').length
-                    });
-                } catch (e) {
-                    return JSON.stringify({ error: String(e) });
-                }
-            })();
-        """.trimIndent()
 
-        var healthCheckFinished = false
-        val healthCheckTimeoutJob = scope.launch {
-            delay(2_500L)
-            if (healthCheckFinished || !bbsPageState.needsResumeRecovery) return@launch
-            healthCheckFinished = true
-
-            bbsPageState.beginRecovery()
-            startLoading(targetUrl)
+        val currentWebViewUrl = try {
+            webView.url
+        } catch (_: Throwable) {
+            null
         }
 
-        webView.evaluateJavascript(healthCheckJs) { result ->
-            if (healthCheckFinished) return@evaluateJavascript
-            healthCheckFinished = true
-            healthCheckTimeoutJob.cancel()
+        if (!bbsPageState.canTrustLastVisibleSurface(currentWebViewUrl)) {
+            bbsPageState.beginBlockingRecovery(
+                mode = bbsPageState.resumeRecoveryMode.takeUnless { it == BbsResumeRecoveryMode.None }
+                    ?: BbsResumeRecoveryMode.HealthCheck,
+                reason = bbsPageState.resumeRecoveryReason,
+                clearSuccessfulContent = true
+            )
+            startBlockingLoading(targetUrl, clearSuccessfulContent = true)
+            return
+        }
 
-            try {
-                val currentWebViewUrl = try {
-                    webView.url
-                } catch (_: Throwable) {
-                    null
-                }
+        bbsPageState.beginSilentResumeRepair()
 
-                val shouldLoadUrl = bbsPageState.isErrorState ||
-                        bbsPageState.showLoadError ||
-                        !bbsPageState.hasSuccessfullyLoaded ||
-                        !bbsPageState.isUsableBbsUrl(currentWebViewUrl) ||
-                        !isBbsPageHealthyFromResult(result)
+        // 先无条件做幂等 repair：这些不会触发主框架 reload，也不会打断用户。
+        try {
+            webView.evaluateJavascript(PageJsScripts.BBS_COMMIT_BOOTSTRAP_JS, null)
+            if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
+                webView.evaluateJavascript(
+                    PageJsScripts.getThemeSetJs(
+                        GlobalData.isDarkMode.value,
+                        GlobalData.darkModeTheme.value,
+                        GlobalData.lightModeTheme.value
+                    ), null
+                )
+            }
+            webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
+            webView.evaluateJavascript(PageJsScripts.BBS_MANGA_REINJECT_JS, null)
+        } catch (_: Throwable) {
+            // evaluateJavascript 抛异常通常意味着 renderer/WebView 已不可用，直接升级。
+            bbsPageState.beginBlockingRecovery(clearSuccessfulContent = true)
+            startBlockingLoading(targetUrl, clearSuccessfulContent = true)
+            return
+        }
 
-                if (shouldLoadUrl) {
-                    bbsPageState.beginRecovery()
-                    startLoading(targetUrl)
-                } else {
-                    webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
-                    webView.evaluateJavascript(PageJsScripts.BBS_MANGA_REINJECT_JS, null)
-                    bbsPageState.markLoadSucceeded(currentWebViewUrl)
-                }
-            } catch (_: Throwable) {
-                bbsPageState.requestRecoveryBeforeShowingError()
-                (context as? org.shirakawatyu.yamibo.novel.MainActivity)
-                    ?.recreateBbsWebViewAfterRendererGone(webView)
+        var probeFinished = false
+        val probeTimeoutJob = scope.launch {
+            delay(1_800L)
+            if (probeFinished || !bbsPageState.needsResumeRecovery) return@launch
+            probeFinished = true
+
+            // 单次 JS 超时不再立刻 reload，避免低端机/刚恢复时误伤。连续超时才接管。
+            val shouldEscalate = bbsPageState.noteSilentProbeTimeout()
+            if (shouldEscalate) {
+                bbsPageState.beginBlockingRecovery(clearSuccessfulContent = true)
+                startBlockingLoading(targetUrl, clearSuccessfulContent = true)
+            }
+        }
+
+        webView.evaluateJavascript(BbsResumeHealthAgent.RESUME_REPAIR_AND_PROBE_JS) { result ->
+            if (probeFinished) return@evaluateJavascript
+            probeFinished = true
+            probeTimeoutJob.cancel()
+
+            val snapshot = BbsResumeHealthAgent.parse(result)
+            val latestUrl = try { webView.url } catch (_: Throwable) { currentWebViewUrl }
+            val latestTitle = try { webView.title } catch (_: Throwable) { null }
+            bbsPageState.updatePageSnapshot(latestUrl ?: snapshot.href, latestTitle)
+
+            val healthy = snapshot.status == BbsResumeHealthAgent.Status.Healthy &&
+                    bbsPageState.isUsableBbsUrl(snapshot.href ?: latestUrl)
+
+            if (healthy) {
+                bbsPageState.markLoadSucceeded(snapshot.href ?: latestUrl)
+            } else {
+                bbsPageState.beginBlockingRecovery(
+                    mode = BbsResumeRecoveryMode.Reload,
+                    reason = bbsPageState.resumeRecoveryReason,
+                    clearSuccessfulContent = true
+                )
+                startBlockingLoading(targetUrl, clearSuccessfulContent = true)
             }
         }
     }
@@ -942,22 +952,36 @@ fun BBSPage(
                 null
             }
 
+            val mustBlock = bbsPageState.isErrorState ||
+                    bbsPageState.showLoadError ||
+                    !bbsPageState.hasSuccessfullyLoaded ||
+                    !bbsPageState.isUsableBbsUrl(currentWebViewUrl) ||
+                    !bbsPageState.canTrustLastVisibleSurface(currentWebViewUrl)
+
             val effectiveMode = when {
-                bbsPageState.isErrorState || bbsPageState.showLoadError -> BbsResumeRecoveryMode.HealthCheck
-                bbsPageState.isLoading -> BbsResumeRecoveryMode.HealthCheck
-                !bbsPageState.hasSuccessfullyLoaded -> BbsResumeRecoveryMode.HealthCheck
-                !bbsPageState.isUsableBbsUrl(currentWebViewUrl) -> BbsResumeRecoveryMode.HealthCheck
+                mustBlock -> BbsResumeRecoveryMode.Reload
                 else -> bbsPageState.resumeRecoveryMode
             }
 
             when (effectiveMode) {
                 BbsResumeRecoveryMode.Reload -> {
-                    bbsPageState.beginRecovery(BbsResumeRecoveryMode.Reload)
-                    reloadCurrentPageWithTimeout()
-                    // 等 onPageFinished/超时/错误回调再收尾恢复状态。
+                    if (mustBlock) {
+                        bbsPageState.beginBlockingRecovery(
+                            mode = BbsResumeRecoveryMode.Reload,
+                            reason = bbsPageState.resumeRecoveryReason,
+                            clearSuccessfulContent = true
+                        )
+                        startBlockingLoading(
+                            selectBbsRecoveryUrl(bbsPageState, webView, mobileIndexUrl),
+                            clearSuccessfulContent = true
+                        )
+                    } else {
+                        // 显式 Reload 请求但旧页面可信：先静默 repair/probe，只有 fatal 才真的 reload。
+                        runSilentResumeRepair()
+                    }
                 }
                 BbsResumeRecoveryMode.HealthCheck,
-                BbsResumeRecoveryMode.None -> runHealthCheckResumeRecovery()
+                BbsResumeRecoveryMode.None -> runSilentResumeRepair()
             }
         } catch (_: Throwable) {
             bbsPageState.requestRecoveryBeforeShowingError()
@@ -1376,9 +1400,8 @@ fun BBSPage(
             }
 
             val shouldShowLoadingCover =
-                (bbsPageState.isLoading || bbsPageState.isAutoRecoveringBeforeError) &&
+                bbsPageState.shouldShowBbsLoadingCover &&
                         !isPullRefreshing &&
-                        !bbsPageState.hasSuccessfullyLoaded &&
                         !bbsPageState.shouldDisplayLoadError
 
             if (shouldShowLoadingCover) {

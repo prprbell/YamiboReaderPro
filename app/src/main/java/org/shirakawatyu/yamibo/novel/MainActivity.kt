@@ -361,14 +361,18 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         bbsBackgroundPolicy.markStopped()
+
+        val snapshotUrl = try { bbsWebViewState?.url } catch (_: Throwable) { null }
+        val snapshotTitle = try { bbsWebViewState?.title } catch (_: Throwable) { null }
+        val snapshotProgress = try { bbsWebViewState?.progress ?: 0 } catch (_: Throwable) { 0 }
+        bbsPageState.markAppBackgrounded(snapshotUrl, snapshotTitle, snapshotProgress)
+
         bbsWebViewState?.onPause()
 
+        // 不再 15 分钟主动 destroy BBS WebView。
+        // 旧策略会把"长后台回来"变成必然重载；现在只在系统真的杀 renderer / WebView 不存在时恢复。
         backgroundStopJob?.cancel()
-        backgroundStopJob = mainScope.launch {
-            delay(900_000L) // 15 分钟：后台较久后销毁 BBS WebView，主要用于释放 renderer/surface/图片缓存内存。
-            destroyBbsWebView(bbsWebViewState)
-            bbsPageState.resetForNewBbsWebView()
-        }
+        backgroundStopJob = null
     }
 
     /**
@@ -385,7 +389,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun recreateBbsWebViewAfterLongBackground() {
-        // 这里不是为了修复健康页面，而是后台较久后重新创建 WebView，避免长期占用内存。
+        // 极端长后台或策略明确要求释放时才会走到这里；普通 30 秒/数分钟后台不再重建。
         recreateBbsWebViewForRecovery(clearErrorState = true)
     }
 
@@ -1166,7 +1170,7 @@ fun App(
                                         val initialRoute = initialState.destination.route
                                         when {
                                             // 从 HistoryPage 返回 MinePage 时不要再播放 MinePage 的抽屉回弹动画。
-                                            // 这样 HistoryPage 自身已经不画退出动画，MinePage 也不会“从左侧补一段动画”。
+                                            // 这样 HistoryPage 自身已经不画退出动画，MinePage 也不会"从左侧补一段动画"。
                                             initialRoute == "HistoryPage" -> EnterTransition.None
                                             initialRoute?.run { startsWith("ReaderPage") || startsWith("MineHistoryPostPage") } == true -> {
                                                 slideInHorizontally(

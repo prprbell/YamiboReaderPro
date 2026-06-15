@@ -2,12 +2,17 @@ package org.shirakawatyu.yamibo.novel.module
 
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.URLUtil
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.lang.ref.WeakReference
+import java.net.URL
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,13 +21,39 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
-import org.shirakawatyu.yamibo.novel.util.AttachmentDownloadUtil
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
+import org.shirakawatyu.yamibo.novel.util.AttachmentDownloadUtil
+import androidx.core.net.toUri
 
 open class YamiboWebViewClient : WebViewClient() {
 
     companion object {
         private val pendingNames = ConcurrentHashMap<String, String>()
+        private val mainHandler = Handler(Looper.getMainLooper())
+
+        /**
+         * 这些 URL 是 Discuz 附件下载，不应该被夜间模式 HTML 代理接管。
+         * 否则 dark-mode 下主框架请求会被当成 HTML 抓取并注入 CSS，下载链路容易卡住。
+         */
+        fun isAttachmentDownloadUrl(url: String?): Boolean {
+            if (url.isNullOrBlank()) return false
+            val lower = url.lowercase(Locale.ROOT)
+            return lower.contains("mod=attachment") ||
+                    lower.contains("forum.php?mod=attachment") ||
+                    lower.contains("forum.php&mod=attachment")
+        }
+
+        fun shouldProxyHtmlForTheme(url: String?, accept: String?): Boolean {
+            if (url.isNullOrBlank()) return false
+            if (isAttachmentDownloadUrl(url)) return false
+            val lower = url.lowercase(Locale.ROOT)
+            if (!lower.contains("bbs.yamibo.com")) return false
+            val acceptValue = accept.orEmpty()
+            return acceptValue.isBlank() ||
+                    acceptValue.contains("text/html", ignoreCase = true) ||
+                    acceptValue.contains("application/xhtml+xml", ignoreCase = true) ||
+                    acceptValue.contains("*/*")
+        }
 
         private fun normalizeAttachmentAid(aid: String?): String? {
             if (aid.isNullOrBlank()) return null
@@ -45,61 +76,188 @@ open class YamiboWebViewClient : WebViewClient() {
             return normalizeAttachmentAid(Uri.parse(url).getQueryParameter("aid"))
         }
 
-        class AttachmentNameBridge {
+        class AttachmentNameBridge(webView: WebView) {
+            private val webViewRef = WeakReference(webView)
+
             @JavascriptInterface
             fun setAttachmentName(url: String, name: String) {
                 val key = attachmentKey(url) ?: return
-                pendingNames[key] = name
+                val cleanName = cleanAttachmentName(name) ?: return
+                pendingNames[key] = cleanName
+            }
+
+            /**
+             * JS 直接拦截附件点击并走原生下载面板。
+             * 这样 dark-mode 的 shouldInterceptRequest 不会把附件主框架请求误当 HTML 代理，
+             * 也避免 target=_blank / DownloadListener 在不同 WebView 内核上的不稳定触发。
+             */
+            @JavascriptInterface
+            fun downloadAttachment(url: String, name: String?) {
+                val cleanName = cleanAttachmentName(name)
+                cleanName?.let { attachmentKey(url)?.let { key -> pendingNames[key] = it } }
+                mainHandler.post {
+                    val webView = webViewRef.get() ?: return@post
+                    val absoluteUrl = toAbsoluteUrl(webView.url, url)
+                    startAttachmentDownload(
+                        webView = webView,
+                        url = absoluteUrl,
+                        userAgent = webView.settings.userAgentString,
+                        contentDisposition = null,
+                        mimeType = guessMimeType(absoluteUrl, cleanName),
+                        pageFileName = cleanName
+                    )
+                }
             }
         }
 
         fun setupDownloadListener(webView: WebView) {
-            webView.addJavascriptInterface(AttachmentNameBridge(), "__yamiboAttach")
+            webView.addJavascriptInterface(AttachmentNameBridge(webView), "__yamiboAttach")
             webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
-                try {
-                    val aid = Uri.parse(url).getQueryParameter("aid")
-                    val attachmentId = normalizeAttachmentAid(aid)
-                    val guessed = URLUtil.guessFileName(
-                        url,
-                        contentDisposition,
-                        mimeType?.takeIf { it.isNotBlank() } ?: "text/plain"
+                mainHandler.post {
+                    startAttachmentDownload(
+                        webView = webView,
+                        url = url,
+                        userAgent = userAgent ?: webView.settings.userAgentString,
+                        contentDisposition = contentDisposition,
+                        mimeType = mimeType?.takeIf { it.isNotBlank() },
+                        pageFileName = null
                     )
-                    val ext = mimeType?.let {
-                        android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it)
-                    }?.takeIf { it.isNotEmpty() }
-                    val fileName = when {
-                        !guessed.equals("forum.php", ignoreCase = true) &&
-                                !guessed.equals("forum.php.txt", ignoreCase = true) -> guessed
-                        aid != null -> attachmentId?.let { pendingNames.remove(it) }?.let { name ->
-                                if (name.contains('.') && name.lastIndexOf('.') > name.lastIndexOf('/')) name
-                                else ext?.let { "$name.$it" } ?: name
-                            }
-                            ?: "yamibo_${attachmentId ?: aid}" + (ext?.let { ".$it" } ?: "")
-                        else -> "yamibo_${System.currentTimeMillis()}" + (ext?.let { ".$it" } ?: "")
-                    }
-                    AttachmentDownloadUtil.start(
-                        context = webView.context,
-                        request = AttachmentDownloadUtil.Request(
-                            url = url,
-                            fileName = fileName,
-                            mimeType = mimeType?.takeIf { it.isNotBlank() },
-                            userAgent = userAgent ?: webView.settings.userAgentString,
-                            referer = webView.url ?: "https://bbs.yamibo.com/",
-                            cookie = CookieManager.getInstance().getCookie(url) ?: "",
-                            contentDisposition = contentDisposition
-                        )
-                    )
-                } catch (_: Exception) {}
+                }
             }
+        }
+
+        private fun startAttachmentDownload(
+            webView: WebView,
+            url: String,
+            userAgent: String?,
+            contentDisposition: String?,
+            mimeType: String?,
+            pageFileName: String?
+        ) {
+            try {
+                val aid = url.toUri().getQueryParameter("aid")
+                val attachmentId = normalizeAttachmentAid(aid)
+                val fileName = chooseAttachmentFileName(
+                    url = url,
+                    contentDisposition = contentDisposition,
+                    mimeType = mimeType,
+                    aid = aid,
+                    attachmentId = attachmentId,
+                    pageFileName = pageFileName
+                )
+
+                AttachmentDownloadUtil.start(
+                    context = webView.context,
+                    request = AttachmentDownloadUtil.Request(
+                        url = url,
+                        fileName = fileName,
+                        mimeType = mimeType?.takeIf { it.isNotBlank() },
+                        userAgent = userAgent ?: webView.settings.userAgentString,
+                        referer = webView.url ?: "https://bbs.yamibo.com/",
+                        cookie = CookieManager.getInstance().getCookie(url) ?: "",
+                        contentDisposition = contentDisposition
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+
+        private fun chooseAttachmentFileName(
+            url: String,
+            contentDisposition: String?,
+            mimeType: String?,
+            aid: String?,
+            attachmentId: String?,
+            pageFileName: String?
+        ): String {
+            val ext = mimeType?.let {
+                android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it)
+            }?.takeIf { it.isNotEmpty() }
+
+            pageFileName?.let { name ->
+                return if (name.contains('.') && name.lastIndexOf('.') > name.lastIndexOf('/')) name
+                else ext?.let { "$name.$it" } ?: name
+            }
+
+            val guessed = URLUtil.guessFileName(
+                url,
+                contentDisposition,
+                mimeType?.takeIf { it.isNotBlank() } ?: "text/plain"
+            )
+            if (!guessed.equals("forum.php", ignoreCase = true) &&
+                !guessed.equals("forum.php.txt", ignoreCase = true)
+            ) {
+                return sanitizeFileName(guessed)
+            }
+
+            if (aid != null) {
+                attachmentId?.let { pendingNames.remove(it) }?.let { name ->
+                    return if (name.contains('.') && name.lastIndexOf('.') > name.lastIndexOf('/')) name
+                    else ext?.let { "$name.$it" } ?: name
+                }
+                return "yamibo_${attachmentId ?: aid}" + (ext?.let { ".$it" } ?: "")
+            }
+
+            return "yamibo_${System.currentTimeMillis()}" + (ext?.let { ".$it" } ?: "")
+        }
+
+        private fun cleanAttachmentName(name: String?): String? {
+            val cleaned = name
+                ?.replace('\n', ' ')
+                ?.replace('\r', ' ')
+                ?.replace(Regex("\\s+"), " ")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: return null
+            return sanitizeFileName(cleaned)
+        }
+
+        private fun sanitizeFileName(name: String): String {
+            return name
+                .replace(Regex("[\\/:*?\"<>|]"), "_")
+                .trim()
+                .ifBlank { "yamibo_${System.currentTimeMillis()}" }
+        }
+
+        private fun toAbsoluteUrl(baseUrl: String?, rawUrl: String): String {
+            return try {
+                val parsed = rawUrl.toUri()
+                if (!parsed.scheme.isNullOrBlank()) rawUrl else URL(URL(baseUrl ?: "https://bbs.yamibo.com/"), rawUrl).toString()
+            } catch (_: Exception) {
+                rawUrl
+            }
+        }
+
+        private fun guessMimeType(url: String, fileName: String?): String? {
+            val extFromName = fileName
+                ?.substringAfterLast('.', missingDelimiterValue = "")
+                ?.takeIf { it.isNotBlank() }
+                ?.lowercase(Locale.ROOT)
+            val extFromUrl = android.webkit.MimeTypeMap.getFileExtensionFromUrl(url)
+                ?.takeIf { it.isNotBlank() }
+                ?.lowercase(Locale.ROOT)
+            val ext = extFromName ?: extFromUrl
+            return ext?.let { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
         }
 
         private val ATTACH_INTERCEPT_JS = """
             (function() {
+                function attachmentName(link) {
+                    if (!link) return '';
+                    var node = link.querySelector('.link.f_b, .attnm a, span, em');
+                    var text = (node && node.textContent ? node.textContent : link.textContent) || '';
+                    return text.replace(/\s+/g, ' ').trim();
+                }
+
                 function rememberAttachment(link) {
                     if (!link || !window.__yamiboAttach) return;
-                    var span = link.querySelector('.link.f_b');
-                    var name = span && span.textContent ? span.textContent.trim() : '';
-                    if (name) window.__yamiboAttach.setAttachmentName(link.href, name);
+                    var name = attachmentName(link);
+                    if (name) window.__yamiboAttach.setAttachmentName(link.href || link.getAttribute('href') || '', name);
+                }
+
+                function closestAttachmentLink(target) {
+                    return target && target.closest
+                        ? target.closest('a[href*="mod=attachment"]')
+                        : null;
                 }
 
                 // 页面完成后先缓存一次，避免点击与 DownloadListener 回调之间的时序竞争。
@@ -108,11 +266,20 @@ open class YamiboWebViewClient : WebViewClient() {
                 if (window.__yamiboAttachHooked) return;
                 window.__yamiboAttachHooked = true;
                 document.addEventListener('click', function(e) {
-                    var target = e.target;
-                    var link = target && target.closest
-                        ? target.closest('a[href*="mod=attachment"]')
-                        : null;
+                    var link = closestAttachmentLink(e.target);
+                    if (!link) return;
+
+                    var href = link.href || link.getAttribute('href') || '';
+                    var name = attachmentName(link);
                     rememberAttachment(link);
+
+                    if (window.__yamiboAttach && typeof window.__yamiboAttach.downloadAttachment === 'function') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+                        window.__yamiboAttach.downloadAttachment(href, name);
+                        return false;
+                    }
                 }, true);
             })();
         """.trimIndent()
@@ -145,7 +312,7 @@ open class YamiboWebViewClient : WebViewClient() {
                 if (!style) {
                     style = document.createElement('style');
                     style.id = 'yamibo-hide-style';
-                    
+
                     var tryInject = function() {
                         if (document.head) {
                             document.head.appendChild(style);
@@ -156,7 +323,7 @@ open class YamiboWebViewClient : WebViewClient() {
                         }
                         return false;
                     };
-                    
+
                     if (!tryInject()) {
                         var observer = new MutationObserver(function(mutations, obs) {
                             if (tryInject()) {
