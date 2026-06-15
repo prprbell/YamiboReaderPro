@@ -1,10 +1,7 @@
 package org.shirakawatyu.yamibo.novel.module
 
-import android.app.DownloadManager
-import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
-import android.os.Environment
 import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -19,6 +16,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+import org.shirakawatyu.yamibo.novel.util.AttachmentDownloadUtil
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
 
 open class YamiboWebViewClient : WebViewClient() {
@@ -79,20 +77,18 @@ open class YamiboWebViewClient : WebViewClient() {
                             ?: "yamibo_${attachmentId ?: aid}" + (ext?.let { ".$it" } ?: "")
                         else -> "yamibo_${System.currentTimeMillis()}" + (ext?.let { ".$it" } ?: "")
                     }
-                    DownloadManager.Request(Uri.parse(url)).apply {
-                        setMimeType(mimeType?.takeIf { it.isNotBlank() } ?: "text/plain")
-                        addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url) ?: "")
-                        addRequestHeader("User-Agent", userAgent ?: webView.settings.userAgentString)
-                        addRequestHeader("Referer", webView.url ?: "https://bbs.yamibo.com/")
-                        addRequestHeader("Accept", "text/plain,application/octet-stream,*/*")
-                        setTitle(fileName)
-                        setDescription("正在下载附件")
-                        setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                        setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                    }.let {
-                        val dm = webView.context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                        dm.enqueue(it)
-                    }
+                    AttachmentDownloadUtil.start(
+                        context = webView.context,
+                        request = AttachmentDownloadUtil.Request(
+                            url = url,
+                            fileName = fileName,
+                            mimeType = mimeType?.takeIf { it.isNotBlank() },
+                            userAgent = userAgent ?: webView.settings.userAgentString,
+                            referer = webView.url ?: "https://bbs.yamibo.com/",
+                            cookie = CookieManager.getInstance().getCookie(url) ?: "",
+                            contentDisposition = contentDisposition
+                        )
+                    )
                 } catch (_: Exception) {}
             }
         }
