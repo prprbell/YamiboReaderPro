@@ -159,6 +159,49 @@ object BbsResumeHealthAgent {
         })();
     """.trimIndent()
 
+    /**
+     * 页面内常驻 agent，在 commit 时预装。
+     *
+     * 监听 visibilitychange / pageshow / focus 事件，
+     * 页面重新可见时立即自修复（viewport、broken images），
+     * 不依赖 Native 异步 probe 调用。
+     */
+    val PAGE_VISIBILITY_AGENT_JS: String = """
+        (function() {
+            if (window.__yamiboVisibilityAgent) return;
+            window.__yamiboVisibilityAgent = { installedAt: Date.now(), lastRepairAt: 0 };
+
+            function repairNow() {
+                window.__yamiboVisibilityAgent.lastRepairAt = Date.now();
+                try {
+                    document.documentElement.style.webkitTextSizeAdjust = '100%';
+                    if (document.body) document.body.style.webkitTextSizeAdjust = '100%';
+                } catch (_) {}
+
+                try {
+                    var imgs = document.images ? Array.prototype.slice.call(document.images) : [];
+                    imgs.forEach(function(img) {
+                        if (!img.complete || img.naturalWidth > 0) return;
+                        var src = img.currentSrc || img.src || '';
+                        if (!src) return;
+                        if (img.dataset.yamiboVisRepairing) return;
+                        img.dataset.yamiboVisRepairing = '1';
+                        var joiner = src.indexOf('?') >= 0 ? '&' : '?';
+                        img.src = src.replace(/([?&])__yamibo_vis_retry=\d+/g, '${'$'}1').replace(/[?&]${'$'}/g, '') +
+                            joiner + '__yamibo_vis_retry=' + Date.now();
+                        setTimeout(function() { try { delete img.dataset.yamiboVisRepairing; } catch (_) {} }, 2000);
+                    });
+                } catch (_) {}
+            }
+
+            document.addEventListener('visibilitychange', function() {
+                if (!document.hidden) repairNow();
+            });
+            window.addEventListener('pageshow', function() { repairNow(); });
+            window.addEventListener('focus', function() { repairNow(); });
+        })();
+    """.trimIndent()
+
     fun parse(rawResult: String?): Snapshot {
         if (rawResult.isNullOrBlank() || rawResult == "null") {
             return Snapshot(

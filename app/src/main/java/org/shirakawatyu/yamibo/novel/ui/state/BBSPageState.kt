@@ -386,17 +386,21 @@ class BBSPageState(
         }
     }
 
-    /** 返回 true 表示连续超时过多，需要升级为骨架屏接管。 */
-    fun noteSilentProbeTimeout(): Boolean {
+    /**
+     * JS probe 超时只做记录，不降级为骨架屏。
+     *
+     * probe 超时只能证明 Native 没及时收到回调，不能证明页面坏了。
+     * 可能只是主线程繁忙、renderer 暂冻或 evaluateJavascript 延迟。
+     * 超时后继续保持页面可见；只有明确 Fatal 或 Native 硬门控失败才进入 UntrustedBlocking。
+     */
+    fun noteSilentProbeTimeout() {
         consecutiveSilentProbeTimeouts++
         recoveryRequest = null
         lastResumeRecoveryElapsedRealtime = SystemClock.elapsedRealtime()
-        surfaceTrust = if (hasSuccessfullyLoaded) {
-            BbsSurfaceTrust.TrustedVisible
-        } else {
-            BbsSurfaceTrust.UntrustedBlocking
+        if (hasSuccessfullyLoaded) {
+            surfaceTrust = BbsSurfaceTrust.TrustedVisible
+            phase = BbsPagePhase.Content(currentUrl, pageTitle)
         }
-        return consecutiveSilentProbeTimeouts >= MAX_SILENT_PROBE_TIMEOUTS_BEFORE_BLOCKING
     }
 
     /** 把恢复明确推进 Recovering，供真正需要 load/reload 的场景调用。 */

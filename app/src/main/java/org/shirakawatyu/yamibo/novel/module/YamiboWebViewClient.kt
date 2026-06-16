@@ -12,6 +12,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.lang.ref.WeakReference
 import java.net.URL
+import java.net.URLDecoder
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
@@ -173,31 +174,68 @@ open class YamiboWebViewClient : WebViewClient() {
                 android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it)
             }?.takeIf { it.isNotEmpty() }
 
-            pageFileName?.let { name ->
-                return if (name.contains('.') && name.lastIndexOf('.') > name.lastIndexOf('/')) name
-                else ext?.let { "$name.$it" } ?: name
-            }
+            // 新版会在 DownloadListener 之前由 JS 直接拉起下载器选择框，
+            // 因此页面真实文件名和缓存文件名必须优先于 forum.php 的 URL 推断。
+            cleanAttachmentName(pageFileName)?.let { return ensureExtension(it, ext) }
+
+            attachmentId?.let { pendingNames.remove(it) }
+                ?.let(::cleanAttachmentName)
+                ?.let { return ensureExtension(it, ext) }
+
+            parseContentDispositionFileName(contentDisposition)
+                ?.let(::cleanAttachmentName)
+                ?.let { return ensureExtension(it, ext) }
 
             val guessed = URLUtil.guessFileName(
                 url,
                 contentDisposition,
-                mimeType?.takeIf { it.isNotBlank() } ?: "text/plain"
+                mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
             )
-            if (!guessed.equals("forum.php", ignoreCase = true) &&
-                !guessed.equals("forum.php.txt", ignoreCase = true)
-            ) {
-                return sanitizeFileName(guessed)
+            if (!isGenericAttachmentName(guessed)) {
+                return ensureExtension(sanitizeFileName(guessed), ext)
             }
 
             if (aid != null) {
-                attachmentId?.let { pendingNames.remove(it) }?.let { name ->
-                    return if (name.contains('.') && name.lastIndexOf('.') > name.lastIndexOf('/')) name
-                    else ext?.let { "$name.$it" } ?: name
-                }
                 return "yamibo_${attachmentId ?: aid}" + (ext?.let { ".$it" } ?: "")
             }
 
             return "yamibo_${System.currentTimeMillis()}" + (ext?.let { ".$it" } ?: "")
+        }
+
+        private fun ensureExtension(name: String, extension: String?): String {
+            val clean = sanitizeFileName(name)
+            val hasExtension = clean.substringAfterLast('.', "").isNotBlank()
+            return if (hasExtension || extension.isNullOrBlank()) clean else "$clean.$extension"
+        }
+
+        private fun isGenericAttachmentName(name: String): Boolean {
+            val lower = name.lowercase(Locale.ROOT)
+            return lower == "forum.php" ||
+                    lower == "forum.php.txt" ||
+                    lower == "forum.php.bin" ||
+                    lower == "download" ||
+                    lower == "attachment" ||
+                    lower.startsWith("forum.php?")
+        }
+
+        private fun parseContentDispositionFileName(contentDisposition: String?): String? {
+            if (contentDisposition.isNullOrBlank()) return null
+
+            val utf8 = Regex("""filename\*\s*=\s*UTF-8''([^;]+)""", RegexOption.IGNORE_CASE)
+                .find(contentDisposition)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.trim()
+                ?.trim('"')
+            if (!utf8.isNullOrBlank()) {
+                return runCatching { URLDecoder.decode(utf8, "UTF-8") }.getOrDefault(utf8)
+            }
+
+            return Regex("""filename\s*=\s*"?([^";]+)"?""", RegexOption.IGNORE_CASE)
+                .find(contentDisposition)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.trim()
         }
 
         private fun cleanAttachmentName(name: String?): String? {
@@ -241,11 +279,67 @@ open class YamiboWebViewClient : WebViewClient() {
 
         private val ATTACH_INTERCEPT_JS = """
             (function() {
+                function cleanCandidate(value) {
+                    if (!value) return '';
+                    var text = String(value)
+                        .replace(/[\\r\\n\\t]+/g, ' ')
+                        .replace(/\\s+/g, ' ')
+                        .trim();
+                    text = text
+                        .replace(/^附件[:：]?\\s*/i, '')
+                        .replace(/\\s*\\([^)]*(?:KB|MB|GB|字节|下载次数)[^)]*\\)\\s*$/i, '')
+                        .replace(/\\s+(?:下载次数|售价|阅读权限)[:：].*$/i, '')
+                        .trim();
+                    return text;
+                }
+
+                function fileLike(value) {
+                    var text = cleanCandidate(value);
+                    return /\\.[a-z0-9]{1,10}$/i.test(text) ? text : '';
+                }
+
                 function attachmentName(link) {
                     if (!link) return '';
-                    var node = link.querySelector('.link.f_b, .attnm a, span, em');
-                    var text = (node && node.textContent ? node.textContent : link.textContent) || '';
-                    return text.replace(/\s+/g, ' ').trim();
+
+                    var attributes = [
+                        link.getAttribute('download'),
+                        link.getAttribute('data-filename'),
+                        link.getAttribute('data-file-name'),
+                        link.getAttribute('title'),
+                        link.getAttribute('aria-label')
+                    ];
+                    for (var i = 0; i < attributes.length; i++) {
+                        var fromAttr = fileLike(attributes[i]);
+                        if (fromAttr) return fromAttr;
+                    }
+
+                    var selectors = [
+                        '.attnm', '.attachname', '.filename', '.file-name',
+                        '.link.f_b', 'strong', 'b', 'em', 'span'
+                    ];
+                    for (var j = 0; j < selectors.length; j++) {
+                        var node = link.querySelector(selectors[j]);
+                        var fromChild = node ? fileLike(node.textContent) : '';
+                        if (fromChild) return fromChild;
+                    }
+
+                    var ownText = fileLike(link.textContent);
+                    if (ownText) return ownText;
+
+                    var container = link.closest
+                        ? link.closest('.attnm, .attach, .attachment, .t_attach, .pcb, .plc')
+                        : null;
+                    if (container) {
+                        var nodes = container.querySelectorAll(
+                            '.attnm, .attachname, .filename, .file-name, .link.f_b, strong, b, em, span, a'
+                        );
+                        for (var k = 0; k < nodes.length; k++) {
+                            var fromContainer = fileLike(nodes[k].textContent);
+                            if (fromContainer) return fromContainer;
+                        }
+                    }
+
+                    return cleanCandidate(link.textContent);
                 }
 
                 function rememberAttachment(link) {
@@ -300,6 +394,21 @@ open class YamiboWebViewClient : WebViewClient() {
         // 隐藏底部栏
         var css =
             ".foot.flex-box:not(.foot_reply) { display: none !important; } .foot_height { display: none !important; }"
+
+        if (GlobalData.isDarkMode.value) {
+            css += """
+                .threadlist li, #threadlist li, .bm_c li, .forumlist li,
+                .threadlist .thread-item, #threadlist .thread-item {
+                    transition: filter 90ms ease, background-color 90ms ease !important;
+                    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.18) !important;
+                }
+                .threadlist li:active, #threadlist li:active, .bm_c li:active, .forumlist li:active,
+                .threadlist .thread-item:active, #threadlist .thread-item:active {
+                    filter: brightness(0.72) !important;
+                    background-color: rgba(0, 0, 0, 0.22) !important;
+                }
+            """.trimIndent()
+        }
 
         // 隐藏顶部栏（仅在自己的主页 mycenter=1 时生效）
         if (url.contains("mycenter=1")) {

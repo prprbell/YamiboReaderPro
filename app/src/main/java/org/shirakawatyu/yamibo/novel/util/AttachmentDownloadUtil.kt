@@ -9,6 +9,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ResolveInfo
+import android.content.res.Configuration
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
@@ -149,6 +152,37 @@ object AttachmentDownloadUtil {
         }
 
         dialog.show()
+        applyPickerTheme(dialog, listView, adapter, activity)
+    }
+
+    private fun applyPickerTheme(
+        dialog: AlertDialog,
+        listView: ListView,
+        adapter: DownloadTargetAdapter,
+        context: Context
+    ) {
+        val isNight = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+        if (!isNight) return
+
+        val background = Color.rgb(30, 30, 30)
+        val surface = Color.rgb(42, 42, 42)
+        val primaryText = Color.rgb(238, 238, 238)
+        val secondaryText = Color.rgb(204, 119, 85)
+
+        dialog.window?.setBackgroundDrawable(ColorDrawable(background))
+        listView.setBackgroundColor(background)
+        listView.cacheColorHint = background
+        listView.selector = ColorDrawable(surface)
+        adapter.isNightMode = true
+        adapter.notifyDataSetChanged()
+
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(secondaryText)
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(secondaryText)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(secondaryText)
+
+        val titleId = context.resources.getIdentifier("alertTitle", "id", "android")
+        dialog.findViewById<TextView>(titleId)?.setTextColor(primaryText)
     }
 
     private fun restoreTarget(context: Context, savedTarget: String, request: Request): DownloadTarget? {
@@ -276,6 +310,21 @@ object AttachmentDownloadUtil {
             putExtra("filename", request.fileName)
             putExtra("fileName", request.fileName)
             putExtra("android.intent.extra.FILE_NAME", request.fileName)
+            putExtra("suggested_filename", request.fileName)
+            putExtra("suggestedFileName", request.fileName)
+            putExtra("com.android.extra.filename", request.fileName)
+            putExtra("com.android.browser.filename", request.fileName)
+            putExtra("org.openintents.extra.FILE_NAME", request.fileName)
+
+            // 外部下载器通常拿不到 WebView 的 DownloadListener Content-Disposition，
+            // 补充真实或合成的 disposition，兼容会读取该 extra 的下载器。
+            val disposition = request.contentDisposition
+                ?.takeIf { it.isNotBlank() }
+                ?: buildContentDisposition(request.fileName)
+            putExtra("contentDisposition", disposition)
+            putExtra("Content-Disposition", disposition)
+            putExtra("android.intent.extra.CONTENT_DISPOSITION", disposition)
+
             putExtra("com.android.browser.application_id", context.packageName)
             putExtra("com.android.browser.headers", headers)
             putExtra("android.intent.extra.HTTP_HEADERS", headers)
@@ -287,6 +336,12 @@ object AttachmentDownloadUtil {
                 putExtra("Referer", referer)
             }
         }
+    }
+
+    private fun buildContentDisposition(fileName: String): String {
+        val escaped = fileName.replace("\\", "_").replace("\"", "_")
+        val encoded = Uri.encode(fileName, null)
+        return "attachment; filename=\"$escaped\"; filename*=UTF-8''$encoded"
     }
 
     private fun buildHeaderBundle(request: Request): Bundle {
@@ -350,6 +405,7 @@ object AttachmentDownloadUtil {
         private val items: List<DownloadTarget>
     ) : ArrayAdapter<DownloadTarget>(context, 0, items) {
         var selectedIndex: Int = 0
+        var isNightMode: Boolean = false
 
         override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
             val item = items[position]
@@ -387,6 +443,20 @@ object AttachmentDownloadUtil {
             val radioButton = row.findViewById<RadioButton>(android.R.id.checkbox)
             textView.text = item.label
             radioButton.isChecked = position == selectedIndex
+            if (isNightMode) {
+                row.setBackgroundColor(Color.TRANSPARENT)
+                textView.setTextColor(Color.rgb(238, 238, 238))
+                radioButton.buttonTintList = android.content.res.ColorStateList(
+                    arrayOf(
+                        intArrayOf(android.R.attr.state_checked),
+                        intArrayOf()
+                    ),
+                    intArrayOf(
+                        Color.rgb(204, 119, 85),
+                        Color.rgb(153, 153, 153)
+                    )
+                )
+            }
             when (item) {
                 is DownloadTarget.App -> iconView.setImageDrawable(item.icon)
                 is DownloadTarget.SystemDownloader -> iconView.setImageResource(android.R.drawable.stat_sys_download)

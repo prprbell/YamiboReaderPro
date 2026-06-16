@@ -373,6 +373,8 @@ class BBSGlobalWebViewClient(
     override fun onPageCommitVisible(view: WebView?, url: String?) {
         super.onPageCommitVisible(view, url)
         view?.evaluateJavascript(PageJsScripts.BBS_COMMIT_BOOTSTRAP_JS, null)
+        // 预装常驻页面 agent：visibilitychange/pageshow 时自修复，不依赖 Native 异步 probe
+        view?.evaluateJavascript(BbsResumeHealthAgent.PAGE_VISIBILITY_AGENT_JS, null)
 
         if (GlobalData.isDarkMode.value || GlobalData.lightModeTheme.value > 0) {
             view?.evaluateJavascript(
@@ -898,12 +900,10 @@ fun BBSPage(
             if (probeFinished || !bbsPageState.needsResumeRecovery) return@launch
             probeFinished = true
 
-            // 单次 JS 超时不再立刻 reload，避免低端机/刚恢复时误伤。连续超时才接管。
-            val shouldEscalate = bbsPageState.noteSilentProbeTimeout()
-            if (shouldEscalate) {
-                bbsPageState.beginBlockingRecovery(clearSuccessfulContent = true)
-                startBlockingLoading(targetUrl, clearSuccessfulContent = true)
-            }
+            // JS probe 超时只做记录，不降级为骨架屏或 reload。
+            // 超时只能证明 Native 没及时收到回调，不能证明页面坏了。
+            // 页面内 visibility agent 已在 commit 时预装，会自主修复。
+            bbsPageState.noteSilentProbeTimeout()
         }
 
         webView.evaluateJavascript(BbsResumeHealthAgent.RESUME_REPAIR_AND_PROBE_JS) { result ->
@@ -916,18 +916,28 @@ fun BBSPage(
             val latestTitle = try { webView.title } catch (_: Throwable) { null }
             bbsPageState.updatePageSnapshot(latestUrl ?: snapshot.href, latestTitle)
 
-            val healthy = snapshot.status == BbsResumeHealthAgent.Status.Healthy &&
-                    bbsPageState.isUsableBbsUrl(snapshot.href ?: latestUrl)
-
-            if (healthy) {
-                bbsPageState.markLoadSucceeded(snapshot.href ?: latestUrl)
-            } else {
-                bbsPageState.beginBlockingRecovery(
-                    mode = BbsResumeRecoveryMode.Reload,
-                    reason = bbsPageState.resumeRecoveryReason,
-                    clearSuccessfulContent = true
-                )
-                startBlockingLoading(targetUrl, clearSuccessfulContent = true)
+            when (snapshot.status) {
+                BbsResumeHealthAgent.Status.Healthy -> {
+                    if (bbsPageState.isUsableBbsUrl(snapshot.href ?: latestUrl)) {
+                        bbsPageState.markLoadSucceeded(snapshot.href ?: latestUrl)
+                    } else {
+                        bbsPageState.finishSilentResumeRepair(healthy = false)
+                    }
+                }
+                BbsResumeHealthAgent.Status.Unknown -> {
+                    // Unknown 可能只是 DOM 暂未就绪、renderer 恢复延迟等。
+                    // 页面继续显示，不 reload，不盖骨架。
+                    bbsPageState.finishSilentResumeRepair(healthy = false)
+                }
+                BbsResumeHealthAgent.Status.Fatal -> {
+                    // 只有明确 Fatal 才升级：骨架屏接管 + reload。
+                    bbsPageState.beginBlockingRecovery(
+                        mode = BbsResumeRecoveryMode.Reload,
+                        reason = bbsPageState.resumeRecoveryReason,
+                        clearSuccessfulContent = true
+                    )
+                    startBlockingLoading(targetUrl, clearSuccessfulContent = true)
+                }
             }
         }
     }
