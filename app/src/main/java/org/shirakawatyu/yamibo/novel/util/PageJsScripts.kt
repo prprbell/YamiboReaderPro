@@ -320,7 +320,9 @@ object PageJsScripts {
                 document.head.appendChild(style);
             }
 
-            document.addEventListener('click', function(e) {
+            window.addEventListener('click', function(e) {
+                if (e.button !== 0) return;
+
                 var li = closest(e.target, 'li.list');
                 if (!li) return;
 
@@ -334,7 +336,7 @@ object PageJsScripts {
                 if (!isSafeThreadUrl(threadLink.getAttribute('href'))) return;
 
                 e.preventDefault();
-                e.stopPropagation();
+                e.stopImmediatePropagation();
 
                 location.href = threadLink.href;
             }, true);
