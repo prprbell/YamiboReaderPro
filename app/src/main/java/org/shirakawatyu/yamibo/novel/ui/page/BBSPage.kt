@@ -174,6 +174,8 @@ class BBSGlobalWebViewClient(
     private val mainHandler = android.os.Handler(Looper.getMainLooper())
     private var mainFrameTimeoutRunnable: Runnable? = null
     private var commitVisibleFallbackRunnable: Runnable? = null
+    private var activeMainFrameHadError: Boolean = false
+    private var activeMainFrameErrorUrl: String? = null
 
     companion object {
         const val INDEX_URL = "https://bbs.yamibo.com/forum.php"
@@ -198,6 +200,8 @@ class BBSGlobalWebViewClient(
         cancelCommitVisibleFallback()
         mainHandler.removeCallbacksAndMessages(null)
         activeMainFrameUrl = null
+        activeMainFrameHadError = false
+        activeMainFrameErrorUrl = null
     }
 
     private fun isBbsHomeUrl(url: String): Boolean {
@@ -218,6 +222,8 @@ class BBSGlobalWebViewClient(
             isBbsHomeUrl(safeUrl) ||
                     (safeUrl.startsWith("https://bbs.yamibo.com/forum.php") && !safeUrl.contains("mod="))
         activeMainFrameUrl = safeUrl
+        activeMainFrameHadError = false
+        activeMainFrameErrorUrl = null
         (context as? ComponentActivity)?.let { activity ->
             val navBarVM =
                 androidx.lifecycle.ViewModelProvider(activity)[BottomNavBarVM::class.java]
@@ -428,7 +434,13 @@ class BBSGlobalWebViewClient(
             view?.clearHistory()
         }
 
-        if (!bbsPageState.isErrorState) {
+        val shouldIgnoreFinishedAfterMainFrameError = activeMainFrameHadError &&
+                isSameUrlIgnoringHash(
+                    finishedUrl,
+                    activeMainFrameErrorUrl ?: activeMainFrameUrl
+                )
+
+        if (!shouldIgnoreFinishedAfterMainFrameError && !bbsPageState.isErrorState) {
             bbsPageState.markLoadSucceeded(finishedUrl)
         }
         checkAndUpdateLoginState()
@@ -488,7 +500,7 @@ class BBSGlobalWebViewClient(
             cancelCommitVisibleFallback()
             val failingUrl = request.url?.toString()
             if (shouldHandleMainFrameError(view, failingUrl)) {
-                handleErrorState()
+                handleErrorState(failingUrl)
             } else {
                 ignoreMainFrameErrorButFinishLoading()
             }
@@ -506,7 +518,7 @@ class BBSGlobalWebViewClient(
         cancelMainFrameTimeout()
         cancelCommitVisibleFallback()
         if (shouldHandleMainFrameError(view, failingUrl)) {
-            handleErrorState()
+            handleErrorState(failingUrl)
         } else {
             ignoreMainFrameErrorButFinishLoading()
         }
@@ -523,15 +535,18 @@ class BBSGlobalWebViewClient(
             cancelCommitVisibleFallback()
             val failingUrl = request.url?.toString()
             if (shouldHandleMainFrameError(view, failingUrl)) {
-                handleErrorState()
+                handleErrorState(failingUrl)
             } else {
                 ignoreMainFrameErrorButFinishLoading()
             }
         }
     }
 
-    private fun handleErrorState() {
-        // 不立即显示错误页，先静默自动恢复。
+    private fun handleErrorState(failingUrl: String? = activeMainFrameUrl) {
+        // 不立即显示错误页，先进入 blocking recovery。
+        // 注意：失败主框架后续仍可能回调 onPageFinished/progress=100，不能再被标记成成功。
+        activeMainFrameHadError = true
+        activeMainFrameErrorUrl = failingUrl ?: activeMainFrameUrl
         bbsPageState.requestRecoveryBeforeShowingError()
     }
 
@@ -738,13 +753,6 @@ fun BBSPage(
         }
     }
 
-    val pendingUrl by GlobalData.pendingClipboardUrl.collectAsState()
-    LaunchedEffect(pendingUrl) {
-        val url = pendingUrl ?: return@LaunchedEffect
-        webView.loadUrl(url)
-        GlobalData.pendingClipboardUrl.value = null
-    }
-
     LaunchedEffect(bbsPageState.isLoading) {
         if (!bbsPageState.isLoading && autoOpenMangaMode) {
             webView.evaluateJavascript(PageJsScripts.AUTO_OPEN_MANGA_JS, null)
@@ -824,6 +832,13 @@ fun BBSPage(
         loadUrlWithTimeout(url = url, blocking = true, clearSuccessfulContent = clearSuccessfulContent)
     }
 
+    val pendingUrl by GlobalData.pendingClipboardUrl.collectAsState()
+    LaunchedEffect(pendingUrl) {
+        val url = pendingUrl ?: return@LaunchedEffect
+        startLoading(url)
+        GlobalData.pendingClipboardUrl.value = null
+    }
+
     fun reloadCurrentPageWithTimeout() {
         val targetUrl = selectBbsRecoveryUrl(bbsPageState, webView, mobileIndexUrl)
         bbsPageState.markBlockingLoadRequested(targetUrl, clearSuccessfulContent = true)
@@ -851,7 +866,9 @@ fun BBSPage(
 
     fun runSilentResumeRepair() {
         // 30 秒以上后台恢复不再等同于显示骨架屏。
-        // 只有 Native 快速门控已经确认没有可信旧内容，或 JS probe 明确 fatal，才升级为 blocking recovery。
+        // 恢复第一帧只能由 Native 快速门控二选一：可信旧页面 or blocking 骨架屏。
+        // 一旦本次 AppResume 已经决定继续显示旧 WebView，后续异步 JS probe 不能再切到骨架屏，
+        // 避免出现“旧网页 -> 骨架屏 -> 正常网页”的闪烁链路。
         val targetUrl = selectBbsRecoveryUrl(bbsPageState, webView, mobileIndexUrl)
 
         val currentWebViewUrl = try {
@@ -888,9 +905,14 @@ fun BBSPage(
             webView.evaluateJavascript(PageJsScripts.RELOAD_BROKEN_IMAGES_JS, null)
             webView.evaluateJavascript(PageJsScripts.BBS_MANGA_REINJECT_JS, null)
         } catch (_: Throwable) {
-            // evaluateJavascript 抛异常通常意味着 renderer/WebView 已不可用，直接升级。
-            bbsPageState.beginBlockingRecovery(clearSuccessfulContent = true)
-            startBlockingLoading(targetUrl, clearSuccessfulContent = true)
+            // 如果 Native 快速门控已经选择“继续显示可信旧页面”，这里不能再异步切骨架屏。
+            // 真的 renderer gone 会走 onRenderProcessGone；普通 AppResume 只结束静默修复。
+            if (bbsPageState.shouldKeepVisibleAfterSilentResumeFailure(currentWebViewUrl)) {
+                bbsPageState.finishSilentResumeRepair(healthy = false)
+            } else {
+                bbsPageState.beginBlockingRecovery(clearSuccessfulContent = true)
+                startBlockingLoading(targetUrl, clearSuccessfulContent = true)
+            }
             return
         }
 
@@ -930,13 +952,20 @@ fun BBSPage(
                     bbsPageState.finishSilentResumeRepair(healthy = false)
                 }
                 BbsResumeHealthAgent.Status.Fatal -> {
-                    // 只有明确 Fatal 才升级：骨架屏接管 + reload。
-                    bbsPageState.beginBlockingRecovery(
-                        mode = BbsResumeRecoveryMode.Reload,
-                        reason = bbsPageState.resumeRecoveryReason,
-                        clearSuccessfulContent = true
-                    )
-                    startBlockingLoading(targetUrl, clearSuccessfulContent = true)
+                    val visibleUrl = latestUrl ?: snapshot.href ?: currentWebViewUrl
+                    if (bbsPageState.shouldKeepVisibleAfterSilentResumeFailure(visibleUrl)) {
+                        // 本次是普通 AppResume，且第一帧已判定旧页面可信：
+                        // Fatal 只说明页面内探针不满意，不能再把用户看到的旧页面切成骨架屏。
+                        bbsPageState.finishSilentResumeRepair(healthy = false)
+                    } else {
+                        // 错误页自动恢复 / Native 已经 blocking 的场景，Fatal 可以升级为骨架屏 + reload。
+                        bbsPageState.beginBlockingRecovery(
+                            mode = BbsResumeRecoveryMode.Reload,
+                            reason = bbsPageState.resumeRecoveryReason,
+                            clearSuccessfulContent = true
+                        )
+                        startBlockingLoading(targetUrl, clearSuccessfulContent = true)
+                    }
                 }
             }
         }
@@ -962,11 +991,12 @@ fun BBSPage(
                 null
             }
 
+            val visibleCandidateUrl = currentWebViewUrl ?: bbsPageState.currentUrl
             val mustBlock = bbsPageState.isErrorState ||
                     bbsPageState.showLoadError ||
                     !bbsPageState.hasSuccessfullyLoaded ||
-                    !bbsPageState.isUsableBbsUrl(currentWebViewUrl) ||
-                    !bbsPageState.canTrustLastVisibleSurface(currentWebViewUrl)
+                    !bbsPageState.isUsableBbsUrl(visibleCandidateUrl) ||
+                    !bbsPageState.canTrustLastVisibleSurface(visibleCandidateUrl)
 
             val effectiveMode = when {
                 mustBlock -> BbsResumeRecoveryMode.Reload
@@ -986,7 +1016,7 @@ fun BBSPage(
                             clearSuccessfulContent = true
                         )
                     } else {
-                        // 显式 Reload 请求但旧页面可信：先静默 repair/probe，只有 fatal 才真的 reload。
+                        // 显式 Reload 请求但旧页面可信：仍先走静默 repair/probe，避免恢复第一帧之后再闪骨架。
                         runSilentResumeRepair()
                     }
                 }

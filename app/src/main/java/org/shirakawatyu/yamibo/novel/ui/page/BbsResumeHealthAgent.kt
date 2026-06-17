@@ -8,7 +8,7 @@ import com.alibaba.fastjson2.JSON
  * 设计目标：
  * 1. App 回到前台时先静默 repair，再 probe；
  * 2. repair/probe 都是幂等的，不触发主框架 reload；
- * 3. Native 只在 Fatal 时升级到骨架屏 + 重新加载。
+ * 3. Fatal 只表示页面明确不可用；普通 AppResume 是否切骨架屏由 Native 同步门控决定。
  */
 object BbsResumeHealthAgent {
     enum class Status {
@@ -107,10 +107,16 @@ object BbsResumeHealthAgent {
                     var readyEnough = readyState === 'interactive' || readyState === 'complete';
                     var contentEnough = hasForumContent || bodyTextLength >= 80;
                     var usableUrl = href && href !== 'about:blank' && href.indexOf('data:') !== 0;
-                    var healthy = usableUrl && hasDocumentElement && hasBody && readyEnough && contentEnough && !hasErrorPageText;
+
+                    // Fatal 只表示 Native 可以确定页面不可用。
+                    // DOM 暂未 ready、body 太短、内容选择器暂时未出现，都只能算 unknown，
+                    // 避免普通 AppResume 在用户已经看到旧页面后再异步切成骨架屏。
+                    var fatal = !usableUrl || !hasDocumentElement || hasErrorPageText;
+                    var healthy = !fatal && hasBody && readyEnough && contentEnough;
+                    var status = healthy ? 'healthy' : (fatal ? 'fatal' : 'unknown');
 
                     var result = {
-                        status: healthy ? 'healthy' : 'fatal',
+                        status: status,
                         href: href,
                         readyState: readyState,
                         hasDocumentElement: hasDocumentElement,

@@ -30,7 +30,7 @@ class SettingsUtil {
         private val lightModeThemeKey = stringPreferencesKey("light_mode_theme")
         private val customDnsUrlKey = stringPreferencesKey("custom_dns_url")
         private val skipVersionKey = stringPreferencesKey("skip_version")
-        private val attachmentDownloadTargetKey = stringPreferencesKey("attachment_download_target")
+
         fun saveSettings(settings: ReaderSettings) {
             DataStoreUtil.addData(JSON.toJSONString(settings), key)
         }
@@ -207,20 +207,6 @@ class SettingsUtil {
             })
         }
 
-        fun saveAttachmentDownloadTarget(target: String) {
-            DataStoreUtil.addData(target, attachmentDownloadTargetKey)
-        }
 
-        fun getAttachmentDownloadTarget(callback: (String) -> Unit) {
-            DataStoreUtil.getData(attachmentDownloadTargetKey, callback = {
-                callback(it)
-            }, onNull = {
-                callback("")
-            })
-        }
-
-        fun clearAttachmentDownloadTarget() {
-            DataStoreUtil.addData("", attachmentDownloadTargetKey)
-        }
     }
 }

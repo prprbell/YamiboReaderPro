@@ -1,17 +1,22 @@
 package org.shirakawatyu.yamibo.novel.module
 
+import android.app.DownloadManager
+import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import java.lang.ref.WeakReference
-import java.net.URL
+import androidx.core.net.toUri
+
 import java.net.URLDecoder
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -22,9 +27,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.shirakawatyu.yamibo.novel.constant.RequestConfig
 import org.shirakawatyu.yamibo.novel.global.GlobalData
+
 import org.shirakawatyu.yamibo.novel.util.CookieUtil
-import org.shirakawatyu.yamibo.novel.util.AttachmentDownloadUtil
-import androidx.core.net.toUri
 
 open class YamiboWebViewClient : WebViewClient() {
 
@@ -32,12 +36,23 @@ open class YamiboWebViewClient : WebViewClient() {
         private val pendingNames = ConcurrentHashMap<String, String>()
         private val mainHandler = Handler(Looper.getMainLooper())
 
+        // WebView 在附件响应重定向、快速重复点击或部分机型的下载交接过程中，
+        // 偶尔会在极短时间内回调两次 DownloadListener。
+        // 使用稳定 aid（无 aid 时退回完整 URL）做短时间去重，避免 DownloadManager 入队两次。
+        private const val DOWNLOAD_DEBOUNCE_MS = 3_000L
+        private const val DOWNLOAD_RECORD_TTL_MS = 60_000L
+        private val recentDownloadRequests = ConcurrentHashMap<String, Long>()
+        private val downloadRequestLock = Any()
+
         /**
-         * 这些 URL 是 Discuz 附件下载，不应该被夜间模式 HTML 代理接管。
-         * 否则 dark-mode 下主框架请求会被当成 HTML 抓取并注入 CSS，下载链路容易卡住。
+         * Discuz 附件下载 URL 不应该被主题 HTML 代理接管。
+         *
+         * 附件必须交还给 WebView 的真实下载流程，这样 DownloadListener 才能获得
+         * 服务端返回的 Content-Disposition、MIME 和最终下载 URL。
          */
         fun isAttachmentDownloadUrl(url: String?): Boolean {
             if (url.isNullOrBlank()) return false
+
             val lower = url.lowercase(Locale.ROOT)
             return lower.contains("mod=attachment") ||
                     lower.contains("forum.php?mod=attachment") ||
@@ -47,8 +62,10 @@ open class YamiboWebViewClient : WebViewClient() {
         fun shouldProxyHtmlForTheme(url: String?, accept: String?): Boolean {
             if (url.isNullOrBlank()) return false
             if (isAttachmentDownloadUrl(url)) return false
+
             val lower = url.lowercase(Locale.ROOT)
             if (!lower.contains("bbs.yamibo.com")) return false
+
             val acceptValue = accept.orEmpty()
             return acceptValue.isBlank() ||
                     acceptValue.contains("text/html", ignoreCase = true) ||
@@ -56,15 +73,23 @@ open class YamiboWebViewClient : WebViewClient() {
                     acceptValue.contains("*/*")
         }
 
+        /**
+         * Discuz 的 aid 通常是带签名和时间戳的 Base64：
+         *
+         * 1264306|8b054faf|1781066499|655106|547818
+         *
+         * 同一个附件重新进入页面后签名可能变化，所以缓存时只使用稳定的附件编号。
+         */
         private fun normalizeAttachmentAid(aid: String?): String? {
             if (aid.isNullOrBlank()) return null
 
-            // Discuz 的 aid 是带签名和时间戳的 Base64 字符串，例如：
-            // 1264306|8b054faf|1781066499|655106|547818
-            // 同一个附件在跳转或刷新后可能得到新的签名，因此只使用稳定的附件编号作缓存键。
             val cleaned = aid.replace(' ', '+')
+
             return try {
-                String(Base64.decode(cleaned, Base64.DEFAULT), Charsets.UTF_8)
+                String(
+                    Base64.decode(cleaned, Base64.DEFAULT),
+                    Charsets.UTF_8
+                )
                     .substringBefore('|')
                     .takeIf { it.isNotBlank() }
                     ?: cleaned
@@ -74,54 +99,91 @@ open class YamiboWebViewClient : WebViewClient() {
         }
 
         private fun attachmentKey(url: String): String? {
-            return normalizeAttachmentAid(Uri.parse(url).getQueryParameter("aid"))
+            return runCatching {
+                normalizeAttachmentAid(
+                    Uri.parse(url).getQueryParameter("aid")
+                )
+            }.getOrNull()
         }
 
-        class AttachmentNameBridge(webView: WebView) {
-            private val webViewRef = WeakReference(webView)
+        private fun downloadRequestKey(url: String): String {
+            return attachmentKey(url)?.let { "aid:$it" }
+                ?: runCatching {
+                    // fragment 不参与 HTTP 请求，去掉后可避免同一资源被误判为不同下载。
+                    Uri.parse(url)
+                        .buildUpon()
+                        .fragment(null)
+                        .build()
+                        .toString()
+                }.getOrDefault(url)
+        }
 
+        private fun tryAcquireDownloadRequest(url: String): Boolean {
+            val now = SystemClock.elapsedRealtime()
+            val key = downloadRequestKey(url)
+
+            val accepted = synchronized(downloadRequestLock) {
+                val previous = recentDownloadRequests[key]
+                if (previous != null && now - previous < DOWNLOAD_DEBOUNCE_MS) {
+                    false
+                } else {
+                    recentDownloadRequests[key] = now
+                    true
+                }
+            }
+
+            // 防止长期使用后记录无限增长；条件删除不会误删刚更新的值。
+            if (recentDownloadRequests.size > 64) {
+                recentDownloadRequests.forEach { (recordKey, timestamp) ->
+                    if (now - timestamp > DOWNLOAD_RECORD_TTL_MS) {
+                        recentDownloadRequests.remove(recordKey, timestamp)
+                    }
+                }
+            }
+
+            return accepted
+        }
+
+        class AttachmentNameBridge {
             @JavascriptInterface
             fun setAttachmentName(url: String, name: String) {
                 val key = attachmentKey(url) ?: return
                 val cleanName = cleanAttachmentName(name) ?: return
-                pendingNames[key] = cleanName
-            }
 
-            /**
-             * JS 直接拦截附件点击并走原生下载面板。
-             * 这样 dark-mode 的 shouldInterceptRequest 不会把附件主框架请求误当 HTML 代理，
-             * 也避免 target=_blank / DownloadListener 在不同 WebView 内核上的不稳定触发。
-             */
-            @JavascriptInterface
-            fun downloadAttachment(url: String, name: String?) {
-                val cleanName = cleanAttachmentName(name)
-                cleanName?.let { attachmentKey(url)?.let { key -> pendingNames[key] = it } }
-                mainHandler.post {
-                    val webView = webViewRef.get() ?: return@post
-                    val absoluteUrl = toAbsoluteUrl(webView.url, url)
-                    startAttachmentDownload(
-                        webView = webView,
-                        url = absoluteUrl,
-                        userAgent = webView.settings.userAgentString,
-                        contentDisposition = null,
-                        mimeType = guessMimeType(absoluteUrl, cleanName),
-                        pageFileName = cleanName
-                    )
-                }
+                pendingNames[key] = cleanName
             }
         }
 
         fun setupDownloadListener(webView: WebView) {
-            webView.addJavascriptInterface(AttachmentNameBridge(webView), "__yamiboAttach")
-            webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            webView.addJavascriptInterface(
+                AttachmentNameBridge(),
+                "__yamiboAttach"
+            )
+
+            webView.setDownloadListener {
+                    url,
+                    userAgent,
+                    contentDisposition,
+                    mimeType,
+                    _ ->
+
+                if (url.isNullOrBlank()) {
+                    return@setDownloadListener
+                }
+
+                // 必须在 post 之前去重，否则两个回调都会进入主线程队列并各自 enqueue。
+                if (!tryAcquireDownloadRequest(url)) {
+                    return@setDownloadListener
+                }
+
                 mainHandler.post {
                     startAttachmentDownload(
                         webView = webView,
                         url = url,
-                        userAgent = userAgent ?: webView.settings.userAgentString,
+                        userAgent = userAgent
+                            ?: webView.settings.userAgentString,
                         contentDisposition = contentDisposition,
-                        mimeType = mimeType?.takeIf { it.isNotBlank() },
-                        pageFileName = null
+                        mimeType = mimeType?.takeIf { it.isNotBlank() }
                     )
                 }
             }
@@ -132,255 +194,273 @@ open class YamiboWebViewClient : WebViewClient() {
             url: String,
             userAgent: String?,
             contentDisposition: String?,
-            mimeType: String?,
-            pageFileName: String?
+            mimeType: String?
         ) {
             try {
-                val aid = url.toUri().getQueryParameter("aid")
+                val aid = runCatching {
+                    url.toUri().getQueryParameter("aid")
+                }.getOrNull()
+
                 val attachmentId = normalizeAttachmentAid(aid)
-                val fileName = chooseAttachmentFileName(
-                    url = url,
-                    contentDisposition = contentDisposition,
-                    mimeType = mimeType,
-                    aid = aid,
-                    attachmentId = attachmentId,
-                    pageFileName = pageFileName
+
+                val ext = mimeType
+                    ?.let {
+                        MimeTypeMap.getSingleton()
+                            .getExtensionFromMimeType(it)
+                    }
+                    ?.takeIf { it.isNotEmpty() }
+
+                val guessed = URLUtil.guessFileName(
+                    url,
+                    contentDisposition,
+                    mimeType?.takeIf { it.isNotBlank() }
+                        ?: "application/octet-stream"
                 )
 
-                AttachmentDownloadUtil.start(
-                    context = webView.context,
-                    request = AttachmentDownloadUtil.Request(
-                        url = url,
-                        fileName = fileName,
-                        mimeType = mimeType?.takeIf { it.isNotBlank() },
-                        userAgent = userAgent ?: webView.settings.userAgentString,
-                        referer = webView.url ?: "https://bbs.yamibo.com/",
-                        cookie = CookieManager.getInstance().getCookie(url) ?: "",
-                        contentDisposition = contentDisposition
+                // 服务端 Content-Disposition 优先
+                val cdFileName = parseContentDisposition(
+                    contentDisposition,
+                    mimeType
+                )
+
+                val fileName = when {
+                    cdFileName != null -> cdFileName
+
+                    !guessed.equals(
+                        "forum.php",
+                        ignoreCase = true
+                    ) &&
+                            !guessed.equals(
+                                "forum.php.txt",
+                                ignoreCase = true
+                            ) -> guessed
+
+                    aid != null -> {
+                        attachmentId
+                            ?.let { pendingNames.remove(it) }
+                            ?.let { name ->
+                                if (
+                                    name.contains('.') &&
+                                    name.lastIndexOf('.') >
+                                    name.lastIndexOf('/')
+                                ) {
+                                    name
+                                } else {
+                                    ext
+                                        ?.let { "$name.$it" }
+                                        ?: name
+                                }
+                            }
+                            ?: (
+                                    "yamibo_" +
+                                            (attachmentId ?: aid) +
+                                            (ext?.let { ".$it" } ?: "")
+                                    )
+                    }
+
+                    else -> (
+                            "yamibo_" +
+                                    System.currentTimeMillis() +
+                                    (ext?.let { ".$it" } ?: "")
+                            )
+                }
+
+                DownloadManager.Request(Uri.parse(url)).apply {
+                    setMimeType(
+                        mimeType?.takeIf { it.isNotBlank() }
+                            ?: "application/octet-stream"
                     )
-                )
-            } catch (_: Exception) {}
+                    addRequestHeader(
+                        "Cookie",
+                        CookieManager.getInstance()
+                            .getCookie(url).orEmpty()
+                    )
+                    addRequestHeader(
+                        "User-Agent",
+                        userAgent
+                            ?: webView.settings.userAgentString
+                    )
+                    addRequestHeader(
+                        "Referer",
+                        webView.url
+                            ?: "https://bbs.yamibo.com/"
+                    )
+                    addRequestHeader(
+                        "Accept",
+                        "application/octet-stream,*/*"
+                    )
+                    setTitle(fileName)
+                    setDescription("正在下载附件")
+                    setNotificationVisibility(
+                        DownloadManager.Request
+                            .VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                    )
+                    setDestinationInExternalPublicDir(
+                        Environment.DIRECTORY_DOWNLOADS,
+                        fileName
+                    )
+                }.let {
+                    val dm =
+                        webView.context.getSystemService(
+                            Context.DOWNLOAD_SERVICE
+                        ) as DownloadManager
+                    dm.enqueue(it)
+                }
+            } catch (_: Throwable) { }
         }
 
-        private fun chooseAttachmentFileName(
-            url: String,
+        private fun parseContentDisposition(
             contentDisposition: String?,
-            mimeType: String?,
-            aid: String?,
-            attachmentId: String?,
-            pageFileName: String?
-        ): String {
-            val ext = mimeType?.let {
-                android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it)
-            }?.takeIf { it.isNotEmpty() }
-
-            // 新版会在 DownloadListener 之前由 JS 直接拉起下载器选择框，
-            // 因此页面真实文件名和缓存文件名必须优先于 forum.php 的 URL 推断。
-            cleanAttachmentName(pageFileName)?.let { return ensureExtension(it, ext) }
-
-            attachmentId?.let { pendingNames.remove(it) }
-                ?.let(::cleanAttachmentName)
-                ?.let { return ensureExtension(it, ext) }
-
-            parseContentDispositionFileName(contentDisposition)
-                ?.let(::cleanAttachmentName)
-                ?.let { return ensureExtension(it, ext) }
-
-            val guessed = URLUtil.guessFileName(
-                url,
-                contentDisposition,
-                mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
-            )
-            if (!isGenericAttachmentName(guessed)) {
-                return ensureExtension(sanitizeFileName(guessed), ext)
-            }
-
-            if (aid != null) {
-                return "yamibo_${attachmentId ?: aid}" + (ext?.let { ".$it" } ?: "")
-            }
-
-            return "yamibo_${System.currentTimeMillis()}" + (ext?.let { ".$it" } ?: "")
-        }
-
-        private fun ensureExtension(name: String, extension: String?): String {
-            val clean = sanitizeFileName(name)
-            val hasExtension = clean.substringAfterLast('.', "").isNotBlank()
-            return if (hasExtension || extension.isNullOrBlank()) clean else "$clean.$extension"
-        }
-
-        private fun isGenericAttachmentName(name: String): Boolean {
-            val lower = name.lowercase(Locale.ROOT)
-            return lower == "forum.php" ||
-                    lower == "forum.php.txt" ||
-                    lower == "forum.php.bin" ||
-                    lower == "download" ||
-                    lower == "attachment" ||
-                    lower.startsWith("forum.php?")
-        }
-
-        private fun parseContentDispositionFileName(contentDisposition: String?): String? {
+            mimeType: String?
+        ): String? {
             if (contentDisposition.isNullOrBlank()) return null
 
-            val utf8 = Regex("""filename\*\s*=\s*UTF-8''([^;]+)""", RegexOption.IGNORE_CASE)
-                .find(contentDisposition)
-                ?.groupValues
-                ?.getOrNull(1)
-                ?.trim()
-                ?.trim('"')
-            if (!utf8.isNullOrBlank()) {
-                return runCatching { URLDecoder.decode(utf8, "UTF-8") }.getOrDefault(utf8)
+            /*
+             * RFC 5987 / RFC 6266:
+             * filename*=UTF-8''%E6%B5%8B%E8%AF%95.zip
+             */
+            val encodedMatch = Regex(
+                """filename\*\s*=\s*([^']*)''([^;]+)""",
+                RegexOption.IGNORE_CASE
+            ).find(contentDisposition)
+
+            if (encodedMatch != null) {
+                val charset = encodedMatch.groupValues
+                    .getOrNull(1)?.trim()?.ifBlank { "UTF-8" }
+                    ?: "UTF-8"
+                val encoded = encodedMatch.groupValues
+                    .getOrNull(2)?.trim()?.trim('"')
+
+                if (!encoded.isNullOrBlank()) {
+                    val decoded = runCatching {
+                        URLDecoder.decode(encoded, charset)
+                    }.getOrElse {
+                        runCatching {
+                            URLDecoder.decode(encoded, "UTF-8")
+                        }.getOrDefault(encoded)
+                    }
+                    return ensureExtension(decoded, mimeType)
+                }
             }
 
-            return Regex("""filename\s*=\s*"?([^";]+)"?""", RegexOption.IGNORE_CASE)
-                .find(contentDisposition)
-                ?.groupValues
-                ?.getOrNull(1)
+            /*
+             * filename="example.zip" / filename=example.zip
+             */
+            val filename = Regex(
+                """filename\s*=\s*(?:"([^"]+)"|([^;]+))""",
+                RegexOption.IGNORE_CASE
+            ).find(contentDisposition)
+                ?.let { match ->
+                    match.groupValues.drop(1)
+                        .firstOrNull { it.isNotBlank() }
+                }
                 ?.trim()
+                ?.trim('"')
+                ?.takeIf { it.isNotBlank() }
+
+            return filename?.let { ensureExtension(it, mimeType) }
+        }
+
+        private fun ensureExtension(name: String, mimeType: String?): String {
+            val clean = name
+                .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                .trim()
+                .trimEnd('.')
+
+            val ext = mimeType?.let {
+                MimeTypeMap.getSingleton()
+                    .getExtensionFromMimeType(it)
+            }?.takeIf { it.isNotEmpty() } ?: return clean
+
+            val hasExt = clean.substringAfterLast('.', "")
+                .isNotBlank()
+
+            return if (hasExt) clean else "$clean.$ext"
         }
 
         private fun cleanAttachmentName(name: String?): String? {
             val cleaned = name
-                ?.replace('\n', ' ')
-                ?.replace('\r', ' ')
-                ?.replace(Regex("\\s+"), " ")
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
                 ?: return null
-            return sanitizeFileName(cleaned)
-        }
 
-        private fun sanitizeFileName(name: String): String {
-            return name
-                .replace(Regex("[\\/:*?\"<>|]"), "_")
+            return cleaned
+                .replace(Regex("[\\\\/:*?\"<>|]"), "_")
                 .trim()
-                .ifBlank { "yamibo_${System.currentTimeMillis()}" }
-        }
-
-        private fun toAbsoluteUrl(baseUrl: String?, rawUrl: String): String {
-            return try {
-                val parsed = rawUrl.toUri()
-                if (!parsed.scheme.isNullOrBlank()) rawUrl else URL(URL(baseUrl ?: "https://bbs.yamibo.com/"), rawUrl).toString()
-            } catch (_: Exception) {
-                rawUrl
-            }
-        }
-
-        private fun guessMimeType(url: String, fileName: String?): String? {
-            val extFromName = fileName
-                ?.substringAfterLast('.', missingDelimiterValue = "")
-                ?.takeIf { it.isNotBlank() }
-                ?.lowercase(Locale.ROOT)
-            val extFromUrl = android.webkit.MimeTypeMap.getFileExtensionFromUrl(url)
-                ?.takeIf { it.isNotBlank() }
-                ?.lowercase(Locale.ROOT)
-            val ext = extFromName ?: extFromUrl
-            return ext?.let { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
+                .trimEnd('.')
+                .ifBlank { null }
         }
 
         private val ATTACH_INTERCEPT_JS = """
             (function() {
-                function cleanCandidate(value) {
-                    if (!value) return '';
-                    var text = String(value)
-                        .replace(/[\\r\\n\\t]+/g, ' ')
-                        .replace(/\\s+/g, ' ')
-                        .trim();
-                    text = text
-                        .replace(/^附件[:：]?\\s*/i, '')
-                        .replace(/\\s*\\([^)]*(?:KB|MB|GB|字节|下载次数)[^)]*\\)\\s*$/i, '')
-                        .replace(/\\s+(?:下载次数|售价|阅读权限)[:：].*$/i, '')
-                        .trim();
-                    return text;
-                }
-
-                function fileLike(value) {
-                    var text = cleanCandidate(value);
-                    return /\\.[a-z0-9]{1,10}$/i.test(text) ? text : '';
-                }
-
-                function attachmentName(link) {
-                    if (!link) return '';
-
-                    var attributes = [
-                        link.getAttribute('download'),
-                        link.getAttribute('data-filename'),
-                        link.getAttribute('data-file-name'),
-                        link.getAttribute('title'),
-                        link.getAttribute('aria-label')
-                    ];
-                    for (var i = 0; i < attributes.length; i++) {
-                        var fromAttr = fileLike(attributes[i]);
-                        if (fromAttr) return fromAttr;
+                function rememberAttachment(link, name) {
+                    if (!link || !window.__yamiboAttach) return;
+                    if (!name) {
+                        var span = link.querySelector('.link.f_b');
+                        name = span && span.textContent ? span.textContent.trim() : '';
                     }
-
-                    var selectors = [
-                        '.attnm', '.attachname', '.filename', '.file-name',
-                        '.link.f_b', 'strong', 'b', 'em', 'span'
-                    ];
-                    for (var j = 0; j < selectors.length; j++) {
-                        var node = link.querySelector(selectors[j]);
-                        var fromChild = node ? fileLike(node.textContent) : '';
-                        if (fromChild) return fromChild;
-                    }
-
-                    var ownText = fileLike(link.textContent);
-                    if (ownText) return ownText;
-
-                    var container = link.closest
-                        ? link.closest('.attnm, .attach, .attachment, .t_attach, .pcb, .plc')
-                        : null;
-                    if (container) {
-                        var nodes = container.querySelectorAll(
-                            '.attnm, .attachname, .filename, .file-name, .link.f_b, strong, b, em, span, a'
-                        );
-                        for (var k = 0; k < nodes.length; k++) {
-                            var fromContainer = fileLike(nodes[k].textContent);
-                            if (fromContainer) return fromContainer;
+                    if (!name) {
+                        var selectors = [
+                            '.attnm', '.attachname', '.filename', '.file-name',
+                            'strong', 'b', 'em', 'span'
+                        ];
+                        for (var i = 0; i < selectors.length; i++) {
+                            var node = link.querySelector(selectors[i]);
+                            var text = node && node.textContent ? node.textContent.trim() : '';
+                            if (text && /\.[a-z0-9]{1,16}$/i.test(text)) { name = text; break; }
                         }
                     }
-
-                    return cleanCandidate(link.textContent);
+                    if (!name) name = (link.textContent || '').replace(/[\\r\\n\\t]+/g, ' ').replace(/\\s+/g, ' ').trim();
+                    if (name) window.__yamiboAttach.setAttachmentName(link.href, name);
                 }
 
-                function rememberAttachment(link) {
-                    if (!link || !window.__yamiboAttach) return;
-                    var name = attachmentName(link);
-                    if (name) window.__yamiboAttach.setAttachmentName(link.href || link.getAttribute('href') || '', name);
-                }
-
-                function closestAttachmentLink(target) {
-                    return target && target.closest
-                        ? target.closest('a[href*="mod=attachment"]')
-                        : null;
-                }
-
-                // 页面完成后先缓存一次，避免点击与 DownloadListener 回调之间的时序竞争。
-                document.querySelectorAll('a[href*="mod=attachment"]').forEach(rememberAttachment);
-
-                if (window.__yamiboAttachHooked) return;
-                window.__yamiboAttachHooked = true;
-                document.addEventListener('click', function(e) {
-                    var link = closestAttachmentLink(e.target);
-                    if (!link) return;
-
-                    var href = link.href || link.getAttribute('href') || '';
-                    var name = attachmentName(link);
+                document.querySelectorAll('a[href*="mod=attachment"]').forEach(function(link) {
                     rememberAttachment(link);
+                    link.removeAttribute('target');
+                });
 
-                    if (window.__yamiboAttach && typeof window.__yamiboAttach.downloadAttachment === 'function') {
-                        e.preventDefault();
+                if (window.__yamiboAttachHookedV2) return;
+                window.__yamiboAttachHookedV2 = true;
+
+                ['pointerdown', 'touchstart', 'mousedown'].forEach(function(type) {
+                    document.addEventListener(type, function(e) {
+                        var link = e.target && e.target.closest
+                            ? e.target.closest('a[href*="mod=attachment"]')
+                            : null;
+                        if (!link) return;
+                        rememberAttachment(link);
                         e.stopPropagation();
-                        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-                        window.__yamiboAttach.downloadAttachment(href, name);
-                        return false;
+                        if (e.stopImmediatePropagation) {
+                            e.stopImmediatePropagation();
+                        }
+                    }, true);
+                });
+
+                document.addEventListener('click', function(e) {
+                    var link = e.target && e.target.closest
+                        ? e.target.closest('a[href*="mod=attachment"]')
+                        : null;
+                    if (!link) return;
+                    rememberAttachment(link);
+                    link.removeAttribute('target');
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (e.stopImmediatePropagation) {
+                        e.stopImmediatePropagation();
                     }
+                    setTimeout(function() {
+                        window.location.href = link.href;
+                    }, 0);
                 }, true);
             })();
         """.trimIndent()
     }
 
     private var currentCookie = ""
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    private val scope = CoroutineScope(
+        Dispatchers.Main + SupervisorJob()
+    )
 
     init {
         scope.launch {
@@ -388,36 +468,78 @@ open class YamiboWebViewClient : WebViewClient() {
         }
     }
 
-    protected fun applyHideCss(view: WebView?, currentUrl: String?) {
-        val url = currentUrl ?: view?.url ?: ""
+    protected fun applyHideCss(
+        view: WebView?,
+        currentUrl: String?
+    ) {
+        val url = currentUrl ?: view?.url.orEmpty()
 
-        // 隐藏底部栏
         var css =
-            ".foot.flex-box:not(.foot_reply) { display: none !important; } .foot_height { display: none !important; }"
+            ".foot.flex-box:not(.foot_reply) " +
+                    "{ display: none !important; } " +
+                    ".foot_height " +
+                    "{ display: none !important; }"
 
         if (GlobalData.isDarkMode.value) {
             css += """
-                .threadlist li, #threadlist li, .bm_c li, .forumlist li,
-                .threadlist .thread-item, #threadlist .thread-item {
-                    transition: filter 90ms ease, background-color 90ms ease !important;
-                    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.18) !important;
+                /* 只给真正的帖子列表项添加按压反馈。
+                   不再匹配 .bm_c li / .forumlist li，避免附件所在的大父容器
+                   因 :active + filter 被整块压暗，并在下载交接时出现按压态残留。 */
+                .threadlist li.list,
+                #threadlist li.list,
+                .forumlist li.list,
+                .threadlist .thread-item,
+                #threadlist .thread-item {
+                    transition: background-color 90ms ease !important;
+                    -webkit-tap-highlight-color:
+                        rgba(255, 255, 255, 0.06) !important;
                 }
-                .threadlist li:active, #threadlist li:active, .bm_c li:active, .forumlist li:active,
-                .threadlist .thread-item:active, #threadlist .thread-item:active {
-                    filter: brightness(0.72) !important;
-                    background-color: rgba(0, 0, 0, 0.22) !important;
+
+                .threadlist li.list:active,
+                #threadlist li.list:active,
+                .forumlist li.list:active,
+                .threadlist .thread-item:active,
+                #threadlist .thread-item:active {
+                    filter: none !important;
+                    background-color:
+                        rgba(255, 255, 255, 0.045) !important;
+                }
+
+                /* 附件链接只改变自身按压背景，禁止 filter/opacity 影响祖先合成层。 */
+                a[href*="mod=attachment"] {
+                    -webkit-tap-highlight-color:
+                        rgba(255, 255, 255, 0.08) !important;
+                    transition: background-color 90ms ease !important;
+                }
+
+                a[href*="mod=attachment"]:active {
+                    filter: none !important;
+                    opacity: 1 !important;
+                    background-color:
+                        rgba(255, 255, 255, 0.06) !important;
                 }
             """.trimIndent()
         }
 
-        // 隐藏顶部栏（仅在自己的主页 mycenter=1 时生效）
         if (url.contains("mycenter=1")) {
-            css += " .my, .mz { visibility: hidden !important; pointer-events: none !important; }"
+            css +=
+                " .my, .mz " +
+                        "{ visibility: hidden !important; " +
+                        "pointer-events: none !important; }"
         }
 
+        val safeCss = css
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", "\\n")
+            .replace("\r", "")
+
         val injectJs = """
-            javascript:(function() {
-                var style = document.getElementById('yamibo-hide-style');
+            (function() {
+                var style = document.getElementById(
+                    'yamibo-hide-style'
+                );
+
                 if (!style) {
                     style = document.createElement('style');
                     style.id = 'yamibo-hide-style';
@@ -426,107 +548,186 @@ open class YamiboWebViewClient : WebViewClient() {
                         if (document.head) {
                             document.head.appendChild(style);
                             return true;
-                        } else if (document.documentElement) {
-                            document.documentElement.appendChild(style);
+                        }
+
+                        if (document.documentElement) {
+                            document.documentElement
+                                .appendChild(style);
                             return true;
                         }
+
                         return false;
                     };
 
                     if (!tryInject()) {
-                        var observer = new MutationObserver(function(mutations, obs) {
-                            if (tryInject()) {
-                                obs.disconnect();
+                        var observer = new MutationObserver(
+                            function(mutations, obs) {
+                                if (tryInject()) {
+                                    obs.disconnect();
+                                }
                             }
-                        });
-                        observer.observe(document, { childList: true, subtree: true });
+                        );
+
+                        observer.observe(
+                            document,
+                            {
+                                childList: true,
+                                subtree: true
+                            }
+                        );
                     }
                 }
-                style.innerHTML = '$css';
+
+                style.innerHTML = '$safeCss';
             })();
         """.trimIndent()
 
         view?.evaluateJavascript(injectJs, null)
     }
 
-    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+    override fun onPageStarted(
+        view: WebView?,
+        url: String?,
+        favicon: Bitmap?
+    ) {
         val targetCookie = currentCookie.ifBlank {
             GlobalData.currentCookie
         }
-        if (url != null && targetCookie.isNotBlank()) {
-            CookieManager.getInstance().setCookie(url, targetCookie)
+
+        if (
+            url != null &&
+            targetCookie.isNotBlank()
+        ) {
+            CookieManager.getInstance().setCookie(
+                url,
+                targetCookie
+            )
             CookieManager.getInstance().flush()
         }
 
-        if (url?.startsWith(RequestConfig.BASE_URL) == true) {
+        if (
+            url?.startsWith(RequestConfig.BASE_URL) == true
+        ) {
             applyHideCss(view, url)
         }
 
         super.onPageStarted(view, url, favicon)
     }
 
-    override fun onPageCommitVisible(view: WebView?, url: String?) {
+    override fun onPageCommitVisible(
+        view: WebView?,
+        url: String?
+    ) {
         applyHideCss(view, url)
         super.onPageCommitVisible(view, url)
     }
 
-    override fun onPageFinished(view: WebView?, url: String?) {
-        url?.let {
-            if (it.contains(RequestConfig.BASE_URL)) {
-                applyHideCss(view, url)
+    override fun onPageFinished(
+        view: WebView?,
+        url: String?
+    ) {
+        url?.let { currentUrl ->
+            if (
+                currentUrl.contains(
+                    RequestConfig.BASE_URL
+                )
+            ) {
+                applyHideCss(view, currentUrl)
 
-                val cookieManager = CookieManager.getInstance()
-                val cookie = cookieManager.getCookie(url)
+                val cookieManager =
+                    CookieManager.getInstance()
+
+                val cookie =
+                    cookieManager.getCookie(currentUrl)
+
                 if (cookie != null) {
                     CookieUtil.saveCookie(cookie)
                     currentCookie = cookie
                 }
             }
         }
+
         super.onPageFinished(view, url)
 
         view?.evaluateJavascript(
             """
-            (function() {
-                if (window.__historyHooked) return;
-                window.__historyHooked = true;
+                (function() {
+                    if (window.__historyHooked) return;
+                    window.__historyHooked = true;
 
-                function checkState() {
-                    var state = window.history.state;
-                    var isFullscreen = state && typeof state === 'object' && 'pswp_index' in state;
+                    function checkState() {
+                        var state = window.history.state;
 
-                    if (window.AndroidFullscreen) {
-                        window.AndroidFullscreen.notify(!!isFullscreen);
+                        var isFullscreen =
+                            state &&
+                            typeof state === 'object' &&
+                            'pswp_index' in state;
+
+                        if (window.AndroidFullscreen) {
+                            window.AndroidFullscreen.notify(
+                                !!isFullscreen
+                            );
+                        }
                     }
-                }
 
-                var originalPushState = history.pushState;
-                history.pushState = function() {
-                    var result = originalPushState.apply(this, arguments);
+                    var originalPushState =
+                        history.pushState;
+
+                    history.pushState = function() {
+                        var result =
+                            originalPushState.apply(
+                                this,
+                                arguments
+                            );
+
+                        checkState();
+                        return result;
+                    };
+
+                    var originalReplaceState =
+                        history.replaceState;
+
+                    history.replaceState = function() {
+                        var result =
+                            originalReplaceState.apply(
+                                this,
+                                arguments
+                            );
+
+                        checkState();
+                        return result;
+                    };
+
+                    window.addEventListener(
+                        'popstate',
+                        function() {
+                            checkState();
+                        }
+                    );
+
                     checkState();
-                    return result;
-                };
-
-                var originalReplaceState = history.replaceState;
-                history.replaceState = function() {
-                    var result = originalReplaceState.apply(this, arguments);
-                    checkState();
-                    return result;
-                };
-
-                window.addEventListener('popstate', function() {
-                    checkState();
-                });
-
-                checkState();
-            })();
-            """.trimIndent(), null
+                })();
+            """.trimIndent(),
+            null
         )
-        view?.evaluateJavascript(ATTACH_INTERCEPT_JS, null)
+
+        view?.evaluateJavascript(
+            ATTACH_INTERCEPT_JS,
+            null
+        )
     }
 
-    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
-        super.doUpdateVisitedHistory(view, url, isReload)
+    override fun doUpdateVisitedHistory(
+        view: WebView?,
+        url: String?,
+        isReload: Boolean
+    ) {
+        super.doUpdateVisitedHistory(
+            view,
+            url,
+            isReload
+        )
+
         applyHideCss(view, url)
     }
 }

@@ -148,6 +148,7 @@ import org.shirakawatyu.yamibo.novel.util.reader.rememberScreenCorner
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "cookies")
 private val QuickActionHintShownKey = booleanPreferencesKey("quick_action_hint_shown")
 
+@RequiresApi(Build.VERSION_CODES.O)
 class MainActivity : ComponentActivity() {
 
     var bbsWebViewState by mutableStateOf<WebView?>(null)
@@ -180,12 +181,12 @@ class MainActivity : ComponentActivity() {
                     view === bbsWebViewState &&
                     newProgress >= 100 &&
                     bbsPageState.hasMainFrameCommitted &&
-                    bbsPageState.isLoading &&
+                    bbsPageState.isActivelyLoading &&
                     !bbsPageState.isErrorState &&
                     !bbsPageState.showLoadError
                 ) {
                     val url = try { view.url } catch (_: Throwable) { null }
-                    if (bbsPageState.isUsableBbsUrl(url)) {
+                    if (bbsPageState.shouldAcceptProgressLoadSuccess(url)) {
                         bbsPageState.markLoadSucceeded(url)
                     }
                 }
@@ -219,7 +220,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         GlobalData.dataStore = applicationContext.dataStore
         GlobalData.displayMetrics = resources.displayMetrics

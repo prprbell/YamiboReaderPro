@@ -129,6 +129,9 @@ class BBSPageState(
     val isLoading: Boolean
         get() = phase is BbsPagePhase.Loading || phase is BbsPagePhase.Recovering
 
+    val isActivelyLoading: Boolean
+        get() = phase is BbsPagePhase.Loading
+
     val isErrorState: Boolean
         get() = phase is BbsPagePhase.Error
 
@@ -403,6 +406,26 @@ class BBSPageState(
         }
     }
 
+    /**
+     * 普通 AppResume 已经通过 Native 快速门控并显示旧 WebView 后，
+     * 后续异步 JS probe/repair 失败不能再升级成骨架屏。
+     * 这样恢复第一帧只有两种稳定结果：可信旧网页，或一开始就是 blocking 骨架屏。
+     */
+    fun shouldKeepVisibleAfterSilentResumeFailure(webViewUrl: String?): Boolean {
+        return resumeRecoveryReason == BbsRecoveryReason.AppResume &&
+                surfaceTrust == BbsSurfaceTrust.RepairingVisible &&
+                canTrustLastVisibleSurface(webViewUrl)
+    }
+
+    /** progress=100 兜底只能承认真正发起过的主框架 Loading，不能承认错误后的 Recovering。 */
+    fun shouldAcceptProgressLoadSuccess(url: String?): Boolean {
+        return isActivelyLoading &&
+                hasMainFrameCommitted &&
+                !isErrorState &&
+                !showLoadError &&
+                isUsableBbsUrl(url)
+    }
+
     /** 把恢复明确推进 Recovering，供真正需要 load/reload 的场景调用。 */
     fun beginRecovery(
         mode: BbsResumeRecoveryMode = resumeRecoveryMode.takeUnless {
@@ -519,6 +542,5 @@ class BBSPageState(
 
     private companion object {
         const val RESUME_RECOVERY_THROTTLE_MS = 2_000L
-        const val MAX_SILENT_PROBE_TIMEOUTS_BEFORE_BLOCKING = 2
     }
 }
