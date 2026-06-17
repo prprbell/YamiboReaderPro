@@ -288,8 +288,22 @@ object PageJsScripts {
 
     val THREAD_LIST_CLICK_FIX_JS = """
         (function() {
-            if (window.__threadListClickFixV3) return;
-            window.__threadListClickFixV3 = true;
+            if (window.__threadListClickFixV4) return;
+            window.__threadListClickFixV4 = true;
+
+            var THREAD_ITEM_SELECTOR =
+                '.threadlist li.list, #threadlist li.list, .forumlist li.list, ' +
+                '.threadlist .thread-item, #threadlist .thread-item';
+            var BLOCK_INTERACTIVE_SELECTOR =
+                'a[href*="mod=attachment"], button, input, textarea, select, label, .pswp';
+            var PASS_THROUGH_CLICK_SELECTOR =
+                'a[href], button, input, textarea, select, label, .pswp';
+
+            var pressedItem = null;
+            var pressedStartX = 0;
+            var pressedStartY = 0;
+            var clearPressedTimer = null;
+            var suppressClickUntil = 0;
 
             function closest(el, selector) {
                 while (el && el !== document && el.nodeType === 1) {
@@ -303,7 +317,8 @@ object PageJsScripts {
                 if (!rawHref || rawHref === '#' || /^javascript:/i.test(rawHref)) return false;
                 try {
                     var url = new URL(rawHref, document.baseURI);
-                    if (url.hostname !== 'bbs.yamibo.com') return false;
+                    var host = String(url.hostname || '').toLowerCase();
+                    if (host !== 'bbs.yamibo.com' && host !== 'm.yamibo.com') return false;
                     var path = String(url.pathname || '').replace(/^\/+/, '').toLowerCase();
                     var query = String(url.search || '').toLowerCase();
                     return /^thread-\d+/.test(path) ||
@@ -313,30 +328,177 @@ object PageJsScripts {
                 }
             }
 
+            function getThreadLink(item) {
+                if (!item) return null;
+                var links = item.querySelectorAll('a[href]');
+                for (var i = 0; i < links.length; i++) {
+                    var link = links[i];
+                    var href = link.getAttribute('href') || '';
+                    if (isSafeThreadUrl(href)) return link;
+                }
+                return null;
+            }
+
+            function isValidThreadItem(item) {
+                return !!(item && getThreadLink(item));
+            }
+
+            function pointInRect(x, y, rect) {
+                return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+            }
+
+            function findThreadItemByPoint(x, y) {
+                if (typeof x !== 'number' || typeof y !== 'number') return null;
+
+                // 先用 elementsFromPoint 沿命中链向上找，能覆盖 target 是子节点/伪布局节点的情况。
+                if (document.elementsFromPoint) {
+                    var stack = document.elementsFromPoint(x, y);
+                    for (var i = 0; i < stack.length; i++) {
+                        var fromStack = closest(stack[i], THREAD_ITEM_SELECTOR);
+                        if (isValidThreadItem(fromStack)) return fromStack;
+                    }
+                }
+
+                // 再用 bounding rect 扫描兜底：某些 Android WebView 的空白区 hit-test
+                // 会落到 ul/div 外层，不一定能从 target 或 elementsFromPoint 回溯到 li.list。
+                var items = document.querySelectorAll(THREAD_ITEM_SELECTOR);
+                var best = null;
+                var bestArea = Infinity;
+                for (var j = 0; j < items.length; j++) {
+                    var item = items[j];
+                    if (!isValidThreadItem(item)) continue;
+                    var rect = item.getBoundingClientRect();
+                    if (rect.width <= 0 || rect.height <= 0) continue;
+                    if (!pointInRect(x, y, rect)) continue;
+                    var area = rect.width * rect.height;
+                    if (area < bestArea) {
+                        bestArea = area;
+                        best = item;
+                    }
+                }
+                return best;
+            }
+
+            function eventX(e) {
+                if (typeof e.clientX === 'number') return e.clientX;
+                var t = e.changedTouches && e.changedTouches[0];
+                return t && typeof t.clientX === 'number' ? t.clientX : NaN;
+            }
+
+            function eventY(e) {
+                if (typeof e.clientY === 'number') return e.clientY;
+                var t = e.changedTouches && e.changedTouches[0];
+                return t && typeof t.clientY === 'number' ? t.clientY : NaN;
+            }
+
+            function findThreadItemFromEvent(e) {
+                var direct = closest(e.target, THREAD_ITEM_SELECTOR);
+                if (isValidThreadItem(direct)) return direct;
+                return findThreadItemByPoint(eventX(e), eventY(e));
+            }
+
+            function isBlockedForPress(e) {
+                return !!closest(e.target, BLOCK_INTERACTIVE_SELECTOR);
+            }
+
+            function isPassThroughClick(e) {
+                return !!closest(e.target, PASS_THROUGH_CLICK_SELECTOR);
+            }
+
+            function clearPressedItem() {
+                if (clearPressedTimer) {
+                    clearTimeout(clearPressedTimer);
+                    clearPressedTimer = null;
+                }
+                if (pressedItem) {
+                    pressedItem.classList.remove('yamibo-thread-pressed');
+                    pressedItem = null;
+                }
+            }
+
+            function setPressedItem(item, e) {
+                if (!item) return;
+                if (clearPressedTimer) {
+                    clearTimeout(clearPressedTimer);
+                    clearPressedTimer = null;
+                }
+                if (pressedItem && pressedItem !== item) {
+                    pressedItem.classList.remove('yamibo-thread-pressed');
+                }
+                pressedItem = item;
+                pressedStartX = eventX(e);
+                pressedStartY = eventY(e);
+                pressedItem.classList.add('yamibo-thread-pressed');
+            }
+
             if (!document.getElementById('yamibo-thread-list-click-style')) {
                 var style = document.createElement('style');
                 style.id = 'yamibo-thread-list-click-style';
-                style.textContent = 'li.list { cursor: pointer; -webkit-tap-highlight-color: rgba(0,0,0,0.08); }';
-                document.head.appendChild(style);
+                style.textContent =
+                    THREAD_ITEM_SELECTOR +
+                    ' { cursor: pointer; -webkit-tap-highlight-color: rgba(0,0,0,0.08); }';
+                (document.head || document.documentElement).appendChild(style);
             }
 
-            document.addEventListener('click', function(e) {
-                var li = closest(e.target, 'li.list');
-                if (!li) return;
+            function onPressStart(e) {
+                if (e.button !== undefined && e.button !== 0) return;
+                if (isBlockedForPress(e)) return;
 
-                if (closest(e.target, 'a[href], button, input, textarea, select, label, .pswp')) return;
+                var item = findThreadItemFromEvent(e);
+                if (!item) return;
 
-                var threadLink =
-                    li.querySelector('a[href*="mod=viewthread"]') ||
-                    li.querySelector('a[href^="thread-"]');
+                setPressedItem(item, e);
+            }
 
+            function onPressMove(e) {
+                if (!pressedItem) return;
+                var x = eventX(e);
+                var y = eventY(e);
+                if (Math.abs(x - pressedStartX) > 12 || Math.abs(y - pressedStartY) > 12) {
+                    suppressClickUntil = Date.now() + 450;
+                    clearPressedItem();
+                }
+            }
+
+            function onPressEnd() {
+                if (!pressedItem) return;
+                clearPressedTimer = setTimeout(clearPressedItem, 160);
+            }
+
+            // pointer 事件优先；touch/mouse 作为旧 WebView 兜底。它们只加视觉状态，不拦截传播。
+            window.addEventListener('pointerdown', onPressStart, true);
+            window.addEventListener('pointermove', onPressMove, true);
+            window.addEventListener('pointerup', onPressEnd, true);
+            window.addEventListener('pointercancel', clearPressedItem, true);
+            window.addEventListener('touchstart', onPressStart, true);
+            window.addEventListener('touchmove', onPressMove, true);
+            window.addEventListener('touchend', onPressEnd, true);
+            window.addEventListener('touchcancel', clearPressedItem, true);
+            window.addEventListener('mousedown', onPressStart, true);
+            window.addEventListener('mousemove', onPressMove, true);
+            window.addEventListener('mouseup', onPressEnd, true);
+            window.addEventListener('blur', clearPressedItem, true);
+            window.addEventListener('pagehide', clearPressedItem, true);
+
+            window.addEventListener('click', function(e) {
+                if (e.button !== 0) return;
+                if (Date.now() < suppressClickUntil) return;
+
+                // 原生可交互元素全部放行：标题/摘要链接走原站点自己的链接，
+                // 附件链接交给 ATTACH_INTERCEPT_JS，头像/用户名链接也保持原行为。
+                if (isPassThroughClick(e)) return;
+
+                var item = findThreadItemFromEvent(e) || pressedItem;
+                if (!item) return;
+
+                var threadLink = getThreadLink(item);
                 if (!threadLink || !threadLink.href) return;
-                if (!isSafeThreadUrl(threadLink.getAttribute('href'))) return;
 
                 e.preventDefault();
-                e.stopPropagation();
+                e.stopImmediatePropagation();
 
-                location.href = threadLink.href;
+                clearPressedTimer = setTimeout(clearPressedItem, 160);
+                window.location.href = threadLink.href;
             }, true);
         })();
     """.trimIndent()

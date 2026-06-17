@@ -483,8 +483,12 @@ open class YamiboWebViewClient : WebViewClient() {
         if (GlobalData.isDarkMode.value) {
             css += """
                 /* 只给真正的帖子列表项添加按压反馈。
-                   不再匹配 .bm_c li / .forumlist li，避免附件所在的大父容器
-                   因 :active + filter 被整块压暗，并在下载交接时出现按压态残留。 */
+                   不再匹配 .bm_c li，避免附件所在的大父容器
+                   因 :active + filter 被整块压暗，并在下载交接时出现按压态残留。
+
+                   暗色主题会给标题、摘要、顶部用户区等子节点设置不透明背景，
+                   所以不能只改 li.list 自身背景；要在按压时作用到真实可见的直接子块。
+                   这里不使用 ::after 或真实覆盖层，避免改变 WebView hit-testing。 */
                 .threadlist li.list,
                 #threadlist li.list,
                 .forumlist li.list,
@@ -495,6 +499,11 @@ open class YamiboWebViewClient : WebViewClient() {
                         rgba(255, 255, 255, 0.06) !important;
                 }
 
+                .threadlist li.list.yamibo-thread-pressed,
+                #threadlist li.list.yamibo-thread-pressed,
+                .forumlist li.list.yamibo-thread-pressed,
+                .threadlist .thread-item.yamibo-thread-pressed,
+                #threadlist .thread-item.yamibo-thread-pressed,
                 .threadlist li.list:active,
                 #threadlist li.list:active,
                 .forumlist li.list:active,
@@ -503,6 +512,20 @@ open class YamiboWebViewClient : WebViewClient() {
                     filter: none !important;
                     background-color:
                         rgba(255, 255, 255, 0.045) !important;
+                }
+
+                .threadlist li.list.yamibo-thread-pressed > *,
+                #threadlist li.list.yamibo-thread-pressed > *,
+                .forumlist li.list.yamibo-thread-pressed > *,
+                .threadlist .thread-item.yamibo-thread-pressed > *,
+                #threadlist .thread-item.yamibo-thread-pressed > *,
+                .threadlist li.list:active > *,
+                #threadlist li.list:active > *,
+                .forumlist li.list:active > *,
+                .threadlist .thread-item:active > *,
+                #threadlist .thread-item:active > * {
+                    filter: brightness(1.08) !important;
+                    transition: filter 90ms ease !important;
                 }
 
                 /* 附件链接只改变自身按压背景，禁止 filter/opacity 影响祖先合成层。 */
