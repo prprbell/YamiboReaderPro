@@ -1,3 +1,23 @@
+<div align="center">
+
+# ⚠️ 本项目已停止维护
+
+</div>
+
+> [!CAUTION]
+> **因工作繁忙、精力有限，YamiboReaderPro 已停止维护。**
+>
+> 如果你正在寻找仍在维护的替代客户端，推荐关注以下项目：
+>
+> **Android**
+> - [YamiboReaderLite](https://github.com/KrelinnBios/YamiboReaderLite) by [@KrelinnBios](https://github.com/KrelinnBios)
+> - [yamibo-app](https://github.com/LittleSurvival/yamibo-app) by [@LittleSurvival](https://github.com/LittleSurvival)
+>
+> **iOS**
+> - [YamiboReaderSwift](https://github.com/Arkalin/YamiboReaderSwift) by [@Arkalin](https://github.com/Arkalin)
+
+---
+
 # 300百合会论坛阅读器
 
 为百合会论坛小说和漫画提供更好的阅读体验，支持常见小说阅读器的功能，支持原生的漫画阅读功能。
