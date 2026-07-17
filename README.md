@@ -14,7 +14,7 @@
 > - [yamibo-app](https://github.com/LittleSurvival/yamibo-app) by [@LittleSurvival](https://github.com/LittleSurvival)
 >
 > **iOS**
-> - [YamiboReaderSwift](https://github.com/Arkalin/YamiboReaderSwift) by [@Arkalin](https://github.com/Arkalin)
+> - [YamiboX](https://github.com/Arkalin/YamiboX) by [@Arkalin](https://github.com/Arkalin)
 
 ---
 
