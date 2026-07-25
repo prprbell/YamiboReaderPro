@@ -14,6 +14,7 @@
 > - [yamibo-app](https://github.com/LittleSurvival/yamibo-app) by [@LittleSurvival](https://github.com/LittleSurvival)
 > - [Pocket300](https://github.com/TnZzZHlp/Pocket300) by [@TnZzZHlp](https://github.com/TnZzZHlp)
 > - [300X](https://github.com/belleangelina/300X)(支持ios) by [@belleangelina](https://github.com/belleangelina)
+> - [y300](https://github.com/QAQadws/y300) by [@QAQadws](https://github.com/QAQadws)
 >
 > **iOS**
 > - [YamiboX](https://github.com/Arkalin/YamiboX) by [@Arkalin](https://github.com/Arkalin)
