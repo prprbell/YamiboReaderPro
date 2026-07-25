@@ -10,11 +10,12 @@
 > 如果你正在寻找仍在维护的替代客户端，推荐关注以下项目：
 >
 > **Android**
+>
 > - [YamiboReaderLite](https://github.com/KrelinnBios/YamiboReaderLite) by [@KrelinnBios](https://github.com/KrelinnBios)
-> - [yamibo-app](https://github.com/LittleSurvival/yamibo-app) by [@LittleSurvival](https://github.com/LittleSurvival)
+> - [yamibo-app](https://github.com/LittleSurvival/yamibo-app) by [@LittleSurvival](https://github.com/LittleSurvival)（暂无 iOS 版）
 > - [Pocket300](https://github.com/TnZzZHlp/Pocket300) by [@TnZzZHlp](https://github.com/TnZzZHlp)
-> - [300X](https://github.com/belleangelina/300X)(支持ios) by [@belleangelina](https://github.com/belleangelina)
-> - [y300](https://github.com/QAQadws/y300) by [@QAQadws](https://github.com/QAQadws)
+> - [300X](https://github.com/belleangelina/300X) by [@belleangelina](https://github.com/belleangelina)（暂无 iOS 版）
+> - [y300](https://github.com/QAQadws/y300) by [@QAQadws](https://github.com/QAQadws)（暂无 iOS 版）
 >
 > **iOS**
 > - [YamiboX](https://github.com/Arkalin/YamiboX) by [@Arkalin](https://github.com/Arkalin)
