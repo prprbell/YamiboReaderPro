@@ -12,10 +12,10 @@
 > **Android**
 >
 > - [YamiboReaderLite](https://github.com/KrelinnBios/YamiboReaderLite) by [@KrelinnBios](https://github.com/KrelinnBios)
-> - [yamibo-app](https://github.com/LittleSurvival/yamibo-app) by [@LittleSurvival](https://github.com/LittleSurvival)（暂无 iOS 版）
+> - [yamibo-app](https://github.com/LittleSurvival/yamibo-app) by [@LittleSurvival](https://github.com/LittleSurvival)（支持多平台，但暂无 iOS 版）
 > - [Pocket300](https://github.com/TnZzZHlp/Pocket300) by [@TnZzZHlp](https://github.com/TnZzZHlp)
-> - [300X](https://github.com/belleangelina/300X) by [@belleangelina](https://github.com/belleangelina)（暂无 iOS 版）
-> - [y300](https://github.com/QAQadws/y300) by [@QAQadws](https://github.com/QAQadws)（暂无 iOS 版）
+> - [300X](https://github.com/belleangelina/300X) by [@belleangelina](https://github.com/belleangelina)（支持多平台，但暂无 iOS 版）
+> - [y300](https://github.com/QAQadws/y300) by [@QAQadws](https://github.com/QAQadws)（支持多平台，但暂无 iOS 版）
 >
 > **iOS**
 > - [YamiboX](https://github.com/Arkalin/YamiboX) by [@Arkalin](https://github.com/Arkalin)
